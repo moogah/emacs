@@ -1,170 +1,134 @@
-# Design: Chat-mode heading scoping
+# Design: Chat-mode body indentation
 
 ## Context
 
 `research.md` establishes the empirical findings; this document records the design decisions for the implementation.
 
-## Decision 1: Escape mechanism — leading-space, not `,*`
+**This design supersedes an earlier one.** The change first shipped a per-`*` heading escape (14 tasks, now in `tasks/closed/`): a column-0 `*` inside a chat block received a leading space so org's `^\*+ ` regex no longer matched. Real-world use showed the per-token escape leaves bodies visually ragged. The decisions below replace it with a uniform body-indentation model. The superseded decisions are not preserved here; the closed tasks remain as history.
 
-**Choice:** column-0 `*` lines inside chat blocks are escaped by prepending whitespace (default: a single space, configurable via `gptel-chat-content-indentation`). The on-disk form is ` * Heading` rather than `,* Heading`.
+## Decision 1: Indent the whole body, not per-token escape
 
-**Rationale:**
-
-- **Babel parity.** `org-edit-src-content-indentation` (default `2`) is the established mechanism org uses to keep `*` lines from collapsing src blocks. Using the same mechanism for chat blocks gives users a familiar mental model and keeps the door open for a future `gptel-chat-edit-turn` indirect-editing kernel that would mirror `org-edit-src-content-indentation`'s strip-on-entry, indent-on-exit behavior.
-- **Lower visual noise at high frequency.** Heading escape is expected to happen on every assistant response that uses headings — much more frequent than the existing `,#+end_*` escape, which only triggers when assistants talk about chat-mode itself. A leading space is nearly invisible; `,*` is conspicuous on every line.
-- **Composes with future visual font-lock.** A follow-up change can apply `org-level-N` faces to lines matching `^[ \t]+\*+ ` inside chat blocks. The leading-space form survives this overlay cleanly. The `,*` form would render the comma as a visible artifact under any face.
-
-**Alternatives considered:**
-
-- **`,*` (uniform comma escape).** Pros: single coherent escape mechanism with the existing `,#+end_*`. One round-trip mental model. Visually obvious. Cons: high visual noise at high frequency; loses babel parity; harder to overlay heading faces later.
-- **Mixed (leading-space for headings, `,` for delimiters).** This is what this design proposes. The two collision rules are different in shape (one is "this line would close a block," the other is "this line would be a heading"), so different escapes are not incoherent — they encode different intents.
-
-**Implications:**
-
-- The streaming sanitizer becomes a multi-rule scanner: per line, check `#+end_*` (apply `,`) and check `^\*+ ` (apply leading whitespace). Order: `,` first if applicable (the `#+end_*` rule), then heading rule. A line cannot match both rules (a line starting with `#+end_` cannot also start with `*`).
-- The parser un-escape becomes two steps: strip leading-space prefix from `*` lines, strip leading `,` from `#+end_*` lines. Two passes or one combined regex; either is fine.
-- The `gptel-chat-content-indentation` defcustom value affects only *new* writes. Existing content with the old default is honored on read regardless. The migration step (Decision 5) normalizes to the current value.
-
-## Decision 2: User-typed escape via `post-self-insert-hook`
-
-**Choice:** when the user types `*` at column 0 with point inside a chat-block body and not on a delimiter line, a `post-self-insert-hook` function inserts the configured escape prefix immediately before the `*`.
+**Choice:** a chat-block body is an indented region — every body line is indented by N≥1 spaces. This single mechanism replaces both per-token escapes from the superseded design (the per-`*` heading escape and the `,`-prefix `#+end_*` delimiter escape).
 
 **Rationale:**
 
-- `post-self-insert-hook` runs after every self-inserting character. Cheapest place to catch the keypress path.
-- The cursor naturally lands at column N+1 after the escape is inserted, which matches user expectation ("I typed `*`, the cursor moved past it"). The escape character before is visually subtle and does not require additional cursor motion logic.
-- Errors here are recoverable: undo restores the pre-insert state, including the escape prefix. The user can disable `post-self-insert-hook` per buffer if they're doing exotic editing.
+- **Subsumption.** Org's structural scanners are all anchored at column 0 — the heading regex `^\*+ `, the special-block closers `^#\+end_…`, `#+begin_…`, drawers, keywords. Indenting every body line by ≥1 space moves all content off column 0, so no body line can be read as structure. One mechanism neutralises every collision class, present and future, instead of a growing list of per-token escapes.
+- **A legible invariant.** `column 0 = structure (delimiters)` · `indented = content`. A reader, a maintainer, or org's own parser can tell content from structure by indentation alone.
+- **Visual uniformity.** The per-`*` escape left bodies ragged: escaped `*` lines at column 1, every other line at column 0. Real-world use surfaced this immediately — it is the complaint that triggered this redesign. A uniform indent reads as a coherent block.
+- **Babel parity.** `org-edit-src-content-indentation` already establishes "block content is an indented region" as an org idiom. Chat blocks adopt the same shape.
 
 **Alternatives considered:**
 
-- **`before-change-functions`.** Runs before any buffer mutation, including programmatic insertion. Catches more paths (paste, yank, kill-region replacement) in one place. Rejected as the *primary* hook because it runs too aggressively (every keystroke in the buffer), increasing the cost of the predicate "am I inside a chat block body?" — the predicate would need to be O(1) via cached region info. For paste/yank, we use `after-change-functions` (Decision 3) which is cheaper than maintaining `before-change-functions` per-keystroke.
-- **`org-mode` indentation hooks (`indent-line-function`, `electric-indent-functions`).** Only fire on explicit indent commands (`TAB`, `RET` with electric indent). Don't catch typing on existing lines.
+- **Per-token escape (superseded design).** Pros: minimal on-disk footprint; only offending lines change. Cons: ragged; needs a distinct escape per collision class, each with its own write producers and read inverse.
+- **Display-only / virtual indentation** (`line-prefix` overlay over real column-0 content). Pros: zero round-trip risk; no on-disk change. Cons: the corruption is structural — org parses buffer text, not display. Virtual indent does not move content off column 0, so it does not fix the bug. Rejected for body content. (It *is* used for tool delimiter lines — Decision 5 — precisely because those are not corruption sources.)
 
-**Implications:**
+**Implications:** the escape subsystem retires entirely — `gptel-chat--sanitize-chunk`'s heading and delimiter rules, `--escape-typed-heading`, `--escape-inserted-headings`, `--escape-headings-in-region`, `--heading-escape-prefix`, `--unescape-headings`, `--unescape-end-delimiters`, `--migrate-headings`. A body line at column 0 becomes the only malformed state; the indentation invariant is what every write path maintains and migration repairs.
 
-- The "am I inside a chat-block body?" predicate runs once per typed character. Must be cheap. We provide a fast `gptel-chat--point-in-block-body-p` helper that scans backward for the nearest `#+begin_*` / `#+end_*` line (line-by-line `re-search-backward`), bounded by a small look-back window or by `point-min`. Typical chat blocks are short enough that backward-scan is sub-millisecond.
-- Delimiter-line exclusion: the predicate returns nil if point is on a `#+begin_*` or `#+end_*` line itself (column-0 `*` on a `#+begin_*` line is impossible anyway, since the line starts with `#`).
+## Decision 2: Indentation width is a defcustom; default 2
 
-## Decision 3: Paste / yank handling via `after-change-functions`
-
-**Choice:** an `after-change-functions` filter detects when an insertion into a chat-block body contains `*` at column 0 of any line within the inserted range, and rewrites those lines to apply the escape.
+**Choice:** `gptel-chat-content-indentation` (the existing defcustom, repurposed) controls the body indent width. Its meaning shifts from "heading-escape prefix width" to "chat-block body indent width." Default changes `1 → 2`.
 
 **Rationale:**
 
-- `after-change-functions` runs after the change is in the buffer, with `(beg end length)`. For an insertion, `length` is 0 and `[beg, end)` is the inserted text range. The filter inspects that range for column-0 `*` lines and applies the escape in a second pass.
-- Catches paste, yank, programmatic `insert` calls from non-streaming code paths, kill-region paste, drag-and-drop, mouse paste, etc. — every insertion path.
-- The streaming sanitizer is functionally redundant under this hook (the streamer also calls `insert`), but is kept as a separate path because the streamer can apply the escape per-line as chunks arrive without inspecting the whole inserted range — slightly faster for the high-frequency streaming path and more explicit about intent.
+- Default 2 matches `org-edit-src-content-indentation` (org's src-block default) and reads as a deliberate indent rather than a near-invisible 1-space nudge.
+- 1 is the structural minimum (any leading whitespace breaks `^\*+ `) but is visually marginal — the very complaint behind this redesign. The user explicitly asked for ≈2.
+- `:type 'natnum`; the runtime floor is clamped to ≥1 by the accessor — a 0-width indent would not move content off column 0.
 
-**Alternatives considered:**
+**Alternatives considered:** hardcode 2 (loses tunability); keep default 1 (visually marginal).
 
-- **Advise `insert` and friends.** Heavier-handed; couples to a general Emacs primitive.
-- **Per-yank-handler.** Would only catch yank, not paste from external sources.
+**Implications:** a `gptel-chat--body-indent` accessor replaces `gptel-chat--heading-escape-prefix` — it returns the configured width, clamped to a floor of 1, defaulting to 2 when unbound. All write producers route through it. The width affects only *new* writes and migration's target; the read-side dedent measures actual indentation (Decision 3), so the round-trip never depends on the current defcustom value.
 
-**Implications:**
+## Decision 3: Read side is per-segment measure-and-strip
 
-- The hook runs on every buffer change, including changes made by the hook itself. The implementation must be idempotent (re-running on already-escaped content is a no-op) AND must guard against infinite recursion. Standard pattern: bind `inhibit-modification-hooks` while the filter applies its rewrites.
-- The predicate "is this insertion inside a chat-block body?" runs once per change. Same fast helper as Decision 2.
-- For `(beg end)` ranges that span a chat-block boundary (e.g., a paste that crosses `#+end_user`), only the portion inside the body is escaped. The portion on or past the delimiter is left alone. Implementation: clip the range to the body extent before applying the escape.
-
-## Decision 4: Streaming sanitizer rule order
-
-**Choice:** the existing `gptel-chat--sanitize-chunk` function is extended with the heading rule. Order of checks per line: `#+end_*` first (existing), `^\*+ ` second (new). The two rules are mutually exclusive at the line level, so order is not load-bearing for correctness — it's chosen for code clarity.
+**Choice:** before a turn's content reaches the model, the parser strips the *common minimum leading indentation* from each message segment — measured per segment, not assumed. This is org's `org-do-remove-indentation` model.
 
 **Rationale:**
 
-- Mutually exclusive: a line cannot start with both `#+end_` and `*`. Either matches or neither, never both.
-- Keeping the existing rule first preserves the read of the function for anyone familiar with the v1 sanitizer. The new rule appends.
+- **Stateless and drift-proof.** Nothing records "this file was written at width N." Whatever indentation a segment actually carries is measured and removed. A file written at width 2, a legacy file at width 1, a file edited under a changed defcustom — all dedent correctly.
+- **Per-segment, not per-buffer or per-turn-body.** An assistant body is split by the parser into text segments and tool-call segments around `#+begin_tool` blocks. Measuring per segment means a column-0 tool delimiter line (which stays at column 0 — Decision 5) never drags a segment's measured minimum to 0. The parser already produces per-segment strings (`gptel-chat--flush-text-segment`, `--scan-assistant-body`), so this is the natural grain.
+- **Symmetric by intent, not by character count.** Write indents by exactly N; read strips whatever common indent it finds. The asymmetry is deliberate — it is what makes the round-trip robust against width changes and legacy content.
 
 **Alternatives considered:**
 
-- **Two separate sanitizers.** Cleaner separation but doubles the per-line function-call overhead in the hot streaming path. Not worth the cleanliness.
+- **Store the width per session** (e.g., a `:GPTEL_CHAT_BODY_INDENT:` drawer property) and strip exactly that. Pros: exact even for a message whose every line is indented (no column-0 line to anchor the measure). Cons: carries state that can desync from the buffer. The measure-and-strip edge case (a uniformly-indented message loses its outermost indent level) is exactly org-src-block behaviour and was accepted as "good enough."
+- **Strip exactly the current defcustom width.** Breaks on any width change between write and read.
 
-**Implications:**
+**Implications:** `gptel-chat--unescape-headings` and `gptel-chat--unescape-end-delimiters` are deleted; one `gptel-chat--dedent` (measure-and-strip a string) replaces both, wired into `gptel-chat--turn-to-messages` and `gptel-chat--segment-to-messages`. Tool-result capture in `gptel-chat--scan-assistant-body` currently does `(string-trim (buffer-substring …))` — `string-trim` collapses the whole string's leading whitespace and would corrupt per-line indentation; the capture changes to dedent first, then trim leading/trailing blank lines.
 
-- Existing tests for the delimiter-collision escape still pass unchanged.
-- New tests for the heading escape live alongside in `escape-round-trip-spec.el`, mirroring the existing structure.
+## Decision 4: Outer turn delimiters stay strictly column-0-anchored
 
-## Decision 5: Migration on read, not on save
+**Choice:** `#+begin_user` / `#+end_user` / `#+begin_assistant` / `#+end_assistant` are never indented; the parser anchors them strictly at column 0 (unchanged from the existing parser).
 
-**Choice:** when `gptel-chat-mode` activates on a buffer with unescaped column-0 `*` lines inside chat blocks, the mode applies the escape on-read as part of activation. The buffer becomes modified (only if migration changed anything); the next `save-buffer` persists the normalized form. No separate migration command, no on-disk rewrite ahead of opening the file.
+**Rationale:** this is what makes indentation an escape. A user can type the literal text `#+end_user` inside a message — it is body content, so it is indented, and the parser, matching `^#\+end_user` strictly at column 0, does not see it as a real closer. If the parser tolerated indented delimiters, indenting body content would no longer protect it. The outer delimiters bound the body; they are the frame, not content — they sit at column 0 the way an org src block's `#+begin_src` / `#+end_src` do.
+
+**Implications:** the parser's outer-delimiter regexes are unchanged. The `,#+end_*` escape that previously protected model-emitted `#+end_*` lines is unnecessary — those lines are body content and get indented.
+
+## Decision 5: Tool blocks — real column-0 delimiters, cosmetic display alignment
+
+**Choice:** nested `#+begin_tool` / `#+end_tool` delimiter lines stay at *real* column 0 in the buffer and on disk. The display layer paints an N-space `line-prefix` on those two lines so they *render* aligned with the indented prose around them. Tool *result* content (between the header line and `#+end_tool`) is real-indented like all body content.
 
 **Rationale:**
 
-- **Reversibility.** The user can always discard the buffer modification (`M-x revert-buffer`) and the on-disk file is unchanged. A destructive on-disk migration cannot be undone by a worried user without restoring from backup.
-- **No discovery.** Existing sessions already on disk get fixed the next time they're opened, with no scan-the-filesystem ceremony.
-- **Local correctness wins.** The buffer's `org-element` view is correct from the moment the mode activates. Without migration, `org-element-parse-buffer` on an existing session produces a corrupted AST, and any code path that consults `org-element` (font-lock, fold, future indirect-edit) sees the broken state.
+- Tool delimiters are structure, and structure lives at column 0 (Decision 4's invariant). The parser finds `#+begin_tool` / `#+end_tool` with column-0-anchored regexes; moving them to column N would force the parser to recognise structure *inside the content zone* — reintroducing the ambiguity Decisions 1 and 4 eliminate (an indented `#+end_tool` the model writes in prose would be indistinguishable from a real one).
+- Keeping them at column 0 means zero parser change, zero streaming-emitter relocation, and zero re-fixturing of the tool-block test surface.
+- The cost is purely visual — tool delimiter lines sit flush-left amid indented prose. A `line-prefix` property (the mechanism `org-indent-mode` uses) closes that gap cosmetically. A display-only nudge is sound here — and *not* sound for body content (Decision 1) — because tool delimiter lines are never sent to the model: the parser consumes them as structure, so a cosmetic change to them has no round-trip consequence.
 
 **Alternatives considered:**
 
-- **One-time migration command.** Sweeps the sessions directory, rewrites files in place. Rejected because (a) it requires the user to know it exists, (b) it's destructive without backup, (c) every newly-discovered session needs the same treatment anyway.
-- **Lazy migration only on edit.** Would leave existing sessions in their broken state until a per-buffer trigger fires. Bad: the parser still sees the broken AST when the buffer first opens.
+- **Really indent the tool delimiters (Path B).** Requires a strict/tolerant anchor split in the parser (`#+begin_tool` strict at top level for the `tool-block-outside-assistant` error, tolerant inside an assistant block), reworking the `point-in-block-body-p` delimiter regex, relocating the streaming emitters, re-fixturing every tool-block test — and it breaks the column-0 invariant. Rejected.
+- **Leave them flush-left (Path A).** Correct and zero-cost, but visibly ragged — the complaint this redesign exists to fix.
 
-**Implications:**
+**Implications:** a display-layer helper scans assistant-body ranges for `^#\+begin_tool` / `^#\+end_tool` lines and installs the `line-prefix`, refreshed by `gptel-chat--refresh-overlays`. The read-side dedent (Decision 3) measures per segment, so the column-0 tool delimiter lines (not part of any segment string) do not affect any segment's measured indent.
 
-- Mode activation does a single pass: walk turn blocks (the existing `gptel-chat-parse-buffer` already enumerates them), and for each block body, scan for `^\*+ ` lines and apply the escape if any are found.
-- `set-buffer-modified-p t` is called only if the migration actually changed the buffer. A clean session opens clean.
-- This adds a small cost to mode activation. For typical chat session sizes (tens of turns, KB-scale body content) it's well under 100ms.
+## Decision 6: Maintenance model — how body content stays indented
 
-## Decision 6: Defer indirect editing (`gptel-chat-edit-turn`)
+The per-`*` escape worked off a detectable trigger (`*` at column 0). Uniform indentation has no such trigger — an indented line is indistinguishable from a line a user happened to indent. So maintenance is not a reactive per-token rewrite; it is four ordinary editing affordances:
 
-**Choice:** the indirect-editing kernel mirroring `org-edit-comment-block` is identified by `research.md` as the natural "real heading work inside a turn" affordance. It is **not** part of this change. A follow-up change introduces it, reusing the leading-space normalization as the on-disk format.
+- **Streaming.** `gptel-chat--sanitize-chunk` becomes a per-line indenter — each completed line of model output is prefixed with the body indent before insertion (blank lines untouched). Idempotent by construction: streamed content is fresh, never re-processed. The line-holdback machinery is unchanged.
+- **Typing.** A buffer-local `indent-line-function` (delimiter line → column 0; body line → column N) plus electric-indent. RET in a body starts the next line at column N; once a line starts at column N, a `*` typed there is already off column 0. No per-keystroke hook.
+- **Paste / yank.** Split in two so the buffer is never mutated mid-dispatch. An `after-change-functions` *recorder* captures the inserted region but does not touch the buffer — mutating from inside an after-change dispatch desyncs `org-indent-mode` and `org-element`'s change bookkeeping (a nested change pair they cannot reconcile), which a later parse hits as `Invalid search bound`. A one-shot buffer-local `post-command-hook` then shifts each recorded region so its minimum-indented line lands at column N — `shift = max(0, N − region-min-indent)` — once the inserting command returns. Structure-preserving (the region shifts as a unit, relative indentation intact) and idempotent (already-indented paste → shift 0). Gated by `gptel-chat--point-in-block-body-p`. The hook runs before the post-command redisplay, so no parse, save, or redisplay observes the un-indented intermediate state, and it self-removes once it fires.
+- **Migration on read.** See Decision 7.
+
+**Rationale:** this matches org-babel — org does not police src-block indentation on every keystroke; the content *is* an indented region maintained by ordinary indent affordances and normalised at well-defined moments. The user explicitly accepted "behaves like org-babel blocks — good enough even if not perfect."
+
+**Alternatives considered:** a `post-self-insert-hook` / `post-command-hook` "ensure ≥ N on the current line" guard — idempotent and single-line (no structure distortion), but it polices every keystroke and fights a user deliberately editing indentation. Held as a fallback only if electric-indent proves unreliable in the org-derived mode (see Risks); not the primary mechanism.
+
+**Alternatives considered (paste deferral):** a *synchronous* shift from inside the `after-change-functions` handler — rejected: it mutates the buffer mid-dispatch and corrupts `org-element` / `org-indent-mode` change bookkeeping. An *idle timer* — rejected: it runs the shift outside the dispatch, but leaves a window between the paste and the next idle period in which the un-indented column-0 content is observable to a parse, save, or redisplay (transiently the very corruption this change eliminates), and the timer must be cancelled on `kill-buffer`. The one-shot `post-command-hook` runs outside the dispatch *and* before the post-command redisplay (closing that window) and self-removes (no timer lifecycle to manage).
+
+**Implications:** `gptel-chat--point-in-block-body-p` survives unchanged (paste still needs it); its docstring is updated. The `post-self-insert-hook` and `gptel-chat--escape-typed-heading` are removed.
+
+## Decision 7: Migration on read normalises legacy and current formats alike
+
+**Choice:** when `gptel-chat-mode` activates, a migration pass normalises every chat-block body to the indented form. Per content-region — the run of lines between delimiter lines (outer or tool) within a body — it (a) strips legacy escape-era artifacts (a leading `,` from `,#+end_*` lines, the old 1-space prefix from `*` lines), then (b) shifts the region so its minimum indent is N. Idempotent; non-destructive (in-buffer only — the next save persists). A clean (already-indented) buffer is left unmodified.
 
 **Rationale:**
 
-- The corruption bug is fixed by the escape mechanism alone. Indirect editing is an ergonomic upgrade for the rare "I want real heading affordances inside this turn" workflow, not a correctness requirement.
-- Shipping the escape first lets users write and read sessions correctly today. The indirect-edit kernel can ship separately when the UX warrants it.
-- Reusing `org-src--edit-element` (which already strips/applies indentation) means deferring the kernel does not strand any architectural choice — the escape mechanism is already the right shape.
+- Three on-disk generations must converge: pre-escape (column-0 content), escape-era (1-space `*` escapes, `,#+end_*`), and current (indented). One pass that un-escapes-then-indents handles all three — on a current buffer both steps are no-ops.
+- Per content-region, not per-whole-body: the same reason as Decision 3 — column-0 tool delimiter lines must not be shifted (Decision 5) and must not anchor a region's measured minimum.
+- Read-time and in-buffer, not a destructive on-disk sweep: reversible via `revert-buffer`, no filesystem ceremony, and the buffer's `org-element` view is correct from the moment the mode activates.
 
-**Alternatives considered:**
+**Alternatives considered:** a one-time on-disk migration command (destructive, needs discovery); lazy migration on first edit (leaves the buffer's `org-element` view broken until a trigger fires).
 
-- **Ship both together.** Larger change surface, longer review, unnecessarily blocks the corruption fix on UX work that has open questions (Path γ comparison, etc.).
+**Implications:** `gptel-chat--migrate-headings` is replaced by a body-normalising migration. It calls `set-buffer-modified-p t` only if it changed the buffer; a clean session opens unmodified. Malformed buffers (unclosed blocks) cause `gptel-chat-parse-buffer` to signal `user-error`; migration traps that and skips, so the mode still activates for interactive repair.
 
-**Implications:**
+## Decision 8: Defer indirect editing (`gptel-chat-edit-turn`)
 
-- The chat-mode spec carveout reads: "headings inside chat blocks render as escaped paragraph text; real heading affordances require [follow-up change name TBD]." The follow-up change can revise the spec wording when it lands.
+**Choice:** the `C-c '`-style indirect-editing kernel that pops a fresh org buffer for real heading affordances inside a turn is **not** part of this change.
 
-## Decision 7: Defer visual font-lock for escaped headings
+**Rationale:** the corruption bug is fixed by indentation alone. Indirect editing is an ergonomic upgrade for the rare "I want real heading affordances inside this turn" workflow. The indentation model is already the right on-disk shape for it — an indirect-edit kernel would dedent on entry and re-indent on exit, exactly `org-edit-src`'s strip/apply pattern, so deferring it strands no architectural choice.
 
-**Choice:** rendering escaped `*` lines with `org-level-N` faces is **not** part of this change. The escaped lines render as their literal text (paragraph face).
+**Implications:** the chat-mode spec carveout reads "column-0 org structure inside a chat block renders as indented plain text; real structural affordances require [follow-up change]."
 
-**Rationale:**
+## Obsoleted decision
 
-- Correctness ships first; visual polish ships second.
-- Font-lock rules for "match `^[ \t]+\*+ ` inside chat-block bodies, apply `org-level-N` per `*` count" are isolated and small (~30-50 lines), but require careful interaction with org's existing font-lock machinery and live-update behavior. Not worth coupling to the correctness fix.
-
-**Alternatives considered:**
-
-- **Ship visual rendering with the escape.** Convenient, but adds review surface and complicates rollback if the font-lock interaction has edge cases.
-
-**Implications:**
-
-- Users will see literal ` * Heading` in their chat sessions until the visual font-lock change lands. This is a minor cosmetic regression compared to the current (broken) state where `* Heading` renders as a real heading but destroys the chat block.
-
-## Decision 8: Escape character is configurable via defcustom
-
-**Choice:** `gptel-chat-content-indentation` (defcustom, integer, default `1`) controls how many spaces of escape are applied. Default `1` is the minimum that breaks the heading regex; `2` matches `org-edit-src-content-indentation` exactly.
-
-**Rationale:**
-
-- A single space is sufficient (the org heading regex is `^\*+ ` anchored at column 0; any leading whitespace breaks it).
-- Defaulting to `1` minimizes visual noise. Users who want symmetry with their src-block indentation can set it to `2`.
-- A defcustom (rather than hardcoded) is cheap to add and matches the existing chat-mode style of exposing tunable knobs.
-
-**Alternatives considered:**
-
-- **Default `2` to match babel exactly.** Defensible. Either is acceptable; default `1` is the principled minimum.
-- **No defcustom; hardcode to 1.** Slightly simpler. Loses the ability to switch to `2` later without a code change.
-
-**Implications:**
-
-- The parser un-escape strips *any* amount of leading whitespace before a `*` line, not exactly `gptel-chat-content-indentation` spaces. This makes round-trip robust against config changes and against legacy content with different indent widths.
-- The migration-on-read step (Decision 5) applies the *current* value of `gptel-chat-content-indentation`. A buffer that was written with the value `1` and is re-opened under `2` gets re-normalized.
+The superseded design deferred "visual font-lock to render escaped `*` lines with `org-level-N` faces." That deferral is obsoleted: an indented body is plain text, with no heading faces to render. No follow-up is needed.
 
 ## Open coherence check
 
-Two design decisions are reversible if real-world use turns up surprises:
+Reversible if real-world use turns up surprises:
 
-1. Decision 1 (leading-space vs `,*`). The escape character is a single uniform choice; switching it later is a migration script. Easier to do early.
-2. Decision 8 (defcustom default). Trivial to change.
+1. **Decision 2 (default width).** Trivial defcustom change.
+2. **Decision 6 (typing mechanism).** `indent-line-function` + electric-indent vs. the `ensure-≥N` guard fallback — independently swappable; neither locks in an on-disk choice.
+3. **Decision 6 (paste deferral).** The `after-change` recorder is fixed; the deferral channel — a one-shot `post-command-hook` — is swappable for yank-time handling or another out-of-dispatch channel without locking in an on-disk choice.
 
-Decisions 2 (`post-self-insert-hook`), 3 (`after-change-functions`), 4 (sanitizer extension), 5 (migration on read), 6 (defer indirect-edit), 7 (defer visual font-lock) are independently revisable and don't lock in architectural choices that prevent later evolution.
+Decisions 1 (indent the body), 3 (measure-and-strip), 4 (column-0 outer delimiters), 5 (Path C tool blocks), and 7 (migration on read) are the load-bearing architecture; they are mutually consistent and revising any one would be a fresh design pass.

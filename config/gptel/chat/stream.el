@@ -14,61 +14,84 @@
 
 (require 'cl-lib)
 
-;; Line-level sanitizer
+;; `gptel-chat--body-indent' (the body indent width) and the
+;; `gptel-chat-content-indentation' defcustom it reads are owned by
+;; `gptel-chat-mode' (config/gptel/chat/mode.el) — see chat.org for
+;; load order.  Production loads `mode.el' before `stream.el'.  The
+;; accessor reads the defcustom through `bound-and-true-p' with a
+;; fallback of 2, so `gptel-chat--sanitize-chunk' is safe to call
+;; even when the variable is unbound.
+;;
+;; `gptel-chat--indenting' is `gptel-chat-mode''s re-entry guard for
+;; its `after-change' paste recorder; the streaming callback binds it
+;; so streamed inserts — already indented by
+;; `gptel-chat--sanitize-chunk' — are not recorded as pasted regions.
+;; The bare `defvar' declares it special here so the `let' binding is
+;; dynamic regardless of load or compile order.  These `defvar' /
+;; `declare-function' forms also silence byte-compiler warnings.
+(defvar gptel-chat-content-indentation)
+(defvar gptel-chat--indenting)
+(declare-function gptel-chat--body-indent "gptel-chat-mode" ())
 
-;; =gptel-chat--sanitize-chunk= is intentionally a *line-level* helper —
-;; it takes a complete line (no embedded =\n=) and returns either the
-;; input unchanged or a version with a single leading =,= prepended.
+;; Line-level body indenter
 
-;; Match rule (case-insensitive, to mirror org's own delimiter matching):
+;; =gptel-chat--sanitize-chunk= is a *line-level* helper — it takes a
+;; complete line (no embedded =\n=) and returns it indented by the
+;; chat-block body width, so streamed assistant content lands inside the
+;; indented chat-block body rather than at column 0.
 
-;; : ^#\+end_\(user\|assistant\|tool\)\b
+;; Indenting every streamed line off column 0 is what keeps org's
+;; structural scanners — the heading regex =^\*+ =, the special-block
+;; closers =^#\+end_…=, drawers, keywords — from reading assistant
+;; output as document structure. It supersedes the two per-token escapes
+;; of the earlier design (the =,#+end_*= delimiter escape and the =*=
+;; heading escape): a uniformly indented body neutralises *every*
+;; column-0 collision at once (=gptel-chat-heading-scoping= design.md
+;; Decisions 1, 4).
 
-;; Only those three forms are escaped. Lines like =#+end_src=,
-;; =#+begin_assistant=, or prose beginning with a colon pass through
-;; untouched. Design.md §Decision 4 covers the reasoning: we deliberately
-;; do **not** use =org-escape-code-in-string= because its broader escape
-;; (headings, all block delimiters) clutters assistant content with
-;; spurious commas on benign lines.
+;; A blank line (empty or whitespace-only) is returned unchanged — we do
+;; not introduce trailing whitespace. The send-path =gptel-chat--dedent=
+;; strips the common indentation back off before the content reaches the
+;; model; the round-trip is robust against changes to
+;; =gptel-chat-content-indentation= because the dedent measures rather
+;; than assumes (design.md Decision 3).
 
 ;; Callers that receive multi-line chunks must split first — the
 ;; streaming closure below does that via a holdback.
 
 
-;; [[file:stream.org::*Line-level sanitizer][Line-level sanitizer:1]]
-(defconst gptel-chat--end-delimiter-regexp
-  "^#\\+end_\\(user\\|assistant\\|tool\\)\\b"
-  "Regexp matching the three chat-mode block-closing delimiters.
-Case-insensitive via `case-fold-search'.  Used by
-`gptel-chat--sanitize-chunk' to identify lines that would prematurely
-close a containing block if inserted verbatim.")
-
+;; [[file:stream.org::*Line-level body indenter][Line-level body indenter:1]]
 (defun gptel-chat--sanitize-chunk (line)
-  "Return LINE with `,' prepended if it would close a chat-mode block.
-LINE must be a complete single line with no embedded newline.  A line
-matches when it begins with `#+end_user', `#+end_assistant', or
-`#+end_tool' (case-insensitive).  All other lines — including
-`#+end_src', `#+begin_assistant', and ordinary prose — pass through
-unchanged.
+  "Return LINE indented by the chat-block body indent.
+LINE must be a complete single line with no embedded newline.  A
+non-blank LINE is returned with `gptel-chat--body-indent' leading
+spaces prepended, so streamed assistant content sits inside the
+indented chat-block body — off column 0, where org's structural
+scanners (the heading regex, the special-block closers, drawers,
+keywords) are anchored.  A blank LINE (empty or whitespace-only) is
+returned unchanged so no trailing whitespace is introduced.
+
+The send-path `gptel-chat--dedent' strips the indentation back off
+before the content reaches the model; the round-trip is robust
+against changes to `gptel-chat-content-indentation' because the
+dedent measures the indentation rather than assuming a width.
+
+`gptel-chat--body-indent' is owned by `gptel-chat-mode'
+\(`config/gptel/chat/mode.el'), which loads before this module per
+`config/gptel/chat/chat.org'.  It reads `gptel-chat-content-indentation'
+through `bound-and-true-p' with a fallback of 2, so this function is
+safe to call even when the defcustom has not been customised.
 
 Signals an error with message \"LINE must not contain newlines\" when
 LINE contains an embedded `\\n'.  Callers with multi-line input must
 split on newlines first and call this function per line;
-`gptel-chat--make-stream-inserter' does that via a one-line holdback.
-
-Bare `\\r' is deliberately NOT checked.  The sole upstream author of
-LINE is `split-string' in `gptel-chat--make-stream-inserter', which
-splits on `\\n' only and therefore never emits a string containing a
-bare `\\r' as a line terminator.  If a future caller introduces a
-different upstream, tighten the guard to `[\\n\\r]' and extend the
-negative specs accordingly."
+`gptel-chat--make-stream-inserter' does that via a one-line holdback."
   (when (string-match-p "\n" line)
     (error "LINE must not contain newlines"))
-  (let ((case-fold-search t))
-    (if (string-match-p gptel-chat--end-delimiter-regexp line)
-        (concat "," line)
-      line)))
-;; Line-level sanitizer:1 ends here
+  (if (string-match-p "\\`[ \t]*\\'" line)
+      line
+    (concat (make-string (gptel-chat--body-indent) ?\s) line)))
+;; Line-level body indenter:1 ends here
 
 ;; The =gptel-chat-stream= struct
 
@@ -320,17 +343,17 @@ without a trailing newline."
 ;; Helper: insert a sanitized multi-line block at a marker
 
 ;; Tool results arrive as a single string (not a stream), so they do
-;; not go through the holdback-aware inserter. They MAY still contain
-;; collision lines (=#+end_tool= in particular), so each line is
-;; individually passed through =gptel-chat--sanitize-chunk= before
-;; insertion.
+;; not go through the holdback-aware inserter. Each line is individually
+;; indented by =gptel-chat--sanitize-chunk= so the result sits inside
+;; the indented tool body — a result line that itself reads as
+;; =#+end_tool= or an org heading is moved off column 0 and is inert.
 
 
 ;; [[file:stream.org::*Helper: insert a sanitized multi-line block at a marker][Helper: insert a sanitized multi-line block at a marker:1]]
 (defun gptel-chat--stream-insert-sanitized-block (marker text)
-  "Insert TEXT at MARKER with per-line delimiter-collision sanitization.
+  "Insert TEXT at MARKER with per-line body indentation.
 TEXT may contain embedded newlines; each line is individually
-sanitized via `gptel-chat--sanitize-chunk', then reassembled with
+indented by `gptel-chat--sanitize-chunk', then reassembled with
 its original line separators preserved.  The inserted payload
 always ends in exactly one newline so a following closer delimiter
 lands on its own line:
@@ -496,13 +519,16 @@ well-formed state: one closed assistant block followed by one open
         (when marker-text
           (insert marker-text "\n"))
         (insert "#+end_assistant\n\n#+begin_user\n\n#+end_user\n"))
-      ;; Position point on the blank line inside the new user block.
+      ;; Position point on the body line inside the new user block.
       ;; The insertion-marker (insertion-type t) has advanced past
       ;; everything we just inserted, so search backward from it for
-      ;; the `#+end_user' line and step one line up.
+      ;; the `#+end_user' line and step one line up.  Indent the
+      ;; (empty) body line to the body width so the next human turn
+      ;; starts off column 0, consistent with the indented region.
       (goto-char insertion-marker)
       (when (search-backward "#+end_user" nil t)
-        (forward-line -1)))))
+        (forward-line -1)
+        (indent-line-to (gptel-chat--body-indent))))))
 ;; Helper: close the assistant block and append a fresh user block:1 ends here
 
 ;; Constants: visible error and abort markers
@@ -594,91 +620,97 @@ State captured in the closure:
          (clear-tool (gptel-chat-stream-clear-tool-marker stream-handle))
          (pending-tool-markers nil))
     (lambda (response info)
-      (pcase response
-        ;; Text chunk: line-buffered sanitize + insert at active marker.
-        ((pred stringp)
-         (funcall stream-insert response))
-        ;; Reasoning event: v1 ignores.  A later change may render
-        ;; into a `#+begin_reasoning' block (design.md §Decision 10).
-        (`(reasoning . ,_)
-         nil)
-        ;; Tool-call event: open one #+begin_tool block per call,
-        ;; push each result-target marker onto the FIFO, and route
-        ;; subsequent streaming to the LAST opened block (if any)
-        ;; so prose arriving between tool-call and tool-result
-        ;; lands inside the tool body.
-        ;;
-        ;; Upstream emits each element of CALLS as a 3-list
-        ;; `(TOOL-STRUCT ARGS CB)' — see `gptel-request.el:1812-1827'
-        ;; (callback docstring) and `gptel.el:1801'
-        ;; (`pcase-dolist' destructuring in `gptel--run-tool-confirm').
-        ;; CB is the continuation upstream itself calls with the
-        ;; tool result; we only render here, so CB is ignored.
-        (`(tool-call . ,calls)
-         (let (last-marker)
-           (pcase-dolist (`(,tool-spec ,args ,_cb) calls)
-             (let ((m (gptel-chat--stream-open-tool-block
-                       insertion-marker tool-spec args)))
-               (setq pending-tool-markers
-                     (append pending-tool-markers (list m))
-                     last-marker m)))
-           (when last-marker
-             (funcall set-tool last-marker))))
-        ;; Tool-result event: for each result, close the matching
-        ;; pending block (confirmation path) or synthesize a fresh
-        ;; `#+begin_tool' block (auto-approved path — upstream fires
-        ;; no prior `(tool-call . ...)' for tools executed inline
-        ;; inside `gptel--handle-tool-use', see
-        ;; `gptel-request.el:1732-1747').  After all results are
-        ;; handled, clear the tool-marker override so subsequent
-        ;; streaming routes back to the assistant-level marker.
-        ;;
-        ;; Upstream emits each element of RESULTS as a 3-list
-        ;; `(TOOL-STRUCT ARGS RESULT)' — see `gptel-request.el:1812-1827'
-        ;; and `gptel.el:1855' (`cl-loop for (tool args result) in
-        ;; tool-results').  We destructure TOOL-SPEC and ARGS (not
-        ;; just RESULT) so the synthesize path has everything it
-        ;; needs to render the block header.
-        (`(tool-result . ,results)
-         (pcase-dolist (`(,tool-spec ,args ,result) results)
-           (let ((marker (or (pop pending-tool-markers)
-                             (gptel-chat--stream-open-tool-block
-                              insertion-marker tool-spec args))))
-             (gptel-chat--stream-close-tool-block marker result)))
-         (unless pending-tool-markers
-           (funcall clear-tool)))
-        ;; HTTP success (`t'): upstream fires this after every
-        ;; request completes — once per round-trip.  For a
-        ;; multi-round tool-use turn the sequence is
-        ;;   Request-1 text → `t' (with :tool-use) → tool-call
-        ;;   → tool-result → Request-2 text → `t' (no :tool-use).
-        ;; If we closed the assistant block on the FIRST `t', the
-        ;; subsequent tool-result and Request-2 text would land
-        ;; after `#+end_assistant' and corrupt the buffer.
-        ;; Gate the close-and-append sequence on the final turn
-        ;; (null :tool-use); otherwise only flush holdback and
-        ;; leave the block open.  Mirrors persistent-agent's
-        ;; `(unless (plist-get info :tool-use) …)' pattern.
-        ('t
-         (funcall stream-insert t)
-         (unless (plist-get info :tool-use)
-           (gptel-chat--stream-close-assistant insertion-marker)))
-        ;; Error / network failure: flush, close with error marker.
-        ('nil
-         (funcall stream-insert t)
-         (gptel-chat--stream-close-assistant
-          insertion-marker gptel-chat--stream-error-marker))
-        ;; User abort (M-x gptel-abort): flush, close with
-        ;; interruption marker.
-        ('abort
-         (funcall stream-insert t)
-         (gptel-chat--stream-close-assistant
-          insertion-marker gptel-chat--stream-abort-marker))
-        ;; Any other shape is a caller bug or an unexpected
-        ;; upstream shape; surface it loudly so drift from the
-        ;; upstream protocol does not silently corrupt the buffer.
-        (_
-         (error "gptel-chat: unexpected response shape %S" response)))
+      ;; Bind the mode's `after-change' re-entry guard for the whole
+      ;; chunk: every streamed insert below is already indented by
+      ;; `gptel-chat--sanitize-chunk', so the paste recorder
+      ;; (`gptel-chat--indent-inserted-region') must not record these
+      ;; inserts as fresh pasted regions to be re-shifted.
+      (let ((gptel-chat--indenting t))
+        (pcase response
+          ;; Text chunk: line-buffered sanitize + insert at active marker.
+          ((pred stringp)
+           (funcall stream-insert response))
+          ;; Reasoning event: v1 ignores.  A later change may render
+          ;; into a `#+begin_reasoning' block (design.md §Decision 10).
+          (`(reasoning . ,_)
+           nil)
+          ;; Tool-call event: open one #+begin_tool block per call,
+          ;; push each result-target marker onto the FIFO, and route
+          ;; subsequent streaming to the LAST opened block (if any)
+          ;; so prose arriving between tool-call and tool-result
+          ;; lands inside the tool body.
+          ;;
+          ;; Upstream emits each element of CALLS as a 3-list
+          ;; `(TOOL-STRUCT ARGS CB)' — see `gptel-request.el:1812-1827'
+          ;; (callback docstring) and `gptel.el:1801'
+          ;; (`pcase-dolist' destructuring in `gptel--run-tool-confirm').
+          ;; CB is the continuation upstream itself calls with the
+          ;; tool result; we only render here, so CB is ignored.
+          (`(tool-call . ,calls)
+           (let (last-marker)
+             (pcase-dolist (`(,tool-spec ,args ,_cb) calls)
+               (let ((m (gptel-chat--stream-open-tool-block
+                         insertion-marker tool-spec args)))
+                 (setq pending-tool-markers
+                       (append pending-tool-markers (list m))
+                       last-marker m)))
+             (when last-marker
+               (funcall set-tool last-marker))))
+          ;; Tool-result event: for each result, close the matching
+          ;; pending block (confirmation path) or synthesize a fresh
+          ;; `#+begin_tool' block (auto-approved path — upstream fires
+          ;; no prior `(tool-call . ...)' for tools executed inline
+          ;; inside `gptel--handle-tool-use', see
+          ;; `gptel-request.el:1732-1747').  After all results are
+          ;; handled, clear the tool-marker override so subsequent
+          ;; streaming routes back to the assistant-level marker.
+          ;;
+          ;; Upstream emits each element of RESULTS as a 3-list
+          ;; `(TOOL-STRUCT ARGS RESULT)' — see `gptel-request.el:1812-1827'
+          ;; and `gptel.el:1855' (`cl-loop for (tool args result) in
+          ;; tool-results').  We destructure TOOL-SPEC and ARGS (not
+          ;; just RESULT) so the synthesize path has everything it
+          ;; needs to render the block header.
+          (`(tool-result . ,results)
+           (pcase-dolist (`(,tool-spec ,args ,result) results)
+             (let ((marker (or (pop pending-tool-markers)
+                               (gptel-chat--stream-open-tool-block
+                                insertion-marker tool-spec args))))
+               (gptel-chat--stream-close-tool-block marker result)))
+           (unless pending-tool-markers
+             (funcall clear-tool)))
+          ;; HTTP success (`t'): upstream fires this after every
+          ;; request completes — once per round-trip.  For a
+          ;; multi-round tool-use turn the sequence is
+          ;;   Request-1 text → `t' (with :tool-use) → tool-call
+          ;;   → tool-result → Request-2 text → `t' (no :tool-use).
+          ;; If we closed the assistant block on the FIRST `t', the
+          ;; subsequent tool-result and Request-2 text would land
+          ;; after `#+end_assistant' and corrupt the buffer.
+          ;; Gate the close-and-append sequence on the final turn
+          ;; (null :tool-use); otherwise only flush holdback and
+          ;; leave the block open.  Mirrors persistent-agent's
+          ;; `(unless (plist-get info :tool-use) …)' pattern.
+          ('t
+           (funcall stream-insert t)
+           (unless (plist-get info :tool-use)
+             (gptel-chat--stream-close-assistant insertion-marker)))
+          ;; Error / network failure: flush, close with error marker.
+          ('nil
+           (funcall stream-insert t)
+           (gptel-chat--stream-close-assistant
+            insertion-marker gptel-chat--stream-error-marker))
+          ;; User abort (M-x gptel-abort): flush, close with
+          ;; interruption marker.
+          ('abort
+           (funcall stream-insert t)
+           (gptel-chat--stream-close-assistant
+            insertion-marker gptel-chat--stream-abort-marker))
+          ;; Any other shape is a caller bug or an unexpected
+          ;; upstream shape; surface it loudly so drift from the
+          ;; upstream protocol does not silently corrupt the buffer.
+          (_
+           (error "gptel-chat: unexpected response shape %S" response))))
       nil)))
 ;; The callback factory:1 ends here
 
