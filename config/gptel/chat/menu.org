@@ -698,19 +698,35 @@ the =* System Prompt= heading body. The document is the authoritative
 source of the system prompt
 (=register/invariant/system-prompt-heading-authoritative=).
 
-Two cases:
+Three cases:
 
-- *Heading present* (a current-layout session) — the body between the
-  heading's =:PROPERTIES:= drawer and the next heading is replaced
-  with the current =gptel--system-message=. The body region is located
-  via =gptel-chat--system-prompt-heading-body-region= — the *same*
-  helper the reader uses, so reader and writer agree on what "body"
-  means (the four-step anchor/heading-end/subtree-end/drawer-skip scan
+- *Heading present, canonical layout* (a current-layout session) — the
+  body between the heading's =:PROPERTIES:= drawer and the next
+  heading is replaced with the current =gptel--system-message=. The
+  body region is located via
+  =gptel-chat--system-prompt-heading-body-region= — the *same* helper
+  the reader uses, so reader and writer agree on what "body" means
+  (the four-step anchor/heading-end/subtree-end/drawer-skip scan
   exists once). The writer then pads with the leading/trailing
   newlines the layout requires; the reader trims. Single-sourcing the
   scan removes a documented duplication finding (arch-cycle-
   1779477564-5) and keeps the trim/pad asymmetry visible at one
   decision point.
+- *Heading present, =* Chat= heading absent* (off-nominal layout —
+  user-hand-deleted =* Chat=, or a partially materialised document
+  from an interrupted save) — without a =* Chat= heading the helper's
+  =SUBTREE-END= falls all the way through to =point-max=, so a naive
+  in-place rewrite would delete every =#+begin_user= /
+  =#+begin_assistant= turn block sitting in the orphaned =* System
+  Prompt= subtree. We re-materialise =* Chat= instead: scan the body
+  region for the first turn-block marker, bound the body rewrite
+  there, then re-emit the missing =* Chat= heading and move the
+  captured turn blocks under it (task =harden-system-prompt-save-
+  against-missing-chat-heading=, defending the singleton-=* Chat= and
+  turn-blocks-under-=* Chat= invariants from
+  =register/shape/session-document-layout=). When the body holds no
+  turn blocks at all, =* Chat= is still appended so the document
+  shape is restored to canonical.
 - *Heading absent* (a pre-Addendum session — graceful degrade,
   Decision 6 / Decision B) — the =* System Prompt= and =* Chat=
   headings are *materialised*. Everything currently after the config
@@ -757,18 +773,42 @@ no drawer is found."
           (forward-line 1)
           (point))))))
 
+(defconst gptel-chat--turn-block-marker-re
+  "^#\\+begin_\\(user\\|assistant\\)"
+  "Regexp matching the start of a chat turn block.
+Used by `gptel-chat--write-system-prompt-heading' to bound the
+in-place body rewrite away from turn blocks when the `* Chat'
+heading is missing (defends the turn-blocks-under-`* Chat'
+invariant of `register/shape/session-document-layout').  Mirrors
+the marker the chat parser keys on (heading-indifferent parser,
+design.md §Decision 12).")
+
 (defun gptel-chat--write-system-prompt-heading ()
   "Serialise `gptel--system-message' into the `* System Prompt' body.
 
-When the buffer already has a `* System Prompt' heading, replace its
-body text (between the heading's own `:PROPERTIES:' drawer and the
-next heading) with the current buffer-local `gptel--system-message'.
-The body region is located via
+When the buffer already has a `* System Prompt' heading and a
+`* Chat' heading, replace the prompt body (between the heading's own
+`:PROPERTIES:' drawer and the next heading) with the current buffer-
+local `gptel--system-message'.  The body region is located via
 `gptel-chat--system-prompt-heading-body-region', the shared
 reader/writer scan helper — guarantees reader and writer agree on
 where \"body\" starts and ends (register/shape/session-document-
 layout).  The writer pads with the leading/trailing newlines the
 layout requires; the reader trims.
+
+When the buffer has a `* System Prompt' heading but no `* Chat'
+heading (off-nominal layout — user hand-deleted `* Chat', or a
+partially materialised document from an interrupted save), the
+helper's SUBTREE-END falls through to `point-max', so a naive in-
+place rewrite would delete every `#+begin_user' / `#+begin_assistant'
+turn block sitting in the orphaned subtree.  Instead, scan the body
+region for the first turn-block marker, bound the body rewrite there,
+re-emit the missing `* Chat' heading, and move the captured turn
+blocks under it (task `harden-system-prompt-save-against-missing-
+chat-heading', defending the singleton-`* Chat' and turn-blocks-
+under-`* Chat' invariants of register/shape/session-document-layout).
+When the body holds no turn blocks at all, `* Chat' is still appended
+so the document shape is restored to canonical.
 
 When the buffer has no `* System Prompt' heading — a pre-Addendum
 session — materialise the `* System Prompt' and `* Chat' headings
@@ -794,16 +834,49 @@ and calls this only in chat-mode buffers."
             ;; returns the post-drawer region verbatim; the writer pads
             ;; with the leading/trailing newlines required by
             ;; register/shape/session-document-layout.
-            (let ((body-start (car region))
-                  (subtree-end (cdr region)))
-              (delete-region body-start subtree-end)
+            (let* ((body-start (car region))
+                   (subtree-end (cdr region))
+                   (chat-heading-present
+                    (save-excursion
+                      (goto-char (point-min))
+                      (re-search-forward "^\\* Chat[ \t]*$" nil t)))
+                   ;; When `* Chat' is missing, the helper's subtree-end
+                   ;; is `point-max' and any turn blocks below the
+                   ;; orphaned heading would be swept away by a blind
+                   ;; delete-region.  Find the first turn-block marker
+                   ;; in (body-start, subtree-end) and bound the rewrite
+                   ;; there so the captured turn-block text survives.
+                   (orphan-turn-start
+                    (and (not chat-heading-present)
+                         (save-excursion
+                           (goto-char body-start)
+                           (and (re-search-forward
+                                 gptel-chat--turn-block-marker-re
+                                 subtree-end t)
+                                (line-beginning-position)))))
+                   (rewrite-end (or orphan-turn-start subtree-end))
+                   (captured-turns
+                    (and (not chat-heading-present)
+                         orphan-turn-start
+                         (buffer-substring-no-properties
+                          orphan-turn-start subtree-end))))
+              (delete-region body-start rewrite-end)
               (goto-char body-start)
               ;; A non-blank body is written verbatim followed by a
               ;; blank line separating it from `* Chat'; a blank/nil
               ;; system prompt leaves only the separating blank line.
               (insert (if (and system (not (string-blank-p system)))
                           (concat (string-trim-right system) "\n\n")
-                        "\n")))
+                        "\n"))
+              ;; Off-nominal recovery: materialise the missing `* Chat'
+              ;; heading and re-attach the captured turn blocks under
+              ;; it.  `* Chat' carries no properties drawer (matches
+              ;; `jf/gptel--session-headings-block', the canonical
+              ;; producer of register/shape/session-document-layout).
+              (unless chat-heading-present
+                (insert "* Chat\n")
+                (when captured-turns
+                  (insert captured-turns))))
           ;; Heading absent — materialise the canonical headings.
           (when (require 'gptel-session-commands nil t)
             (when-let* ((drawer-end (gptel-chat--config-drawer-end)))
