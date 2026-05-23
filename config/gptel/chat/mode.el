@@ -150,6 +150,18 @@ The single-`C-c' prefix on turn navigation avoids shadowing org's
 ;; interiors only — `/emphasis/' in chat-turn prose (below `* Chat') is
 ;; left untouched (override-A counter-assertion).
 
+;; Coexistence with override-C (config-drawer fold) depends on
+;; =org-fold-core-style= being at its default =\='overlays= value:
+;; override-C folds via an overlay while this facespec sets the
+;; =invisible= /text-property/, so the two operate on non-conflicting
+;; channels and the drawer can be both folded and stamped at once.
+;; Flipping =org-fold-core-style= to =\='text-properties= would
+;; collide with this override (every font-lock pass would set
+;; =invisible nil= over the fold's text-property and silently break
+;; override-C); the override would need to detect a folded drawer and
+;; skip it, or fall back to face-only suppression. Tracked as a
+;; latent coupling — the codebase has not flipped the style anywhere.
+
 
 ;; [[file:mode.org::*Property-drawer span fontification override][Property-drawer span fontification override:1]]
 (defun gptel-chat--drawer-span-matcher (limit)
