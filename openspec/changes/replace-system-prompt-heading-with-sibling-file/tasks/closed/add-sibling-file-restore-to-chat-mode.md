@@ -2,7 +2,7 @@
 name: add-sibling-file-restore-to-chat-mode
 description: Add `gptel-chat--system-prompt-file-path` (drawer resolver) and `gptel-chat--apply-system-prompt-file` (installer) in `config/gptel/chat/menu.org`. Wire as the last step in `gptel-chat--apply-declared-preset` so the sibling file becomes the top tier in the system-prompt restore precedence (sibling file then legacy drawer then preset).
 change: replace-system-prompt-heading-with-sibling-file
-status: needs-review
+status: done
 relations:
   - blocked-by:delete-heading-reader-from-chat-menu
 ---

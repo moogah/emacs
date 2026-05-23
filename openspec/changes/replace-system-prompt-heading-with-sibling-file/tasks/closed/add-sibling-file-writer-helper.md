@@ -2,7 +2,7 @@
 name: add-sibling-file-writer-helper
 description: Add `jf/gptel--preset-source-file-extension` and `jf/gptel--write-system-prompt-sibling-file` in `config/gptel/sessions/commands.org` — the standalone helpers that derive a preset's source file extension and write `system-prompt.<ext>` with the preset's `:system` body verbatim. Pure helpers, unit-tested in isolation. Wiring into the session-creation path is the next task.
 change: replace-system-prompt-heading-with-sibling-file
-status: needs-review
+status: done
 relations: []
 ---
 

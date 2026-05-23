@@ -2,7 +2,7 @@
 name: delete-heading-reader-from-chat-menu
 description: Delete the chat-mode restore-side heading reader (`gptel-chat--system-prompt-heading-body-region`, `--heading-body`, `--apply-system-prompt-heading`) and unwire it from `gptel-chat--apply-declared-preset`. The `* System Prompt` heading is gone from the canonical layout; the sibling-file restore (task `add-sibling-file-restore-to-chat-mode`) replaces this surface.
 change: replace-system-prompt-heading-with-sibling-file
-status: needs-review
+status: done
 relations: []
 ---
 

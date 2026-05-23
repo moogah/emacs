@@ -2,7 +2,7 @@
 name: delete-heading-writer-from-chat-menu
 description: Delete the chat-mode save-side heading writer (`gptel-chat--write-system-prompt-heading`, `--config-drawer-end`, `--turn-block-marker-re`) and unwire it from `gptel-chat--save-state`. The `* System Prompt` heading is gone from the canonical layout; the save path no longer needs to materialize or rewrite a heading body, and the sibling file is canonical and never written by the save hook.
 change: replace-system-prompt-heading-with-sibling-file
-status: needs-review
+status: done
 relations: []
 ---
 

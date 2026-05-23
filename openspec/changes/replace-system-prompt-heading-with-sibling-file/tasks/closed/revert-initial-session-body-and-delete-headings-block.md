@@ -2,7 +2,7 @@
 name: revert-initial-session-body-and-delete-headings-block
 description: Delete `jf/gptel--session-headings-block` and revert `jf/gptel--initial-session-body` to its pre-Addendum signature (no `system-prompt` parameter). Strip the heading composition from `jf/gptel--create-session-core` so a freshly created `session.org` is the file-level config drawer followed by a bare `#+begin_user` block — no `* System Prompt` heading, no `* Chat` heading. Update `jf/gptel-persistent-agent--initial-body` to stop delegating to the deleted helper.
 change: replace-system-prompt-heading-with-sibling-file
-status: needs-review
+status: done
 relations: []
 ---
 
