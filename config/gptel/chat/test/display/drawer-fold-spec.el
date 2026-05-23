@@ -48,15 +48,20 @@
           ":GPTEL_MODEL: gpt-4o\n"
           ":GPTEL_SCOPE_READ: /Users/jeff/emacs/\n"
           ":END:\n"
-          "\n"
           "* System Prompt\n"
+          ":PROPERTIES:\n"
+          ":VISIBILITY: folded\n"
+          ":END:\n"
           "You are a helpful assistant.\n"
           "\n"
           "* Chat\n"
           "#+begin_user\n"
           "Hello there.\n"
           "#+end_user\n")
-  "Persisted-session content: a file-level config drawer plus headings.")
+  "Persisted-session content: the canonical post-cycle-7 session.org layout —
+file-level config drawer at point-min, then `* System Prompt' with its own
+`:PROPERTIES:/:VISIBILITY: folded/:END:' drawer, then `* Chat' with a turn
+block (mirrors register/shape/session-document-layout).")
 
 (defconst gptel-chat-drawer-fold-test--drawerless
   (concat "#+begin_user\n"
@@ -132,6 +137,51 @@
                   (set-buffer-modified-p nil)
                   (kill-buffer))))
           (when (file-exists-p file)
-            (delete-file file)))))))
+            (delete-file file))))))
+
+  (describe "override C extension — `:VISIBILITY: folded' on `* System Prompt' honored"
+
+    (it "folds the `* System Prompt' heading body on gptel-chat-mode activation"
+      ;; Regression for user-testing finding 2026-05-23: `:VISIBILITY: folded'
+      ;; on the canonical layout's `* System Prompt' heading was not being
+      ;; processed by `gptel-chat-mode' because org-mode only auto-processes
+      ;; the property when `org-startup-folded' is non-default.
+      ;; `gptel-chat--apply-startup-visibility' now calls
+      ;; `org-cycle-set-visibility-according-to-property' explicitly.
+      (let ((org-startup-folded 'showall))   ; force the failure mode
+        (with-temp-buffer
+          (insert gptel-chat-drawer-fold-test--session)
+          (gptel-chat-mode)
+          (goto-char (point-min))
+          ;; The prompt body ("You are a helpful assistant.") sits inside
+          ;; the `* System Prompt' subtree; with `:VISIBILITY: folded'
+          ;; honored, that text should be invisible after activation.
+          (expect (search-forward "You are a helpful assistant." nil t)
+                  :to-be-truthy)
+          (expect (invisible-p (match-beginning 0)) :to-be-truthy))))
+
+    (it "leaves the `* Chat' subtree visible — :VISIBILITY: folded is heading-scoped"
+      (let ((org-startup-folded 'showall))
+        (with-temp-buffer
+          (insert gptel-chat-drawer-fold-test--session)
+          (gptel-chat-mode)
+          (goto-char (point-min))
+          ;; Turn-block content under `* Chat' has no `:VISIBILITY:'
+          ;; property and must remain visible.
+          (expect (search-forward "Hello there." nil t) :to-be-truthy)
+          (expect (invisible-p (match-beginning 0)) :not :to-be-truthy))))
+
+    (it "is a no-op for a scratch buffer with no `:VISIBILITY:' properties"
+      (let ((org-startup-folded 'showall))
+        (expect
+         (with-temp-buffer
+           (insert gptel-chat-drawer-fold-test--drawerless)
+           (gptel-chat-mode)
+           ;; No headings, no :VISIBILITY: — activation completes without
+           ;; folding anything.
+           (goto-char (point-min))
+           (search-forward "#+begin_user" nil t)
+           (invisible-p (match-beginning 0)))
+         :not :to-be-truthy)))))
 
 ;;; drawer-fold-spec.el ends here

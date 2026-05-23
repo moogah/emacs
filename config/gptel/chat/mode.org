@@ -276,29 +276,42 @@ hook after content load" resolution anticipated in the task's
 implementation steps.
 
 #+begin_src emacs-lisp
-(defun gptel-chat--fold-config-drawer ()
-  "Fold all drawers in the current buffer on `gptel-chat-mode' activation.
+(defun gptel-chat--apply-startup-visibility ()
+  "Apply session.org startup visibility on `gptel-chat-mode' activation.
 
-Runs from `gptel-chat-mode-hook'.  Folds every drawer via
-`org-fold-hide-drawer-all' — a buffer-wide fold, not a targeted one.
-This covers the pre-first-heading file-level configuration drawer
-(the WYSIWYG-clutter target of design.md §Addendum Decision C) that
-org-mode's startup visibility does not reliably reach in this derived
-mode; it also folds the `* System Prompt' heading's own property
-drawer, which is harmless since that heading is itself folded by its
-`:VISIBILITY: folded' property.
+Runs from `gptel-chat-mode-hook'.  Performs two folds that complete
+the WYSIWYG \"open a session, see two headings\" experience
+\(design.md §Addendum Finding C / Decision C):
+
+  1. Fold every drawer via `org-fold-hide-drawer-all' — a buffer-wide
+     fold, not a targeted one.  Covers the pre-first-heading
+     file-level configuration drawer that org-mode's startup
+     visibility does not reliably reach in this derived mode; also
+     folds the `* System Prompt' heading's own property drawer.
+
+  2. Honor `:VISIBILITY:' properties on headings via
+     `org-cycle-set-visibility-according-to-property'.  The canonical
+     session.org layout \(register/shape/session-document-layout)
+     emits the `* System Prompt' heading with a
+     `:PROPERTIES:/:VISIBILITY: folded/:END:' drawer; org-mode only
+     processes `:VISIBILITY:' automatically when `org-startup-folded'
+     is set to certain non-default values, so calling
+     `org-cycle-set-visibility-according-to-property' explicitly
+     here makes the heading fold regardless of the user's
+     `org-startup-folded' setting.
 
 Attached to the hook rather than called from the `define-derived-mode'
 body: the body runs before `run-mode-hooks', while org-mode's
 `org-fold-core' subsystem is still finalizing, and a fold registered
 that early is silently dropped by a later activation step.  Running
-from the hook — after the body and after fold-core setup — folds the
-drawer reliably.
+from the hook — after the body and after fold-core setup — folds
+reliably.
 
-A no-op when the buffer has no drawer (a `gptel-chat-new' scratch
-buffer): `org-fold-hide-drawer-all' simply finds nothing to fold and
+A no-op for buffers without the relevant content: a `gptel-chat-new'
+scratch buffer (no drawer, no headings) hits neither code path and
 raises no error.  See design.md §Addendum (Finding C / Decision C)."
-  (org-fold-hide-drawer-all))
+  (org-fold-hide-drawer-all)
+  (org-cycle-set-visibility-according-to-property))
 #+end_src
 
 The =add-hook= that wires this onto =gptel-chat-mode-hook= lives just
@@ -310,9 +323,11 @@ already declared when it runs.
 =define-derived-mode= from =org-mode= — inherit fontification, folding,
 and inside-block editing behaviours (design.md §Decision 6). Overrides
 are minimal by design: the keymap (above), =org-adapt-indentation= and
-the drawer-value font-lock override (in the body, below); the
-config-drawer fold runs from =gptel-chat-mode-hook=
-(=gptel-chat--fold-config-drawer=, attached after the form below).
+the drawer-value font-lock override (in the body, below); startup
+visibility (drawer folds plus =:VISIBILITY:= property processing) runs
+from =gptel-chat-mode-hook=
+(=gptel-chat--apply-startup-visibility=, attached after the form
+below).
 
 The =gptel-chat-mode-hook= runs at activation per Emacs convention,
 *after* the mode body — which is why the config-drawer fold attaches
@@ -356,10 +371,13 @@ mangle drawer keys and values (design.md §Addendum Finding A; cycle-8
 cross-line follow-up).  Chat-turn prose `/emphasis/' is unaffected —
 the override is scoped to drawer interiors only.
 
-The file-level config `:PROPERTIES:' drawer is folded on activation by
-`gptel-chat--fold-config-drawer', attached to `gptel-chat-mode-hook'
-below, so a persisted `session.org' opens clean (design.md §Addendum,
-Decision C).
+Startup visibility is applied on activation by
+`gptel-chat--apply-startup-visibility', attached to
+`gptel-chat-mode-hook' below: folds every drawer (covering the
+file-level config drawer's wall-of-properties) AND honors the
+`* System Prompt' heading's `:VISIBILITY: folded' property, so a
+persisted `session.org' opens clean — two headings, drawer folded,
+System Prompt body folded (design.md §Addendum, Decision C).
 
 \\{gptel-chat-mode-map}"
   (setq-local org-adapt-indentation nil)
@@ -373,7 +391,7 @@ Decision C).
       (0 '(face org-property-value invisible nil) t)))
    'append))
 
-(add-hook 'gptel-chat-mode-hook #'gptel-chat--fold-config-drawer)
+(add-hook 'gptel-chat-mode-hook #'gptel-chat--apply-startup-visibility)
 #+end_src
 
 * New-chat command

@@ -1613,6 +1613,27 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      style would silently break override-C on every font-lock pass.
      See cycle-1779522837/reconciliations/boundary-chat-mode-
      session-display.md.
+     cycle-8 hotfix (2026-05-23, post-integrate): override C
+     extended after user-testing finding that the `* System Prompt'
+     heading's `:VISIBILITY: folded' property was not being honored
+     on session open. Root cause: org-mode auto-processes
+     `:VISIBILITY:' only when `org-startup-folded' is set to certain
+     non-default values; the prior `gptel-chat--fold-config-drawer'
+     only called `org-fold-hide-drawer-all'. Helper renamed to
+     `gptel-chat--apply-startup-visibility' and now also calls
+     `org-cycle-set-visibility-according-to-property' so heading-
+     level `:VISIBILITY:' is honored regardless of the user's
+     `org-startup-folded' setting. Override C's rule, mechanism,
+     and counter-assertion below were rewritten to name both folds;
+     producers stanza below names the renamed helper. drawer-fold-
+     spec.el fixture updated to mirror the canonical post-cycle-7
+     layout (which the prior fixture didn't — that's why the
+     existing tests passed against the dropped-fold defect). Three
+     new regression specs pin the `:VISIBILITY:'-honored behaviour
+     with `org-startup-folded' forced to `'showall' (the failure
+     mode). See addendum in
+     cycle-1779522837/reconciliations/boundary-chat-mode-session-
+     display.md.
    load_bearing: false
    title: gptel-chat-mode overrides org-mode presentation for session buffers
 
@@ -1688,25 +1709,48 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          ever does, override A must detect a folded drawer and skip
          it (or fall back to face-only suppression). Documented at
          config/gptel/chat/mode.org override-A prose.
-     override_C_config_drawer_folded_on_open:
-       finding: Finding C
+     override_C_startup_visibility_applied_on_open:
+       finding: Finding C (cycle-7 spec); cycle-8 hotfix extension
        rule: |
-         On gptel-chat-mode activation the file-level config
-         :PROPERTIES: drawer (the point-min drawer of register/shape/
-         session-document-layout) is folded.
+         On gptel-chat-mode activation TWO startup-visibility steps
+         apply, producing the WYSIWYG "two headings, drawer folded,
+         System Prompt body folded" experience for a persisted
+         session.org:
+           (1) the file-level config :PROPERTIES: drawer (the
+               point-min drawer of register/shape/session-document-
+               layout) is folded;
+           (2) the `* System Prompt' heading's `:VISIBILITY: folded'
+               property is honored — the heading body collapses, so
+               the user sees the heading line but not the (often
+               long) preset-seeded prompt text.
        mechanism: |
-         The fold call (gptel-chat--fold-config-drawer) MUST be
-         installed via gptel-chat-mode-hook (after run-mode-hooks),
-         NOT in the define-derived-mode body, because org-fold-core
-         silently drops fold calls that fire before mode-hook
-         invocation. cycle-7's first implementor placed the call in
-         the body and the spec failed against the live buffer; the
-         re-task moved it to the hook and the fold worked. This
-         hook-vs-body discipline is the cycle-7 mechanism note.
+         A single helper (`gptel-chat--apply-startup-visibility',
+         cycle-8 hotfix rename of `gptel-chat--fold-config-drawer')
+         calls (a) `org-fold-hide-drawer-all' for the drawer fold
+         and (b) `org-cycle-set-visibility-according-to-property' for
+         the heading-level :VISIBILITY: processing. The helper MUST
+         be installed via `gptel-chat-mode-hook' (after
+         `run-mode-hooks'), NOT in the `define-derived-mode' body,
+         because `org-fold-core' silently drops fold calls that fire
+         before mode-hook invocation. cycle-7's first implementor
+         placed the call in the body and the spec failed against the
+         live buffer; the re-task moved it to the hook and the fold
+         worked. This hook-vs-body discipline is the cycle-7
+         mechanism note. Step (b) is the cycle-8 hotfix: org-mode
+         only auto-processes `:VISIBILITY:' when `org-startup-folded'
+         is set to certain non-default values (t / content /
+         show2levels / overview / fold) — calling
+         `org-cycle-set-visibility-according-to-property' explicitly
+         from the hook makes the heading fold regardless of the
+         user's `org-startup-folded' setting.
        counter_assertion: |
-         A drawerless buffer — e.g. a gptel-chat-new scratch buffer with
-         no :PROPERTIES: drawer — is a no-op: the fold step finds no
-         drawer and does nothing, raising no error.
+         A scratch buffer with no drawer AND no `:VISIBILITY:'
+         properties — e.g. a gptel-chat-new scratch buffer with a
+         bare `#+begin_user' block — is a no-op: both helpers find
+         nothing to act on and raise no error. Subtrees without
+         `:VISIBILITY:' properties (e.g. the `* Chat' heading) stay
+         visible — step (b) is heading-property-scoped, not
+         buffer-wide.
 
    why_it_matters: |
      Without override A, scope path values render italicised and the
@@ -1729,12 +1773,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          nil` (override A; cycle-8 span-level refinement)
      - file: config/gptel/chat/mode.org
        function: |
-         gptel-chat--fold-config-drawer (attached to gptel-chat-mode-
-         hook at load time, NOT called from the define-derived-mode
-         body — see override_C.mechanism for why)
+         gptel-chat--apply-startup-visibility (cycle-8 hotfix rename
+         of gptel-chat--fold-config-drawer; attached to gptel-chat-
+         mode-hook at load time, NOT called from the define-derived-
+         mode body — see override_C.mechanism for why)
        usage: |
-         folds the file-level config :PROPERTIES: drawer on
-         gptel-chat-mode activation (override C)
+         applies session.org startup visibility on gptel-chat-mode
+         activation: folds every drawer (covering the file-level
+         config drawer's wall-of-properties) AND honors the
+         `* System Prompt' heading's `:VISIBILITY: folded' property
+         (override C).
 
    consumers:
      - the chat-mode session buffer's font-lock and visibility state
