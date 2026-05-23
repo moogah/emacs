@@ -698,15 +698,14 @@ the buffer was changed."
 ;; - =gptel-chat--migrate-buffer= — normalise an existing session's
 ;;   body indentation on read (design.md Decision 7).
 
-;; Startup visibility — drawer folds plus =:VISIBILITY:= property
-;; processing — runs from =gptel-chat-mode-hook=
-;; (=gptel-chat--apply-startup-visibility=, attached after the form
-;; below). The hook runs at activation per Emacs convention, *after*
-;; the mode body — which is why the startup-visibility step attaches
-;; to it rather than living in the body (=org-fold-core= silently
-;; drops folds registered too early; see the helper's docstring).
-;; Later modules (display layer, preset wiring) register their own
-;; activation logic the same way.
+;; Startup visibility — drawer folds — runs from
+;; =gptel-chat-mode-hook= (=gptel-chat--apply-startup-visibility=,
+;; attached after the form below). The hook runs at activation per
+;; Emacs convention, *after* the mode body — which is why the
+;; startup-visibility step attaches to it rather than living in the
+;; body (=org-fold-core= silently drops folds registered too early;
+;; see the helper's docstring). Later modules (display layer, preset
+;; wiring) register their own activation logic the same way.
 
 
 ;; [[file:mode.org::*Major mode definition][Major mode definition:1]]
