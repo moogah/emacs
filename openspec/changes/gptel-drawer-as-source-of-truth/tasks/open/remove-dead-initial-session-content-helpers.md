@@ -62,3 +62,22 @@ Expect: both helpers and their tests gone; the three suites green; no remaining 
 Provenance: end-of-cycle Architect finding `arch-cycle-1779477564-6`, severity advisory. Finding file: `.orchestrator/cycles/cycle-1779477564/findings/arch-cycle-1779477564-6.md`.
 
 Cited register entry: `interfaces.org#register-shape-session-document-layout` — the cycle-7 reconciliation makes the canonical shape explicit; deleting the dead helpers prevents future readers from being misled by their pre-Addendum output. Note: `route-agent-session-creation-through-canonical-layout` (filed as a sibling follow-up from `arch-cycle-1779477564-1`) covers the persistent-agent *production* path; this task only deletes the dead *helper* and its tests — they are independent concerns and can land in either order.
+
+## Observations
+
+- Dead-state grep confirmed before deletion: both `jf/gptel--initial-session-content` and `jf/gptel-persistent-agent--initial-content` had **zero production callers** in `config/`. The only references were the defun sites themselves and the four buttercup `it` blocks in `config/gptel/sessions/test/commands/session-org-creation-spec.el`. No persistent-agent test referenced its helper — the task body's "grep for persistent-agent equivalent" returned empty (only its own org/el).
+- Deletion was clean: removed the `** Initial Session Content Helper (legacy)` subtree from `commands.org` (43 lines) and the `** Initial-Content Builder (legacy, test-only)` subtree from `persistent-agent.org` (28 lines). Both tangle and `check-parens` pass. The trailing `* Create Session Core` / `* Final-Text Extractor` headings now follow their predecessors directly with no orphan prose.
+- Removed the matching buttercup `describe "jf/gptel--initial-session-content builds the drawer-prefixed template"` block (lines 290–325 in `session-org-creation-spec.el`) — four `it` specs. The remaining tests in that file pin the **new** `register/shape/session-document-layout` (drawer + `* System Prompt` + `* Chat`), which is the layout we want a future reader to see.
+- Post-change suite results (all via `--report`):
+  - `config/gptel/sessions`: 96 ran, 95 passed (1 ERT failure: `test-directory-creation-org-session-structure`)
+  - `config/gptel/tools`: 66 ran, 66 passed
+  - `config/gptel/chat`: 407 ran, 407 passed
+- Baseline check via `git stash` confirmed the sessions ERT failure (`test-directory-creation-org-session-structure` in `filesystem-test.el`) is **pre-existing** — present at the pre-change commit (`bf2cc33`) with identical test counts delta. Pre-change totals: 100 ran, 99 passed. Post-change totals: 96 ran, 95 passed. The 4-test delta corresponds exactly to the 4 deleted buttercup specs. No regressions introduced.
+- The cited entry `register/shape/session-document-layout` is **load-bearing**: the helpers emitted the pre-Addendum shape (drawer + bare `#+begin_user`, no `* System Prompt`, no `* Chat`). Their deletion preserves the layout invariant by removing misleading shape exemplars from the codebase.
+
+## Discoveries
+
+- **No surprises.** Dead-state grep matched task expectations exactly. No production caller surfaced for either helper; no escalation triggered.
+- The `--initial-session-content` helper's test block in `session-org-creation-spec.el` lived **between** the post-Addendum `Decision 4` structural test block and the `--session-headings-block` test block. The deletion leaves these two new-shape test blocks adjacent, which makes the "this is the canonical layout" story in the spec file read more cleanly.
+- Sibling task `route-agent-session-creation-through-canonical-layout` runs in parallel on `persistent-agent.org`'s `--initial-body` defun. As task body predicted, the two tasks touch disjoint defun blocks in the same file — no proactive coordination needed; worktree isolation will handle any text-conflict at merge time. (Did not inspect the sibling worktree.)
+- The deleted helpers had docstrings explicitly acknowledging their dead-state ("retained for direct callers and helper-level tests"); since there were no direct callers, the helper-level tests were tautologically the only justification. Deleting the tests removes the last reason to keep the helpers, and vice versa — they form a closed dead-code island.
