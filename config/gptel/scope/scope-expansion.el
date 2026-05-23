@@ -193,8 +193,8 @@ modified.  The drawer at point-min must already exist."
        (concat
         (format "Scope Violation: %s\n  Tool: %s\n  Resource: %s"
                 (propertize "Access Denied" 'face 'error)
-                (propertize tool 'face 'font-lock-function-name-face)
-                (propertize resource 'face 'font-lock-string-face))
+                (propertize (or tool "unknown") 'face 'font-lock-function-name-face)
+                (propertize (or resource "unknown") 'face 'font-lock-string-face))
         ;; Display git status if metadata available
         (when metadata
           (format "\n  Git Status: %s"

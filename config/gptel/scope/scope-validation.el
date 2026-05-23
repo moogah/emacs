@@ -357,8 +357,7 @@ Parse completeness is always enforced (see
                jf/gptel-scope--enforce-parse-complete)
       (list :error "parse_incomplete"
             :message (format "Parse incomplete: %s" errors)
-            :parse-errors errors
-            :command (plist-get parse-result :input)))))
+            :parse-errors errors))))
 ;; Stage 1: Parse Completeness:1 ends here
 
 ;; Stage 2: No-op Gate
@@ -785,6 +784,33 @@ plist always includes :validation-type (path or bash)."
                tool-name operation args config metadata)
               (list :validation-type 'path)))))
 
+(defun jf/gptel-scope--infrastructure-error-p (check-result)
+  "Return non-nil if CHECK-RESULT signals broken infra rather than a scope denial.
+A missing tree-sitter grammar surfaces as `parse_incomplete' but has
+no remediation through the expansion UI — the user must install the
+grammar before validation can run at all."
+  (and (equal (plist-get check-result :error) "parse_incomplete")
+       (cl-some (lambda (e)
+                  (and (stringp e)
+                       (string-match-p "Cannot load language definition" e)))
+                (plist-get check-result :parse-errors))))
+
+(defun jf/gptel-scope--format-infrastructure-error (check-result)
+  "Format CHECK-RESULT into a user-readable infrastructure error message."
+  (format "Scope validation cannot run: tree-sitter bash grammar is not installed.
+
+Command: %s
+
+Recover by installing the grammar:
+  ./bin/emacs-isolated.sh --batch --eval \"(treesit-install-language-grammar 'bash)\"
+
+Or, if another worktree already has it built, copy via:
+  ./bin/init-worktree-runtime.sh <this-worktree>
+
+Raw error: %s"
+          (or (plist-get check-result :command) "unknown")
+          (car (plist-get check-result :parse-errors))))
+
 (defun jf/gptel-scope-authorize-tool-call (tool-name operation args on-allow on-deny)
   "Validate a scope-aware tool call and run ON-ALLOW or ON-DENY.
 TOOL-NAME is the tool name string.
@@ -823,6 +849,13 @@ captures the right `:chat-buffer'."
       (cond
        ((plist-get check-result :allowed)
         (funcall on-allow))
+
+       ((jf/gptel-scope--infrastructure-error-p check-result)
+        (let ((msg (jf/gptel-scope--format-infrastructure-error check-result)))
+          (display-warning 'gptel-scope msg :error)
+          (funcall on-deny
+                   (jf/gptel-scope--final-deny-response
+                    tool-name args check-result))))
 
        (t
         (jf/gptel-scope--trigger-inline-expansion
@@ -879,14 +912,15 @@ collapse (see register/boundary/scope-expansion-action-handler).
 register/shape/violation-info marks :error as optional."
   (let* ((error-type (or (plist-get validation-error :error) "unknown"))
          (validation-type (plist-get validation-error :validation-type))
-         (resource (pcase error-type
-                     ("denied-pattern" (plist-get validation-error :resource))
-                     ("not-in-scope" (plist-get validation-error :resource))
-                     ("parse_incomplete" (plist-get validation-error :command))
-                     ("cloud_auth_denied" (plist-get validation-error :provider))
-                     ("cloud_provider_denied" (plist-get validation-error :provider))
-                     (_ (or (plist-get validation-error :resource)
-                           (plist-get validation-error :path)))))
+         (resource (or (pcase error-type
+                         ("denied-pattern" (plist-get validation-error :resource))
+                         ("not-in-scope" (plist-get validation-error :resource))
+                         ("parse_incomplete" (plist-get validation-error :command))
+                         ("cloud_auth_denied" (plist-get validation-error :provider))
+                         ("cloud_provider_denied" (plist-get validation-error :provider))
+                         (_ (or (plist-get validation-error :resource)
+                                (plist-get validation-error :path))))
+                       "unknown"))
          (operation (plist-get validation-error :operation))
          (reason (plist-get validation-error :message))
          (metadata (plist-get validation-error :metadata)))

@@ -24,6 +24,9 @@
 (use-package tree-sitter-langs
   :straight t)
 
+(setq treesit-extra-load-path
+      (list (expand-file-name "runtime/tree-sitter/" jf/emacs-dir)))
+
 (setq treesit-language-source-alist
    '((bash "https://github.com/tree-sitter/tree-sitter-bash" "v0.21.0")
      (cmake "https://github.com/uyha/tree-sitter-cmake")

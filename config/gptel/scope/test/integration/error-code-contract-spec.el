@@ -125,10 +125,9 @@
 
   (describe "validate-parse-completeness produces canonical codes"
 
-    (it "parse_incomplete when parse fails and enforce is true"
+    (it "parse_incomplete when parse fails"
       (let ((result (jf/gptel-scope--validate-parse-completeness
-                     '(:parse-complete nil :parse-errors "Unexpected token")
-                     '(:enforce-parse-complete t))))
+                     '(:parse-complete nil :parse-errors ("Unexpected token")))))
         (expect result :not :to-be nil)
         (expect (plist-get result :error) :to-equal "parse_incomplete")
         (expect (member "parse_incomplete" scope/interface--error-codes) :to-be-truthy)))))
@@ -209,7 +208,53 @@
           (expect (plist-get result :tool) :to-equal "read_file_in_scope")
           (expect (plist-get result :reason) :not :to-be nil)
           (expect (plist-get result :resource) :not :to-be nil)
-          (expect (plist-get result :validation-type) :to-equal 'path))))))
+          (expect (plist-get result :validation-type) :to-equal 'path)))))
+
+  (describe "build-violation-info never returns nil :resource"
+
+    ;; Regression coverage: when the validation error lacks the
+    ;; expected resource field for its error code, build-violation-info
+    ;; must still produce a non-nil :resource.  Otherwise the nil
+    ;; propagates to the transient formatter and crashes the expansion
+    ;; UI with (wrong-type-argument stringp nil) on propertize.
+    ;; Triggered in practice when the tree-sitter bash grammar is
+    ;; missing and parse_incomplete is emitted without a :command.
+
+    (it "returns non-nil :resource for unknown error code without :resource or :path"
+      (let* ((error-plist '(:error "some_future_error"
+                            :message "Something went wrong"
+                            :validation-type bash))
+             (result (jf/gptel-scope--build-violation-info
+                      error-plist "run_bash_command")))
+        (expect (plist-get result :resource) :not :to-be nil)
+        (expect (stringp (plist-get result :resource)) :to-be t)))
+
+    (it "returns non-nil :resource for denied-pattern without :resource key"
+      (let* ((error-plist '(:error "denied-pattern"
+                            :message "Path denied"
+                            :validation-type path))
+             (result (jf/gptel-scope--build-violation-info
+                      error-plist "read_file_in_scope")))
+        (expect (plist-get result :resource) :not :to-be nil)
+        (expect (stringp (plist-get result :resource)) :to-be t)))
+
+    (it "returns non-nil :resource for parse_incomplete without :command key"
+      (let* ((error-plist '(:error "parse_incomplete"
+                            :message "Parse incomplete"
+                            :validation-type bash))
+             (result (jf/gptel-scope--build-violation-info
+                      error-plist "run_bash_command")))
+        (expect (plist-get result :resource) :not :to-be nil)
+        (expect (stringp (plist-get result :resource)) :to-be t)))
+
+    (it "returns non-nil :resource for cloud_auth_denied without :provider key"
+      (let* ((error-plist '(:error "cloud_auth_denied"
+                            :message "Cloud auth denied"
+                            :validation-type bash))
+             (result (jf/gptel-scope--build-violation-info
+                      error-plist "run_bash_command")))
+        (expect (plist-get result :resource) :not :to-be nil)
+        (expect (stringp (plist-get result :resource)) :to-be t)))))
 
 
 ;;; Cross-cutting: filesystem-tool wrapper agrees with shared validator
