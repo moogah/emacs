@@ -2,7 +2,7 @@
 name: add-sibling-file-restore-to-chat-mode
 description: Add `gptel-chat--system-prompt-file-path` (drawer resolver) and `gptel-chat--apply-system-prompt-file` (installer) in `config/gptel/chat/menu.org`. Wire as the last step in `gptel-chat--apply-declared-preset` so the sibling file becomes the top tier in the system-prompt restore precedence (sibling file then legacy drawer then preset).
 change: replace-system-prompt-heading-with-sibling-file
-status: blocked
+status: needs-review
 relations:
   - blocked-by:delete-heading-reader-from-chat-menu
 ---
@@ -67,3 +67,44 @@ architecture.md §Interfaces (new internal symbols, `chat/menu.org`) — this ta
 design.md §Decision 4 — the installer is activation-time only; the per-request refresh is the next task.
 
 design.md §Decision 6 — the legacy `:GPTEL_SYSTEM:` overlay stays in place as the back-compat middle tier; the installer added here runs after the overlay so its result supersedes the legacy value when both are present.
+
+## Observations
+
+- Resolver uses `org-entry-get` (not `gptel-org--entry-properties`) because `:GPTEL_SYSTEM_PROMPT_FILE:` is a chat-mode extension key — same pattern as `:GPTEL_PARENT_SESSION_ID:` handling in `gptel-chat--apply-drawer-overrides`. Keeps the upstream-tuple consumer focused on upstream-compatible keys.
+- For indirect buffers, the resolver falls back to `(buffer-file-name (buffer-base-buffer))` so chat sessions opened in a clone buffer still resolve their sibling file correctly. Documented in the docstring.
+- macOS quirk surfaced in testing: `find-file-noselect` canonicalises `/var/folders/...` symlinks to `/private/var/folders/...`. The basename-resolution test compares via `file-truename` on both sides to stay portable. The production resolver itself doesn't `file-truename` — that would force a stat on every property read; `file-readable-p` in the installer is sufficient to handle absent files.
+- 497 chat specs pass (up from 483 — 14 new specs across the focused `system-prompt-file-spec.el` (9) and the precedence describe in `preset-wiring-spec.el` (6 minus the 1 fallback spec I added in the reader-deletion task = +5)).
+
+## Discoveries
+
+- discovery_id: disc-add-sibling-file-restore-1
+  class: interface-drift
+  description: |
+    The transient two-tier docstring left by
+    `delete-heading-reader-from-chat-menu` is now restored to the
+    final three-tier shape: sibling file > legacy drawer > preset.
+    Resolves the cycle-coupling concern raised in that task's
+    `disc-delete-heading-reader-2`.
+  affected_register_entry: register/invariant/system-prompt-heading-authoritative
+  recommendation: |
+    At integrate, mark the heading-authoritative invariant
+    superseded and introduce a new invariant
+    `register/invariant/system-prompt-file-authoritative` describing
+    the sibling-file precedence top-tier. The new invariant is
+    pinned by the new specs in `system-prompt-file-spec.el` and
+    the precedence-end-to-end describe in `preset-wiring-spec.el`.
+
+- discovery_id: disc-add-sibling-file-restore-2
+  class: shape-fragmentation
+  description: |
+    `:GPTEL_SYSTEM_PROMPT_FILE:` is a new chat-mode-specific drawer
+    key that joins `:GPTEL_PARENT_SESSION_ID:` as a non-upstream
+    extension. The drawer-shape register entries don't yet
+    enumerate the chat-mode extension keys explicitly.
+  affected_register_entry: register/shape/session-document-layout
+  recommendation: |
+    During integrate, add `:GPTEL_SYSTEM_PROMPT_FILE:` to the
+    enumeration of drawer keys in the session-document-layout
+    register entry (alongside `:GPTEL_PARENT_SESSION_ID:`) so the
+    extension shape is visible to future maintainers without having
+    to read the source.

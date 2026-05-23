@@ -280,6 +280,91 @@ preset's composite-key logic (design.md §Decision 5)."
       (set (make-local-variable 'jf/gptel--parent-session-id) parent-id))))
 #+end_src
 
+* System Prompt sibling file
+
+After =replace-system-prompt-heading-with-sibling-file= the chat-mode
+system prompt lives in a sibling file (=system-prompt.<ext>=) next to
+=session.org=, referenced from the configuration drawer via the
+=:GPTEL_SYSTEM_PROMPT_FILE:= key (design.md §Decision 1).
+=gptel-chat--apply-system-prompt-file= is the activation-time
+installer: it resolves the property, reads the file, and sets
+=gptel--system-message= buffer-locally. The same resolver
+=gptel-chat--system-prompt-file-path= is consumed by the pre-send
+refresh and by the "Edit system prompt" menu affordance (the
+sibling tasks =add-pre-send-refresh= and
+=replace-system-prompt-infix-with-file-opener= introduce those
+consumers).
+
+The installer runs *last* in =gptel-chat--apply-declared-preset=,
+after the drawer overlay, so the sibling file becomes the top tier
+of the restore precedence: sibling file > legacy =:GPTEL_SYSTEM:=
+drawer entry > preset =:system= (design.md §Decision 6 keeps the
+legacy drawer overlay as the back-compat middle tier).
+
+#+begin_src emacs-lisp
+(defun gptel-chat--system-prompt-file-path ()
+  "Return the absolute path of the sibling system-prompt file, or nil.
+
+Reads the `:GPTEL_SYSTEM_PROMPT_FILE:' property from the
+configuration drawer at `point-min'.  When unset, returns nil.
+When set, resolves the value relative to the directory containing
+the current buffer's file:
+
+- If the buffer has a backing file, that file's directory is the base.
+- For an indirect buffer, the base buffer's filename is used.
+- When neither is available (e.g. a freshly created scratch chat
+  buffer), the value is returned as-is — callers' `file-readable-p'
+  check handles the resulting non-existent path.
+
+An absolute value is returned verbatim; a relative basename is
+joined onto the resolution base via `expand-file-name'.  Callers
+must not assume the returned path exists — the installer's
+`file-readable-p' check is the gate."
+  (when-let* ((raw (and (fboundp 'org-entry-get)
+                        (org-entry-get (point-min)
+                                       "GPTEL_SYSTEM_PROMPT_FILE"
+                                       'selective)))
+              ((stringp raw))
+              ((not (string-empty-p raw))))
+    (if (file-name-absolute-p raw)
+        raw
+      (let ((base-file (or buffer-file-name
+                           (and (buffer-base-buffer)
+                                (buffer-file-name (buffer-base-buffer))))))
+        (if base-file
+            (expand-file-name raw (file-name-directory base-file))
+          raw)))))
+
+(defun gptel-chat--apply-system-prompt-file ()
+  "Install the sibling system-prompt file as `gptel--system-message'.
+
+Resolves the path via `gptel-chat--system-prompt-file-path'; when
+nil (the property is unset), returns without action.  When the
+path resolves but the file is missing or unreadable, returns
+without action — the previously installed value (preset `:system'
+or legacy `:GPTEL_SYSTEM:' drawer entry) stays in effect.
+
+When the file exists and is non-empty after a `string-blank-p'
+check, sets `gptel--system-message' buffer-locally to the file's
+contents *verbatim* — no trim, no transformation.  The on-disk
+file is the canonical source; the buffer-local value is a per-
+session cache, refreshed by `gptel-chat--refresh-system-prompt-
+from-file' on every chat request (design.md §Decision 3 / Decision
+4 of replace-system-prompt-heading-with-sibling-file).
+
+Intended to run from `gptel-chat--apply-declared-preset' after the
+drawer overlay, so the sibling file becomes the top tier of the
+restore precedence (sibling file > legacy `:GPTEL_SYSTEM:' drawer
+entry > preset `:system')."
+  (when-let* ((path (gptel-chat--system-prompt-file-path))
+              ((file-readable-p path))
+              (body (with-temp-buffer
+                      (insert-file-contents path)
+                      (buffer-string)))
+              ((not (string-blank-p body))))
+    (set (make-local-variable 'gptel--system-message) body)))
+#+end_src
+
 * Preset application hook
 
 =gptel-chat--apply-declared-preset= is the hook entry point. It
@@ -315,13 +400,17 @@ preset's baseline. The overlay also fires in the no-preset branch —
 that covers buffers whose drawer carries only non-preset keys or
 only =GPTEL_PARENT_SESSION_ID= (design.md §Decisions 2, 3, 5).
 
-The system-prompt restore precedence collapses to two tiers after
-=replace-system-prompt-heading-with-sibling-file= deletes the
-heading reader: sibling file > legacy =:GPTEL_SYSTEM:= drawer entry
-> preset =:system=. The sibling-file installer is added in a
-subsequent task (=add-sibling-file-restore-to-chat-mode=); until
-then the overlay's legacy-drawer handling and the preset's
-=:system= remain the only two tiers.
+The system-prompt restore precedence (highest first) is:
+
+  1. sibling =system-prompt.<ext>= file via
+     =:GPTEL_SYSTEM_PROMPT_FILE:= drawer property
+  2. legacy =:GPTEL_SYSTEM:= drawer entry (back-compat for
+     hand-authored sessions, design.md §Decision 6)
+  3. preset =:system=
+
+=gptel-chat--apply-system-prompt-file= runs *last* so the sibling
+file supersedes both the preset's =:system= and the legacy drawer
+entry when the file is present and non-empty.
 
 #+begin_src emacs-lisp
 (defun gptel-chat--apply-declared-preset ()
@@ -341,17 +430,21 @@ buffer-local bindings on top of the preset baseline (design.md
 `:GPTEL_SYSTEM:' entry the overlay installs it as
 `gptel--system-message', overriding the preset's `:system'.
 
+Finally calls `gptel-chat--apply-system-prompt-file' so a sibling
+`system-prompt.<ext>' file (referenced by the
+`:GPTEL_SYSTEM_PROMPT_FILE:' drawer property) supersedes both the
+preset `:system' and the legacy drawer entry.  The restore
+precedence top-down is: sibling file > legacy
+`:GPTEL_SYSTEM:' drawer entry > preset `:system'.  The installer is
+a no-op when the property is unset or the file is missing /
+unreadable / blank, so old sessions degrade gracefully.
+
 Does NOT enable `gptel-mode' (design.md §Decision 16).  Chat-mode
 owns the major-mode role exclusively.
 
 A preset name that does not resolve (`gptel-get-preset' returns nil)
 triggers a `display-warning' rather than an error, matching upstream
-`gptel-org--restore-state' behaviour.
-
-The sibling-file system-prompt installer (top tier of the restore
-precedence) is wired in as the last step by
-`add-sibling-file-restore-to-chat-mode' — until that task lands,
-the precedence is just legacy drawer entry > preset `:system'."
+`gptel-org--restore-state' behaviour."
   (when-let* ((preset (gptel-chat--declared-preset)))
     (if (and (fboundp 'gptel-get-preset) (gptel-get-preset preset))
         (progn
@@ -367,7 +460,12 @@ the precedence is just legacy drawer entry > preset `:system'."
   ;; carries only non-preset keys (e.g. `GPTEL_TOOLS' alone) or only
   ;; `GPTEL_PARENT_SESSION_ID'.  Re-running after the preset-apply
   ;; branch is harmless: the overlay re-installs the same values.
-  (gptel-chat--apply-drawer-overrides))
+  (gptel-chat--apply-drawer-overrides)
+  ;; Sibling file is authoritative — runs last so it supersedes both
+  ;; the preset's `:system' and a legacy `:GPTEL_SYSTEM:' drawer
+  ;; entry (design.md §Decision 6 of replace-system-prompt-heading-
+  ;; with-sibling-file).
+  (gptel-chat--apply-system-prompt-file))
 #+end_src
 
 * Save state hook

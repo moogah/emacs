@@ -836,9 +836,33 @@
   ;; legacy drawer overlay middle tier remains covered by the
   ;; `drawer overrides overlay' describe block above.
 
-  (describe "system prompt restore precedence (legacy drawer middle tier)"
+  (describe "system prompt restore precedence (sibling file > legacy drawer > preset)"
+
+    (defvar jf-preset-wiring-test--tmp-dir nil
+      "Temp directory backing the session.org file for precedence tests.")
+
+    (defun jf-preset-wiring-test--write-session (drawer)
+      "Write session.org under the temp dir with DRAWER as the `:PROPERTIES:' body.
+Returns the absolute session.org path."
+      (let ((session-file (expand-file-name "session.org"
+                                            jf-preset-wiring-test--tmp-dir)))
+        (with-temp-file session-file
+          (insert ":PROPERTIES:\n"
+                  drawer
+                  ":END:\n"
+                  "#+begin_user\n\n#+end_user\n"))
+        session-file))
+
+    (defun jf-preset-wiring-test--write-sibling (basename body)
+      "Write BODY to <tmp>/BASENAME and return its absolute path."
+      (let ((path (expand-file-name basename
+                                    jf-preset-wiring-test--tmp-dir)))
+        (write-region body nil path nil 'silent)
+        path))
 
     (before-each
+      (setq jf-preset-wiring-test--tmp-dir
+            (make-temp-file "jf-preset-wiring-" t))
       (spy-on 'gptel-get-preset :and-call-fake
               (lambda (name) (memq name '(coding research))))
       (spy-on 'gptel--apply-preset :and-call-fake
@@ -848,12 +872,87 @@
                            "preset-system-text"))))
       (spy-on 'gptel-mode :and-return-value nil))
 
-    (it "falls back to the preset :system when no legacy drawer entry exists"
-      (with-temp-buffer
-        (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n"
-                "\n#+begin_user\n\n#+end_user\n")
-        (gptel-chat-mode)
-        (expect gptel--system-message :to-equal "preset-system-text"))))
+    (after-each
+      (when (and jf-preset-wiring-test--tmp-dir
+                 (file-directory-p jf-preset-wiring-test--tmp-dir))
+        (delete-directory jf-preset-wiring-test--tmp-dir t)))
+
+    (it "sibling file wins over the preset :system on activation"
+      (jf-preset-wiring-test--write-sibling "system-prompt.md"
+                                            "Sibling file body.")
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message
+                      :to-equal "Sibling file body."))
+          (kill-buffer buf))))
+
+    (it "sibling file wins over a legacy :GPTEL_SYSTEM: drawer entry"
+      (jf-preset-wiring-test--write-sibling "system-prompt.md"
+                                            "Sibling file body.")
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               (concat ":GPTEL_PRESET: coding\n"
+                       ":GPTEL_SYSTEM: Legacy drawer prompt.\n"
+                       ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n")))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message
+                      :to-equal "Sibling file body."))
+          (kill-buffer buf))))
+
+    (it "legacy :GPTEL_SYSTEM: drawer entry applies when no sibling file"
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               (concat ":GPTEL_PRESET: coding\n"
+                       ":GPTEL_SYSTEM: Legacy drawer prompt.\n")))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message
+                      :to-equal "Legacy drawer prompt."))
+          (kill-buffer buf))))
+
+    (it "falls back to the preset :system when sibling file is absent on disk"
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: ghost.md\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message :to-equal "preset-system-text"))
+          (kill-buffer buf))))
+
+    (it "falls back to the preset :system when GPTEL_SYSTEM_PROMPT_FILE is unset"
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message :to-equal "preset-system-text"))
+          (kill-buffer buf))))
+
+    (it "falls back to the preset :system when sibling file is empty"
+      (jf-preset-wiring-test--write-sibling "system-prompt.md" "")
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message :to-equal "preset-system-text"))
+          (kill-buffer buf)))))
 
   )
 
