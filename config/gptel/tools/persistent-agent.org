@@ -385,14 +385,24 @@ The agent's =session.org= is composed in a single shot as
 =(concat drawer-text body)= where:
 - =drawer-text= is rendered via
   =jf/gptel-scope-profile--render-drawer-text= (Mode 2a) and carries
-  =:GPTEL_PRESET:=, =:GPTEL_PARENT_SESSION_ID:=, and the resolved
+  =:GPTEL_PRESET:=, =:GPTEL_PARENT_SESSION_ID:=, the resolved
   =:GPTEL_SCOPE_READ:= / =:WRITE:= / =:DENY:= keys built from
-  =allowed-paths= + the standard deny set.
+  =allowed-paths= + the standard deny set, and — when the preset
+  declares a non-empty =:system= — =:GPTEL_SYSTEM_PROMPT_FILE:
+  system-prompt.<ext>= pointing at the sibling file written by
+  =jf/gptel--write-system-prompt-sibling-file=.  The basename is
+  spliced into the rendered drawer via
+  =jf/gptel--append-drawer-property=, preserving the drawer's
+  =:PROPERTIES:= / =:END:= adjacency to the body.
 - =body= is the populated =#+begin_user= block from
   =jf/gptel-persistent-agent--initial-body= (the agent's initial
-  prompt). No headings are emitted; the preset's =:system= is
-  materialised in a sibling =system-prompt.<ext>= file by a separate
-  task in =replace-system-prompt-heading-with-sibling-file=.
+  prompt). No headings are emitted.
+
+Sibling =system-prompt.<ext>= is also written next to =session.org=
+when the preset declares =:system= (design.md §Decision 1 of
+=replace-system-prompt-heading-with-sibling-file=): chat-mode
+re-reads it on activation and on every send so a mid-session edit
+to the file is picked up without reopening the buffer.
 
 The resulting agent =session.org= mirrors the interactive creation
 path's shape: file-level config drawer at =point-min= followed
@@ -454,14 +464,33 @@ for parent overlay feedback and final-text return."
            (preset-spec (and preset-sym
                              (fboundp 'gptel-get-preset)
                              (gptel-get-preset preset-sym)))
+           ;; Materialise the preset's `:system' body as
+           ;; `system-prompt.<ext>' next to `session.org' (design.md
+           ;; §Decision 1 of replace-system-prompt-heading-with-sibling-file).
+           ;; The writer no-ops when `:system' is nil/empty.  The
+           ;; returned basename is threaded into the drawer below.
+           ;; The agent directory has no `branches/' subdirectory
+           ;; (constants.el: agents nest directly under the parent
+           ;; branch-dir), so SESSION-DIR is the directory the
+           ;; sibling file lands in.
+           (sibling-basename
+            (jf/gptel--write-system-prompt-sibling-file
+             session-dir preset-sym preset-spec))
            (drawer-text
             (jf/gptel-scope-profile--render-drawer-text
              preset-sym parent-id scope-plist preset-spec))
+           ;; Thread the sibling file's basename into the drawer as
+           ;; `:GPTEL_SYSTEM_PROMPT_FILE:' so chat-mode restore can
+           ;; resolve it relative to `session.org's directory.
+           (drawer-text (if sibling-basename
+                            (jf/gptel--append-drawer-property
+                             drawer-text "GPTEL_SYSTEM_PROMPT_FILE"
+                             sibling-basename)
+                          drawer-text))
            ;; Compose the agent session.org body: drawer + populated
-           ;; user block.  The preset's `:system' is intentionally
-           ;; not woven into the document; the sibling-file writer
-           ;; (a later task in the same change) writes it to
-           ;; `system-prompt.<ext>' alongside session.org.
+           ;; user block.  No headings are emitted; the preset's
+           ;; `:system' lives in the sibling file resolved via
+           ;; `:GPTEL_SYSTEM_PROMPT_FILE:'.
            (body (jf/gptel-persistent-agent--initial-body prompt))
            (initial-content (concat drawer-text body)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))

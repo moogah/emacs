@@ -279,5 +279,174 @@
   ;; heading-indifference independently.
   )
 
+(describe "jf/gptel--create-session-core emits sibling system-prompt file"
+
+  ;; replace-system-prompt-heading-with-sibling-file: when the preset
+  ;; declares a non-empty `:system' body, session creation writes
+  ;; `system-prompt.<ext>' alongside `session.org' and threads
+  ;; `:GPTEL_SYSTEM_PROMPT_FILE:' into the configuration drawer.  When
+  ;; the preset has no `:system', the writer no-ops — no sibling file,
+  ;; no drawer property.  When the caller supplies INITIAL-CONTENT,
+  ;; the override contract is preserved: no sibling file is written
+  ;; and no property is threaded.  The integration-spec coverage here
+  ;; complements the focused unit tests in
+  ;; `sibling-system-prompt-file-spec.el'.
+
+  (describe "preset declares non-empty :system"
+
+    (let ((sibling-preset 'sibling-emission-preset))
+
+      (before-each
+        (gptel-make-preset sibling-preset
+          :system "You are a careful test agent.\nLine two."))
+
+      (after-each
+        (setq gptel--known-presets
+              (assq-delete-all sibling-preset gptel--known-presets)))
+
+      (it "writes system-prompt.md alongside session.org with the :system body verbatim"
+        (with-captured-io
+          (jf/gptel--create-session-core
+           "sess-sibling-20260423120000"
+           "/sessions/sess-sibling-20260423120000"
+           sibling-preset)
+          (let* ((branch-prefix
+                  "/sessions/sess-sibling-20260423120000/branches/main")
+                 (sibling-content
+                  (captured-file-content
+                   captured-files
+                   (concat branch-prefix "/system-prompt.md"))))
+            (expect sibling-content :to-be-truthy)
+            (expect sibling-content
+                    :to-equal
+                    "You are a careful test agent.\nLine two."))))
+
+      (it "threads :GPTEL_SYSTEM_PROMPT_FILE: into the drawer inside :PROPERTIES: / :END:"
+        (with-captured-io
+          (jf/gptel--create-session-core
+           "sess-sibling-drawer-20260423120000"
+           "/sessions/sess-sibling-drawer-20260423120000"
+           sibling-preset)
+          (let* ((branch-prefix
+                  "/sessions/sess-sibling-drawer-20260423120000/branches/main")
+                 (content
+                  (captured-file-content
+                   captured-files
+                   (concat branch-prefix "/session.org"))))
+            (expect content :to-be-truthy)
+            (expect content
+                    :to-match ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n")
+            ;; The new property precedes :END: (splice landed inside
+            ;; the :PROPERTIES: block, not after :END:).
+            (let ((file-pos (string-match ":GPTEL_SYSTEM_PROMPT_FILE:" content))
+                  (end-pos  (string-match "\n:END:\n" content)))
+              (expect file-pos :to-be-truthy)
+              (expect end-pos :to-be-truthy)
+              (expect (< file-pos end-pos) :to-be t))
+            ;; Drawer + body adjacency is preserved (no separator
+            ;; injected between :END: and #+begin_user).
+            (expect content
+                    :to-match
+                    ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'"))))))
+
+  (describe "preset declares no :system"
+
+    (let ((empty-preset 'sibling-empty-preset))
+
+      (before-each
+        (gptel-make-preset empty-preset :temperature 0.5))
+
+      (after-each
+        (setq gptel--known-presets
+              (assq-delete-all empty-preset gptel--known-presets)))
+
+      (it "writes no sibling file and omits :GPTEL_SYSTEM_PROMPT_FILE: from the drawer"
+        (with-captured-io
+          (jf/gptel--create-session-core
+           "sess-no-sibling-20260423120000"
+           "/sessions/sess-no-sibling-20260423120000"
+           empty-preset)
+          (let* ((branch-prefix
+                  "/sessions/sess-no-sibling-20260423120000/branches/main")
+                 (content
+                  (captured-file-content
+                   captured-files
+                   (concat branch-prefix "/session.org")))
+                 (paths (hash-table-keys captured-files)))
+            (expect content :to-be-truthy)
+            (expect (string-match-p ":GPTEL_SYSTEM_PROMPT_FILE:" content)
+                    :to-be nil)
+            (expect (cl-some (lambda (p)
+                               (string-match-p "/system-prompt\\." p))
+                             paths)
+                    :to-be nil))))))
+
+  (describe "caller-supplied INITIAL-CONTENT override"
+
+    (let ((override-preset 'sibling-override-preset))
+
+      (before-each
+        (gptel-make-preset override-preset
+          :system "Body that must NOT leak into a sibling file."))
+
+      (after-each
+        (setq gptel--known-presets
+              (assq-delete-all override-preset gptel--known-presets)))
+
+      (it "skips sibling-file emission entirely when INITIAL-CONTENT is non-nil"
+        ;; The override contract gives the caller full ownership of
+        ;; the on-disk shape.  Emitting a sibling file alongside a
+        ;; caller-composed document would surprise the contract.
+        (with-captured-io
+          (jf/gptel--create-session-core
+           "sess-override-20260423120000"
+           "/sessions/sess-override-20260423120000"
+           override-preset
+           "caller-supplied\nbody\n")
+          (let* ((branch-prefix
+                  "/sessions/sess-override-20260423120000/branches/main")
+                 (content
+                  (captured-file-content
+                   captured-files
+                   (concat branch-prefix "/session.org")))
+                 (paths (hash-table-keys captured-files)))
+            (expect content :to-equal "caller-supplied\nbody\n")
+            (expect (cl-some (lambda (p)
+                               (string-match-p "/system-prompt\\." p))
+                             paths)
+                    :to-be nil)))))))
+
+(describe "jf/gptel--append-drawer-property"
+
+  ;; Pure string helper: splices `:KEY: VALUE\n' inside an existing
+  ;; `:PROPERTIES:' / `:END:' block, preserving the drawer's
+  ;; load-bearing tail-adjacency to the body
+  ;; (`register/invariant/scope-drawer-no-duplication' + the no-
+  ;; separator drawer + body concatenation in
+  ;; `jf/gptel--create-session-core').
+
+  (it "inserts the property line immediately before the closing :END: marker"
+    (let* ((drawer ":PROPERTIES:\n:GPTEL_PRESET: executor\n:END:\n")
+           (augmented (jf/gptel--append-drawer-property
+                       drawer "GPTEL_SYSTEM_PROMPT_FILE" "system-prompt.md")))
+      (expect augmented
+              :to-equal
+              (concat ":PROPERTIES:\n"
+                      ":GPTEL_PRESET: executor\n"
+                      ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                      ":END:\n"))))
+
+  (it "preserves :END: as the final line so drawer + body concatenation stays adjacent"
+    (let ((augmented (jf/gptel--append-drawer-property
+                      ":PROPERTIES:\n:GPTEL_PRESET: x\n:END:\n"
+                      "KEY" "value")))
+      (expect (string-suffix-p ":END:\n" augmented) :to-be t)))
+
+  (it "signals user-error when drawer-text does not end with :END:"
+    (expect (jf/gptel--append-drawer-property
+             ":PROPERTIES:\n:GPTEL_PRESET: x\n"
+             "KEY" "value")
+            :to-throw 'user-error)))
+
 (provide 'session-org-creation-spec)
 ;;; session-org-creation-spec.el ends here

@@ -297,7 +297,10 @@
   ;; canonical agent layout is drawer at point-min followed directly
   ;; by the populated `#+begin_user' block — no `* System Prompt' or
   ;; `* Chat' heading.  The preset's `:system' is materialised in a
-  ;; sibling `system-prompt.<ext>' file (wired in a subsequent task).
+  ;; sibling `system-prompt.<ext>' file written by
+  ;; `jf/gptel--write-system-prompt-sibling-file' and pointed at by
+  ;; the drawer's `:GPTEL_SYSTEM_PROMPT_FILE:' key (covered by the
+  ;; sibling-file describe block below).
 
   (it "emits the config drawer at point-min followed by the user-block prompt, with no headings"
     (jf/persistent-agent-test--with-mock-parent-session
@@ -362,6 +365,83 @@
                (expect end-pos :to-be-truthy)
                (expect turn-pos :to-be-truthy)
                (expect (< end-pos turn-pos) :to-be t)))))))))
+
+(describe "PersistentAgent emits sibling system-prompt file"
+
+  ;; The agent creation path mirrors the interactive session path's
+  ;; sibling-file emission: when the preset declares a non-empty
+  ;; `:system', `jf/gptel-persistent-agent--task' writes
+  ;; `system-prompt.<ext>' next to the agent's `session.org' and
+  ;; threads `:GPTEL_SYSTEM_PROMPT_FILE:' into the drawer.  Agent
+  ;; directories are flat (no `branches/' subdirectory — per
+  ;; `gptel-session-constants'), so the sibling file lands directly
+  ;; in the agent-dir.
+
+  (it "writes system-prompt.md next to the agent's session.org when preset has :system"
+    (jf/persistent-agent-test--with-mock-parent-session
+     (let ((preset-name 'sibling-agent-preset))
+       (unwind-protect
+           (progn
+             (gptel-make-preset preset-name
+               :description "agent preset with :system"
+               :backend gptel-backend
+               :model gptel-model
+               :system "Agent operating instructions.\nBe terse.")
+             (let ((captured nil))
+               (jf/persistent-agent-test--with-mock-gptel-request captured
+                 (jf/gptel-persistent-agent--task
+                  #'ignore "sibling-agent-preset" "analyze code" "DO THE THING"))
+               (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                      (agent-name (car (cl-remove-if
+                                        (lambda (n) (member n '("." "..")))
+                                        (directory-files agents-dir))))
+                      (agent-dir  (expand-file-name agent-name agents-dir))
+                      (session-org (expand-file-name "session.org" agent-dir))
+                      (sibling (expand-file-name "system-prompt.md" agent-dir))
+                      (session-content (with-temp-buffer
+                                         (insert-file-contents session-org)
+                                         (buffer-string)))
+                      (sibling-content (and (file-exists-p sibling)
+                                            (with-temp-buffer
+                                              (insert-file-contents sibling)
+                                              (buffer-string)))))
+                 ;; Sibling file exists with the preset's :system verbatim.
+                 (expect (file-exists-p sibling) :to-be t)
+                 (expect sibling-content
+                         :to-equal
+                         "Agent operating instructions.\nBe terse.")
+                 ;; Drawer carries :GPTEL_SYSTEM_PROMPT_FILE:.
+                 (jf/persistent-agent-test--with-agent-session-org agent-dir
+                   (expect (org-entry-get (point-min) "GPTEL_SYSTEM_PROMPT_FILE")
+                           :to-equal "system-prompt.md")
+                   ;; :GPTEL_SYSTEM: must still NEVER appear.
+                   (expect (org-entry-get (point-min) "GPTEL_SYSTEM")
+                           :to-be nil))
+                 ;; Drawer + user block adjacency unchanged.
+                 (expect session-content
+                         :to-match
+                         ":END:\n#\\+begin_user\nDO THE THING\n#\\+end_user\n\\'"))))
+         (setq gptel--known-presets
+               (assq-delete-all preset-name gptel--known-presets))))))
+
+  (it "writes no sibling file and omits :GPTEL_SYSTEM_PROMPT_FILE: when preset has no :system"
+    (jf/persistent-agent-test--with-mock-parent-session
+     (jf/persistent-agent-test--with-mock-preset 'test-preset
+       ;; The mock preset has no `:system'; the writer no-ops.
+       (let ((captured nil))
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "DO THE THING"))
+         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                (agent-name (car (cl-remove-if
+                                  (lambda (n) (member n '("." "..")))
+                                  (directory-files agents-dir))))
+                (agent-dir  (expand-file-name agent-name agents-dir))
+                (sibling (expand-file-name "system-prompt.md" agent-dir)))
+           (expect (file-exists-p sibling) :to-be nil)
+           (jf/persistent-agent-test--with-agent-session-org agent-dir
+             (expect (org-entry-get (point-min) "GPTEL_SYSTEM_PROMPT_FILE")
+                     :to-be nil))))))))
 
 (provide 'creation-spec)
 ;;; creation-spec.el ends here

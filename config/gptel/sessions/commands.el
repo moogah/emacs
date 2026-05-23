@@ -323,6 +323,24 @@ on-disk filename."
                          preset-name jf/gptel-presets-directory)
           "md"))))
 
+(defun jf/gptel--append-drawer-property (drawer-text key value)
+  "Return DRAWER-TEXT with `:KEY: VALUE\\n' spliced before its closing `:END:'.
+
+DRAWER-TEXT is a `register/shape/drawer-text-block' string —
+starts with `:PROPERTIES:\\n' and ends with `:END:\\n'.  KEY is the
+property name without surrounding colons (e.g. `\"GPTEL_SYSTEM_PROMPT_FILE\"').
+VALUE is the property's string value (e.g. `\"system-prompt.md\"').
+
+Signals `user-error' when DRAWER-TEXT does not end with `:END:\\n',
+since splicing in the wrong place would corrupt the drawer shape."
+  (let ((end-marker ":END:\n"))
+    (unless (string-suffix-p end-marker drawer-text)
+      (user-error
+       "jf/gptel--append-drawer-property: drawer-text does not end with :END: line"))
+    (concat (substring drawer-text 0 (- (length drawer-text) (length end-marker)))
+            (format ":%s: %s\n" key value)
+            end-marker)))
+
 (defun jf/gptel--write-system-prompt-sibling-file (session-dir preset-name preset-spec)
   "Write =system-prompt.<ext>= into SESSION-DIR from PRESET-SPEC.
 
@@ -403,10 +421,14 @@ PARENT-SESSION-ID - optional string, parent session id for agent
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
+- system-prompt.<ext> sibling file under the branch directory,
+  written verbatim from the preset's `:system' body via
+  `jf/gptel--write-system-prompt-sibling-file' (skipped when the
+  preset has no `:system' or when INITIAL-CONTENT is caller-supplied)
 - session.org pre-populated with the drawer-resident scope (preset
-  + scope keys) followed by an empty `#+begin_user' /
-  `#+end_user' block (the sibling-file emission for the system
-  prompt is wired in a subsequent task)
+  + scope keys + `:GPTEL_SYSTEM_PROMPT_FILE:' when the sibling file
+  was written) followed by an empty `#+begin_user' / `#+end_user'
+  block
 - current symlink pointing to main branch
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
@@ -438,6 +460,17 @@ Returns plist with:
          (preset-spec (and preset-name
                            (fboundp 'gptel-get-preset)
                            (gptel-get-preset preset-name)))
+         ;; Materialise the preset's `:system' body as
+         ;; `system-prompt.<ext>' next to `session.org' (design.md
+         ;; §Decision 1 of replace-system-prompt-heading-with-sibling-file).
+         ;; The writer no-ops when `:system' is nil/empty/whitespace
+         ;; or when INITIAL-CONTENT is caller-supplied (the caller
+         ;; owns the whole shape in that case — emitting a sibling
+         ;; file alongside a caller-composed document would be a
+         ;; surprise the override contract does not declare).
+         (sibling-basename (unless initial-content
+                             (jf/gptel--write-system-prompt-sibling-file
+                              main-branch-dir preset-name preset-spec)))
          ;; Resolve the preset's scope profile and render the
          ;; drawer-text block (Mode 2a). The renderer carries
          ;; `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID', the
@@ -452,6 +485,16 @@ Returns plist with:
                        worktree-paths
                        parent-session-id
                        preset-spec))
+         ;; Thread the sibling file's basename into the drawer as
+         ;; `:GPTEL_SYSTEM_PROMPT_FILE:' so the chat-mode restore
+         ;; path can resolve it relative to `session.org's directory.
+         ;; The append helper splices the key inside `:PROPERTIES:' /
+         ;; `:END:', preserving the drawer + body adjacency invariant.
+         (drawer-text (if sibling-basename
+                          (jf/gptel--append-drawer-property
+                           drawer-text "GPTEL_SYSTEM_PROMPT_FILE"
+                           sibling-basename)
+                        drawer-text))
          (final-content (or initial-content
                             (concat drawer-text
                                     (jf/gptel--initial-session-body)))))

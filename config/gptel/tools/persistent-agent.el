@@ -273,14 +273,33 @@ for parent overlay feedback and final-text return."
            (preset-spec (and preset-sym
                              (fboundp 'gptel-get-preset)
                              (gptel-get-preset preset-sym)))
+           ;; Materialise the preset's `:system' body as
+           ;; `system-prompt.<ext>' next to `session.org' (design.md
+           ;; §Decision 1 of replace-system-prompt-heading-with-sibling-file).
+           ;; The writer no-ops when `:system' is nil/empty.  The
+           ;; returned basename is threaded into the drawer below.
+           ;; The agent directory has no `branches/' subdirectory
+           ;; (constants.el: agents nest directly under the parent
+           ;; branch-dir), so SESSION-DIR is the directory the
+           ;; sibling file lands in.
+           (sibling-basename
+            (jf/gptel--write-system-prompt-sibling-file
+             session-dir preset-sym preset-spec))
            (drawer-text
             (jf/gptel-scope-profile--render-drawer-text
              preset-sym parent-id scope-plist preset-spec))
+           ;; Thread the sibling file's basename into the drawer as
+           ;; `:GPTEL_SYSTEM_PROMPT_FILE:' so chat-mode restore can
+           ;; resolve it relative to `session.org's directory.
+           (drawer-text (if sibling-basename
+                            (jf/gptel--append-drawer-property
+                             drawer-text "GPTEL_SYSTEM_PROMPT_FILE"
+                             sibling-basename)
+                          drawer-text))
            ;; Compose the agent session.org body: drawer + populated
-           ;; user block.  The preset's `:system' is intentionally
-           ;; not woven into the document; the sibling-file writer
-           ;; (a later task in the same change) writes it to
-           ;; `system-prompt.<ext>' alongside session.org.
+           ;; user block.  No headings are emitted; the preset's
+           ;; `:system' lives in the sibling file resolved via
+           ;; `:GPTEL_SYSTEM_PROMPT_FILE:'.
            (body (jf/gptel-persistent-agent--initial-body prompt))
            (initial-content (concat drawer-text body)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))
