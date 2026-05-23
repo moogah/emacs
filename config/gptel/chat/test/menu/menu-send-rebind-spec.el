@@ -230,10 +230,20 @@ basis."
                'gptel-chat-menu 'gptel--preset)
               :to-be t))
 
-    (it "references the upstream system-prompt command"
+    (it "replaces the upstream system-prompt command with the chat-mode file-opener"
+      ;; Chat-mode menu routes "Edit system prompt" to
+      ;; `gptel-chat--edit-system-prompt-file', which opens the sibling
+      ;; system-prompt file in another window rather than offering an
+      ;; in-menu minibuffer edit (design.md §Decision 5 of
+      ;; replace-system-prompt-heading-with-sibling-file).  Upstream
+      ;; `gptel-system-prompt' invoked outside the chat-mode menu is
+      ;; unchanged — only the chat-mode prefix is rewired.
+      (expect (gptel-chat-menu-test--layout-mentions-p
+               'gptel-chat-menu 'gptel-chat--edit-system-prompt-file)
+              :to-be t)
       (expect (gptel-chat-menu-test--layout-mentions-p
                'gptel-chat-menu 'gptel-system-prompt)
-              :to-be t))
+              :to-be nil))
 
     (it "references the upstream tools command"
       (expect (gptel-chat-menu-test--layout-mentions-p

@@ -195,6 +195,97 @@ Returns the absolute session.org path."
               (expect gptel--system-message :to-equal body))
           (kill-buffer buf))))))
 
+(describe "gptel-chat--edit-system-prompt-file"
+  :var (session-file)
+
+  (before-each
+    (setq jf-sysprompt-file-test--tmp-dir
+          (make-temp-file "jf-sysprompt-edit-" t)))
+
+  (after-each
+    (when (and jf-sysprompt-file-test--tmp-dir
+               (file-directory-p jf-sysprompt-file-test--tmp-dir))
+      (delete-directory jf-sysprompt-file-test--tmp-dir t)))
+
+  (it "opens existing sibling file in other window"
+    (jf-sysprompt-file-test--write-sibling "system-prompt.md" "existing body")
+    (setq session-file
+          (jf-sysprompt-file-test--write-session
+           ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+    (spy-on 'find-file-other-window)
+    (spy-on 'read-string)
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat--edit-system-prompt-file)
+            (expect 'find-file-other-window :to-have-been-called)
+            (let ((called-path
+                   (car (spy-calls-args-for 'find-file-other-window 0))))
+              (expect (file-truename called-path)
+                      :to-equal
+                      (file-truename
+                       (expand-file-name "system-prompt.md"
+                                         jf-sysprompt-file-test--tmp-dir))))
+            (expect 'read-string :not :to-have-been-called))
+        (kill-buffer buf))))
+
+  (it "creates and opens a new file when property is unset"
+    (setq session-file
+          (jf-sysprompt-file-test--write-session ":GPTEL_PRESET: coding\n"))
+    (spy-on 'find-file-other-window)
+    (spy-on 'read-string :and-return-value "system-prompt.md")
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat--edit-system-prompt-file)
+            (expect (org-entry-get (point-min)
+                                   "GPTEL_SYSTEM_PROMPT_FILE"
+                                   'selective)
+                    :to-equal "system-prompt.md")
+            (let ((expected (expand-file-name "system-prompt.md"
+                                              jf-sysprompt-file-test--tmp-dir)))
+              (expect (file-exists-p expected) :to-be-truthy)
+              (let ((called-path
+                     (car (spy-calls-args-for 'find-file-other-window 0))))
+                (expect (file-truename called-path)
+                        :to-equal (file-truename expected)))))
+        (kill-buffer buf))))
+
+  (it "creates and opens a new file when property is set but file is absent"
+    ;; Drawer carries the property, sibling file is absent — no re-prompt.
+    (setq session-file
+          (jf-sysprompt-file-test--write-session
+           ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+    (spy-on 'find-file-other-window)
+    (spy-on 'read-string)
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat--edit-system-prompt-file)
+            (let ((expected (expand-file-name "system-prompt.md"
+                                              jf-sysprompt-file-test--tmp-dir)))
+              (expect (file-exists-p expected) :to-be-truthy)
+              (let ((called-path
+                     (car (spy-calls-args-for 'find-file-other-window 0))))
+                (expect (file-truename called-path)
+                        :to-equal (file-truename expected))))
+            (expect 'read-string :not :to-have-been-called))
+        (kill-buffer buf))))
+
+  (it "does not prompt when the property is set and file exists"
+    (jf-sysprompt-file-test--write-sibling "system-prompt.md" "body")
+    (setq session-file
+          (jf-sysprompt-file-test--write-session
+           ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+    (spy-on 'find-file-other-window)
+    (spy-on 'read-string)
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat--edit-system-prompt-file)
+            (expect 'read-string :not :to-have-been-called))
+        (kill-buffer buf)))))
+
 (provide 'system-prompt-file-spec)
 
 ;;; system-prompt-file-spec.el ends here

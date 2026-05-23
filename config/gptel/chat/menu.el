@@ -417,6 +417,86 @@ the function operates on the buffer-local context."
             #'gptel-chat--refresh-system-prompt-from-file)
 ;; Pre-send refresh:1 ends here
 
+;; Edit affordance
+
+;; =gptel-chat--edit-system-prompt-file= is the chat-mode menu's
+;; "Edit system prompt" entry: it takes the user to the sibling
+;; file in another window rather than offering an in-menu text
+;; field that would bypass the file and lose its content on the
+;; next pre-send refresh (design.md §Decision 5 of
+;; =replace-system-prompt-heading-with-sibling-file=).  The sibling
+;; file is the canonical source of truth; the menu surfaces *the
+;; file*, not a buffer-local string.
+
+;; This is the fourth consumer of =gptel-chat--system-prompt-file-
+;; path=, after the activation-time installer, the pre-send refresh,
+;; and (transitively) any caller that resolves the path itself.
+;; Sharing the resolver keeps file-path semantics single-sourced.
+
+;; When the drawer already carries =:GPTEL_SYSTEM_PROMPT_FILE:= and
+;; the referenced file exists, the command simply
+;; =find-file-other-window='s it.  When the property is set but the
+;; file is absent (rare — e.g. the user deleted it), the command
+;; re-creates the empty file at the property's resolved path without
+;; re-prompting.  When the property is unset (e.g. the session was
+;; created from a preset with no =:system=), the command prompts
+;; for a filename (default =system-prompt.md=), writes the property
+;; into the configuration drawer at =point-min=, persists the
+;; drawer change with =save-buffer=, creates the empty file, and
+;; opens it.
+
+;; Prompting only happens when the property is unset; an unset
+;; property is the sole "first-time" signal.
+
+
+;; [[file:menu.org::*Edit affordance][Edit affordance:1]]
+(defun gptel-chat--edit-system-prompt-file ()
+  "Open the sibling system-prompt file in another window.
+
+Resolves the path via `gptel-chat--system-prompt-file-path'.
+
+- When the drawer's `:GPTEL_SYSTEM_PROMPT_FILE:' is set and the
+  referenced file exists, opens it via `find-file-other-window'.
+- When the property is set but the file is missing, creates the
+  empty file at the property's resolved path (no re-prompt) and
+  opens it.
+- When the property is unset, prompts for a filename (default
+  `system-prompt.md'), writes the property into the configuration
+  drawer at `point-min', persists the drawer change with
+  `save-buffer' (the existing save-state hook rewrites the drawer
+  with the new key alongside the rest of the snapshot), creates
+  the empty file, and opens it.
+
+Replaces upstream `gptel-system-prompt' in the chat-mode menu
+only (design.md §Decision 5 of replace-system-prompt-heading-
+with-sibling-file): edits target the file, not the minibuffer,
+so the sibling file remains the canonical source of truth and a
+mid-session edit survives the next pre-send refresh
+\(`gptel-chat--refresh-system-prompt-from-file').  Upstream
+`gptel-system-prompt' invoked outside the chat-mode menu is
+unchanged."
+  (interactive)
+  (let ((path (gptel-chat--system-prompt-file-path)))
+    (cond
+     ((and path (file-exists-p path))
+      (find-file-other-window path))
+     (path
+      (write-region "" nil path nil 'silent)
+      (find-file-other-window path))
+     (t
+      (let* ((basename (read-string "System prompt filename: "
+                                    nil nil "system-prompt.md"))
+             (target (expand-file-name
+                      basename
+                      (file-name-directory buffer-file-name))))
+        (save-excursion
+          (goto-char (point-min))
+          (org-entry-put (point) "GPTEL_SYSTEM_PROMPT_FILE" basename))
+        (save-buffer)
+        (write-region "" nil target nil 'silent)
+        (find-file-other-window target))))))
+;; Edit affordance:1 ends here
+
 ;; Preset application hook
 
 ;; =gptel-chat--apply-declared-preset= is the hook entry point. It
@@ -1053,7 +1133,7 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
    [""
     :if (lambda () (not (gptel--model-capable-p 'nosystem)))
     "Instructions"
-    ("s" "Set system message" gptel-system-prompt :transient t)
+    ("s" "Edit system prompt" gptel-chat--edit-system-prompt-file)
     (gptel--infix-add-directive)]
    [:pad-keys t ""
     (:info #'gptel--describe-infix-context
