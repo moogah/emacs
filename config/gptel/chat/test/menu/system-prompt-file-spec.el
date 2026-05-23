@@ -234,6 +234,11 @@ Returns the absolute session.org path."
           (jf-sysprompt-file-test--write-session ":GPTEL_PRESET: coding\n"))
     (spy-on 'find-file-other-window)
     (spy-on 'read-string :and-return-value "system-prompt.md")
+    ;; Pin the load-bearing save-buffer side-effect: the drawer write
+    ;; only survives a kill-buffer/restart if it's persisted to disk
+    ;; (the next session activation reads `:GPTEL_SYSTEM_PROMPT_FILE:'
+    ;; from the on-disk drawer, not the buffer).
+    (spy-on 'save-buffer :and-call-through)
     (let ((buf (find-file-noselect session-file)))
       (unwind-protect
           (with-current-buffer buf
@@ -242,6 +247,25 @@ Returns the absolute session.org path."
                                    "GPTEL_SYSTEM_PROMPT_FILE"
                                    'selective)
                     :to-equal "system-prompt.md")
+            (expect 'save-buffer :to-have-been-called)
+            ;; Re-read the drawer from disk to prove the property
+            ;; survived `save-buffer' (not just the in-memory edit).
+            (let ((on-disk-property
+                   (with-temp-buffer
+                     (insert-file-contents session-file)
+                     (when (re-search-forward
+                            "^:GPTEL_SYSTEM_PROMPT_FILE: \\(.*\\)$" nil t)
+                       (match-string 1)))))
+              (expect on-disk-property :to-equal "system-prompt.md"))
+            ;; The default-value argument to `read-string' is the
+            ;; load-bearing source of the documented `system-prompt.md'
+            ;; default (the mock above ignores args, so explicitly
+            ;; assert the call args here so a regression that dropped
+            ;; the default would be caught).
+            (let ((read-string-args (spy-calls-args-for 'read-string 0)))
+              (expect (nth 0 read-string-args)
+                      :to-equal "System prompt filename: ")
+              (expect (nth 3 read-string-args) :to-equal "system-prompt.md"))
             (let ((expected (expand-file-name "system-prompt.md"
                                               jf-sysprompt-file-test--tmp-dir)))
               (expect (file-exists-p expected) :to-be-truthy)
