@@ -63,3 +63,24 @@ design.md §Goals — the heading layout is removed wholesale; this task cleans 
   the visibility hook firing. Verification command in step 4 is
   sufficient; no spec deletions expected.
 
+## Cycle 1779568860 updates (cycle-1779568860)
+
+- **No new blockers.** Cycle-2 did not touch this task's likely
+  files (`chat/mode.org` or wherever the visibility hook lives).
+  The cycle-1 status here is unchanged — investigation grep in step
+  1 is still the right entry point.
+- **Chat-mode suite has grown to 504 specs** (was 497 at
+  cycle-1779565028 close): 503 from cycle-2 T2's
+  `pre-send-refresh-spec.el` (6 new + the original 497) plus 1
+  post-review regression guard. None of these new specs depend on
+  the visibility hook either; verification expectations from the
+  prior cycle update still hold.
+- **Register supersession landed** for the heading-shape contracts
+  (`register/shape/session-document-layout`,
+  `register/invariant/system-prompt-heading-authoritative` →
+  `status: superseded`). The hook this task removes was a remnant
+  of those contracts; the "Why" section's dead-code claim is now
+  doubly reinforced (heading-shape removed in cycle-1; register
+  supersession completed in cycle-2). No code-side impact on this
+  task's implementation steps.
+

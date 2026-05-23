@@ -83,3 +83,36 @@ design.md §Open Question 2 — transient suffix vs. bound key; default to trans
   `find-file-noselect` canonicalises `/var/folders/...` to
   `/private/var/folders/...`.
 
+## Cycle 1779568860 updates (cycle-1779568860)
+
+- **No new blockers.** All three cited entry sources are still in
+  place: the resolver `gptel-chat--system-prompt-file-path`, the
+  activation installer `gptel-chat--apply-system-prompt-file`, and
+  (new this cycle) the pre-send refresh
+  `gptel-chat--refresh-system-prompt-from-file` (merge `b40c94b`).
+- **`chat/menu.org` is now larger.** Cycle-2 T2 added a new section
+  `* System Prompt sibling file > ** Pre-send refresh` immediately
+  after the activation installer, plus an `(advice-add 'gptel-request
+  :before #'gptel-chat--refresh-system-prompt-from-file)` form at
+  module load. This sits ABOVE the `* =gptel-chat-menu= transient`
+  section that this task targets, so no conflict — but the file
+  has grown, so locate the upstream `gptel-system-prompt` infix
+  inside the `Prefix definition` block by scrolling past the new
+  pre-send-refresh material.
+- **Pre-send refresh is the third consumer** of
+  `gptel-chat--system-prompt-file-path` (now: resolver + activation
+  installer + pre-send refresh + this task's file-opener will make
+  four). Task body's "third consumer" prose at architecture.md
+  §Components is now mildly stale — the new affordance is the
+  fourth, not the third. Cosmetic; no implementation impact.
+- **Register supersession landed**: `register/shape/session-document-layout`
+  and `register/invariant/system-prompt-heading-authoritative` are
+  now `status: superseded` with the new contracts at
+  `register/shape/session-sibling-system-prompt-file` and
+  `register/invariant/system-prompt-file-authoritative`. This task's
+  new `gptel-chat--edit-system-prompt-file` will be the fourth pinned
+  consumer of the new invariant; no test-side change needed beyond
+  the four new `it`s the body already prescribes.
+- **macOS-quirk + test-fixture-pattern reminders from cycle-1 still
+  apply unchanged**.
+
