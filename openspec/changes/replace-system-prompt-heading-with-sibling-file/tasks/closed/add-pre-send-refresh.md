@@ -2,7 +2,7 @@
 name: add-pre-send-refresh
 description: Add `gptel-chat--refresh-system-prompt-from-file` and wire it to run before every chat request in chat-mode buffers, so that mid-session edits to the sibling system-prompt file are picked up on the next send without explicitly reopening or reverting `session.org`. Implementation prefers an upstream pre-send hook if one exists; otherwise narrow `:before` advice on `gptel-request` filtered to `derived-mode-p 'gptel-chat-mode`.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: done
 relations:
   - blocked-by:add-sibling-file-restore-to-chat-mode
 ---

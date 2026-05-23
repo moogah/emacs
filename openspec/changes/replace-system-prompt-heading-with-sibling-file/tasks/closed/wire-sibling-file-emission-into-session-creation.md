@@ -2,7 +2,7 @@
 name: wire-sibling-file-emission-into-session-creation
 description: Wire `jf/gptel--write-system-prompt-sibling-file` into `jf/gptel--create-session-core` so that fresh sessions write `system-prompt.<ext>` next to `session.org` and the configuration drawer carries the new `:GPTEL_SYSTEM_PROMPT_FILE:` property pointing at that basename. Updates session-creation specs for the new property and sibling-file presence.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: done
 relations:
   - blocked-by:add-sibling-file-writer-helper
   - blocked-by:revert-initial-session-body-and-delete-headings-block

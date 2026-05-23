@@ -2,7 +2,7 @@
 name: mark-superseded-interfaces-register-entries
 description: Mark `register/shape/session-document-layout` and `register/invariant/system-prompt-heading-authoritative` as superseded in `interfaces.org`, with pointers to the new `:GPTEL_SYSTEM_PROMPT_FILE:` contract. Update or remove cross-references in other entries.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: done
 relations: []
 ---
 
