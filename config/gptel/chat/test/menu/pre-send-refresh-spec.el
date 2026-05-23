@@ -228,7 +228,23 @@
               ;; Cache preserved because the predicate failed.
               (expect gptel--system-message :to-equal "sentinel-plain-buf"))
           (advice-remove 'gptel-request
-                         #'gptel-chat--refresh-system-prompt-from-file))))))
+                         #'gptel-chat--refresh-system-prompt-from-file)))))
+
+  (it "is registered as :before advice on gptel-request at module load"
+    ;; Regression guard: the wiring tests above use a `cl-letf'-stubbed
+    ;; `gptel-request' and `advice-add' the refresh themselves, so they
+    ;; would still pass if the production module-load `advice-add' at
+    ;; the bottom of `config/gptel/chat/menu.org's System-Prompt-sibling-
+    ;; file section were removed or mistyped.  This spec asserts the
+    ;; production advice install is actually present on the real
+    ;; `gptel-request' symbol, independent of any test scaffolding.
+    (let ((found nil))
+      (advice-mapc
+       (lambda (fn _props)
+         (when (eq fn 'gptel-chat--refresh-system-prompt-from-file)
+           (setq found t)))
+       'gptel-request)
+      (expect found :to-be t))))
 
 (provide 'pre-send-refresh-spec)
 ;;; pre-send-refresh-spec.el ends here
