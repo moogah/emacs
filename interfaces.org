@@ -567,6 +567,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      persistent-agent/creation-spec.el, system-prompt-file-spec.el,
      pre-send-refresh-spec.el). Supersedes
      register/shape/session-document-layout.
+     cycle-1779572373 (2026-05-24) — task replace-system-prompt-
+     infix-with-file-opener added gptel-chat--edit-system-prompt-
+     file as a fourth consumer of gptel-chat--system-prompt-file-
+     path. The new affordance reads the drawer property via the
+     shared resolver (pinning the basename-resolution rule), opens
+     the resolved file via find-file-other-window (pinning the
+     "file is canonical, buffer is cache" mental model from the
+     paired invariant entry), and when the property is unset
+     writes :GPTEL_SYSTEM_PROMPT_FILE: + creates the sibling file
+     at the resolved path (exercising the
+     drawer-property-inside-PROPERTIES-block and sibling-in-same-
+     dir-as-session.org invariants during creation). Four new
+     buttercup specs in system-prompt-file-spec.el cover the
+     affordance; the reviewer-driven follow-up (commit 5cd26b0)
+     additionally pins the save-buffer side-effect via spy + on-
+     disk re-read and the read-string DEFAULT-VALUE argument via
+     spy-calls-args-for.
    load_bearing: true
    title: |
      Shape of the on-disk sibling system-prompt file and its
@@ -689,6 +706,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          buffer-local cache before every chat request from a
          gptel-chat-mode buffer. Same defensive guards as the
          activation-time installer.
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--edit-system-prompt-file
+       usage: |
+         Chat-mode menu's "Edit system prompt" affordance
+         (replaces upstream gptel-system-prompt in the chat-mode
+         prefix only). Resolves the path via the shared resolver;
+         when the property is set and the file exists, opens it
+         via find-file-other-window; when the property is set but
+         the file is absent, re-creates the empty file at the
+         resolved path (no re-prompt) and opens it; when the
+         property is unset, prompts for a basename (default
+         system-prompt.md), writes :GPTEL_SYSTEM_PROMPT_FILE: into
+         the drawer via org-entry-put at point-min, persists with
+         save-buffer, creates the empty file via write-region, and
+         opens it. Edits target the file, not the buffer, so the
+         next pre-send refresh has nothing to overwrite.
 
    validator: |
      (defun shape/validate-session-sibling-system-prompt-file (buf)
@@ -2725,9 +2758,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    superseded_in_cycle: cycle-1779568860
    supersession_note: |
      replace-system-prompt-heading-with-sibling-file (cycles
-     1779565028 + 1779568860) deleted the `* System Prompt` heading
-     this invariant defended, replacing it with a sibling
-     system-prompt.<ext> file referenced by a new
+     1779565028 + 1779568860 + 1779572373) deleted the `* System
+     Prompt` heading this invariant defended, replacing it with a
+     sibling system-prompt.<ext> file referenced by a new
      :GPTEL_SYSTEM_PROMPT_FILE: drawer key. The three-tier restore
      precedence collapses to: sibling file > legacy :GPTEL_SYSTEM:
      drawer entry (back-compat) > preset :system — the heading tier
@@ -2735,7 +2768,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (gptel-chat--refresh-system-prompt-from-file, :before advice on
      gptel-request) added in cycle-1779568860 completes the
      "file is canonical, buffer is per-request cache" mental model.
-     Replacement contract at
+     cycle-1779572373 (2026-05-24) — task strip-visibility-folded-
+     startup-hook removed the last runtime enforcement (the
+     org-cycle-set-visibility-according-to-property call inside
+     gptel-chat--apply-startup-visibility) and the three buttercup
+     `it` blocks in drawer-fold-spec.el that asserted its behavior.
+     The supersession is now structurally complete: no production
+     code or tests reference the old heading-folding contract; the
+     verification grep on the removed API symbol is clean across
+     config/gptel/chat/. Replacement contract at
      register/invariant/system-prompt-file-authoritative.
    status_note: |
      cycle-7 plan (2026-05-22) — speculated by forward-mode against
@@ -2869,6 +2910,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      preset-wiring-spec.el) and per-request refresh
      (config/gptel/chat/test/menu/pre-send-refresh-spec.el).
      Supersedes register/invariant/system-prompt-heading-authoritative.
+     cycle-1779572373 (2026-05-24) — task replace-system-prompt-
+     infix-with-file-opener routed the chat-mode menu's "Edit
+     system prompt" entry to gptel-chat--edit-system-prompt-file,
+     which opens the canonical sibling file in another window
+     rather than offering an in-menu buffer-local mutation. This
+     is the user-facing affordance that preserves the invariant:
+     the alternative (keeping upstream gptel-system-prompt in the
+     chat-mode prefix) would have mutated buffer-local
+     gptel--system-message via the minibuffer, which would have
+     been silently overwritten by gptel-chat--refresh-system-
+     prompt-from-file on the next gptel-request. The negative
+     assertion in menu-send-rebind-spec.el (gptel-system-prompt
+     absent from the chat-mode prefix) is the test-side guard
+     against a future commit re-introducing the competing
+     mutation surface.
    load_bearing: true
    title: |
      The sibling system-prompt.<ext> file is the authoritative
@@ -2929,7 +2985,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        Activation precedence:
        - config/gptel/chat/test/menu/system-prompt-file-spec.el
          (9 focused specs covering the resolver + activation-time
-         installer + all defensive paths)
+         installer + all defensive paths; plus the cycle-3 "Edit
+         affordance" describe — 4 specs covering open-existing /
+         create-from-unset / create-when-property-but-missing /
+         no-prompt-when-set; the unset-property spec additionally
+         pins save-buffer + read-string DEFAULT-VALUE per the
+         cycle-3 reviewer follow-up)
        - config/gptel/chat/test/menu/preset-wiring-spec.el
          (the "system prompt restore precedence" describe — 6 specs
          covering sibling-file-wins-over-preset, sibling-wins-over-
@@ -2940,6 +3001,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          (6 specs covering the refresh body + :before advice on
          gptel-request + the unreadable / blank-body / no-op edge
          cases + the non-chat-mode buffer no-op)
+       User-facing edit affordance (the path that preserves "file
+       is canonical, buffer is cache"):
+       - gptel-chat--edit-system-prompt-file in
+         config/gptel/chat/menu.org (replaces upstream
+         gptel-system-prompt in the chat-mode prefix; opens the
+         sibling file in another window rather than offering an
+         in-menu buffer-local mutation surface that the pre-send
+         refresh would overwrite)
+       - menu-send-rebind-spec.el's "shared configuration infixes"
+         describe asserts gptel-system-prompt is absent from the
+         chat-mode prefix (and gptel-chat--edit-system-prompt-file
+         is present) — the negative-assertion guard against a
+         future re-introduction of the competing mutation surface
 
    related_entries:
      - register/shape/session-sibling-system-prompt-file

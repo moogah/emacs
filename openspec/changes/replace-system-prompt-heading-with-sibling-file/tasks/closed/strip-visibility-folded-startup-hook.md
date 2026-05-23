@@ -2,8 +2,9 @@
 name: strip-visibility-folded-startup-hook
 description: Remove the chat-mode hook that activates `org-set-visibility-according-to-property` for `* System Prompt` startup-folding. With no `* System Prompt` heading in the canonical layout (no `:VISIBILITY:` property to honor), the hook has nothing to fold and can be removed cleanly.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: done
 relations: []
+merge_commit: ecae1a1
 ---
 
 ## Files to modify

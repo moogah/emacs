@@ -2,9 +2,10 @@
 name: replace-system-prompt-infix-with-file-opener
 description: Replace the upstream `gptel-system-prompt` infix in the chat-mode transient menu with a new "Edit system prompt" suffix that opens the sibling system-prompt file in another window via `find-file-other-window`. When the drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:` property yet, the suffix prompts for a filename (default `system-prompt.md`), writes the property, creates an empty file, and opens it. Upstream `gptel-system-prompt` (invoked outside the chat-mode menu) is unchanged.
 change: replace-system-prompt-heading-with-sibling-file
-status: ready
+status: done
 relations:
   - blocked-by:add-sibling-file-restore-to-chat-mode
+merge_commit: 6cd453b
 ---
 
 ## Files to modify
