@@ -59,6 +59,16 @@ Initial content for a fresh agent session additionally carries `:GPTEL_PARENT_SE
 - **AND** the drawer does NOT contain `:GPTEL_SYSTEM:`
 - **AND** the drawer is followed by a folded `* System Prompt` heading and a `* Chat` heading
 
+#### Scenario: Fresh agent session.org matches the canonical document layout
+- **WHEN** `PersistentAgent` creates an agent session with preset `executor` and initial prompt `"DO THE THING"`
+- **THEN** the agent `session.org` starts with a file-level `:PROPERTIES:` config drawer at `point-min` (no heading, no blank line precedes `:PROPERTIES:`)
+- **AND** the drawer is followed by exactly one `* System Prompt` heading carrying `:VISIBILITY: folded`, its body seeded from the `executor` preset's `:system` text (empty body when the preset declares no `:system`)
+- **AND** then exactly one `* Chat` heading, under which the populated `#+begin_user\nDO THE THING\n#+end_user\n` block appears
+- **AND** no `#+begin_user` turn block appears above the `* Chat` heading
+- **AND** the produced document satisfies `register/shape/session-document-layout`'s `shape/validate-session-document-layout` validator — the same shape the interactive `jf/gptel--create-session-core` path emits
+
+**Implementation**: `config/gptel/tools/persistent-agent.org` — `jf/gptel-persistent-agent--task` (orchestrator) → `jf/gptel-persistent-agent--initial-body` (which delegates to `jf/gptel--session-headings-block`, the single source of truth for the heading layout in `config/gptel/sessions/commands.org`). The agent-creation path is a third producer of `register/shape/session-document-layout` alongside the interactive renderer and the chat-mode save-path materialiser.
+
 ### Requirement: Session creation
 
 The system SHALL provide an interactive command for creating persistent sessions. `jf/gptel-persistent-session` SHALL create new sessions with `session.org` as the session file, populated with a pre-configured `:PROPERTIES:` drawer carrying:
