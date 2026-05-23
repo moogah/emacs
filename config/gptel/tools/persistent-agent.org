@@ -249,34 +249,6 @@ writing the file, so that the composed
   (format "#+begin_user\n%s\n#+end_user\n" prompt))
 #+end_src
 
-** Initial-Content Builder (legacy, test-only)
-
-Pre-cycle-2 production caller. Retained for backward compatibility
-with helper-level specs that pin the standalone shape (drawer +
-populated user block, no =:GPTEL_SCOPE_*= keys). Production —
-=jf/gptel-persistent-agent--task= — no longer routes through this
-function; it composes drawer-text from
-=jf/gptel-scope-profile--render-drawer-text= (which carries the
-resolved =:GPTEL_SCOPE_*= keys) with the body from
-=--initial-body=.
-
-#+begin_src emacs-lisp
-(defun jf/gptel-persistent-agent--initial-content (preset-sym parent-id prompt)
-  "Build initial session.org content: drawer (preset + parent only) + user block.
-PRESET-SYM is the preset name as a symbol.
-PARENT-ID is the parent session id string.
-PROMPT becomes the body of the first `#+begin_user' block.
-
-NOTE: Production — `jf/gptel-persistent-agent--task' — no longer
-routes through this helper. It composes the drawer via
-`jf/gptel-scope-profile--render-drawer-text' (which carries the
-resolved `:GPTEL_SCOPE_*' keys) and the body via
-`jf/gptel-persistent-agent--initial-body'. This helper is retained
-for direct callers and helper-level tests."
-  (format ":PROPERTIES:\n:GPTEL_PRESET: %s\n:GPTEL_PARENT_SESSION_ID: %s\n:END:\n#+begin_user\n%s\n#+end_user\n"
-          (symbol-name preset-sym) parent-id prompt))
-#+end_src
-
 * Final-Text Extractor
 
 Read the agent buffer's last assistant turn's last text segment

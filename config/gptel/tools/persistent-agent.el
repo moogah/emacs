@@ -150,21 +150,6 @@ writing the file, so that the composed
 `:END:' pair (`register/invariant/scope-drawer-no-duplication')."
   (format "#+begin_user\n%s\n#+end_user\n" prompt))
 
-(defun jf/gptel-persistent-agent--initial-content (preset-sym parent-id prompt)
-  "Build initial session.org content: drawer (preset + parent only) + user block.
-PRESET-SYM is the preset name as a symbol.
-PARENT-ID is the parent session id string.
-PROMPT becomes the body of the first `#+begin_user' block.
-
-NOTE: Production — `jf/gptel-persistent-agent--task' — no longer
-routes through this helper. It composes the drawer via
-`jf/gptel-scope-profile--render-drawer-text' (which carries the
-resolved `:GPTEL_SCOPE_*' keys) and the body via
-`jf/gptel-persistent-agent--initial-body'. This helper is retained
-for direct callers and helper-level tests."
-  (format ":PROPERTIES:\n:GPTEL_PRESET: %s\n:GPTEL_PARENT_SESSION_ID: %s\n:END:\n#+begin_user\n%s\n#+end_user\n"
-          (symbol-name preset-sym) parent-id prompt))
-
 (defun jf/gptel-persistent-agent--extract-final-text (agent-buffer)
   "Return trailing text of the last assistant turn in AGENT-BUFFER.
 Returns the empty string when AGENT-BUFFER has been killed before

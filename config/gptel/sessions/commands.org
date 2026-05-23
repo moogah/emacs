@@ -528,49 +528,6 @@ commentary to it and `gptel-chat-new' scratch buffers (bare
    "#+begin_user\n\n#+end_user\n"))
 #+end_src
 
-** Initial Session Content Helper (legacy)
-
-Drawer + body composition retained for backward compatibility with
-direct callers and the helper-level tests. =--create-session-core=
-no longer routes through this function; instead it composes the
-drawer text from =--render-drawer-text= (which now also carries the
-=GPTEL_SCOPE_*= keys) with =--initial-session-body=. This helper
-synthesises an equivalent drawer with =GPTEL_PRESET= and optional
-=GPTEL_PARENT_SESSION_ID= but no scope keys — adequate for tests
-that pin the standalone drawer-shape contract.
-
-#+begin_src emacs-lisp
-(defun jf/gptel--initial-session-content (preset-name &optional parent-session-id)
-  "Return initial content for a freshly-created `session.org' file.
-
-PRESET-NAME is a symbol naming a registered preset in
-`gptel--known-presets'.
-
-PARENT-SESSION-ID, when a non-empty string, adds a
-`:GPTEL_PARENT_SESSION_ID:' line to the drawer so the chat-mode
-restore path installs `jf/gptel--parent-session-id' buffer-locally
-on first open (design Decision 3 / Decision 4).
-
-Returns a string starting with a `:PROPERTIES:' drawer (preset and
-optional parent-session id only — no `:GPTEL_SCOPE_*:' keys)
-followed by an empty `#+begin_user' / `#+end_user' block. NOTE:
-`jf/gptel--create-session-core' no longer routes through this
-helper; it composes the drawer via
-`jf/gptel-scope-profile--render-drawer-text' (which carries the
-resolved scope keys) and the body via
-`jf/gptel--initial-session-body'. This helper is retained for
-direct callers and helper-level tests."
-  (let ((parent-line
-         (if (and parent-session-id
-                  (stringp parent-session-id)
-                  (not (string-empty-p parent-session-id)))
-             (format ":GPTEL_PARENT_SESSION_ID: %s\n" parent-session-id)
-           "")))
-    (format ":PROPERTIES:\n:GPTEL_PRESET: %s\n%s:END:\n#+begin_user\n\n#+end_user\n"
-            (symbol-name preset-name)
-            parent-line)))
-#+end_src
-
 ** Create Session Core
 
 #+begin_src emacs-lisp

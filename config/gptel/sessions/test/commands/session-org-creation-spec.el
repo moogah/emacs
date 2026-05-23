@@ -287,43 +287,6 @@
             (expect (< preset-pos end-pos) :to-be t)
             (expect (< parent-pos end-pos) :to-be t)))))))
 
-(describe "jf/gptel--initial-session-content builds the drawer-prefixed template"
-
-  ;; Direct coverage for the helper — independent of filesystem
-  ;; mocking.  These tests exercise the string-assembly contract that
-  ;; `jf/gptel--create-session-core' relies on.
-
-  (it "returns the drawer + empty user block for a preset alone"
-    (expect (jf/gptel--initial-session-content 'executor)
-            :to-equal
-            (concat ":PROPERTIES:\n"
-                    ":GPTEL_PRESET: executor\n"
-                    ":END:\n"
-                    "#+begin_user\n"
-                    "\n"
-                    "#+end_user\n")))
-
-  (it "inserts GPTEL_PARENT_SESSION_ID between GPTEL_PRESET and :END:"
-    (expect (jf/gptel--initial-session-content 'executor "parent-abc")
-            :to-equal
-            (concat ":PROPERTIES:\n"
-                    ":GPTEL_PRESET: executor\n"
-                    ":GPTEL_PARENT_SESSION_ID: parent-abc\n"
-                    ":END:\n"
-                    "#+begin_user\n"
-                    "\n"
-                    "#+end_user\n")))
-
-  (it "treats an empty string parent-session-id as missing"
-    (expect (jf/gptel--initial-session-content 'executor "")
-            :to-equal
-            (jf/gptel--initial-session-content 'executor)))
-
-  (it "treats nil parent-session-id as missing"
-    (expect (jf/gptel--initial-session-content 'executor nil)
-            :to-equal
-            (jf/gptel--initial-session-content 'executor))))
-
 (describe "jf/gptel--session-headings-block emits the document body shape"
 
   ;; The single source of truth for the `* System Prompt' / `* Chat'
