@@ -2,7 +2,7 @@
 name: harden-system-prompt-save-against-missing-chat-heading
 description: The heading-present branch of gptel-chat--write-system-prompt-heading computes the System Prompt subtree end by searching forward for the next `* ` heading and falling back to point-max. When a session.org has a `* System Prompt` heading but no following `* Chat` heading, the save deletes everything to end-of-buffer — silently losing any turn blocks below the orphaned heading. Add a defensive guard so an off-nominal layout cannot cause silent conversation data loss.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations:
   - discovered-from:make-system-prompt-heading-authoritative
 ---
@@ -96,3 +96,7 @@ Cited register entries: `interfaces.org#register-shape-session-document-layout` 
     via grep. Promoting the regexp to a shared constant in the parser
     module (chat/parser.org) would be a sensible follow-up if a
     future change touches all three sites.
+
+## Review
+
+Author-blind review at `.orchestrator/cycles/cycle-1779522837/reviews/harden-system-prompt-save-against-missing-chat-heading.md` (merge_commit `d774f43`): **clean review, 0 findings**. Captured region correctly delimited; idempotence is structural (save #2 takes the canonical branch); nominal-layout byte-equivalence preserved; hard-coded `"* Chat\n"` is the right call (routing through `jf/gptel--session-headings-block` would duplicate `* System Prompt`); turn-block-marker false-positive is the documented `known_limitation` of `register/shape/session-document-layout`, not a regression.

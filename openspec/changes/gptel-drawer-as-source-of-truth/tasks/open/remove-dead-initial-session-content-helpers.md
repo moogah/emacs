@@ -11,7 +11,7 @@ description: |
   reader will mistake them for live session-creation paths. Delete
   both helpers and their now-redundant tests.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations:
   - discovered-from:arch-cycle-1779477564-6
 ---
@@ -81,3 +81,7 @@ Cited register entry: `interfaces.org#register-shape-session-document-layout` �
 - The `--initial-session-content` helper's test block in `session-org-creation-spec.el` lived **between** the post-Addendum `Decision 4` structural test block and the `--session-headings-block` test block. The deletion leaves these two new-shape test blocks adjacent, which makes the "this is the canonical layout" story in the spec file read more cleanly.
 - Sibling task `route-agent-session-creation-through-canonical-layout` runs in parallel on `persistent-agent.org`'s `--initial-body` defun. As task body predicted, the two tasks touch disjoint defun blocks in the same file — no proactive coordination needed; worktree isolation will handle any text-conflict at merge time. (Did not inspect the sibling worktree.)
 - The deleted helpers had docstrings explicitly acknowledging their dead-state ("retained for direct callers and helper-level tests"); since there were no direct callers, the helper-level tests were tautologically the only justification. Deleting the tests removes the last reason to keep the helpers, and vice versa — they form a closed dead-code island.
+
+## Review
+
+Author-blind review at `.orchestrator/cycles/cycle-1779522837/reviews/remove-dead-initial-session-content-helpers.md` (merge_commit `4488b71`): **clean review, 0 findings**. Dead-state grep confirms zero remaining matches in `config/`; deleted test assertions verified redundant against `--create-session-core` integration specs and post-Addendum `--session-headings-block` describe blocks; literate-org pairing intact. Pre-existing ERT failure (`test-directory-creation-org-session-structure`) correctly identified as baseline, not introduced by this task.

@@ -15,7 +15,7 @@ description: |
   the (body-start . subtree-end) cons (or nil) and have both call
   sites consume it.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations:
   - discovered-from:arch-cycle-1779477564-5
 ---
@@ -133,3 +133,9 @@ Cited register entries: `interfaces.org#register-shape-session-document-layout` 
     The helper extraction is a strict refactor — no contract
     surface changes.
 
+
+## Review
+
+Author-blind review at `.orchestrator/cycles/cycle-1779522837/reviews/extract-system-prompt-heading-region-helper.md` (merge_commit `ba0bc50`): **clean review, 0 findings**. Both load-bearing register entries (`session-document-layout`, `system-prompt-heading-authoritative`) keep their contracts; reader/writer now agree on body bounds via one helper; precedence and round-trip stability preserved at one decision point. Helper lives in the correct subsystem module.
+
+On-touch architect audit (`arch-cycle-1779522837-summary.md`): no finding against `register/invariant/system-prompt-heading-authoritative` — strict refactor.

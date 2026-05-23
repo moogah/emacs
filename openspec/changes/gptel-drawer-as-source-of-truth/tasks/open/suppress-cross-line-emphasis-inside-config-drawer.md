@@ -14,7 +14,7 @@ description: |
   emphasis parsing inside drawer spans so drawers render as plain
   text regardless of `/`/`*` content in values.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations:
   - discovered-from:fix-scope-drawer-value-emphasis
 ---
@@ -117,3 +117,11 @@ Meta-discovery for cycle-8 PM digest: the cycle-7 review's advisory about narrow
 3. **Key text in drawers loses `org-special-keyword` face under the span override.** The span-level OVERRIDE applies `org-property-value` to the whole interior. Org's drawer-key keyword (which paints `:KEY:` text in `org-special-keyword`) runs earlier and gets overridden. This is acceptable per the task body's verification phrasing but is a behavioural difference from a vanilla `org-mode` buffer. If a follow-up surfaces "drawer keys should keep their dedicated face", the matcher can be tightened to use two anchored sub-matchers (key segment vs value segment), each with its own facespec. Not implemented in this task because (a) drawers are folded by default in chat-mode, (b) the task body did not require it, (c) the simplest fix is the most robust against future drawer-key-format edge cases.
 
 4. **`font-lock-extra-managed-props` is new to this codebase.** No other module sets it (verified by grep across `config/`). The cleanup-on-edit semantic is documented in `font-lock.el` (`font-lock-default-unfontify-region`) and is the canonical way to manage non-face text properties from font-lock keywords. Worth noting in the register so any future module that uses `invisible` or other extra props as font-lock outputs follows the same idiom.
+
+## Review
+
+Author-blind review at `.orchestrator/cycles/cycle-1779522837/reviews/suppress-cross-line-emphasis-inside-config-drawer.md` (merge_commit `8d619db`): **3 advisory findings, 0 blockers**. Implementation correctly fixes the cross-line emphasis defect; new spec is observable-contract end-to-end (face/italic/invisible text-property), the *opposite* of the cycle-7 implementation-pinning pattern flagged in this task's meta-discovery.
+
+- **Finding 1 (spec-signal, advisory)**: register entry's override-A `rule` and `mechanism` prose name "drawer values"; the implementation now stamps the entire drawer interior including KEYS. **Deferred to cycle-8 integrate** as register-prose update.
+- **Finding 2 (sub-par-code, advisory)**: stale scaffolding file referenced the removed `gptel-chat--drawer-value-matcher` symbol. **Inline-fixed in commit `73a1b73`** — scaffolding file deleted (register's status_note already said "Scaffold archived in favour of the co-located regression specs"). Register's `scaffolding_path` field cleanup deferred to integrate.
+- **Finding 3 (spec-signal, advisory)**: override-A's `invisible nil` text-property coexists with override-C's overlay-based fold only because `org-fold-core-style` defaults to `'overlays`. **Inline-fixed in commit `73a1b73`** — added a paragraph to override-A prose in `mode.org` naming the coupling, the failure mode if the style flips, and two mitigation paths.

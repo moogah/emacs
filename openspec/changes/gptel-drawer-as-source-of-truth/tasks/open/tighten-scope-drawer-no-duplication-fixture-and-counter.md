@@ -14,7 +14,7 @@ description: |
   to a point-min-bounded scan and add a post-cycle-7-shape fixture
   variant.
 change: gptel-drawer-as-source-of-truth
-status: needs-review
+status: done
 relations:
   - discovered-from:arch-cycle-1779477564-9
 ---
@@ -134,3 +134,9 @@ Cited register entry: `interfaces.org#register-invariant-scope-drawer-no-duplica
   avoid stash-based baselines in this workflow, and prefer
   committing-then-resetting (or a separate worktree) for before/after
   comparisons.
+
+## Review
+
+Author-blind review at `.orchestrator/cycles/cycle-1779522837/reviews/tighten-scope-drawer-no-duplication-fixture-and-counter.md` (merge_commit `8c497e0`): **clean review, 0 findings**. Counter span correctly bounded; fixture byte-equivalent to `jf/gptel--session-headings-block` output; self-tests load-bearing rather than tautological; new it-body exercises the writer against the canonical shape.
+
+On-touch architect audit produced one blocking interface-drift finding (`arch-cycle-1779522837-2`): the new counter's `(point-min)..(first :END:)` span was blind to the documented stacked-drawer corruption class. **Inline-fixed in commit `7b771a5`** — span widened to `(point-min)..(first ^* heading or point-max)`, re-aligning the counter with `register/invariant/scope-drawer-no-duplication` prose without re-introducing the canonical-layout false positive. Drawer suite 18/18; full scope suite unchanged.

@@ -2,7 +2,7 @@
 name: route-agent-session-creation-through-canonical-layout
 description: Agent sessions created by persistent-agent.org emit a bare `#+begin_user` block with no `* System Prompt` / `* Chat` headings — a second session.org producer that bypasses jf/gptel--create-session-core and therefore fails the canonical register/shape/session-document-layout. Route the agent-creation path through the shared jf/gptel--session-headings-block helper so agent sessions get the same canonical document shape as interactive sessions.
 change: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations:
   - discovered-from:emit-system-prompt-and-chat-headings-at-creation
 ---
@@ -106,3 +106,9 @@ Cited register entry: `interfaces.org#register-shape-session-document-layout` �
     — new scenario at lines 62-68 plus Implementation block.
   follow_up: none — the spec change is in-scope of this task.
 
+
+## Review
+
+Author-blind review at `.orchestrator/cycles/cycle-1779522837/reviews/route-agent-session-creation-through-canonical-layout.md` (merge_commit `f052eb9`): **clean review, 0 findings**. Function signature change `(prompt) → (system-prompt prompt)` is internal-prefix and the sole caller was updated; 4 new buttercup specs pin the four structural invariants of `register/shape/session-document-layout`'s validator end-to-end through an on-disk `session.org`; spec scenario in `sessions-persistence.md` is well-scoped; load order in `gptel.org` satisfies the new `(require 'gptel-session-commands)`.
+
+On-touch architect audit produced one blocking interface-drift finding (`arch-cycle-1779522837-1`): the register entry's producers stanza for `persistent-agent.org` still labels it as a CYCLE-7 GAP after this task resolved the gap. **Deferred to cycle-8 integrate** — register-prose update only, no code change required; tracked in `.orchestrator/state.json` under `architect_findings`.
