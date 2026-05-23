@@ -142,7 +142,7 @@ The single-`C-c' prefix on turn navigation avoids shadowing org's
 `C-c C-n' / `C-c C-p' heading navigation — see design.md §Decision 7.")
 #+end_src
 
-* Property-drawer value fontification override
+* Property-drawer span fontification override
 
 Org applies its `/emphasis/' font-lock keyword buffer-wide, with no
 context guard excluding `:PROPERTIES:' drawers. A drawer value such as
@@ -153,49 +153,75 @@ on, dims or hides the boundary `/' characters. For `:GPTEL_SCOPE_*:'
 path values this is a legibility defect: the user cannot read the path
 they scoped (design.md §Addendum Finding A / Decision A).
 
-Drawer values are *data*, not prose, and should never carry emphasis.
-=gptel-chat--drawer-value-matcher= is a font-lock matcher function that
-advances point to the next property-drawer value span: it matches a
-`:KEY: value' line and confirms — by scanning backward to the nearest
-`:PROPERTIES:' / `:END:' boundary — that the line sits inside a
-property drawer. Match group 1 is the value text.
+The defect generalises across line boundaries. When line N's drawer
+value opens an unmatched `/' (e.g. `:GPTEL_SCOPE_READ: /**') and a
+later drawer line's value contains a matching `/' (e.g.
+`:GPTEL_SCOPE_DENY: **/.git/** ...'), org's emphasis parser pairs them
+into a cross-line italic span. Everything between — including the
+=:GPTEL_SCOPE_DENY:= /key/ text on the closing line — is italicised,
+and `org-hide-emphasis-markers' hides both boundary `/' characters.
+The user sees a key rendered italic and a missing slash inside a path.
+
+A per-line matcher (the previous override) cannot reach these cases:
+it sees a `:KEY: value' line in isolation and has no view of org's
+cross-line italic span. The cure is to treat the entire drawer
+=:PROPERTIES: ... :END:= region as a single unit and force, across
+that whole span, /both/ `face' to a plain face /and/ `invisible' to
+nil — beating both org's italic face and `org-hide-emphasis-markers'.
+
+=gptel-chat--drawer-span-matcher= is the span-level font-lock matcher.
+It searches forward for a `:PROPERTIES:' line, then the matching
+`:END:' line, and sets match group 0 to the interior (the content
+lines between the two delimiter lines, exclusive). It also stamps the
+matched region with `font-lock-multiline' so subsequent edits inside
+the drawer refontify the whole span, not just the edited line — the
+cross-line case is by definition multiline.
 
 The matcher is registered buffer-locally in =gptel-chat-mode= via
 =font-lock-add-keywords= with =\='append= ordering and an OVERRIDE
-facespec (the trailing =t= in =(1 \='org-property-value t)=). Append
-ordering plus the override flag ensure our `org-property-value' face
-wins over org's emphasis keyword, which runs inside
-`org-font-lock-extra-keywords'. The override is scoped to
-property-drawer value spans only — `/emphasis/' in chat-turn prose is
-left untouched.
+facespec that sets =(face org-property-value invisible nil)= on the
+entire span. Append ordering plus the OVERRIDE flag ensure our
+override wins over org's emphasis keyword inside
+`org-font-lock-extra-keywords'. =invisible= is added to
+=font-lock-extra-managed-props= so font-lock cleans up the property
+when the buffer text changes. The override is scoped to drawer
+interiors only — `/emphasis/' in chat-turn prose (below `* Chat') is
+left untouched (override-A counter-assertion).
 
 #+begin_src emacs-lisp
-(defun gptel-chat--drawer-value-matcher (limit)
-  "Font-lock matcher: advance point to the next property-drawer value span.
+(defun gptel-chat--drawer-span-matcher (limit)
+  "Font-lock matcher: advance point to the next property-drawer interior.
 
-Search forward (bounded by LIMIT) for a `:KEY: value' line.  Set match
-group 1 to the value text and return non-nil only when the line sits
-inside a `:PROPERTIES: ... :END:' drawer — confirmed by scanning
-backward to the nearest `:PROPERTIES:'/`:END:' boundary and requiring
-`PROPERTIES'.  Lines that look like property entries but live outside a
-drawer (or property lines with no value) are skipped.
+Search forward (bounded by LIMIT) for a `:PROPERTIES:' line and its
+matching `:END:' line; on success set match data so group 0 covers the
+drawer interior — the region between the two delimiter lines,
+exclusive — and return non-nil.  Skip drawers whose `:END:' lies past
+LIMIT.
 
-Used by `gptel-chat-mode' with an OVERRIDE facespec so drawer values
-render as plain `org-property-value' data rather than inheriting org
-`/emphasis/' font-lock (design.md §Addendum Finding A / Decision A)."
+The matched region is also stamped with the `font-lock-multiline'
+text-property so that subsequent edits inside the drawer trigger
+re-fontification of the whole span (the cross-line italic case is by
+definition multiline).
+
+Used by `gptel-chat-mode' with an OVERRIDE facespec setting both
+`face' to `org-property-value' and `invisible' to nil, so drawer
+content renders as plain data regardless of org `/emphasis/'
+font-lock and `org-hide-emphasis-markers' (design.md §Addendum
+Finding A / Decision A; cycle-8 cross-line follow-up)."
   (let (found)
     (while (and (not found)
                 (re-search-forward
-                 "^[ \t]*:[A-Za-z][A-Za-z0-9_-]*:\\(?: \\(.*\\)\\)?$"
-                 limit t))
-      (when (and (match-beginning 1)
-                 (save-excursion
-                   (save-match-data
-                     (forward-line 0)
-                     (and (re-search-backward
-                           "^[ \t]*:\\(PROPERTIES\\|END\\):[ \t]*$" nil t)
-                          (string-equal (match-string 1) "PROPERTIES")))))
-        (setq found t)))
+                 "^[ \t]*:PROPERTIES:[ \t]*\n" limit t))
+      (let ((interior-start (point)))
+        (when (re-search-forward
+               "^[ \t]*:END:[ \t]*$" limit t)
+          (let ((interior-end (line-beginning-position)))
+            (when (> interior-end interior-start)
+              (put-text-property interior-start interior-end
+                                 'font-lock-multiline t)
+              (set-match-data (list interior-start interior-end))
+              (goto-char interior-end)
+              (setq found t))))))
     found))
 #+end_src
 
@@ -282,11 +308,16 @@ to it rather than living in the body. Later tasks (display layer,
 preset wiring) register their own activation logic the same way.
 
 The =font-lock-add-keywords= call installs
-=gptel-chat--drawer-value-matcher= buffer-locally (=nil= first
+=gptel-chat--drawer-span-matcher= buffer-locally (=nil= first
 argument). =\='append= places the keyword after org's own keywords and
-the OVERRIDE flag =t= makes our `org-property-value' face win over
-org's `/emphasis/' keyword for property-drawer value spans (design.md
-§Addendum Finding A).
+the OVERRIDE flag =t= makes our facespec — both `org-property-value'
+face and `invisible' nil — win over org's `/emphasis/' keyword inside
+property-drawer interiors (design.md §Addendum Finding A; cycle-8
+cross-line follow-up). Two buffer-local setups support the override:
+=font-lock-multiline= is set to =t= so cross-line drawers refontify
+correctly on edit; =invisible= is added to
+=font-lock-extra-managed-props= so font-lock cleans up the
+invisibility property when the buffer changes.
 
 #+begin_src emacs-lisp
 ;;;###autoload
@@ -306,9 +337,12 @@ Turn-block delimiter lines are pinned to column 0; `org-adapt-indentation'
 is disabled buffer-locally so the parser's `^#\\+begin_...' anchor stays
 valid regardless of the user's global org settings (design.md §Decision 14).
 
-Property-drawer values are re-stamped with `org-property-value' via a
-buffer-local OVERRIDE font-lock keyword so scope path values do not
-inherit org `/emphasis/' (design.md §Addendum Finding A).
+Property-drawer interiors are re-stamped with `org-property-value' face
+and forced visible via a buffer-local OVERRIDE font-lock keyword so
+neither org `/emphasis/' font-lock nor `org-hide-emphasis-markers'
+mangle drawer keys and values (design.md §Addendum Finding A; cycle-8
+cross-line follow-up).  Chat-turn prose `/emphasis/' is unaffected —
+the override is scoped to drawer interiors only.
 
 The file-level config `:PROPERTIES:' drawer is folded on activation by
 `gptel-chat--fold-config-drawer', attached to `gptel-chat-mode-hook'
@@ -317,9 +351,14 @@ Decision C).
 
 \\{gptel-chat-mode-map}"
   (setq-local org-adapt-indentation nil)
+  (setq-local font-lock-multiline t)
+  (setq-local font-lock-extra-managed-props
+              (cons 'invisible
+                    (default-value 'font-lock-extra-managed-props)))
   (font-lock-add-keywords
    nil
-   '((gptel-chat--drawer-value-matcher (1 'org-property-value t)))
+   '((gptel-chat--drawer-span-matcher
+      (0 '(face org-property-value invisible nil) t)))
    'append))
 
 (add-hook 'gptel-chat-mode-hook #'gptel-chat--fold-config-drawer)
