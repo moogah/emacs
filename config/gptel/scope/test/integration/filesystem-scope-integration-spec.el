@@ -491,22 +491,39 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       ;; That arg must be a string (JSON)
       (expect callback-arg-type :to-equal 'string)))
 
-  (it "no_scope_config error returns JSON through callback (not a signal)"
-    ;; When scope.yml is missing, the tool should still invoke the callback
-    ;; (not throw an error), so gptel's flow continues
+  (it "empty-drawer deny-all defaults route per-violation denial through callback"
+    ;; Cycle-3 Option B: an empty/missing scope drawer is a deny-all
+    ;; configuration, not a config-missing signal. The dispatcher composes
+    ;; deny-all defaults from the loader, path validation denies the read
+    ;; with `not-in-scope`, the expansion UI surfaces the violation, and
+    ;; on user denial the callback receives the canonical per-violation
+    ;; error JSON (no historical `no_scope_config` short-circuit). See
+    ;; register/boundary/scope-config-loader.
     (let ((tool (fs-integ--find-tool "read_file_in_scope")))
 
-      ;; No config available
-      (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
+      ;; Loader composes deny-all defaults for an empty drawer.
+      (spy-on 'jf/gptel-scope--load-config
+              :and-return-value (jf/gptel-scope--deny-all-defaults))
+      ;; Simulate user denying the expansion prompt so the callback fires.
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (_violation-info callback _patterns _tool-name)
+                (funcall callback
+                         (json-serialize
+                          (list :success :false
+                                :user_denied t)))))
 
       (funcall (gptel-tool-function tool)
                #'fs-integ--gptel-callback
                "/some/path.txt")
 
-      ;; Callback was invoked (flow didn't break)
+      ;; Callback was invoked (flow didn't break, nothing was signaled).
       (expect fs-integ--callback-result :to-be-truthy)
+      (expect (stringp fs-integ--callback-raw) :to-be t)
+      ;; Per-violation deny (`not-in-scope`), routed through
+      ;; `--format-tool-error' like every other denial.
       (expect (plist-get fs-integ--callback-result :error)
-              :to-equal "no_scope_config")))
+              :to-equal "not-in-scope")))
 
   (it "tool exception returns JSON through callback (not a signal)"
     ;; Even if something unexpected goes wrong inside the tool, the callback

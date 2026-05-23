@@ -37,18 +37,21 @@
 
   (describe "Stage 1: Parse completeness with nil values"
 
+    ;; Cycle-2: --validate-parse-completeness no longer takes a
+    ;; security-config parameter; it reads
+    ;; `jf/gptel-scope--enforce-parse-complete' (defconst, t) directly.
+    ;; See `register/invariant/scope-parse-complete-is-true'.
+
     (it "handles nil parse-complete gracefully"
       (let* ((parse-result '(:parse-complete nil :parse-errors "Syntax error"))
-             (security-config '(:enforce-parse-complete t))
-             (result (jf/gptel-scope--validate-parse-completeness parse-result security-config)))
+             (result (jf/gptel-scope--validate-parse-completeness parse-result)))
         ;; Should return error plist, not crash
         (expect (plist-get result :error) :to-equal "parse_incomplete")))
 
-    (it "handles nil security-config"
+    (it "returns nil when parse is complete (defconst is t but parse passed)"
       (let* ((parse-result '(:parse-complete t))
-             (security-config nil)
-             (result (jf/gptel-scope--validate-parse-completeness parse-result security-config)))
-        ;; Should return nil (success) - no enforcement when security-config is nil
+             (result (jf/gptel-scope--validate-parse-completeness parse-result)))
+        ;; Complete parse passes regardless of the constant's value.
         (expect result :to-be nil))))
 
   (describe "Stage 2: No-op check with nil values"

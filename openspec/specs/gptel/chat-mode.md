@@ -110,6 +110,8 @@ The system SHALL accept any org document whose `#+begin_user`, `#+begin_assistan
 - `#+begin_tool` blocks SHALL appear only inside an `#+begin_assistant` block.
 - `#+begin_user` and `#+begin_assistant` blocks SHALL NOT be nested inside another user or assistant block.
 - Content outside turn blocks — org headings (at any depth), paragraphs, drawers, `#+keyword:` lines, blank lines — is permitted and is treated as human organization/commentary. It does NOT participate in message construction.
+- Content inside turn-block bodies SHALL be stored indented: each body line is offset by `gptel-chat-content-indentation` spaces, so no body line begins with an org structural token (`*`, `#+end_*`, `#+begin_src`, a drawer, a keyword) at column 0. Such content is automatically indented on insertion (see Requirement: Chat-block body indentation) and dedented on send. A buffer that contains un-indented column-0 body content is invalid in the strict sense — `org-element-parse-buffer` may lose the block — and SHALL be normalized on read (see Requirement: Migration of pre-indentation session files).
+- Delimiter lines themselves — `#+begin_user`, `#+begin_assistant`, `#+end_user`, `#+end_assistant`, and the nested `#+begin_tool` / `#+end_tool` — SHALL remain at column 0; only body content between delimiter lines is indented.
 
 #### Scenario: Empty buffer is valid
 - **WHEN** the buffer contains only whitespace
@@ -142,6 +144,13 @@ The system SHALL accept any org document whose `#+begin_user`, `#+begin_assistan
 - **WHEN** a `#+begin_user` block appears inside an open `#+begin_assistant` block (or vice versa)
 - **THEN** message construction signals a user-visible error identifying the inner block's start line
 
+#### Scenario: Heading-shaped lines inside turn body are indented, not invalid
+- **WHEN** a `#+begin_user` block body contains a line whose content is `* My heading`
+- **AND** the buffer is in `gptel-chat-mode` (so indentation is applied on insert, on type, on paste, or on read-migration)
+- **THEN** the on-disk content for that line is the indented form (e.g., `  * My heading`)
+- **AND** `org-element-parse-buffer` parses the chat block as a well-formed `special-block`
+- **AND** message construction emits the dedented form (`* My heading`) as part of the user message
+
 ### Requirement: Message construction from buffer
 
 The system SHALL construct an ordered list of API messages by walking the buffer for **outer** `#+begin_user` and `#+begin_assistant` blocks in document order. An outer block is a user or assistant block that is not nested inside another user or assistant block; its position relative to org heading structure (at document root, or inside a heading section at any depth) is irrelevant. Each block produces messages as follows:
@@ -149,9 +158,9 @@ The system SHALL construct an ordered list of API messages by walking the buffer
 - `#+begin_user` block → one `user` message with the block's content (verbatim, delimiter lines excluded)
 - `#+begin_assistant` block → a sequence of messages: assistant-text segments and tool call / tool result pairs, in the order they appear inside the block
 - Nested `#+begin_tool (<name> <plist...>)` block → one tool-call message (name + arguments plist) followed by one tool-result message (the block's remaining content)
-- Delimiter-collision-escaped lines SHALL be un-escaped before inclusion in the outbound message
+- The body indentation SHALL be removed before content is included in an outbound message: for each message segment, the common minimum leading indentation across its non-blank lines is measured and stripped (the `org-do-remove-indentation` model). The model never sees the indentation.
 
-Content outside turn blocks (headlines, paragraphs, drawers, keywords) SHALL be skipped. Text that appears inside a user or assistant block, including lines that resemble `#+begin_*` delimiters, is treated as block body and included verbatim in the emitted message (subject to the escape/un-escape round-trip for the three closing delimiters).
+Content outside turn blocks (headlines, paragraphs, drawers, keywords) SHALL be skipped. Text that appears inside a user or assistant block, including lines that resemble `#+begin_*` delimiters or org headings, is treated as block body and included in the emitted message after dedenting.
 
 **Empty-turn contract.** A turn is "empty" (and produces no outbound message) in exactly these cases:
 
@@ -165,14 +174,26 @@ Message construction SHALL NOT depend on text properties or on `gptel--parse-buf
 #### Scenario: Single user-assistant turn
 - **WHEN** the buffer contains one `#+begin_user`/`#+end_user` block followed by one `#+begin_assistant`/`#+end_assistant` block
 - **THEN** the constructed message list is `[user: <user content>, assistant: <assistant content>]`
+- **AND** each message's content has the body indentation removed
 
 #### Scenario: Assistant turn with one tool call
 - **WHEN** an `#+begin_assistant` block contains prose, then a `#+begin_tool` block with call args and result, then more prose
 - **THEN** the message list for that turn is `[assistant: <pre-tool prose>, tool_call: <args>, tool_result: <result>, assistant: <post-tool prose>]`
+- **AND** each text segment and the tool result are dedented independently (the column-0 `#+begin_tool` / `#+end_tool` lines do not affect any segment's measured indent)
 
-#### Scenario: Delimiter escape round-trip
-- **WHEN** an `#+begin_assistant` block content contains the literal line `,#+end_assistant`
-- **THEN** the constructed assistant message contains the line `#+end_assistant` (leading comma stripped)
+#### Scenario: Body indentation round-trip
+- **WHEN** an `#+begin_assistant` block body contains the indented line `  * My Heading`
+- **THEN** the constructed assistant message contains the line `* My Heading` (indentation stripped)
+- **AND** the model sees `* My Heading` in conversation history on subsequent requests
+
+#### Scenario: Round-trip preserves intentional inner indentation
+- **WHEN** a chat block body contains, indented at the body width, a nested list or code whose lines carry additional indentation relative to the body
+- **THEN** message construction strips only the common body indentation
+- **AND** the relative indentation of the nested content is preserved in the outbound message
+
+#### Scenario: Round-trip is robust to a changed indentation width
+- **WHEN** a session was written with `gptel-chat-content-indentation` = 2 and is re-opened with the value 4
+- **THEN** message construction still produces correctly dedented content (the dedent measures actual indentation rather than assuming the current width)
 
 #### Scenario: Empty blocks are skipped
 - **WHEN** a `#+begin_user` block contains no non-whitespace content
@@ -191,8 +212,8 @@ Message construction SHALL NOT depend on text properties or on `gptel--parse-buf
 - **THEN** the message list contains the `(tool . PLIST)` message; the blank text segments are dropped but the assistant turn as a whole is not skipped
 
 #### Scenario: User block body containing a `#+begin_assistant` literal
-- **WHEN** a `#+begin_user` block contains a line beginning with `#+begin_assistant` as part of the user's prose
-- **THEN** the constructed user message includes that literal line as body content
+- **WHEN** a `#+begin_user` block body contains, indented, a line whose content is `#+begin_assistant`
+- **THEN** the constructed user message includes that line as body content (dedented)
 - **AND** no additional assistant message is emitted for that line
 
 #### Scenario: Turns distributed across org headings
@@ -201,10 +222,11 @@ Message construction SHALL NOT depend on text properties or on `gptel--parse-buf
 - **AND** the headings themselves are not represented in the message list
 
 #### Scenario: User prompt composed with org structural features
-- **WHEN** a `#+begin_user` block body contains an `* Heading` line, a `#+begin_src` block, a list, and emphasized text
-- **THEN** the constructed user message contains all of that content verbatim
-- **AND** the parser treats the whole block as a single user turn (the `* Heading` does not partition it)
-- **AND** the `#+begin_src` / `#+end_src` pair inside the user block does not interfere with the outer `#+end_user` match
+- **WHEN** a `#+begin_user` block body contains a heading-shaped line (`* Heading`), a `#+begin_src` block, a list, and emphasized text
+- **THEN** every body line is stored on disk indented by `gptel-chat-content-indentation`
+- **AND** the constructed user message contains the dedented content, including `* Heading` at column 0 of its line
+- **AND** the parser treats the whole block as a single user turn
+- **AND** `org-element-parse-buffer` parses the user block as a well-formed `special-block`
 
 ### Requirement: Send command
 
@@ -226,22 +248,33 @@ The system SHALL provide a command (`gptel-chat-send`, bound to `C-c C-c` by def
 
 ### Requirement: Response streaming and sanitization
 
-The system SHALL insert streamed response chunks between an open `#+begin_assistant` marker and its eventual `#+end_assistant`. Each chunk SHALL be scanned for lines matching `^#\+end_\(user\|assistant\|tool\)\b` and rewritten to `,#+end_...` before insertion. On stream completion, the `#+end_assistant` delimiter SHALL be inserted and point positioned after it. On stream abort or error, the block SHALL be closed with a visible error marker and `#+end_assistant` appended.
+The system SHALL insert streamed response chunks between an open `#+begin_assistant` marker and its eventual `#+end_assistant`. Each chunk SHALL be scanned line-by-line, and each complete line SHALL be indented by `gptel-chat-content-indentation` spaces before insertion (blank lines are left empty). This keeps every line of streamed assistant content off column 0, so a model-emitted org heading or a model-emitted `#+end_*` delimiter line is body content, not document structure.
+
+A nested `#+begin_tool` / `#+end_tool` block opened during streaming SHALL place its delimiter lines at column 0; the tool result content between them SHALL be indented like other body content.
+
+On stream completion, the `#+end_assistant` delimiter SHALL be inserted at column 0 and point positioned after it. On stream abort or error, the block SHALL be closed with a visible error marker and `#+end_assistant` appended.
 
 #### Scenario: Normal stream completion
-- **WHEN** the model returns a multi-chunk response with no delimiter collisions
-- **THEN** all chunks appear in order inside the assistant block
-- **AND** the block terminates with `#+end_assistant` on its own line
+- **WHEN** the model returns a multi-chunk response
+- **THEN** all chunks appear in order inside the assistant block, each line indented by the body width
+- **AND** the block terminates with `#+end_assistant` at column 0 on its own line
 - **AND** the block is well-formed (parseable by `org-element`)
 
-#### Scenario: Response contains collision with end_assistant
-- **WHEN** a streamed response contains a line starting with `#+end_assistant`
-- **THEN** that line is rewritten to start with `,#+end_assistant` when inserted
-- **AND** the containing assistant block remains well-formed
+#### Scenario: Response contains heading-shaped lines
+- **WHEN** a streamed response contains lines `* Heading One`, `** Sub`, and `*** Deep`
+- **THEN** each line is inserted indented by the body width (e.g., `  * Heading One`)
+- **AND** the containing assistant block remains a well-formed `special-block` per `org-element`
+- **AND** the host buffer's outline structure is unaffected by the assistant content
 
-#### Scenario: Response contains collision split across chunks
-- **WHEN** one chunk ends with `#+end_ass` and the next begins with `istant\nmore`
-- **THEN** the completed line is recognized as a collision and escaped before final insertion
+#### Scenario: Response contains an end-delimiter-shaped line
+- **WHEN** a streamed response contains a line whose content is `#+end_assistant`
+- **THEN** that line is inserted indented by the body width
+- **AND** the indented line is not recognized as a block closer; the containing assistant block remains well-formed
+
+#### Scenario: Response contains a line split across chunks
+- **WHEN** one chunk ends with `\n* He` and the next begins with `ading\nmore`
+- **THEN** the per-line holdback completes the line as `* Heading` and indents it before insertion
+- **AND** the inserted text is the indented form
 
 #### Scenario: Streaming inserter rejects markers that do not advance past inserted text
 - **WHEN** a caller constructs a streaming inserter with a marker whose `insertion-type` is not `t`
@@ -258,7 +291,7 @@ The system SHALL insert streamed response chunks between an open `#+begin_assist
 - **AND** the assistant block remains open — no `#+end_assistant` is appended and no new empty user block is started
 - **AND** subsequent `(tool-result . ...)` events and the next request's streamed text land inside the same assistant block
 - **WHEN** the model completes the final round (no further tool use pending) and upstream fires `t` with `:tool-use` unset or absent on the INFO plist
-- **THEN** the holdback is flushed, `#+end_assistant` is appended, and an empty `#+begin_user`/`#+end_user` block is started with point positioned for the next human turn
+- **THEN** the holdback is flushed, `#+end_assistant` is appended at column 0, and an empty `#+begin_user`/`#+end_user` block is started with point positioned for the next human turn
 
 ### Requirement: Tool-call rendering inside assistant blocks
 
@@ -341,7 +374,11 @@ The system SHALL integrate with upstream gptel's preset mechanism. On mode activ
 
 When a preset is found, the system SHALL call `gptel--apply-preset` with a buffer-local setter function, installing the preset's `:backend`, `:model`, `:system`, `:tools`, and other keys as buffer-local values. Subsequent `gptel-request` calls in that buffer use the applied values.
 
-When no preset is declared, the mode SHALL take no preset-related action; the buffer inherits whatever global or dir-local configuration is in effect.
+After the preset is applied, the system SHALL overlay every drawer-present configuration property as buffer-local bindings (Requirement: Configuration drawer overlay on restore). The drawer wins over the preset for every key it carries. For keys the drawer does not carry, the preset's value remains in effect.
+
+For `:system` the preset is the lowest tier only. After preset application and the drawer overlay, the system SHALL read the `* System Prompt` heading body (Requirement: System prompt heading is authoritative); when that body is non-blank it supersedes the preset's `:system`. The preset's `:system` is used as the buffer's system prompt only for sessions whose `* System Prompt` heading is absent or blank and whose drawer carries no legacy `:GPTEL_SYSTEM:` entry.
+
+When no preset is declared, the mode SHALL take no preset-related action; the buffer inherits whatever global or dir-local configuration is in effect. A drawer that contains only non-preset keys (e.g., a `:GPTEL_MODEL:` and nothing else) SHALL still trigger the overlay.
 
 The system SHALL NOT enable `gptel-mode` (minor mode) as part of preset application. Preset application is buffer-local and does not alter the major mode.
 
@@ -349,7 +386,7 @@ The system SHALL NOT enable `gptel-mode` (minor mode) as part of preset applicat
 - **WHEN** a buffer opens with `:PROPERTIES:\n:GPTEL_PRESET: coding\n:END:` at point-min
 - **AND** the mode is activated
 - **THEN** `gptel--apply-preset` is called with the symbol `coding`
-- **AND** the preset's `:model`, `:backend`, `:tools` etc. are set as buffer-local values
+- **AND** the preset's `:model`, `:backend`, `:tools`, `:system` etc. are set as buffer-local values
 
 #### Scenario: Preset applied from file-local variable
 - **WHEN** a buffer opens with `# -*- gptel--preset: coding -*-` on line 1
@@ -364,6 +401,19 @@ The system SHALL NOT enable `gptel-mode` (minor mode) as part of preset applicat
 #### Scenario: Property drawer wins over file-local
 - **WHEN** both a `GPTEL_PRESET` property drawer and a file-local `gptel--preset` are present and name different presets
 - **THEN** the property drawer value is applied
+
+#### Scenario: Drawer overlay wins over preset for shared keys
+- **WHEN** a buffer opens with `:GPTEL_PRESET: coding` AND `:GPTEL_MODEL: claude-haiku-4-5` in the drawer
+- **AND** the `coding` preset resolves `:model` to `claude-sonnet-4-6`
+- **AND** the mode is activated
+- **THEN** `gptel--apply-preset` is called with `coding` first
+- **THEN** `gptel-model` is then overlaid to `claude-haiku-4-5` from the drawer
+
+#### Scenario: Preset's :system survives for a pre-Addendum session with no heading
+- **WHEN** a buffer opens with `:GPTEL_PRESET: coding`, no `:GPTEL_SYSTEM:` in the drawer, and no `* System Prompt` heading
+- **AND** the `coding` preset resolves `:system` to `"You are a coding assistant."`
+- **AND** the mode is activated
+- **THEN** buffer-local `gptel--system-message` is `"You are a coding assistant."`
 
 ### Requirement: gptel-menu integration with rebound Send
 
@@ -479,19 +529,295 @@ The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--sa
 
 ### Requirement: Session file format and persistence
 
-Session files (those under `branches/<branch>/session.org` or `agents/<agent>/session.org`) SHALL use the chat-mode block format defined by this specification. Saving a session buffer SHALL use plain `save-buffer`; the file's on-disk content is the chat-mode format, nothing else.
+Session files (those under `branches/<branch>/session.org` or `agents/<agent>/session.org`) SHALL use the chat-mode block format defined by this specification. Saving a session buffer SHALL use plain `save-buffer`; the file's on-disk content is the chat-mode block structure plus a `:PROPERTIES:` configuration drawer at point-min written by the chat-mode save hook (Requirement: Configuration drawer save on buffer save).
 
-The sessions subsystem SHALL NOT write `gptel--bounds` Local Variables, SHALL NOT append `gptel-mode`-style Local Variables blocks, and SHALL NOT invoke `gptel--save-state`.
+The drawer carries a full snapshot of the buffer's upstream-compatible configuration (`GPTEL_PRESET`, `GPTEL_MODEL`, `GPTEL_BACKEND`, `GPTEL_TOOLS`, `GPTEL_TEMPERATURE`, `GPTEL_MAX_TOKENS`, `GPTEL_NUM_MESSAGES_TO_SEND`), the chat-mode extension `GPTEL_PARENT_SESSION_ID` (when set), and the scope keys `GPTEL_SCOPE_*` (managed by the scope subsystem). It does NOT carry `:GPTEL_SYSTEM:` (the system prompt lives in the `* System Prompt` heading body — Requirement: System prompt heading is authoritative) or `:GPTEL_BOUNDS:`.
 
-The sessions subsystem MAY maintain sidecar metadata (`metadata.yml`, `scope.yml`, `branch-metadata.yml`) separately from the session file. Updating `metadata.yml`'s `:updated` timestamp on save is permitted; it affects metadata only, not the session file contents.
+The sessions subsystem SHALL NOT write `gptel--bounds` Local Variables, SHALL NOT append `gptel-mode`-style Local Variables blocks, and SHALL NOT invoke `gptel--save-state` or `gptel-org-set-properties`. The chat-mode save hook is the only writer of configuration properties.
 
-#### Scenario: Fresh session file is a chat-mode buffer
-- **WHEN** `jf/gptel-persistent-session` creates a new session
-- **THEN** `session.org` contains `#+begin_user\n\n#+end_user\n` (and only that)
+The sessions subsystem SHALL NOT maintain `metadata.yml`. `scope.yml` is no longer used for per-session storage (replaced by drawer scope keys). `branch-metadata.yml` remains a separate sidecar for non-main branches.
+
+#### Scenario: Fresh session file is a chat-mode buffer with full preset snapshot drawer
+- **WHEN** `jf/gptel-persistent-session` creates a new session with preset `coding`
+- **THEN** `session.org` contains a `:PROPERTIES:` drawer at point-min carrying `:GPTEL_PRESET: coding`, `:GPTEL_MODEL:`, `:GPTEL_BACKEND:`, `:GPTEL_TOOLS:`, and any other non-nil keys from the preset
+- **AND** the drawer does NOT contain `:GPTEL_SYSTEM:`
+- **AND** the file ends with `#+begin_user\n\n#+end_user\n`
 - **AND** no Local Variables block is present
 
-#### Scenario: Saving a session buffer does not add gptel-mode artifacts
+#### Scenario: Agent session.org has parent-session-id and full preset snapshot in drawer
+- **WHEN** an agent session is created with preset `executor` under parent `p-abc-20260424000000`
+- **THEN** the agent's `session.org` drawer contains `:GPTEL_PRESET: executor`, `:GPTEL_PARENT_SESSION_ID: p-abc-20260424000000`, and the `executor` preset's snapshot keys (`:GPTEL_MODEL:`, `:GPTEL_TOOLS:`, etc.)
+- **AND** the drawer does NOT contain `:GPTEL_SYSTEM:`
+
+#### Scenario: Saving a session buffer writes full-snapshot drawer, no gptel-mode artifacts
 - **WHEN** the user edits a session buffer and invokes `save-buffer`
-- **THEN** the file on disk contains only chat-mode block structure
+- **THEN** the file on disk contains a `:PROPERTIES:` / `:END:` drawer at point-min carrying the full configuration snapshot (system excluded)
+- **AND** the drawer contains no `:GPTEL_SYSTEM:` line
+- **AND** the drawer contains no `:GPTEL_BOUNDS:` line
 - **AND** no `:: Local Variables:` block is appended
-- **AND** no `gptel--bounds` property is written
+- **AND** no `metadata.yml` exists alongside the session file
+
+### Requirement: Configuration drawer save on buffer save
+
+`gptel-chat-mode` SHALL install a buffer-local `before-save-hook` that writes a configuration `:PROPERTIES:` drawer at point-min before the buffer is written to disk. The drawer SHALL contain a **full snapshot** of the upstream-compatible configuration keys read from the buffer's current state — `GPTEL_PRESET`, `GPTEL_MODEL`, `GPTEL_BACKEND`, `GPTEL_TOOLS`, `GPTEL_TEMPERATURE`, `GPTEL_MAX_TOKENS`, `GPTEL_NUM_MESSAGES_TO_SEND` — written via `org-entry-put` (and `org-entry-put-multivalued-property` for list-valued keys) with no delta-from-preset deletion. Each key is written when its source buffer-local variable is non-nil; nil-valued keys are deleted via `org-entry-delete` so the drawer never carries stale values from a prior save.
+
+Additionally, the drawer SHALL contain `GPTEL_PARENT_SESSION_ID` when the buffer-local variable `jf/gptel--parent-session-id` is a non-empty string.
+
+The save hook SHALL NOT write a `:GPTEL_SYSTEM:` drawer line. Long, multi-line, special-character-heavy strings are unwieldy as a single property value, so the system prompt is never persisted as a drawer *property*. Instead the save hook SHALL serialize the current buffer-local `gptel--system-message` into the body of a `* System Prompt` heading (Requirement: System prompt heading is authoritative). The `:GPTEL_SYSTEM:` drawer write-exclusion and the heading-body write compose without conflict — the former governs the drawer, the latter the heading body. If a user authored `:GPTEL_SYSTEM:` in the drawer manually, the read-time overlay still respects it (back-compat); the writer simply never emits or replaces the drawer property.
+
+The save hook SHALL NOT write `:GPTEL_BOUNDS:`. `GPTEL_BOUNDS` is incompatible with chat-mode's block-based format and remains explicitly excluded.
+
+The save hook SHALL NOT delegate to upstream `gptel-org-set-properties`. That function deletes properties whose buffer-local values match the active preset, defeating the WYSIWYG goal of this change. The chat-mode writer is independent and emits the full snapshot regardless of preset matching.
+
+The save hook SHALL NOT enable `gptel-mode` (minor mode). Chat-mode owns the major-mode role exclusively.
+
+#### Scenario: Drawer carries full preset snapshot on save
+- **WHEN** a chat-mode buffer has the `coding` preset applied and `save-buffer` is invoked
+- **AND** the buffer-local `gptel-tools`, `gptel-model`, `gptel-backend`, `gptel-temperature`, `gptel-max-tokens`, `gptel--num-messages-to-send` all match the preset's values exactly
+- **THEN** the saved file contains a `:PROPERTIES:` / `:END:` drawer at point-min
+- **AND** the drawer contains `:GPTEL_PRESET: coding`
+- **AND** the drawer contains `:GPTEL_MODEL:`, `:GPTEL_BACKEND:`, `:GPTEL_TOOLS:`, and any other non-nil preset key
+- **AND** the drawer does NOT contain `:GPTEL_SYSTEM:`
+- **AND** the drawer does NOT contain `:GPTEL_BOUNDS:`
+
+#### Scenario: Drawer carries user overrides on top of preset snapshot
+- **WHEN** the `coding` preset is applied and the user adds one tool to `gptel-tools` via `gptel-chat-menu`
+- **AND** `save-buffer` is invoked
+- **THEN** the drawer contains `:GPTEL_PRESET: coding`
+- **AND** the drawer contains a `:GPTEL_TOOLS:` line listing the preset's tools plus the one added tool
+
+#### Scenario: Drawer carries parent-session-id for agent sessions
+- **WHEN** the buffer is an agent session with `jf/gptel--parent-session-id` set to `"parent-abc-20260424000000"`
+- **AND** `save-buffer` is invoked
+- **THEN** the drawer contains `:GPTEL_PARENT_SESSION_ID: parent-abc-20260424000000`
+
+#### Scenario: Drawer omits parent-session-id for non-agent buffers
+- **WHEN** the buffer has no `jf/gptel--parent-session-id` (branch session or standalone chat buffer)
+- **AND** `save-buffer` is invoked
+- **THEN** the drawer does NOT contain a `:GPTEL_PARENT_SESSION_ID:` line
+
+#### Scenario: GPTEL_SYSTEM never written by the save path
+- **WHEN** any chat-mode buffer is saved, regardless of preset or buffer-local `gptel--system-message` content
+- **THEN** the saved drawer contains no `:GPTEL_SYSTEM:` line
+
+#### Scenario: Save path never writes GPTEL_BOUNDS
+- **WHEN** a chat-mode buffer contains any number of assistant blocks and `save-buffer` is invoked
+- **THEN** the saved file contains no `:GPTEL_BOUNDS:` line under any circumstance
+
+#### Scenario: Save with no preset still writes a snapshot of buffer-local config
+- **WHEN** a fresh chat-mode buffer with no preset has the user set `gptel-model` to `claude-opus-4-7` buffer-locally
+- **AND** `save-buffer` is invoked
+- **THEN** the drawer contains `:GPTEL_MODEL: claude-opus-4-7`
+- **AND** the drawer does NOT contain `:GPTEL_PRESET:`
+- **AND** the drawer does NOT contain `:GPTEL_SYSTEM:`
+
+### Requirement: Configuration drawer overlay on restore
+
+On `gptel-chat-mode` activation, after a declared preset has been applied (Requirement: Preset system integration), the mode-activation hook SHALL read the configuration drawer via `gptel-org--entry-properties` and overlay every drawer-present value as buffer-local bindings. The overlaid keys are `GPTEL_MODEL`, `GPTEL_BACKEND`, `GPTEL_SYSTEM`, `GPTEL_TOOLS`, `GPTEL_TEMPERATURE`, `GPTEL_MAX_TOKENS`, and `GPTEL_NUM_MESSAGES_TO_SEND`.
+
+The drawer wins over the preset for every key it carries — this is the WYSIWYG contract: what is in the drawer is what the buffer uses. Even when a drawer key matches the preset's value, the overlay still installs the buffer-local binding (a harmless no-op semantically; load-bearing for `gptel-org-set-properties`-incompatible test scenarios).
+
+The mode-activation hook SHALL additionally read `GPTEL_PARENT_SESSION_ID` via `org-entry-get` and, when present, set `jf/gptel--parent-session-id` buffer-locally.
+
+The overlay SHALL be applied with a buffer-local setter so overlaid values do not leak into other buffers.
+
+When the drawer carries no entry for a given key, the buffer-local value remains whatever the preset installed (or whatever the global default is in the no-preset case).
+
+For `:system` specifically, the drawer overlay is not the final word. After the overlay runs, a separate restore step reads the `* System Prompt` heading body (Requirement: System prompt heading is authoritative) and, when that body is non-blank, installs it as `gptel--system-message` — superseding both a legacy `:GPTEL_SYSTEM:` drawer entry and the preset's `:system`. The restore precedence for the system prompt is therefore: `* System Prompt` heading body > legacy `:GPTEL_SYSTEM:` drawer entry > preset `:system`. The overlay's role for `:system` is the back-compat middle tier: it honors a hand-authored `:GPTEL_SYSTEM:` drawer line for old sessions that have no heading.
+
+When the buffer has no drawer at all, neither the preset nor the overlay path fires.
+
+#### Scenario: Drawer overlay restores user tools after reopen
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PRESET: coding` and `:GPTEL_TOOLS: tool-a tool-b tool-c`
+- **AND** the `coding` preset resolves `:tools` to `(tool-a tool-b)`
+- **THEN** after mode activation, buffer-local `gptel-tools` contains `(tool-a tool-b tool-c)`
+- **AND** buffer-local `gptel--preset` is `coding`
+
+#### Scenario: Drawer model wins over preset model
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PRESET: coding` and `:GPTEL_MODEL: claude-haiku-4-5`
+- **AND** the `coding` preset resolves `:model` to `claude-sonnet-4-6`
+- **THEN** after mode activation, buffer-local `gptel-model` is `claude-haiku-4-5`
+
+#### Scenario: System prompt comes from preset when drawer omits it and there is no heading
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PRESET: coding` and no `:GPTEL_SYSTEM:` line
+- **AND** the buffer has no `* System Prompt` heading
+- **AND** the `coding` preset resolves `:system` to `"You are a coding assistant."`
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"You are a coding assistant."`
+
+#### Scenario: Drawer-authored system prompt still respected on restore when there is no heading
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PRESET: coding` and `:GPTEL_SYSTEM: Custom override prompt.`
+- **AND** the buffer has no `* System Prompt` heading
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Custom override prompt."`
+- **NOTE**: the next save will NOT re-write `:GPTEL_SYSTEM:` (writer never emits it); it serializes the system prompt into a materialized `* System Prompt` heading body instead.
+
+#### Scenario: Drawer overlay restores parent-session-id for agent sessions
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PARENT_SESSION_ID: parent-abc-20260424000000`
+- **THEN** after mode activation, `jf/gptel--parent-session-id` is `"parent-abc-20260424000000"` buffer-locally
+
+#### Scenario: Drawer overlay does not leak globally
+- **WHEN** a chat-mode buffer with a drawer overlay finishes activation
+- **THEN** the overlaid keys (`gptel-tools`, `gptel-model`, `gptel-backend`, `jf/gptel--parent-session-id`, ...) are buffer-local
+- **AND** their global (default) values are unchanged
+
+#### Scenario: No drawer at all triggers no overlay
+- **WHEN** a chat-mode buffer with no `:PROPERTIES:` drawer and no file-local `gptel--preset` is activated
+- **THEN** no preset is applied and no overlay runs
+- **AND** the buffer inherits global or dir-local configuration unchanged
+
+### Requirement: System prompt heading is authoritative
+
+The body of a `* System Prompt` heading in a chat-mode buffer SHALL be the authoritative source of the buffer-local `gptel--system-message`. The system prompt is carried as visible document content — a heading body, which holds multi-line, special-character-heavy text with no escaping — rather than as a drawer property value.
+
+**Restore.** After preset application and the drawer overlay have run, `gptel-chat-mode` activation SHALL locate the first `* System Prompt` heading, skip its property drawer, and read the remaining heading body up to the next heading. When that body is non-blank, the mode SHALL install it as the buffer-local `gptel--system-message`. The body SHALL be read with a narrow/regexp scan, not `org-element-parse-buffer`.
+
+The restore precedence for the system prompt is, highest first:
+
+1. `* System Prompt` heading body, when non-blank
+2. legacy `:GPTEL_SYSTEM:` drawer entry, when present (back-compat)
+3. preset `:system`
+
+A blank (whitespace-only or absent) `* System Prompt` heading body SHALL be treated as "not authored": the restore step is a no-op and the value installed by the lower tiers stands. An empty heading SHALL never silently wipe the system prompt.
+
+**Save.** On `before-save-hook`, after the configuration drawer is written, the mode SHALL serialize the current buffer-local `gptel--system-message` into the `* System Prompt` heading body. When the buffer already has a `* System Prompt` heading, its body SHALL be replaced in place. When the buffer has no `* System Prompt` heading — a pre-Addendum session — the mode SHALL materialize the `* System Prompt` heading (carrying `:VISIBILITY: folded`) and a `* Chat` heading, moving the existing turn blocks under `* Chat`, using the shared heading-construction helper that the session-creation renderer uses. The save path SHALL NOT write a `:GPTEL_SYSTEM:` drawer line under any circumstance.
+
+The round trip create → restore → save → re-restore SHALL be stable: a save that does not change `gptel--system-message` produces no diff to the heading body, and re-restoring yields the same `gptel--system-message`.
+
+#### Scenario: Heading body is the system prompt on restore
+- **WHEN** a chat-mode buffer is opened whose `* System Prompt` heading body is `"Heading body text."` and whose `:GPTEL_PRESET:` resolves `:system` to `"Preset text."`
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Heading body text."`
+
+#### Scenario: Heading body wins over a legacy drawer entry
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_SYSTEM: Legacy drawer prompt.` AND whose `* System Prompt` heading body is `"Heading body text."`
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Heading body text."`
+
+#### Scenario: Legacy drawer entry wins over the preset when there is no heading
+- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_SYSTEM: Legacy drawer prompt.` and which has no `* System Prompt` heading
+- **AND** the preset resolves `:system` to `"Preset text."`
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Legacy drawer prompt."`
+
+#### Scenario: Preset is the fallback when there is no heading and no drawer entry
+- **WHEN** a chat-mode buffer is opened with no `* System Prompt` heading and no `:GPTEL_SYSTEM:` drawer entry
+- **AND** the preset resolves `:system` to `"Preset text."`
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Preset text."`
+
+#### Scenario: Blank heading body falls through to the preset
+- **WHEN** a chat-mode buffer is opened whose `* System Prompt` heading body is empty or whitespace-only
+- **AND** the preset resolves `:system` to `"Preset text."`
+- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Preset text."` — never nil and never the empty string
+
+#### Scenario: Save writes the system prompt into the heading body
+- **WHEN** a chat-mode buffer with a `* System Prompt` heading has `gptel--system-message` set to `"New prompt."` and `save-buffer` is invoked
+- **THEN** the `* System Prompt` heading body is `"New prompt."`
+- **AND** the saved drawer contains no `:GPTEL_SYSTEM:` line
+
+#### Scenario: Save materializes the heading for a pre-Addendum session
+- **WHEN** a chat-mode buffer has a config drawer and turn blocks but no `* System Prompt` / `* Chat` headings, `gptel--system-message` is set, and `save-buffer` is invoked
+- **THEN** the saved file contains exactly one `* System Prompt` heading (carrying `:VISIBILITY: folded`) whose body is the system prompt
+- **AND** exactly one `* Chat` heading, with the original turn blocks beneath it
+- **AND** no `:GPTEL_SYSTEM:` drawer line
+
+#### Scenario: Round-trip save is idempotent
+- **WHEN** a chat-mode buffer is restored, saved, re-restored, and saved again with no change to `gptel--system-message`
+- **THEN** the second save produces no diff relative to the first
+- **AND** the re-restored `gptel--system-message` equals the original
+
+### Requirement: Chat-menu defaults configuration scope to buffer-local
+
+`gptel-chat-menu` SHALL set `gptel--set-buffer-locally` to `t` for the lifetime of the menu invocation. This causes the upstream tool / model / temperature / system / etc. infixes (which read this variable to decide whether `gptel--set-with-scope` should set globally, buffer-locally, or oneshot) to write buffer-locally by default when invoked from the chat menu.
+
+The buffer-local default applies only to `gptel-chat-menu`. Upstream `gptel-menu` (invoked directly via `M-x gptel-menu` or its upstream binding) is unchanged and retains its global default.
+
+The user MAY still override per-invocation via the menu's scope toggle (the upstream `gptel--infix-variable-scope`), cycling through global / buffer-local / oneshot.
+
+#### Scenario: Tool toggle from chat menu writes buffer-locally
+- **WHEN** the user invokes `gptel-chat-menu` in a chat-mode buffer and toggles a tool via "Select tools" without changing the scope toggle
+- **THEN** `gptel-tools` is set buffer-locally in the chat-mode buffer
+- **AND** the global `gptel-tools` value is unchanged
+- **AND** `default-value 'gptel-tools` is unchanged
+
+#### Scenario: Upstream gptel-menu retains global default
+- **WHEN** the user invokes `M-x gptel-menu` (not the chat-menu binding) in any buffer and toggles a tool
+- **THEN** the upstream global behaviour is unchanged
+
+#### Scenario: Buffer-local tool change persists to drawer on save
+- **WHEN** the user toggles a tool via `gptel-chat-menu` and then invokes `save-buffer`
+- **THEN** the saved drawer contains a `:GPTEL_TOOLS:` line listing the new buffer-local tool list
+
+### Requirement: Chat-block body indentation
+
+The system SHALL maintain an invariant that every line of content inside a chat-block body — the content between `#+begin_user` / `#+begin_assistant` / `#+begin_tool` and its matching `#+end_*` — is indented by `gptel-chat-content-indentation` spaces, so no body line begins with an org structural token at column 0. The invariant is maintained at every write path:
+
+- **Streaming insertion** — see Requirement: Response streaming and sanitization.
+- **User typing** — a buffer-local `indent-line-function` (delimiter line → column 0; body line → the body indent) together with electric-indent causes new body lines to start at the body indent. Implementation does NOT use a per-keystroke hook.
+- **Paste / yank / programmatic insertion** — when a region is inserted inside a chat-block body, the system SHALL shift the inserted region so its minimum-indented line lands at the body indent (`shift = max(0, body-indent − region-minimum-indent)`). The shift preserves the region's relative indentation and is idempotent. Implementation: an `after-change-functions` recorder captures the inserted region and a one-shot `post-command-hook` performs the shift after the inserting command returns, outside the change dispatch.
+- **File read** — see Requirement: Migration of pre-indentation session files.
+
+The indentation width SHALL be controlled by the `gptel-chat-content-indentation` defcustom (default 2, matching `org-edit-src-content-indentation`; runtime floor clamped to 1). The indentation is symmetric by intent: the parser strips each segment's common leading indentation on send (Requirement: Message construction from buffer).
+
+Delimiter lines — `#+begin_user`, `#+begin_assistant`, `#+begin_tool`, `#+end_user`, `#+end_assistant`, `#+end_tool` — SHALL remain at column 0. The nested `#+begin_tool` / `#+end_tool` lines, although they sit inside an assistant body, are delimiter lines and stay at column 0; the display layer MAY render them with a `line-prefix` so they appear aligned with the indented body.
+
+#### Scenario: User types a heading-shaped line inside a user block
+- **WHEN** point is inside a `#+begin_user` block body and the user opens a new line and types `* heading`
+- **THEN** the new line starts at the body indent (electric-indent / `indent-line-function`)
+- **AND** the resulting buffer line is `  * heading` (indented), not a column-0 heading
+
+#### Scenario: User types outside any chat block
+- **WHEN** point is at column 0 outside any chat block (e.g., on a free-form section-divider heading)
+- **THEN** no body indentation is applied
+- **AND** the `*` is inserted as a normal heading character
+
+#### Scenario: Paste of multi-line text into a chat-block body
+- **WHEN** the user pastes a multi-line string whose first line is `* H1` and which contains a nested list at deeper indentation, at any position inside a chat-block body
+- **THEN** the inserted region is shifted so its least-indented line lands at the body indent
+- **AND** the relative indentation of the nested list is preserved
+- **AND** the chat block remains a well-formed `special-block`
+
+#### Scenario: Paste of already-indented content is idempotent
+- **WHEN** the user pastes a region whose minimum indentation already equals or exceeds the body indent
+- **THEN** the region is inserted unchanged (shift is zero)
+
+#### Scenario: Paste crossing a block boundary
+- **WHEN** an inserted region straddles a `#+end_*` delimiter
+- **THEN** only the portion inside the body is shifted; the delimiter line and content past it are left at column 0
+
+#### Scenario: Streaming insertion maintains the invariant
+- **WHEN** the streaming sanitizer inserts assistant content containing heading-shaped or delimiter-shaped lines
+- **THEN** the resulting buffer text has every body line indented; no column-0 structural token appears inside the block body
+
+#### Scenario: Tool delimiter lines stay at column 0
+- **WHEN** an assistant block contains a nested `#+begin_tool` / `#+end_tool` block
+- **THEN** the `#+begin_tool` and `#+end_tool` lines are at column 0 in the buffer and on disk
+- **AND** the tool result content between them is indented by the body width
+- **AND** the parser recognizes the tool block (its column-0 anchors are unaffected)
+
+### Requirement: Migration of pre-indentation session files
+
+When `gptel-chat-mode` activates on a buffer whose chat-block bodies are not in the indented form — pre-escape sessions (column-0 content), escape-era sessions (1-space `*` escapes and `,#+end_*` escapes), or content edited away from the indented form — the mode SHALL normalize each chat-block body to the indented form as part of activation. Per content-region (a run of lines between delimiter lines within a body), the migration SHALL first strip legacy escape-era artifacts (a leading `,` from `,#+end_*` lines, the old leading-whitespace prefix from `*` lines) and then shift the region so its minimum indent equals `gptel-chat-content-indentation`.
+
+The migration is read-time and in-buffer; there is no destructive on-disk rewrite. The migration SHALL only modify content inside chat-block bodies; delimiter lines (including nested `#+begin_tool` / `#+end_tool`) and content outside chat blocks SHALL NOT be modified. The migration SHALL mark the buffer modified IF and only IF it changed the buffer; a buffer already in the indented form opens unmodified. The migration SHALL be idempotent.
+
+#### Scenario: Open a pre-escape session with column-0 body content
+- **WHEN** a chat-mode buffer activates on a file whose `#+begin_assistant` block body contains `* My Heading` at column 0
+- **THEN** the buffer text is updated so that line is indented by the body width
+- **AND** the buffer is marked as modified
+- **AND** the next `save-buffer` persists the indented form
+
+#### Scenario: Open an escape-era session
+- **WHEN** a chat-mode buffer activates on a file whose chat-block bodies contain 1-space-escaped `*` lines and `,#+end_*` lines
+- **THEN** the legacy escapes are stripped and the body is re-indented to the current body width
+- **AND** message construction from the migrated buffer yields content identical (modulo the escape artifacts) to the pre-migration content
+
+#### Scenario: Open a session already in the indented form
+- **WHEN** a chat-mode buffer activates on a file whose chat-block bodies are already indented by the body width
+- **THEN** no migration change is applied
+- **AND** the buffer is not marked as modified
+
+#### Scenario: Migration leaves content outside chat blocks alone
+- **WHEN** a chat-mode buffer activates on a file whose top-level content includes `* Section A` outside any chat block
+- **THEN** `* Section A` remains a column-0 top-level document heading
+- **AND** only chat-block body content is indented
+
+#### Scenario: Migration leaves tool delimiter lines at column 0
+- **WHEN** a migrated assistant block contains a nested `#+begin_tool` / `#+end_tool` block
+- **THEN** the `#+begin_tool` and `#+end_tool` lines remain at column 0
+- **AND** the tool result content and the surrounding prose segments are indented

@@ -12,13 +12,13 @@
 
 This document defines the interfaces between components of the scope validation system.  Each interface is an executable contract: a =defconst= or validator function that is imported by tests to verify producers and consumers agree.
 
-The scope system validates tool invocations against a =scope.yml= configuration.  The flow is:
+The scope system validates tool invocations against the scope configuration encoded in the session's =:PROPERTIES:= drawer at =point-min= of =session.org=.  The flow is:
 
 1. A tool is invoked (e.g., =run_bash_command= or =read_file_in_scope=)
 2. The =gptel-make-scoped-tool= macro hands the arguments plus on-allow/on-deny thunks to =jf/gptel-scope-authorize-tool-call=, the single public authorization entrypoint
 3. The entrypoint loads config, dispatches to the bash or filesystem validator (gathering metadata along the way), and tags the result with =:validation-type=
 4. On an allowed result it invokes the on-allow thunk (which runs the tool body); on a denied result it triggers the inline expansion UI
-5. The expansion UI presents choices; the chosen action may write to =scope.yml= or simply authorize the single pending invocation
+5. The expansion UI presents choices; the chosen action may mutate the session's =:PROPERTIES:= drawer (Add to scope) or simply authorize the single pending invocation (Allow once)
 6. On user approval the on-allow thunk runs; on denial the on-deny thunk delivers a final response plist.  There is no re-validation, no retry
 
 Each numbered step crosses a component boundary.  This document defines what data looks like at each crossing.
@@ -26,15 +26,14 @@ Each numbered step crosses a component boundary.  This document defines what dat
 ** Component Overview
 
 #+begin_example
-                              scope.yml
+                  session.org :PROPERTIES: drawer
+                  (:GPTEL_SCOPE_READ:, _WRITE:, …)
                                  │
-                    ┌────────────┴────────────┐
-                    │      scope-yaml.el       │
-                    │  (parse, normalize keys, │
-                    │   merge defaults)        │
-                    └────────────┬─────────────┘
-                                 │ scope config plist
-                                 ▼
+                                 │ drawer reader
+                                 │ (--load-from-buffer /
+                                 │  --load-from-file)
+                                 │
+                                 ▼ scope config plist
   LLM tool call ──► gptel-make-scoped-tool (macro)
                     │  (scope-tool-wrapper.el)
                     │
@@ -92,7 +91,9 @@ Each numbered step crosses a component boundary.  This document defines what dat
               │  └──┬───┘ └──┬────┘ └──┬────┘  │
               └─────┼────────┼─────────┼───────┘
                     │        │         │
-                    │        │         └──► write scope.yml,
+                    │        │         └──► append patterns to
+                    │        │              session.org drawer
+                    │        │              (org-entry-put-multivalued-property),
                     │        │              callback with success
                     │        │
                     │        └──► callback with success
@@ -109,9 +110,8 @@ Each numbered step crosses a component boundary.  This document defines what dat
 | =scope-validation.el=       | =jf-gptel-scope-validation=        | Config load, all validators, pipeline, glob match, authorize-tool-call         |
 |                             |                                    | entrypoint, metadata gather, build-violation-info, format-tool-error,          |
 |                             |                                    | trigger-inline-expansion                                                       |
-| =scope-yaml.el=             | =jf-gptel-scope-yaml=              | YAML parse, key normalize, merge-defaults                                      |
 | =scope-metadata.el=         | =jf-gptel-scope-metadata=          | File metadata (exists, git-tracked, type)                                      |
-| =scope-expansion.el=        | =jf-gptel-scope-expansion=         | Transient menu, scope.yml writer, queue                                        |
+| =scope-expansion.el=        | =jf-gptel-scope-expansion=         | Transient menu, drawer writer (=org-entry-put-multivalued-property=), queue    |
 | =scope-filesystem-tools.el= | =jf-gptel-scope-filesystem-tools=  | =read_file_in_scope=, =write_file_in_scope=, =edit_file_in_scope=              |
 | =scope-shell-tools.el=      | =jf-gptel-scope-shell-tools=       | =run_bash_command=, =request_scope_expansion=, exec helpers                    |
 
@@ -157,7 +157,7 @@ A single =validate-path-operation= function in =scope-validation.el= is the auth
 
     ;; --- Parse errors ---
     ;; Produced when bash-parser cannot fully parse the command
-    ;; and security.enforce_parse_complete is true.
+    ;; and `jf/gptel-scope--enforce-parse-complete' is non-nil.
     ;; Producer: jf/gptel-scope--validate-parse-completeness
     "parse_incomplete"
 
@@ -176,11 +176,16 @@ Every consumer (build-violation-info, format-tool-error) MUST handle
 every code in this list.
 
 Codes that intentionally live outside this vocabulary:
-- \"no_scope_config\"  (macro, before validation runs)
 - \"tool_exception\"   (macro, unexpected errors caught around body)
-- \"invalid_cloud_auth_mode\" (misconfigured scope.yml, not a user action)
+- \"invalid_cloud_auth_mode\" (misconfigured drawer key, not a user action)
 - \"file_not_found\", \"string_not_found\", \"execution-failed\"
-  (tool-level errors produced after validation has passed)")
+  (tool-level errors produced after validation has passed)
+
+Historical: \"no_scope_config\" (macro, before validation runs) was
+removed in cycle-3 Option B disposition. An empty drawer is now a
+deny-all configuration; the dispatcher proceeds to validation and
+per-violation deny is the authorisation outcome. See
+register/boundary/scope-config-loader.")
 #+end_src
 
 ** Error Code to Resource Field Mapping
@@ -336,18 +341,20 @@ as authorization for the pending tool invocation and runs the body.
 No list is maintained.  No permission is consumed or persisted.  A
 subsequent invocation of the same resource that fails validation will
 prompt again.  The only difference between "Allow once" and "Add to
-scope" is the side effect: =add-to-scope= writes to =scope.yml=, while
-=allow-once= leaves it untouched.
+scope" is the side effect: =add-to-scope= appends patterns to the
+session's =:PROPERTIES:= drawer (via
+=org-entry-put-multivalued-property=), while =allow-once= leaves the
+drawer untouched.
 
 * Path Matching
 :PROPERTIES:
 :CUSTOM_ID: path-matching
 :END:
 
-Path matching converts glob patterns from =scope.yml= to regexes and tests paths against them.  There is exactly one glob-to-regex implementation — =jf/gptel-scope--glob-to-regex= in =scope-validation.el= — and exactly one top-level matcher, =jf/gptel-scope--path-matches-any-pattern-p=.  Both filesystem tool validation and bash file-operation validation reach this code through the shared =validate-path-operation= entry point.
+Path matching converts glob patterns from the session's =:PROPERTIES:= drawer to regexes and tests paths against them.  There is exactly one glob-to-regex implementation — =jf/gptel-scope--glob-to-regex= in =scope-validation.el= — and exactly one top-level matcher, =jf/gptel-scope--path-matches-any-pattern-p=.  Both filesystem tool validation and bash file-operation validation reach this code through the shared =validate-path-operation= entry point.
 
 #+begin_example
-  scope.yml patterns                  paths to check
+  drawer patterns                     paths to check
   ("/workspace/**"                    "/workspace/file.txt"
    "**/.git/**")                      "/workspace/.git/config"
        │                                     │
@@ -398,11 +405,11 @@ the canonical implementation honors the contract.")
 
 | Stage | Function                           | Purpose                                   | Error codes                               |
 |-------+------------------------------------+-------------------------------------------+-------------------------------------------|
-|     1 | =validate-parse-completeness=      | Refuse to validate commands we didn't fully parse (when =security.enforce_parse_complete=) | =parse_incomplete= |
+|     1 | =validate-parse-completeness=      | Refuse to validate commands we didn't fully parse (when =jf/gptel-scope--enforce-parse-complete= is non-nil) | =parse_incomplete= |
 |     2 | =check-no-op=                      | Commands with zero file operations exit the pipeline early and bypass stages 3 and 4 | (none — signals allow) |
 |     3 | =validate-file-operations=         | Route each extracted file op through =validate-path-operation= | =denied-pattern=, =not-in-scope= |
-|     4 | =validate-cloud-auth=              | Enforce =cloud.auth_detection= policy and =allowed_providers= filter | =cloud_auth_denied=, =cloud_provider_denied= |
-| —     | =check-coverage-threshold=         | Non-blocking warning if parse coverage below =security.max_coverage_threshold= | (none — warn only) |
+|     4 | =validate-cloud-auth=              | Enforce =cloud.auth-detection= policy and =allowed-providers= filter | =cloud_auth_denied=, =cloud_provider_denied= |
+| —     | =check-coverage-threshold=         | Non-blocking warning if parse coverage below =jf/gptel-scope--coverage-threshold= | (none — warn only) |
 
 Stage 2 is a *deliberate policy gate*, not an optimization: a command with zero file operations (e.g. =echo hello=, =python3 --version=) short-circuits the whole pipeline, which is also what spares it from cloud-auth checks.  Any follow-up to change that behavior should update this row.
 
@@ -413,7 +420,7 @@ Stage 3 is where the operation-first model lives: =validate-file-operation= rece
 :CUSTOM_ID: scope-config
 :END:
 
-=jf/gptel-scope-yaml--load-schema= parses =scope.yml= and merges it with =jf/gptel-scope-yaml--schema-defaults=.  The resulting plist is what every validator expects.
+The scope-validation loader parses scope configuration from the session.org =:PROPERTIES:= drawer (via =--load-from-buffer= for an open session buffer or =--load-from-file= for a path) and merges defaults.  The resulting plist is what every validator expects.
 
 #+begin_example
   (:paths (:read    (PATTERN ...)   ; read_file_in_scope + read-like bash ops
@@ -422,12 +429,12 @@ Stage 3 is where the operation-first model lives: =validate-file-operation= rece
            :execute (PATTERN ...)   ; execute operations (high risk)
            :deny    (PATTERN ...))  ; highest-precedence deny list
    :cloud (:auth-detection     "allow"|"warn"|"deny"
-           :allowed-providers  (PROVIDER ...))
-   :security (:enforce-parse-complete  BOOL
-              :max-coverage-threshold  FLOAT))
+           :allowed-providers  (PROVIDER ...)))
 #+end_example
 
-Keys are normalized from =snake_case= in YAML to =kebab-case= keywords in elisp by =jf/gptel-scope-yaml--normalize-keys=.  The writer (=scope-expansion.el=) performs the reverse conversion via =jf/gptel-scope-yaml--kebab-to-snake=.
+The plist has *exactly two top-level keys*: =:paths= and =:cloud=.  The previously-used =:security= key has been removed: its two former values (=:enforce-parse-complete=, =:max-coverage-threshold=) are now module-level =defconst= bindings in =scope-validation.el= (=jf/gptel-scope--enforce-parse-complete= and =jf/gptel-scope--coverage-threshold=).  These are not user-tunable and not per-session configurable; they are structural constants.  Any =(plist-get config :security ...)= read in implementation code is a divergence signal — the key is forbidden in the loaded plist.
+
+Drawer keys are mapped to plist paths by the closed vocabulary in the next section.  The drawer reader (=jf/gptel-scope--load-from-buffer= / =--load-from-file=) does the keyword-to-plist translation; the drawer writer (=scope-expansion.el=, via =org-entry-put-multivalued-property=) performs the inverse translation by calling the same canonical mapping.  There is no longer a snake_case/kebab-case round-trip — the on-disk encoding is org-mode property syntax, not YAML.
 
 The permission hierarchy implemented by =validate-path-operation=:
 
@@ -436,6 +443,29 @@ The permission hierarchy implemented by =validate-path-operation=:
 - =:modify=: requires =paths.modify= OR =paths.write=
 - =:execute=: requires =paths.execute= only
 - =paths.deny= takes precedence over every allow pattern
+
+* Drawer Key Vocabulary
+:PROPERTIES:
+:CUSTOM_ID: drawer-key-vocabulary
+:END:
+
+Scope configuration is encoded into a session.org file's top-level =:PROPERTIES:= drawer.  The loader (=jf/gptel-scope--load-from-buffer= / =--load-from-file= / =--load-config=) reads this drawer and produces the [[#scope-config][scope-config plist]] above.
+
+The drawer key set is a *closed vocabulary*: the seven keys below are the only =:GPTEL_SCOPE_*= property keys the loader recognises.  An unknown =:GPTEL_SCOPE_*= key is a configuration error.  The list-valued keys also accept the org-property =+:= multi-value suffix (e.g. =:GPTEL_SCOPE_READ+:=) to append additional patterns across drawer lines without rewriting the original.
+
+| Drawer key                                | Cardinality | Plist field                       |
+|-------------------------------------------+-------------+-----------------------------------|
+| =:GPTEL_SCOPE_READ:= / =:GPTEL_SCOPE_READ+:= | list     | =(:paths :read)=                  |
+| =:GPTEL_SCOPE_WRITE:= / =:GPTEL_SCOPE_WRITE+:= | list   | =(:paths :write)=                 |
+| =:GPTEL_SCOPE_MODIFY:= / =:GPTEL_SCOPE_MODIFY+:= | list | =(:paths :modify)=                |
+| =:GPTEL_SCOPE_EXECUTE:= / =:GPTEL_SCOPE_EXECUTE+:= | list | =(:paths :execute)=             |
+| =:GPTEL_SCOPE_DENY:= / =:GPTEL_SCOPE_DENY+:= | list     | =(:paths :deny)=                  |
+| =:GPTEL_SCOPE_CLOUD_AUTH:=                 | scalar      | =(:cloud :auth-detection)=        |
+| =:GPTEL_SCOPE_CLOUD_PROVIDERS:= / =:GPTEL_SCOPE_CLOUD_PROVIDERS+:= | list | =(:cloud :allowed-providers)= |
+
+=:GPTEL_SCOPE_CLOUD_AUTH:= is scalar-valued; its value must be one of the strings ="allow"=, ="warn"=, or ="deny"=.  All other keys are list-valued: their values are whitespace-separated glob patterns (or, for cloud-providers, provider names).
+
+The mapping above is the single canonical translation between drawer keys and plist paths.  A second =pcase= or =cond= inlined elsewhere translating drawer keys to plist paths would be a duplication bug; the loader implementation is the only authority.
 
 * Known Divergences
 :PROPERTIES:

@@ -34,6 +34,7 @@
 ;; `bound-and-true-p' or `fboundp'.
 (defvar gptel-chat--lifecycle-state)
 (declare-function gptel-fsm-info "gptel-request" (fsm))
+(declare-function gptel-chat--body-indent "gptel-chat-mode" ())
 
 ;; Customization group
 
@@ -51,26 +52,31 @@
 
 ;; Faces
 
-;; Subtle defaults: a slight background tint per role. Users who want a
-;; different treatment (foreground shift, line-prefix, box, etc.)
-;; customize via =M-x customize-face RET gptel-chat-user-face RET=.
+;; Inherit from =org-block= so chat turn bodies pick up whatever the
+;; user's active org theme uses for source/quote blocks.  This avoids
+;; hard-coded colour palettes that fight the user's theme — a frequent
+;; source of unreadable light-on-light or dark-on-dark renders when the
+;; =(((background dark)))= matcher resolves the wrong variant (e.g. when
+;; =custom-set-faces= overrides =default= after the theme loads, or when
+;; =frame-parameter background-mode= disagrees with the theme family).
 
-;; The dark/light background variants keep contrast readable under both
-;; theme families without hard-coding a specific theme's palette.
+;; The =#+begin_user= / =#+begin_assistant= delimiter lines remain
+;; visually distinct on their own; users who want extra per-role tinting
+;; can customise these faces directly via =M-x customize-face=.
 
 
 ;; [[file:display.org::*Faces][Faces:1]]
 (defface gptel-chat-user-face
-  '((((background dark))  :background "#1a2030" :extend t)
-    (((background light)) :background "#f0f4ff" :extend t))
+  '((t :inherit org-block :extend t))
   "Face applied to the body region of `#+begin_user' blocks.
+Inherits from `org-block' so chat blocks match the user's org theme.
 Delimiter lines are NOT covered by this face."
   :group 'gptel-chat)
 
 (defface gptel-chat-assistant-face
-  '((((background dark))  :background "#1a2a1a" :extend t)
-    (((background light)) :background "#f0fff4" :extend t))
+  '((t :inherit org-block :extend t))
   "Face applied to the body region of `#+begin_assistant' blocks.
+Inherits from `org-block' so chat blocks match the user's org theme.
 Delimiter lines are NOT covered by this face."
   :group 'gptel-chat)
 ;; Faces:1 ends here
@@ -176,6 +182,53 @@ Returns the new overlay.  The overlay is tagged with the
   (remove-overlays (point-min) (point-max) 'gptel-chat-display t))
 ;; Overlay cleanup:1 ends here
 
+;; Tool-delimiter alignment (Path C)
+
+;; Nested =#+begin_tool= / =#+end_tool= delimiter lines live inside an
+;; assistant body. They stay at *real* column 0 — the parser anchors
+;; =^#\+begin_tool= / =^#\+end_tool= there, and Path C of the
+;; body-indentation design (=gptel-chat-heading-scoping= design.md
+;; Decision 5) keeps them there so the parser, the streaming emitter,
+;; and the block-body predicate are all unchanged.
+
+;; The cost of column-0 tool delimiters is purely visual: they would sit
+;; flush-left amid the indented prose around them.
+;; =gptel-chat--display-prefix-tool-delimiters= closes that gap by
+;; installing a =line-prefix= overlay — a string of =gptel-chat--body-indent=
+;; spaces — on each tool delimiter line, so it *renders* aligned with the
+;; indented body. The overlay is display-only: buffer text, on-disk
+;; content, and parser input are all unaffected. A display-only nudge is
+;; sound here — and not for body content — because tool delimiter lines
+;; are never sent to the model.
+
+
+;; [[file:display.org::*Tool-delimiter alignment (Path C)][Tool-delimiter alignment (Path C):1]]
+(defconst gptel-chat--display-tool-delimiter-regexp
+  "^#\\+\\(?:begin\\|end\\)_tool\\b"
+  "Regexp matching a nested tool-block delimiter line at column 0.
+Used by `gptel-chat--display-prefix-tool-delimiters' to find the
+lines that receive a cosmetic `line-prefix'.")
+
+(defun gptel-chat--display-prefix-tool-delimiters (body-start body-end)
+  "Install `line-prefix' overlays on tool delimiter lines in [BODY-START, BODY-END).
+For each column-0 `#+begin_tool' / `#+end_tool' line in the range,
+install a `gptel-chat-display'-tagged overlay carrying a `line-prefix'
+of `gptel-chat--body-indent' spaces, so the delimiter renders
+visually aligned with the indented body around it (design.md
+Decision 5 — Path C).  The overlays are display-only and are removed
+with the role overlays by `gptel-chat--display-remove-all'."
+  (let ((prefix (make-string (gptel-chat--body-indent) ?\s)))
+    (save-excursion
+      (save-match-data
+        (goto-char body-start)
+        (while (re-search-forward gptel-chat--display-tool-delimiter-regexp
+                                  body-end t)
+          (let ((ov (make-overlay (line-beginning-position)
+                                  (line-end-position) nil t nil)))
+            (overlay-put ov 'gptel-chat-display t)
+            (overlay-put ov 'line-prefix prefix)))))))
+;; Tool-delimiter alignment (Path C):1 ends here
+
 ;; Refresh — the main entry point
 
 ;; Walk the turn list and re-install role overlays. The refresh is
@@ -194,10 +247,11 @@ Returns the new overlay.  The overlay is tagged with the
 (defun gptel-chat--refresh-overlays (&optional buffer)
   "Refresh role overlays in BUFFER (default current).
 Removes existing `gptel-chat-display' overlays and installs fresh ones
-spanning the body of each user / assistant turn.  A `user-error' from
-the parser (mid-edit buffer with an unclosed block) is caught and
-treated as a no-op — the next refresh will reinstall overlays once
-the buffer reaches a parseable state."
+spanning the body of each user / assistant turn, plus `line-prefix'
+overlays aligning the nested tool-block delimiters (Path C).  A
+`user-error' from the parser (mid-edit buffer with an unclosed block)
+is caught and treated as a no-op — the next refresh will reinstall
+overlays once the buffer reaches a parseable state."
   (with-current-buffer (or buffer (current-buffer))
     (when gptel-chat--display-enabled
       (gptel-chat--display-remove-all)
@@ -209,7 +263,12 @@ the buffer reaches a parseable state."
                                   (`user      'gptel-chat-user-face)
                                   (`assistant 'gptel-chat-assistant-face))))
                 (gptel-chat--display-make-overlay
-                 (car range) (cdr range) face))))
+                 (car range) (cdr range) face)
+                ;; Path C: render the nested tool-block delimiter lines
+                ;; aligned with the indented assistant body.
+                (when (eq (plist-get turn :role) 'assistant)
+                  (gptel-chat--display-prefix-tool-delimiters
+                   (car range) (cdr range))))))
         (user-error nil)))))
 ;; Refresh — the main entry point:1 ends here
 

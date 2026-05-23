@@ -175,18 +175,32 @@ coerced via `intern'."
 
 * Drawer overrides overlay
 
-=gptel-chat--apply-drawer-overrides= overlays any non-preset
-configuration properties present in the buffer's =:PROPERTIES:=
-drawer at =point-min=. It is the restore-path counterpart to the
-save hook's call to =gptel-org-set-properties=, and is called from
-=gptel-chat--apply-declared-preset= after preset application.
+=gptel-chat--apply-drawer-overrides= overlays *every* drawer-present
+configuration property buffer-locally. The drawer wins over the
+preset for every key it carries (Decision 3 of
+=openspec/changes/gptel-drawer-as-source-of-truth/design.md=,
+=register/invariant/drawer-overlay-wins-over-preset=). When the
+drawer omits a key, the preset's value (already installed by the
+caller =gptel-chat--apply-declared-preset=) survives intact.
+
+The asymmetric exception is =:GPTEL_SYSTEM:=. The chat-mode save
+path never *writes* it (Decision 2 / =register/invariant/drawer-
+system-key-write-exclusion=), but the overlay still *reads* it for
+back-compat: a manually authored =:GPTEL_SYSTEM:= line in a fresh
+or restored session continues to install =gptel--system-message=
+buffer-locally.
+
+It is the restore-path counterpart to the save hook
+(=gptel-chat--save-state= → =gptel-chat--write-config-drawer=) and
+is called from =gptel-chat--apply-declared-preset= after preset
+application.
 
 Upstream =gptel-org--entry-properties= already returns a structured
 tuple of the configuration keys
 (=preset=, =system=, =backend=, =model=, =temperature=, =tokens=,
 =num=, =tools=). Reusing it keeps the drawer shape bit-for-bit
 compatible with what upstream's own =gptel-org--restore-state= reads
-(design.md §Decision 2, 5).
+(design.md §Decision 5).
 
 We deliberately *discard* the preset field from the tuple at this
 layer — the caller (=gptel-chat--apply-declared-preset=) has already
@@ -201,27 +215,44 @@ buffer-local value (design.md §Decision 3).
 Every overlaid value is set via =make-local-variable= so global
 defaults in other buffers are never touched.
 
+The implementation has no "if drawer matches preset, skip" check.
+Every drawer-present (non-nil) key triggers a buffer-local set.
+This is the structural reason the drawer is a credible WYSIWYG
+source of truth — adding a comparison would silently flip authority
+back to the preset under conditions the user can't see.
+
 #+begin_src emacs-lisp
 (defun gptel-chat--apply-drawer-overrides ()
-  "Overlay non-preset drawer properties buffer-locally.
+  "Overlay every drawer-present configuration property buffer-locally.
 
 Reads the `:PROPERTIES:' drawer at `point-min' via upstream
 `gptel-org--entry-properties' and, for each non-nil upstream-
 compatible key (`:system', `:backend', `:model', `:temperature',
 `:max-tokens', `:num-messages-to-send', `:tools'), installs the
-value as a buffer-local binding.
+value as a buffer-local binding.  The drawer wins over the preset
+for every key it carries (Decision 3 of gptel-drawer-as-source-of-
+truth, register/invariant/drawer-overlay-wins-over-preset).  No
+\"if drawer matches preset, skip\" check — every non-nil key
+triggers a buffer-local set.
 
 Additionally reads the chat-mode extension key `GPTEL_PARENT_SESSION_ID'
 via `org-entry-get' and, when non-nil and non-empty, sets
 `jf/gptel--parent-session-id' buffer-locally.
 
 Absent fields are no-ops — the buffer-local setter is never called
-with a nil value, so the global (default) binding remains intact.
+with a nil value, so the preset's value (already installed by the
+caller) remains in effect.  This is the asymmetric contract for
+`:GPTEL_SYSTEM:': the chat-mode save path never writes the key
+(Decision 2 / register/invariant/drawer-system-key-write-exclusion),
+so the drawer typically omits it and the preset's `:system' wins.
+A manually authored `:GPTEL_SYSTEM:' line is still respected here
+for back-compat — when the upstream tuple's `system' field is non-
+nil, the drawer entry wins over the preset.
 
 The preset field from `gptel-org--entry-properties' is intentionally
 discarded here; it was already applied by the caller
 (`gptel-chat--apply-declared-preset').  Re-applying would undo the
-preset's composite-key logic (design.md §Decision 2, 5)."
+preset's composite-key logic (design.md §Decision 5)."
   (when (fboundp 'gptel-org--entry-properties)
     (pcase-let
         ((`(,_preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)
@@ -247,6 +278,139 @@ preset's composite-key logic (design.md §Decision 2, 5)."
     (when (and parent-id (stringp parent-id)
                (not (string-empty-p parent-id)))
       (set (make-local-variable 'jf/gptel--parent-session-id) parent-id))))
+#+end_src
+
+* System Prompt heading restore
+
+design.md §Addendum (Finding B / Decision B) relocates the system
+prompt from a drawer property into a visible =* System Prompt=
+heading body, and makes that body *authoritative*
+(=register/invariant/system-prompt-heading-authoritative=).
+
+On mode activation the restore precedence is, highest first:
+
+  1. =* System Prompt= heading body, when non-blank
+  2. legacy =:GPTEL_SYSTEM:= drawer entry, when present
+  3. preset =:system=
+
+=gptel-chat--apply-drawer-overrides= already handles levels 2 and 3:
+when the drawer carries =:GPTEL_SYSTEM:= the overlay installs it,
+otherwise the preset's =:system= (already applied by the caller)
+stands. =gptel-chat--apply-system-prompt-heading= adds level 1 — it
+runs *after* the overlay and supersedes both when the heading body is
+authored. A blank (whitespace-only or absent) heading body is treated
+as "not authored" and is a no-op, so an empty heading never silently
+wipes the prompt.
+
+The body is read with a narrow/regexp scan — =org-narrow-to-subtree=
+to the =* System Prompt= heading, then skip its property drawer — not
+=org-element-parse-buffer= (chat-mode parser Decision 1: the parser
+stays a regexp state machine, no org-element dependency).
+
+The four-step scan (anchor heading → heading-end → next-heading-or-EOB
+subtree-end → skip the heading's own =:PROPERTIES:= drawer) is shared
+with the save-side writer =gptel-chat--write-system-prompt-heading=
+via the helper =gptel-chat--system-prompt-heading-body-region=. The
+helper returns the post-drawer body region verbatim; the *reader*
+trims trailing whitespace and treats a blank result as "not authored"
+(per =register/invariant/system-prompt-heading-authoritative=); the
+*writer* pads with the leading/trailing newlines the document layout
+requires (per =register/shape/session-document-layout=). Single-
+sourcing the scan keeps reader/writer agreement on what "body" means
+visible at one decision point — silent divergence on body bounds is
+exactly the shape-corruption class the shape register guards against.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--system-prompt-heading-body-region ()
+  "Return (BODY-START . SUBTREE-END) for `* System Prompt', or nil.
+
+Locates the first top-level `* System Prompt' heading in the current
+buffer.  BODY-START is the buffer position immediately after the
+heading's own `:PROPERTIES:'/`:END:' drawer (when present), or the
+position immediately after the heading line otherwise.  SUBTREE-END
+is the start of the next `^\\* ' heading, or `point-max'.
+
+Returns nil when the `* System Prompt' heading is absent.  The
+returned region is *verbatim* — no trim, no pad: the reader
+(`gptel-chat--system-prompt-heading-body') trims and treats a blank
+result as \"not authored\" per register/invariant/system-prompt-
+heading-authoritative; the writer
+(`gptel-chat--write-system-prompt-heading') pads with the leading/
+trailing newlines required by register/shape/session-document-layout.
+Centralising the scan keeps reader and writer agreed on what \"body\"
+means — silent divergence on body bounds is exactly the corruption
+class the shape register guards against.
+
+Uses a narrow/regexp scan, not `org-element-parse-buffer' (chat-mode
+parser Decision 1)."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (when (re-search-forward "^\\* System Prompt[ \t]*$" nil t)
+        (let* ((heading-end (line-end-position))
+               (subtree-end
+                (save-excursion
+                  (goto-char heading-end)
+                  (if (re-search-forward "^\\* " nil t)
+                      (line-beginning-position)
+                    (point-max))))
+               (body-start
+                (save-excursion
+                  (goto-char heading-end)
+                  (forward-line 1)
+                  ;; Skip the heading's own `:PROPERTIES:' drawer.
+                  (when (and (< (point) subtree-end)
+                             (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$"))
+                    (when (re-search-forward "^[ \t]*:END:[ \t]*$"
+                                             subtree-end t)
+                      (forward-line 1)))
+                  (point))))
+          (cons body-start subtree-end))))))
+
+(defun gptel-chat--system-prompt-heading-body ()
+  "Return the body text of the `* System Prompt' heading, or nil.
+
+Locates the first top-level `* System Prompt' heading in the current
+buffer, skips its `:PROPERTIES:' ... `:END:' drawer (and any blank
+lines after it), and returns the remaining subtree text up to — but
+not including — the next heading.  Trailing whitespace is trimmed.
+
+Returns nil when there is no `* System Prompt' heading, or when the
+heading body is blank (absent or whitespace-only) — a blank body is
+treated as \"not authored\" so it never overrides the preset
+(register/invariant/system-prompt-heading-authoritative).
+
+Delegates the heading-and-drawer scan to
+`gptel-chat--system-prompt-heading-body-region'; the only work here is
+substring extraction, the trim policy, and the blank-body check."
+  (when-let* ((region (gptel-chat--system-prompt-heading-body-region))
+              (body-start (car region))
+              (subtree-end (cdr region))
+              ((< body-start subtree-end))
+              (body (buffer-substring-no-properties body-start subtree-end))
+              ((not (string-blank-p body))))
+    (string-trim-right body)))
+
+(defun gptel-chat--apply-system-prompt-heading ()
+  "Install the `* System Prompt' heading body as `gptel--system-message'.
+
+When the current buffer carries a `* System Prompt' heading with a
+non-blank body, set `gptel--system-message' buffer-locally to that
+body — the document is the authoritative source of the system prompt
+(register/invariant/system-prompt-heading-authoritative).
+
+A no-op when the heading is absent or its body is blank: the value
+installed by an earlier step — the preset's `:system' or a legacy
+`:GPTEL_SYSTEM:' drawer entry applied by
+`gptel-chat--apply-drawer-overrides' — is left in effect.  An empty
+heading never silently wipes the prompt.
+
+Intended to run from `gptel-chat--apply-declared-preset' after the
+drawer overlay, so the heading body wins over both the preset and a
+legacy drawer entry (design.md §Addendum, Decision B)."
+  (when-let* ((body (gptel-chat--system-prompt-heading-body)))
+    (set (make-local-variable 'gptel--system-message) body)))
 #+end_src
 
 * Preset application hook
@@ -284,6 +448,14 @@ preset's baseline. The overlay also fires in the no-preset branch —
 that covers buffers whose drawer carries only non-preset keys or
 only =GPTEL_PARENT_SESSION_ID= (design.md §Decisions 2, 3, 5).
 
+Finally =gptel-chat--apply-system-prompt-heading= runs *last*, after
+the overlay, so an authored =* System Prompt= heading body supersedes
+both the preset's =:system= and a legacy =:GPTEL_SYSTEM:= drawer
+entry — the document is authoritative
+(=register/invariant/system-prompt-heading-authoritative=, design.md
+§Addendum Decision B). It is a no-op when the heading is absent or
+blank, so old sessions degrade gracefully to the preset.
+
 #+begin_src emacs-lisp
 (defun gptel-chat--apply-declared-preset ()
   "Apply a buffer-declared gptel preset, if any, then overlay deltas.
@@ -299,6 +471,15 @@ declared), calls `gptel-chat--apply-drawer-overrides' to install any
 non-preset drawer properties and `GPTEL_PARENT_SESSION_ID' as
 buffer-local bindings on top of the preset baseline (design.md
 §Decisions 2, 3, 5).
+
+Finally calls `gptel-chat--apply-system-prompt-heading' so an
+authored `* System Prompt' heading body wins over the preset's
+`:system' and over any legacy `:GPTEL_SYSTEM:' drawer entry — the
+restore precedence is heading body > drawer entry > preset
+(register/invariant/system-prompt-heading-authoritative, design.md
+§Addendum Decision B).  The heading read is a no-op when no `* System
+Prompt' heading exists or its body is blank, so pre-Addendum sessions
+fall back to the preset.
 
 Does NOT enable `gptel-mode' (design.md §Decision 16).  Chat-mode
 owns the major-mode role exclusively.
@@ -321,66 +502,419 @@ triggers a `display-warning' rather than an error, matching upstream
   ;; carries only non-preset keys (e.g. `GPTEL_TOOLS' alone) or only
   ;; `GPTEL_PARENT_SESSION_ID'.  Re-running after the preset-apply
   ;; branch is harmless: the overlay re-installs the same values.
-  (gptel-chat--apply-drawer-overrides))
+  (gptel-chat--apply-drawer-overrides)
+  ;; Heading body is authoritative — runs last so it supersedes both
+  ;; the preset's `:system' and a legacy `:GPTEL_SYSTEM:' drawer entry
+  ;; (register/invariant/system-prompt-heading-authoritative).
+  (gptel-chat--apply-system-prompt-heading))
 #+end_src
 
 * Save state hook
 
 =gptel-chat--save-state= is the =before-save-hook= entry that
 writes a configuration =:PROPERTIES:= drawer at =point-min= before
-the buffer is written to disk. It delegates the upstream-compatible
-subset (=GPTEL_PRESET=, =GPTEL_MODEL=, =GPTEL_BACKEND=,
-=GPTEL_SYSTEM=, =GPTEL_TOOLS=, =GPTEL_TEMPERATURE=,
-=GPTEL_MAX_TOKENS=, =GPTEL_NUM_MESSAGES_TO_SEND=) to upstream's
-=gptel-org-set-properties=, then writes the chat-mode extension
-=GPTEL_PARENT_SESSION_ID= via a targeted =org-entry-put= when
-=jf/gptel--parent-session-id= is bound to a non-empty string.
+the buffer is written to disk.
 
-Design rationale (design.md §Decisions 1, 3, 10):
+The save path writes the *full snapshot* of current buffer-local
+configuration on every save, with no delta-from-preset deletion
+semantics. The drawer is the WYSIWYG source of truth — opening
+the file shows the configuration the chat is using right now
+(Decision 1 of gptel-drawer-as-source-of-truth).
 
-- =gptel-org-set-properties= is the narrower upstream helper.  It
-  does NOT write =GPTEL_BOUNDS= — that's the wrapper
-  =gptel-org--save-state=, which calls this narrower helper and then
-  additionally persists response-span bounds.  Calling the narrower
-  helper gives us upstream delta-from-preset semantics bit-for-bit
-  compatible with a =gptel-mode= org buffer, minus the one line we
-  don't want (chat-mode uses blocks, not text-property bounds — spec
-  §"Save path never writes GPTEL_BOUNDS").
-- =GPTEL_PARENT_SESSION_ID= is a chat-mode extension (design.md
-  §Decision 3).  Upstream's =gptel-org--entry-properties= ignores
-  unknown drawer keys, so cross-compat with a =gptel-mode= buffer is
-  preserved.  It's written as a targeted =org-entry-put= after the
-  upstream helper returns.
-- The =msg= argument to =gptel-org-set-properties= is =nil= so the
-  interactive echo ("Added gptel configuration to current
-  headline.") is suppressed on every save.
+The six *snapshot keys* — =GPTEL_MODEL=, =GPTEL_BACKEND=,
+=GPTEL_TOOLS=, =GPTEL_TEMPERATURE=, =GPTEL_MAX_TOKENS=, and
+=GPTEL_NUM_MESSAGES_TO_SEND= — are emitted through the shared
+registry =jf/gptel-scope-profile--snapshot-spec=. The writer reads
+the current buffer-local configuration via
+=jf/gptel-scope-profile--buffer-snapshot-plist=, turns it into
+ordered, type-filtered entries with
+=jf/gptel-scope-profile--snapshot-entries=, and for each registry
+key either writes the entry or deletes a stale one. This is the
+*same* enumeration the preset-spec renderer and the buffer-mode
+applicator consume, so the snapshot key set cannot drift between the
+save path and session creation, and adding a seventh key is a single
+edit to the registry.
+
+Two further keys are chat-mode-specific and written directly:
+
+- =GPTEL_PRESET= — from =gptel--preset= (the preset *name*, not
+  preset-derived configuration, so not part of the snapshot set).
+- =GPTEL_PARENT_SESSION_ID= — from =jf/gptel--parent-session-id=
+  (written by =gptel-chat--save-state=, see below).
+
+Deliberate exclusions:
+
+- =GPTEL_SYSTEM= is *never* written (Decision 2;
+  =register/invariant/drawer-system-key-write-exclusion=). Long,
+  multi-line, special-character system prompts are unwieldy as a
+  single org property value, so the writer never round-trips them.
+  The read-side overlay (=gptel-chat--apply-drawer-overrides=)
+  still respects manually authored entries for back-compat.
+- =GPTEL_BOUNDS= is never written. Chat-mode stores response text
+  inside =#+begin_assistant= blocks rather than text-property-
+  bounded spans (spec §"Save path never writes GPTEL_BOUNDS").
+
+For each key, if the source variable is nil or wrong-typed, the
+drawer entry is *deleted* via =org-entry-delete= so the saved
+drawer never carries stale values. =GPTEL_SYSTEM= is the
+exception — it is neither written nor deleted, leaving any user-
+authored entry as-is.
+
+Design rationale (design.md §Decisions 1, 2, 3):
+
+- A dedicated chat-mode writer (rather than wrapping the upstream
+  =gptel-org-set-properties= helper) is the smallest surface that
+  gives the WYSIWYG contract. The upstream helper's delta-from-
+  preset semantics defeat the design goal — fresh sessions never
+  display =:GPTEL_TOOLS:= or =:GPTEL_MODEL:= when the buffer-local
+  values match the preset, hiding the active configuration.
+- The snapshot keys route through the shared registry
+  =jf/gptel-scope-profile--snapshot-spec= rather than being
+  enumerated inline. Before this, the writer was a third independent
+  producer of the same six-key set, alongside the preset-spec
+  renderer and the buffer-mode applicator; a reviewer flagged that
+  adding a snapshot key meant editing the writer *and* the scope-
+  profile module. Routing every producer through one registry
+  retires that drift surface
+  (=harden-snapshot-emission-cross-stage-parity=, Finding 1). The
+  writer lazily =(require 'gptel-scope-profiles)= for the registry;
+  in production that module is already loaded by =gptel.org=.
+- =(require 'gptel-org)= is still needed: the read-side overlay
+  (=gptel-chat--apply-drawer-overrides=) consumes
+  =gptel-org--entry-properties=, so the feature must be loaded.
 - =save-excursion= + =org-with-wide-buffer= mirror upstream's
-  =gptel-org--save-state= framing so the save is safe regardless of
-  buffer narrowing or point position.
-- The =derived-mode-p= guard is defense-in-depth.  The hook is
-  registered buffer-locally from =gptel-chat--install-preset-hooks=
-  (see below), so in practice it only fires in chat-mode buffers,
-  but a direct caller — or a future accidental global registration —
-  should still no-op outside chat-mode.
+  framing so the save is safe regardless of buffer narrowing or
+  point position.
+- The =derived-mode-p= guard is defense-in-depth. The hook is
+  registered buffer-locally from
+  =gptel-chat--install-preset-hooks= (see below), so in practice
+  it only fires in chat-mode buffers, but a direct caller — or a
+  future accidental global registration — should still no-op
+  outside chat-mode.
 
 #+begin_src emacs-lisp
+(declare-function org-entry-delete "org" (pom property))
+(declare-function org-entry-put-multivalued-property "org"
+                  (pom property &rest values))
+(declare-function jf/gptel-scope-profile--snapshot-entries
+                  "gptel-scope-profiles" (snapshot-plist))
+(declare-function jf/gptel-scope-profile--snapshot-keys
+                  "gptel-scope-profiles" ())
+(declare-function jf/gptel-scope-profile--buffer-snapshot-plist
+                  "gptel-scope-profiles" ())
+(defvar gptel--preset)
+(defvar gptel-model)
+(defvar gptel-backend)
+(defvar gptel-temperature)
+(defvar gptel-max-tokens)
+(defvar gptel--num-messages-to-send)
+
+(defun gptel-chat--put-or-delete (pt key value)
+  "Write VALUE under KEY at PT via `org-entry-put', or delete the entry.
+
+When VALUE is a non-empty string, write it under property name KEY
+(KEY is the bare property name, no surrounding colons).  When VALUE
+is nil or empty, delete the property entry so the drawer never
+carries stale values across saves.  Used by
+`gptel-chat--write-config-drawer' for scalar keys."
+  (if (and (stringp value) (not (string-empty-p value)))
+      (org-entry-put pt key value)
+    (org-entry-delete pt key)))
+
+(defun gptel-chat--write-config-drawer ()
+  "Write the chat-mode configuration drawer at `point-min'.
+
+Emits the full upstream-compatible drawer key set from current
+buffer-local state (no delta-from-preset deletion).  See the
+section commentary for the full key list and exclusions
+(`:GPTEL_SYSTEM:' and `:GPTEL_BOUNDS:' are deliberately never
+written; Decision 2 of gptel-drawer-as-source-of-truth, register/
+invariant/drawer-system-key-write-exclusion).
+
+The six snapshot keys (`:GPTEL_MODEL:', `:GPTEL_BACKEND:',
+`:GPTEL_TOOLS:', `:GPTEL_TEMPERATURE:', `:GPTEL_MAX_TOKENS:',
+`:GPTEL_NUM_MESSAGES_TO_SEND:') are sourced through the shared
+registry `jf/gptel-scope-profile--snapshot-spec': current buffer-
+local state is read by `jf/gptel-scope-profile--buffer-snapshot-plist'
+and ordered by `jf/gptel-scope-profile--snapshot-entries' — the same
+enumeration the preset-spec renderer and the buffer-mode applicator
+consume, so the snapshot key set cannot drift between producers
+(`harden-snapshot-emission-cross-stage-parity', Finding 1).  For each
+registry key the present entry is written, or a stale one deleted via
+`org-entry-delete', so the saved drawer reflects current buffer state
+precisely.  Multi-valued keys (`:GPTEL_TOOLS:') are written via
+`org-entry-put-multivalued-property'.
+
+`:GPTEL_PRESET:' is written directly: it is the preset *name*, not
+preset-derived configuration, and is not part of the snapshot set.
+
+Caller is responsible for the surrounding `save-excursion' /
+`org-with-wide-buffer' framing and for calling this only in
+chat-mode buffers.  The dedicated writer (rather than upstream
+`gptel-org-set-properties') is Decision 1 of
+gptel-drawer-as-source-of-truth: the WYSIWYG contract requires
+full-snapshot writes, not deletes-when-preset-matches."
+  (require 'gptel-scope-profiles)
+  (let* ((pt (point-min))
+         (entries (jf/gptel-scope-profile--snapshot-entries
+                   (jf/gptel-scope-profile--buffer-snapshot-plist))))
+    ;; :GPTEL_PRESET: — the preset name, not a snapshot key.
+    (gptel-chat--put-or-delete
+     pt "GPTEL_PRESET"
+     (and (bound-and-true-p gptel--preset)
+          (cond ((symbolp gptel--preset) (symbol-name gptel--preset))
+                ((stringp gptel--preset) gptel--preset))))
+    ;; Snapshot keys: single-sourced through
+    ;; `jf/gptel-scope-profile--snapshot-spec'.  For each canonical
+    ;; key write the present entry (dispatching on KIND exactly like
+    ;; `jf/gptel-scope-profile--apply-to-drawer') or delete a stale
+    ;; one.  No inline key enumeration lives here — adding a seventh
+    ;; snapshot key is a single edit to the registry.
+    (dolist (key (jf/gptel-scope-profile--snapshot-keys))
+      (if-let* ((entry (assoc key entries)))
+          (pcase-let ((`(,_key ,value ,kind) entry))
+            (pcase kind
+              (:scalar
+               (org-entry-put pt key value))
+              (:multivalued
+               (apply #'org-entry-put-multivalued-property
+                      pt key value))))
+        (org-entry-delete pt key)))
+    ;; :GPTEL_SYSTEM: deliberately not touched.  Writers never emit
+    ;; it (Decision 2; long multi-line strings are unwieldy as
+    ;; org property values).  Reads still honor manually authored
+    ;; entries via the chat-mode overlay for back-compat.
+    ;; :GPTEL_BOUNDS: deliberately not touched.  Chat-mode uses
+    ;; block-based response storage, not text-property bounds.
+    nil))
+#+end_src
+
+* System Prompt heading save
+
+The save-side counterpart to =gptel-chat--apply-system-prompt-heading=:
+on =before-save-hook=, after the config drawer is written, the
+current buffer-local =gptel--system-message= is serialised back into
+the =* System Prompt= heading body. The document is the authoritative
+source of the system prompt
+(=register/invariant/system-prompt-heading-authoritative=).
+
+Three cases:
+
+- *Heading present, canonical layout* (a current-layout session) — the
+  body between the heading's =:PROPERTIES:= drawer and the next
+  heading is replaced with the current =gptel--system-message=. The
+  body region is located via
+  =gptel-chat--system-prompt-heading-body-region= — the *same* helper
+  the reader uses, so reader and writer agree on what "body" means
+  (the four-step anchor/heading-end/subtree-end/drawer-skip scan
+  exists once). The writer then pads with the leading/trailing
+  newlines the layout requires; the reader trims. Single-sourcing the
+  scan removes a documented duplication finding (arch-cycle-
+  1779477564-5) and keeps the trim/pad asymmetry visible at one
+  decision point.
+- *Heading present, =* Chat= heading absent* (off-nominal layout —
+  user-hand-deleted =* Chat=, or a partially materialised document
+  from an interrupted save) — without a =* Chat= heading the helper's
+  =SUBTREE-END= falls all the way through to =point-max=, so a naive
+  in-place rewrite would delete every =#+begin_user= /
+  =#+begin_assistant= turn block sitting in the orphaned =* System
+  Prompt= subtree. We re-materialise =* Chat= instead: scan the body
+  region for the first turn-block marker, bound the body rewrite
+  there, then re-emit the missing =* Chat= heading and move the
+  captured turn blocks under it (task =harden-system-prompt-save-
+  against-missing-chat-heading=, defending the singleton-=* Chat= and
+  turn-blocks-under-=* Chat= invariants from
+  =register/shape/session-document-layout=). When the body holds no
+  turn blocks at all, =* Chat= is still appended so the document
+  shape is restored to canonical.
+- *Heading absent* (a pre-Addendum session — graceful degrade,
+  Decision 6 / Decision B) — the =* System Prompt= and =* Chat=
+  headings are *materialised*. Everything currently after the config
+  drawer (the existing =#+begin_user= / =#+begin_assistant= turn
+  blocks) is moved under a freshly inserted =* Chat= heading; the
+  =* System Prompt= heading carrying =:VISIBILITY: folded= is inserted
+  before it with the system-prompt body. The heading shape is built
+  with =jf/gptel--session-headings-block= — the *same* helper the
+  session-creation renderer uses, so the heading literals and the
+  =:VISIBILITY: folded= property are single-sourced
+  (=register/shape/session-document-layout=).
+
+This *never* writes a =:GPTEL_SYSTEM:= drawer line — the drawer
+write-exclusion (=register/invariant/drawer-system-key-write-
+exclusion=) stands. That invariant governs the *drawer*; this code
+writes the *heading body*. The two compose without conflict.
+
+The materialise path lazily =(require 'gptel-session-commands)= for
+the heading helper; in production that module is loaded by
+=gptel.org=. The require is wrapped in =(... nil t)= so a chat-mode
+buffer saved in a minimal context with the sessions stack absent
+falls back to skipping materialisation rather than erroring — the
+worst case is an old session keeps its pre-Addendum layout for one
+more save, never a broken file.
+
+#+begin_src emacs-lisp
+(declare-function jf/gptel--session-headings-block
+                  "gptel-session-commands" (system-prompt user-block))
+
+(defun gptel-chat--config-drawer-end ()
+  "Return the buffer position just after the config drawer's `:END:'.
+
+Assumes the file-level `:PROPERTIES:' drawer is at `point-min' (the
+canonical session layout — `gptel-chat--write-config-drawer' has
+already run by the time this is called on the save path).  Returns
+the position at the start of the line following `:END:', or nil when
+no drawer is found."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+        (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+          (forward-line 1)
+          (point))))))
+
+(defconst gptel-chat--turn-block-marker-re
+  "^#\\+begin_\\(user\\|assistant\\)"
+  "Regexp matching the start of a chat turn block.
+Used by `gptel-chat--write-system-prompt-heading' to bound the
+in-place body rewrite away from turn blocks when the `* Chat'
+heading is missing (defends the turn-blocks-under-`* Chat'
+invariant of `register/shape/session-document-layout').  Mirrors
+the marker the chat parser keys on (heading-indifferent parser,
+design.md §Decision 12).")
+
+(defun gptel-chat--write-system-prompt-heading ()
+  "Serialise `gptel--system-message' into the `* System Prompt' body.
+
+When the buffer already has a `* System Prompt' heading and a
+`* Chat' heading, replace the prompt body (between the heading's own
+`:PROPERTIES:' drawer and the next heading) with the current buffer-
+local `gptel--system-message'.  The body region is located via
+`gptel-chat--system-prompt-heading-body-region', the shared
+reader/writer scan helper — guarantees reader and writer agree on
+where \"body\" starts and ends (register/shape/session-document-
+layout).  The writer pads with the leading/trailing newlines the
+layout requires; the reader trims.
+
+When the buffer has a `* System Prompt' heading but no `* Chat'
+heading (off-nominal layout — user hand-deleted `* Chat', or a
+partially materialised document from an interrupted save), the
+helper's SUBTREE-END falls through to `point-max', so a naive in-
+place rewrite would delete every `#+begin_user' / `#+begin_assistant'
+turn block sitting in the orphaned subtree.  Instead, scan the body
+region for the first turn-block marker, bound the body rewrite there,
+re-emit the missing `* Chat' heading, and move the captured turn
+blocks under it (task `harden-system-prompt-save-against-missing-
+chat-heading', defending the singleton-`* Chat' and turn-blocks-
+under-`* Chat' invariants of register/shape/session-document-layout).
+When the body holds no turn blocks at all, `* Chat' is still appended
+so the document shape is restored to canonical.
+
+When the buffer has no `* System Prompt' heading — a pre-Addendum
+session — materialise the `* System Prompt' and `* Chat' headings
+after the config drawer using `jf/gptel--session-headings-block', the
+shared heading-shape helper (register/shape/session-document-layout).
+Existing turn blocks below the config drawer are moved under the new
+`* Chat' heading.
+
+Never writes a `:GPTEL_SYSTEM:' drawer line — composes with
+register/invariant/drawer-system-key-write-exclusion (that invariant
+governs the drawer; this writes the heading body).
+
+Caller supplies the `save-excursion' / `org-with-wide-buffer' framing
+and calls this only in chat-mode buffers."
+  (let ((system (and (bound-and-true-p gptel--system-message)
+                     (stringp gptel--system-message)
+                     gptel--system-message)))
+    (save-excursion
+      (save-restriction
+        (widen)
+        (if-let* ((region (gptel-chat--system-prompt-heading-body-region)))
+            ;; Heading present — replace the body in place.  The helper
+            ;; returns the post-drawer region verbatim; the writer pads
+            ;; with the leading/trailing newlines required by
+            ;; register/shape/session-document-layout.
+            (let* ((body-start (car region))
+                   (subtree-end (cdr region))
+                   (chat-heading-present
+                    (save-excursion
+                      (goto-char (point-min))
+                      (re-search-forward "^\\* Chat[ \t]*$" nil t)))
+                   ;; When `* Chat' is missing, the helper's subtree-end
+                   ;; is `point-max' and any turn blocks below the
+                   ;; orphaned heading would be swept away by a blind
+                   ;; delete-region.  Find the first turn-block marker
+                   ;; in (body-start, subtree-end) and bound the rewrite
+                   ;; there so the captured turn-block text survives.
+                   (orphan-turn-start
+                    (and (not chat-heading-present)
+                         (save-excursion
+                           (goto-char body-start)
+                           (and (re-search-forward
+                                 gptel-chat--turn-block-marker-re
+                                 subtree-end t)
+                                (line-beginning-position)))))
+                   (rewrite-end (or orphan-turn-start subtree-end))
+                   (captured-turns
+                    (and (not chat-heading-present)
+                         orphan-turn-start
+                         (buffer-substring-no-properties
+                          orphan-turn-start subtree-end))))
+              (delete-region body-start rewrite-end)
+              (goto-char body-start)
+              ;; A non-blank body is written verbatim followed by a
+              ;; blank line separating it from `* Chat'; a blank/nil
+              ;; system prompt leaves only the separating blank line.
+              (insert (if (and system (not (string-blank-p system)))
+                          (concat (string-trim-right system) "\n\n")
+                        "\n"))
+              ;; Off-nominal recovery: materialise the missing `* Chat'
+              ;; heading and re-attach the captured turn blocks under
+              ;; it.  `* Chat' carries no properties drawer (matches
+              ;; `jf/gptel--session-headings-block', the canonical
+              ;; producer of register/shape/session-document-layout).
+              (unless chat-heading-present
+                (insert "* Chat\n")
+                (when captured-turns
+                  (insert captured-turns))))
+          ;; Heading absent — materialise the canonical headings.
+          (when (require 'gptel-session-commands nil t)
+            (when-let* ((drawer-end (gptel-chat--config-drawer-end)))
+              (let ((user-block (buffer-substring-no-properties
+                                 drawer-end (point-max))))
+                (delete-region drawer-end (point-max))
+                (goto-char drawer-end)
+                ;; A blank line separates the config drawer from the
+                ;; `* System Prompt' heading.
+                (unless (eq drawer-end (point-min))
+                  (insert "\n"))
+                (insert (jf/gptel--session-headings-block
+                         system user-block))))))))))
+
 (defun gptel-chat--save-state ()
   "Write the chat-mode configuration drawer before saving the buffer.
 
 Intended to run from a buffer-local `before-save-hook' installed by
-`gptel-chat--install-preset-hooks'.  Delegates the upstream-
-compatible subset of drawer keys (`GPTEL_PRESET', `GPTEL_MODEL',
-`GPTEL_BACKEND', `GPTEL_SYSTEM', `GPTEL_TOOLS', `GPTEL_TEMPERATURE',
-`GPTEL_MAX_TOKENS', `GPTEL_NUM_MESSAGES_TO_SEND') to upstream
-`gptel-org-set-properties' with MSG nil (suppress interactive
-echo), then writes the chat-mode extension `GPTEL_PARENT_SESSION_ID'
-via `org-entry-put' when `jf/gptel--parent-session-id' is bound to
-a non-empty string.
+`gptel-chat--install-preset-hooks'.  Delegates to
+`gptel-chat--write-config-drawer' for the upstream-compatible key set
+(no delta-from-preset deletion — Decision 1 of gptel-drawer-as-
+source-of-truth: full-snapshot writes for the WYSIWYG drawer).  Then
+writes the chat-mode extension `GPTEL_PARENT_SESSION_ID' via
+`org-entry-put' when `jf/gptel--parent-session-id' is bound to a
+non-empty string.
 
-Does NOT write `GPTEL_BOUNDS'.  The chat-mode block format stores
-response text inside `#+begin_assistant' blocks rather than text-
-property-bounded spans, so bounds persistence is intentionally
-excluded (spec §\"Save path never writes GPTEL_BOUNDS\").
+Does NOT write `GPTEL_BOUNDS'.  Chat-mode stores response text
+inside `#+begin_assistant' blocks rather than text-property-bounded
+spans, so bounds persistence is intentionally excluded.
+
+Does NOT write a `:GPTEL_SYSTEM:' drawer line.  Decision 2: long,
+multi-line system prompts are unwieldy as a single org property
+value; the writer never round-trips them as a drawer property.  The
+system prompt is instead serialised into the `* System Prompt'
+heading body by `gptel-chat--write-system-prompt-heading' (design.md
+§Addendum Decision B) — the drawer write-exclusion
+(register/invariant/drawer-system-key-write-exclusion) and the
+heading-body write compose without conflict.
 
 Does NOT enable `gptel-mode'.  Chat-mode owns the major-mode role
 exclusively (design.md §Decision 16)."
@@ -388,19 +922,25 @@ exclusively (design.md §Decision 16)."
     ;; `gptel-org' is not pulled in by anything else on the chat-mode
     ;; load path — chat-mode derives from `org-mode', not from any
     ;; gptel feature path that upstream `(require 'gptel-org)`s.  Pull
-    ;; it in lazily on first save so `gptel-org-set-properties' is
-    ;; bound (regression caught by `save-hook-require-gptel-org' /
+    ;; it in lazily on first save so the read-side overlay (which
+    ;; consumes `gptel-org--entry-properties') has the feature
+    ;; available (regression caught by `save-hook-require-gptel-org' /
     ;; `regression-sweep-and-manual-smoke', 2026-04-25).
     (require 'gptel-org)
     (save-excursion
       (org-with-wide-buffer
-       (gptel-org-set-properties (point-min) nil)
+       (gptel-chat--write-config-drawer)
        (when (and (bound-and-true-p jf/gptel--parent-session-id)
                   (stringp jf/gptel--parent-session-id)
                   (not (string-empty-p jf/gptel--parent-session-id)))
          (org-entry-put (point-min)
                         "GPTEL_PARENT_SESSION_ID"
-                        jf/gptel--parent-session-id))))))
+                        jf/gptel--parent-session-id))
+       ;; Serialise the system prompt into the `* System Prompt'
+       ;; heading body — runs after the drawer write so it acts on the
+       ;; canonical layout (register/invariant/system-prompt-heading-
+       ;; authoritative).  Never emits a `:GPTEL_SYSTEM:' drawer line.
+       (gptel-chat--write-system-prompt-heading)))))
 #+end_src
 
 * Hook wiring
@@ -546,6 +1086,70 @@ reads everything it needs from the current buffer (design.md
   :description "Send chat buffer"
   (interactive)
   (call-interactively #'gptel-chat-send))
+#+end_src
+
+** Scope default: buffer-local for chat-menu lifetime
+
+The transient body below binds upstream's =gptel--set-buffer-locally=
+(defined in =gptel-transient.el=) to =t= for the lifetime of
+=gptel-chat-menu=. Without this, "Select tools" and the other
+configuration infixes default to =gptel--set-buffer-locally = nil=
+(global scope), which means a tool toggle from the menu in a chat-mode
+buffer mutates the global =gptel-tools= and kills any buffer-local
+binding installed by the preset — invisible to the user, and the
+drawer save then captures the wrong value. Decision 5 of the
+gptel-drawer-as-source-of-truth design picks "default chat-menu to
+buffer-local scope" so menu edits round-trip through the drawer.
+
+Upstream =gptel-menu= invoked directly (=M-x gptel-menu=) is
+unaffected — only this chat-mode wrapper changes the default. The
+user retains the =gptel--infix-variable-scope= toggle inside the
+menu to switch to global / oneshot per-invocation.
+
+Implementation: the prefix body =setq='s the variable on entry and
+registers a one-shot =transient-post-exit-hook= to restore the prior
+value on exit. =transient-post-exit-hook= (as opposed to
+=transient-exit-hook=) fires *only* when no transient is resuming —
+i.e. only when the outermost prefix is fully done (see =transient.el=
+=transient--post-exit=, around line 3081). That gives us the
+"outermost menu fully done" semantics directly, without the
+=transient-current-prefix= discriminator that the previous
+implementation used. The discriminator was load-bearingly broken: by
+the time =transient-exit-hook= fires on a normal commit-style exit,
+=transient--export= has already set =transient-current-prefix= to the
+prefix object, so the guard short-circuited and the restore never
+ran.
+
+#+begin_src emacs-lisp
+(declare-function transient-setup "transient" (&optional name layout edit &rest params))
+(defvar transient-post-exit-hook)
+(defvar gptel--set-buffer-locally)
+
+;; A single global defvar is safe under the hook-mechanism fix below:
+;; `transient-post-exit-hook' only fires on the outermost prefix's
+;; full exit, so single-frame re-entry cannot leak a stale prior
+;; through this slot.  The remaining edge case is multi-frame
+;; re-entry across recursive minibuffers, which the upstream
+;; transient call path does not produce in chat-menu's current shape.
+(defvar gptel-chat--scope-prior nil
+  "Saved value of `gptel--set-buffer-locally' to restore on chat-menu exit.
+Set by `gptel-chat-menu's body when it switches to buffer-local
+scope; restored by `gptel-chat--restore-scope-on-exit', a one-shot
+`transient-post-exit-hook'.  Nil between invocations.")
+
+(defun gptel-chat--restore-scope-on-exit ()
+  "Restore `gptel--set-buffer-locally' to its pre-menu value and self-remove.
+Registered on `transient-post-exit-hook' by `gptel-chat-menu's body
+when it sets the variable to t.  `transient-post-exit-hook' fires
+only when the outermost transient is fully done (no sub-transient
+resuming), so this hook is unconditional — no
+`transient-current-prefix' discriminator is needed.  Sub-transients
+(e.g. `gptel-tools' invoked from inside the chat menu) do not fire
+this hook at all."
+  (setq gptel--set-buffer-locally gptel-chat--scope-prior
+        gptel-chat--scope-prior nil)
+  (remove-hook 'transient-post-exit-hook
+               #'gptel-chat--restore-scope-on-exit))
 #+end_src
 
 ** Prefix definition
@@ -720,6 +1324,9 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
              (let ((first (or (car-safe entry) entry)))
                (and (bufferp first) (not (buffer-live-p first)))))
            gptel-context)))
+  (setq gptel-chat--scope-prior gptel--set-buffer-locally
+        gptel--set-buffer-locally t)
+  (add-hook 'transient-post-exit-hook #'gptel-chat--restore-scope-on-exit)
   (transient-setup 'gptel-chat-menu))
 #+end_src
 

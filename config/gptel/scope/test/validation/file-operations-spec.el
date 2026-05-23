@@ -352,11 +352,8 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
       (helpers-spec-teardown-session))
 
     (it "allows read operation within read scope via pipeline"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         (helpers-spec--scope-with-paths
-                          '("/workspace/**" "/tmp/**")
-                          '() '() '() '())))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**" "/tmp/**"))))
         (helpers-spec-mock-bash-parse
          "cat /workspace/file.txt" '("cat") t)
         (helpers-spec-mock-bash-semantics
@@ -364,14 +361,11 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /workspace/file.txt" "/workspace" scope-config)))
-          (expect result :to-be nil))
-        (delete-file scope-yml)))
+          (expect result :to-be nil))))
 
     (it "denies read operation outside scope via pipeline"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         (helpers-spec--scope-with-paths
-                          '("/workspace/**") '() '() '() '())))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**"))))
         (helpers-spec-mock-bash-parse
          "cat /etc/passwd" '("cat") t)
         (helpers-spec-mock-bash-semantics
@@ -380,14 +374,11 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /etc/passwd" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "not-in-scope")
-          (expect (plist-get result :resource) :to-equal "/etc/passwd"))
-        (delete-file scope-yml)))
+          (expect (plist-get result :resource) :to-equal "/etc/passwd"))))
 
     (it "denies write when only read scope exists via pipeline"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         (helpers-spec--scope-with-paths
-                          '("/tmp/**") '() '() '() '())))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/tmp/**"))))
         (helpers-spec-mock-bash-parse
          "echo test > /tmp/output.txt" '("echo") t)
         (helpers-spec-mock-bash-semantics
@@ -396,14 +387,12 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "echo test > /tmp/output.txt" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "not-in-scope")
-          (expect (plist-get result :operation) :to-equal :write))
-        (delete-file scope-yml)))
+          (expect (plist-get result :operation) :to-equal :write))))
 
     (it "denies operations on deny list paths via pipeline"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         (helpers-spec--scope-with-paths
-                          '("/workspace/**") '() '() '() '("**/.ssh/**"))))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :deny '("**/.ssh/**"))))
         (helpers-spec-mock-bash-parse
          "cat /workspace/.ssh/id_rsa" '("cat") t)
         (helpers-spec-mock-bash-semantics
@@ -412,14 +401,12 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cat /workspace/.ssh/id_rsa" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "denied-pattern")
-          (expect (plist-get result :resource) :to-equal "/workspace/.ssh/id_rsa"))
-        (delete-file scope-yml)))
+          (expect (plist-get result :resource) :to-equal "/workspace/.ssh/id_rsa"))))
 
     (it "denies when multiple file operations include paths outside scope"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         (helpers-spec--scope-with-paths
-                          '("/workspace/**") '("/workspace/**") '() '() '())))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :read '("/workspace/**")
+                           :write '("/workspace/**"))))
         (helpers-spec-mock-bash-parse
          "cp /workspace/src.txt /tmp/dst.txt" '("cp") t)
         (helpers-spec-mock-bash-semantics
@@ -429,14 +416,11 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cp /workspace/src.txt /tmp/dst.txt" "/workspace" scope-config)))
           (expect (plist-get result :error) :to-equal "not-in-scope")
-          (expect (plist-get result :resource) :to-equal "/tmp/dst.txt"))
-        (delete-file scope-yml)))
+          (expect (plist-get result :resource) :to-equal "/tmp/dst.txt"))))
 
     (it "allows multiple operations when all within scope"
-      (let* ((scope-yml (helpers-spec-make-scope-yml
-                         (helpers-spec--scope-with-paths
-                          '() '("/workspace/**") '() '() '())))
-             (scope-config (helpers-spec-load-scope-config scope-yml)))
+      (let ((scope-config (helpers-spec-make-scope-config
+                           :write '("/workspace/**"))))
         (helpers-spec-mock-bash-parse
          "cp /workspace/src.txt /workspace/dst.txt" '("cp") t)
         (helpers-spec-mock-bash-semantics
@@ -445,8 +429,7 @@ Delegates to `helpers-spec--make-file-op' for contract validation."
          nil '(:ratio 1.0))
         (let ((result (jf/gptel-scope--validate-command-semantics
                        "cp /workspace/src.txt /workspace/dst.txt" "/workspace" scope-config)))
-          (expect result :to-be nil))
-        (delete-file scope-yml)))))
+          (expect result :to-be nil))))))
 
 (provide 'file-operations-spec)
 ;;; file-operations-spec.el ends here

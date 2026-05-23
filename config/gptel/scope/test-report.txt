@@ -3,11 +3,19 @@ Test Report
 
 ERT: 2 ran, 2 passed
 
-Buttercup: 535 ran, 533 passed
+Buttercup: 496 ran, 420 passed
 
 Buttercup failures:
+  Bash-parser → scope integration (real modules, no mocks) cat /workspace/a.txt | head -10 (pipeline) is allowed by scope validation
+  Bash-parser → scope integration (real modules, no mocks) cat /workspace/file.txt (simple read) is allowed by scope validation
+  Bash-parser → scope integration (real modules, no mocks) echo hello > /workspace/out.txt (write via redirection) is allowed by scope validation (treated as no-op if redirect not extracted)
+  Bash-parser → scope integration (real modules, no mocks) grep pattern /workspace/*.txt (read with glob) is allowed by scope validation
+  Bash-parser → scope integration (real modules, no mocks) ls /workspace (directory read) is allowed by scope validation
+  Bash-parser → scope integration (real modules, no mocks) rm /etc/passwd (delete out of scope) is denied by scope validation
+  Bug 4: end-to-end add-to-scope should enable retry success gptel callback receives success after add-to-scope correctly expands scope
+  Contract property layers (structural invariants) Layer 3: permissive config allows everything every contract operation is allowed with all-permissive paths
   run_bash_command: Timeout and resource limits suggests filters in truncation notice
   run_bash_command: Timeout and resource limits warns when long-running command is terminated
 
 ===========
-Total: 537 ran, 535 passed
+Total: 498 ran, 422 passed

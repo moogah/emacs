@@ -462,18 +462,38 @@ security:
     (when (and bash-integ--temp-dir (file-exists-p bash-integ--temp-dir))
       (delete-directory bash-integ--temp-dir t)))
 
-  (it "no_scope_config returns JSON through callback"
+  (it "empty-drawer deny-all defaults route per-violation denial through callback"
+    ;; Cycle-3 Option B: an empty drawer is a deny-all configuration, not a
+    ;; config-missing signal. The dispatcher composes deny-all defaults from
+    ;; the loader, validation denies the file op as `not-in-scope`, the
+    ;; expansion UI surfaces the violation, and on user denial the callback
+    ;; receives the canonical per-violation error JSON (no historical
+    ;; `no_scope_config` short-circuit). See
+    ;; register/boundary/scope-config-loader.
     (let ((tool (bash-integ--find-tool "run_bash_command")))
-      (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
+      (spy-on 'jf/gptel-scope--load-config
+              :and-return-value (jf/gptel-scope--deny-all-defaults))
+      ;; Simulate user denying the expansion prompt so the callback fires.
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (_violation-info callback _patterns _tool-name)
+                (funcall callback
+                         (json-serialize
+                          (list :success :false
+                                :user_denied t)))))
 
       (let ((default-directory "/workspace"))
         (funcall (gptel-tool-function tool)
                  #'bash-integ--gptel-callback
-                 "which brew"))
+                 "cat /etc/passwd"))
 
+      ;; Callback fired with a JSON error payload (never signaled).
       (expect bash-integ--callback-result :to-be-truthy)
+      (expect (stringp bash-integ--callback-raw) :to-be t)
+      ;; Per-violation deny (`not-in-scope`), routed through
+      ;; `--format-tool-error' like every other denial.
       (expect (plist-get bash-integ--callback-result :error)
-              :to-equal "no_scope_config")))
+              :to-equal "not-in-scope")))
 
   (it "callback receives exactly one string argument"
     (let* ((config (bash-integ--make-scope-config

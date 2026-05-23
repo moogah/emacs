@@ -158,7 +158,7 @@ Examples:
 
 Displays interactive menu with 3 options:
 1. Deny - Reject the expansion request
-2. Add to scope - Permanently add patterns to scope.yml
+2. Add to scope - Permanently add patterns to the session's `:PROPERTIES:` drawer in `session.org`
 3. Allow once - Temporarily allow for current turn only
 
 Returns:

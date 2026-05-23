@@ -1,0 +1,93 @@
+# Orchestrator overlay for the isolated emacs config (literate, modular,
+# straight.el, three-tier worktree). Resolved by walking up from $cwd to the
+# nearest .claude/orchestrator/config.yaml; this directory becomes $REPO_ROOT.
+
+project: emacs-isolated
+language: elisp
+
+build:
+  pre-commit: ./bin/tangle-org.sh
+
+test:
+  command: ./bin/run-tests.sh
+  parser: exit-code
+
+artifacts:
+  tasks-root: openspec/changes/<change>/tasks
+  externalised-root: .tasks
+  register: interfaces.org
+  proposal-pattern: openspec/changes/<change>/proposal.md
+  design-pattern: openspec/changes/<change>/design.md
+
+worktree:
+  init: ./bin/init-worktree-runtime.sh
+  needs-submodules: true
+  parent: .worktrees
+
+roles-overlay:
+  implementor: roles/implementor.md
+  reviewer: roles/reviewer.md
+  architect: roles/architect.md
+
+# Project taxonomy. Adds two literate-emacs-specific classes on top of core:
+#   - tangle: literate-org tangling work (e.g. fixing block headers, header-args,
+#     auto_tangle, comments mode line); always paired with the .el output.
+#   - module-load: changes to module load order, jf/enabled-modules, or
+#     module-system contract; high-blast-radius and worth its own class for
+#     PM cohort-velocity tracking.
+taxonomy:
+  - feature
+  - test
+  - doc
+  - refactor
+  - bug
+  - contract
+  - infrastructure
+  - tangle
+  - module-load
+
+thresholds:
+  history-window: 5
+  drainage-trigger-ratio: 1.0
+  drainage-trigger-consecutive-cycles: 3
+  cascade-trigger-followup-count: 3
+  stale-task-cycles: 3
+  review-starvation-ratio: 1.5
+  externalisation-pressure-growth: monotonic-3-cycles
+
+critical-path:
+  inference: llm-read-proposal
+  override-tasks: []
+  override-labels:
+    - contract
+    - module-load
+
+architect:
+  severity-overrides:
+    # Literate-org duplication (same helper tangled from two .org files,
+    # or shadowed between an .org block and a hand-written .el) is a
+    # high-cost class of bug here — promote.
+    duplication: blocking
+  drift-hotspots:
+    - module-system: "jf/resolve-module-path contract; jf/enabled-modules ordering invariants (transient before language-modes; magit before org)"
+    - literate-vs-tangled: "edits must land in .org; .el files are generated and overwritten by ./bin/tangle-org.sh"
+    - lexical-binding: "first babel block must use ':comments no' so 'lexical-binding: t' lands on line 1 of the tangled .el"
+    - gptel-scope: "scope subsystem boundary (yaml ↔ validation ↔ expansion ↔ tools); seven-stage operation-first validator pipeline; bash-parser handler-shape contract"
+    - gptel-load-order: "skills → gptel-agent → tool defs → sessions modules (constants → logging → filesystem → registry → metadata → subagent → commands) → activities-integration"
+    - test-frameworks: "ert (*-test.el) and buttercup (*-spec.el) run side-by-side; never mix in a single file"
+  interfaces-document: interfaces.org
+
+reviewer:
+  checks:
+    - lexical-binding-headers       # first line `;;; foo.el --- ... -*- lexical-binding: t; -*-`
+    - cl-lib-vs-seq                  # prefer seq.el for new code unless cl-loop / cl-letf is genuinely required
+    - tangle-source-vs-tangled-output  # diffs must touch .org; .el-only diffs are a smell
+    - shared-mutable-state           # nconc / setf / assq-delete-all / delete-dups across module boundaries
+    - module-load-order              # if a new module joins jf/enabled-modules, ordering invariants are respected
+    - test-naming                    # *-spec.el for buttercup, *-test.el for ert; co-located with module
+    - jf-load-module-path            # config/<dotted/path>.el via jf/resolve-module-path; no hardcoded expand-file-name shortcuts
+
+forward-mode:
+  populate-at:
+    - opsx-new
+    - opsx-tasks-generate

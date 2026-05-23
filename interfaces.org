@@ -1,0 +1,2904 @@
+#+title: Interfaces register
+#+author: jefffarr
+#+startup: overview
+
+* About this register
+
+This file is the authoritative catalogue of the contracts that flow across
+module boundaries in the isolated emacs config. It is the artifact the
+opsx-orchestrator's Architect role audits against in three triggers:
+
+- *On-touch* (in execute) — when an Implementor diff modifies code cited
+  in a =load_bearing: true= entry, the Architect runs against that entry
+  only.
+- *End-of-cycle* (in integrate) — full signal-class run across the cycle's
+  diffs and the register.
+- *Between-cycle* (=/architect-audit=, on demand) — register vs. whole repo;
+  consolidation-round-as-a-button.
+
+Each entry is a YAML-fenced block under one of the four tier-headings below,
+following the templates at:
+
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-shape.md=
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-vocabulary.md=
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-boundary.md=
+- =~/.claude/skills/opsx-orchestrate/templates/register-entry-invariant.md=
+
+Per-entry =status= is one of =speculated | confirmed | divergent |
+reconciled=. =load_bearing: true= signals the entry should receive on-touch
+Architect attention whenever cited code changes. New entries land as
+=speculated= during plan-phase forward-mode and are reconciled at integrate
+based on Implementor =## Discoveries=.
+
+Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
+=scaffolding.md=, =flows/{plan,execute,integrate}.md=.
+
+* Conventions
+
+- *One entry per concept.* If two entries describe the same shape with
+  different field sets, that's drift — reconcile, don't duplicate.
+- *Tier discipline.* Before creating an invariant entry, check whether the
+  rule fits =shape=, =vocabulary=, or =boundary= — those tiers carry their
+  own enforcement; the invariant tier is the safety net for rules that
+  don't fit structurally.
+- *Cite specific files and functions.* "the validator" is not a citation;
+  =config/gptel/scope/scope-validation.org=, function
+  =jf/gptel-scope--load-config= is.
+- *Past incidents anchor entries.* The =why_it_matters= field of an
+  invariant is most credible when it names an incident this project
+  has actually paid for.
+
+* Shape
+
+  Entries describe plists, alists, structs, records that cross module
+  boundaries. Producers and consumers are listed; the canonical
+  constructor (if any) is the single allowed producer.
+
+** scope-config-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-scope-config-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/scope-config-plist
+   tier: shape
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): :paths sub-plist now carries six
+     list-valued keys (:read :read-metadata :write :modify :execute :deny)
+     per ask 10A; :security removed everywhere. Reader (loader) and writer
+     (mapper) both honor the new shape. Fixture-locus pending in cycle-3
+     migrate-* tasks. See .orchestrator/cycles/cycle-1777470320/
+     reconciliations/shape-scope-config-plist.md.
+     cycle-4 (2026-04-29) Ask 2 disposition: :cloud.allowed-providers
+     sub-shape narrowed from "list of provider names" to "list of
+     keywords"; the loader at --load-from-buffer is the normalisation
+     boundary (string drawer values → keywords at parse time). The
+     cloud-auth ops detector and the validator both work in keywords;
+     the loader closes the type-mismatch.
+   load_bearing: true
+   title: Loaded scope configuration plist (post-:security-removal)
+   purpose: |
+     The plist returned by the scope-validation loader and consumed by every
+     stage of the validation pipeline (paths matcher, glob matcher, cloud-auth
+     gate). Previously the loader produced a three-key plist (:paths :cloud
+     :security); this change collapses to two keys because :security collapses
+     into module-level constants. Every consumer that read (plist-get config
+     :security ...) becomes a constant read; every consumer of :paths and
+     :cloud is unchanged in shape.
+
+   required_keys:
+     - name: ":paths"
+       type: plist
+       description: |
+         Sub-plist with six list-valued keys: :read :read-metadata :write
+         :modify :execute :deny. Each is a list of glob patterns; missing
+         keys default to nil (empty list, i.e. "no patterns of this kind").
+         :read-metadata was added in cycle-2 (ask 10A) to support the
+         GPTEL_SCOPE_READ_METADATA bucket; metadata-only paths in this list
+         permit stat-style operations but not content reads.
+     - name: ":cloud"
+       type: plist
+       description: |
+         Sub-plist with two keys: :auth-detection (string, one of "allow" /
+         "warn" / "deny"; defaults to "warn") and :allowed-providers
+         (list of keywords, e.g. `:aws`, `:gcp`; defaults to nil).
+         The drawer carries provider names as bare strings
+         (`:GPTEL_SCOPE_CLOUD_PROVIDERS: aws gcp`); the loader at
+         `jf/gptel-scope--load-from-buffer` normalizes those strings
+         to keywords at parse time so this plist key holds keywords
+         throughout the validation pipeline. The validator's
+         `(member provider allowed-providers)` check at
+         `jf/gptel-scope--validate-cloud-auth` therefore compares
+         keywords against keywords (the cloud-auth ops detector emits
+         keyword providers like `:aws`, `:aws-cli`).
+
+   forbidden_keys:
+     - name: ":security"
+       reason: |
+         Removed in this change. The two former values
+         (:enforce-parse-complete, :max-coverage-threshold) become module-
+         level defconsts in scope-validation.el. Any (plist-get config
+         :security ...) read in implementation code is a divergence signal.
+
+   producers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-from-buffer
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-from-file
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-config
+
+   consumers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope-authorize-tool-call
+       reads_keys: [":paths", ":cloud"]
+     - file: config/gptel/scope/scope-validation.org
+       function: validate-bash (Stages 2-4)
+       reads_keys: [":paths"]
+
+   validator: |
+     (defun shape/validate-scope-config-plist (val)
+       "Returns nil on success; an error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((plist-member val :security) 'forbidden-security-key)
+             ((not (plistp (plist-get val :paths))) 'paths-not-plist)
+             ((not (plistp (plist-get val :cloud))) 'cloud-not-plist)
+             ;; :cloud.allowed-providers, when present, must be a
+             ;; list of keywords (cycle-4 Ask 2; loader-side normalised).
+             ((let ((ap (plist-get (plist-get val :cloud)
+                                    :allowed-providers)))
+                (and ap (not (cl-every #'keywordp ap))))
+              'allowed-providers-not-keywords)
+             (t nil)))
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** drawer-text-block
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-drawer-text-block
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/drawer-text-block
+   tier: shape
+   status: reconciled
+   status_note: |
+     cycle-2 integrate (2026-04-29): both consumers (sessions/commands.org
+     and tools/persistent-agent.org) consume the renderer's drawer-text
+     string via (concat drawer-text body) and write in a single
+     with-temp-file. Structural anchors hold. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/shape-drawer-text-block.md.
+     cycle-5 integrate (2026-05-01): the shape extension landed.
+     jf/gptel-scope-profile--render-drawer-text now accepts an optional
+     PRESET-SPEC and emits :GPTEL_MODEL:, :GPTEL_BACKEND:, :GPTEL_TOOLS:,
+     :GPTEL_TEMPERATURE:, :GPTEL_MAX_TOKENS:, :GPTEL_NUM_MESSAGES_TO_SEND:
+     between :GPTEL_PRESET:/:GPTEL_PARENT_SESSION_ID: and the scope keys
+     when PRESET-SPEC is non-nil. :GPTEL_SYSTEM: is never emitted by any
+     producer (verified by spec absence assertions). The chat-mode save
+     path (gptel-chat--save-state, via the new
+     gptel-chat--write-config-drawer helper) is a peer producer that
+     writes the same key set from buffer-local state on every save
+     (full snapshot, no delta-from-preset deletion). Round-trip
+     idempotency between the renderer's output and the save-path's
+     output is exercised by snapshot-rendering-spec.el and the new
+     end-to-end scenarios in preset-application-spec.el. Cited by
+     tasks: extend-render-drawer-text-with-preset-snapshot (43d045f),
+     replace-chat-save-with-full-snapshot-writer (5f9d762),
+     wire-snapshot-into-session-creation (9f4b5fd),
+     update-preset-application-spec-for-snapshot (3a8abaf).
+   load_bearing: true
+   title: Drawer-text string returned by render-drawer-text
+   purpose: |
+     A string of the form ":PROPERTIES:\n<key-lines>\n:END:\n" that callers
+     prepend to the chat-mode initial content when writing a fresh
+     session.org. Producer is jf/gptel-scope-profile--render-drawer-text;
+     consumers are session-creation (sessions/commands.org) and persistent-
+     agent creation (tools/persistent-agent.org). The shape is "an org
+     :PROPERTIES: block as a whole string"; mis-shaping it (missing :END:,
+     stray characters before :PROPERTIES:, doubled drawer) corrupts every
+     subsequent reader on the file.
+
+   required_substring_anchors:
+     - anchor: ":PROPERTIES:"
+       must_appear: at byte 0 (or after a leading whitespace-only prefix)
+     - anchor: ":END:"
+       must_appear: exactly once, after :PROPERTIES: and after all key lines
+     - anchor: ":GPTEL_PRESET:"
+       must_appear: exactly once between :PROPERTIES: and :END:
+
+   structural_invariants:
+     - the block contains zero ":PROPERTIES:" tokens after the first one
+     - every line between :PROPERTIES: and :END: matches the regex
+       "^:[A-Z_+]+:[ \\t].*$"
+     - the trailing newline after :END: is included (so callers can simply
+       concat with the chat-mode initial content)
+
+   producers:
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--render-drawer-text
+
+   consumers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel-persistent-session
+       usage: prepend to chat-mode initial content
+     - file: config/gptel/sessions/activities-integration.org
+       function: <session-creation entrypoint>
+       usage: same
+     - file: config/gptel/tools/persistent-agent.org
+       function: <agent-creation function around persistent-agent.el:111>
+       usage: same
+
+   validator: |
+     (defun shape/validate-drawer-text-block (val)
+       (cond ((not (stringp val)) 'not-a-string)
+             ((not (string-match-p "\\`:PROPERTIES:\n" val))
+              'missing-properties-header)
+             ((not (string-match-p "\n:END:\n\\'" val))
+              'missing-end-or-trailing-newline)
+             ((/= 1 (cl-count-if (lambda (line)
+                                   (string= line ":PROPERTIES:"))
+                                 (split-string val "\n")))
+              'duplicated-properties-header)
+             (t nil)))
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** violation-info
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-violation-info
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/violation-info
+   tier: shape
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): no shape change; cycle-1 reconciliation
+     carries forward. The expansion writer reads :operation and :resource
+     only.
+   load_bearing: true
+   title: violation-info plist returned by validator and consumed by expansion writer
+   purpose: |
+     The plist a validator-pipeline failure builds and the expansion UI
+     consumes. Listed here because this change rewires the writer that
+     consumes it (jf/gptel-scope--add-to-scope and friends switch from a
+     YAML mutator to a drawer mutator), which means the writer's reads
+     of :operation, :resource, :validation-type, and :tool become the
+     authoritative consumer-set for the new flow. Pre-existing fragmentation
+     of the shape across producer sites (validation, bash-parser branches)
+     is in scope for the on-touch architect.
+
+   required_keys:
+     - name: ":tool"
+       type: string
+       description: name of the scoped tool (e.g. "read_file_in_scope")
+     - name: ":resource"
+       type: string
+       description: the path / pattern the tool tried to access
+     - name: ":operation"
+       type: keyword
+       description: |
+         One of (:read :read-directory :read-metadata :match-pattern :write
+         :create :create-or-modify :append :delete :modify :execute). The
+         writer collapses these to one of five drawer keys via
+         jf/gptel-scope--map-operation-to-drawer-key.
+     - name: ":validation-type"
+       type: keyword
+       description: one of (:path :bash); selects the writer dispatch arm
+
+   optional_keys:
+     - name: ":reason"
+       type: string
+       description: human-readable reason; surfaced in the expansion menu
+     - name: ":error"
+       type: string
+       description: machine-readable error code (e.g. "no_scope_config")
+
+   producers:
+     - file: config/gptel/scope/scope-validation.org
+       function: build-violation-info (and the bash-pipeline variants)
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope
+       reads_keys: [":validation-type", ":operation", ":resource", ":tool"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-path-to-scope
+       reads_keys: [":operation", ":resource"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-bash-to-scope
+       reads_keys: [":operation", ":resource"]
+
+   validator: |
+     (defun shape/validate-violation-info (val)
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (stringp (plist-get val :tool))) 'missing-tool)
+             ((not (stringp (plist-get val :resource))) 'missing-resource)
+             ((not (memq (plist-get val :validation-type) '(:path :bash)))
+              'bad-validation-type)
+             (t nil)))
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** session-document-layout
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-session-document-layout
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/session-document-layout
+   tier: shape
+   status: reconciled
+   status_note: |
+     cycle-7 plan (2026-05-22) — speculated by forward-mode against
+     design.md §Addendum (Finding B, Finding C, Decisions B and C).
+     cycle-7 integrate (2026-05-22): reconciled. The shape held for
+     the session-creation renderer (commands.org / commands.el via the
+     new jf/gptel--session-headings-block helper) and for the chat-mode
+     save path materialise-on-first-save fallback. Producers prose
+     tightened: the commands.org helper emits only the two heading
+     blocks (config drawer is prepended separately by the renderer),
+     and persistent-agent.org is added as a third producer that
+     currently bypasses the layout (see follow-up task route-agent-
+     session-creation-through-canonical-layout). See cycle-1779477564/
+     reconciliations/shape-session-document-layout.md.
+     cycle-8 integrate (2026-05-23): narrative update — the
+     persistent-agent.org CYCLE-7 GAP closed by task route-agent-
+     session-creation-through-canonical-layout (merge_commit f052eb9):
+     jf/gptel-persistent-agent--initial-body now delegates to the
+     shared jf/gptel--session-headings-block helper to emit the folded
+     `* System Prompt` (body seeded from the agent preset's :system
+     text when present) followed by `* Chat`, with the file-level
+     config drawer prepended by the agent caller. Layout validator
+     pins the four invariants for agent-created session.org files via
+     new buttercup specs in tools/test/persistent-agent/creation-spec.el.
+     The pre-Addendum exemplar helpers (`jf/gptel--initial-session-content`,
+     `jf/gptel-persistent-agent--initial-content`) and their tests
+     were deleted by task remove-dead-initial-session-content-helpers
+     (merge_commit 4488b71); the canonical layout is now the only
+     producer shape any reader encounters. cycle-7 helper-extraction
+     in chat/menu.org and cycle-8 harden-system-prompt-save (against
+     missing `* Chat`) preserve the four structural invariants. See
+     cycle-1779522837/reconciliations/shape-session-document-layout.md.
+   load_bearing: true
+   title: Structural layout of a freshly-created session.org document
+   purpose: |
+     The whole-document shape of a session.org file as emitted by the
+     session-creation renderer (and as materialised on first save for
+     pre-Addendum sessions). Where register/shape/drawer-text-block is
+     the shape of the :PROPERTIES: block in isolation, this entry is
+     the shape of the *document that contains it*: the drawer plus the
+     two headings the Addendum introduces. Mis-shaping the document
+     (drawer not at point-min, two `* System Prompt` headings, turn
+     blocks above `* Chat`) breaks the restore path and the chat
+     parser. Drawer/document-shape corruption has cost real time on
+     this change — hence load_bearing.
+
+   document_regions:
+     - region: file-level config drawer
+       location: point-min
+       shape: |
+         A file-level org :PROPERTIES: ... :END: block at point-min,
+         exactly the string produced by register/shape/drawer-text-block.
+         Location is unchanged from pre-Addendum sessions — chosen over
+         making it the `* System Prompt` heading's own drawer because
+         org-entry-put / gptel-org--entry-properties at point-min are
+         unchanged (lowest code risk, Decision B).
+       emitted: first, before any heading
+     - region: System Prompt heading
+       location: first heading after the config drawer
+       shape: |
+         A `* System Prompt` heading carrying its own
+         :PROPERTIES:/:VISIBILITY: folded/:END: drawer, followed by a
+         body. The body is seeded at creation from the active preset's
+         :system text; when the preset has no :system the body is empty
+         (heading present, no body text). The heading body — not a
+         drawer property — is the authoritative system prompt (see
+         register/invariant/system-prompt-heading-authoritative).
+       emitted: after the config drawer
+     - region: Chat heading
+       location: last heading
+       shape: |
+         A `* Chat` heading under which #+begin_user / #+begin_assistant
+         turn blocks live. Turn blocks never appear above `* Chat`.
+       emitted: after the System Prompt heading
+
+   structural_invariants:
+     - the file-level config drawer is still at point-min (no heading,
+       no blank line, no content precedes ":PROPERTIES:")
+     - exactly one "* System Prompt" heading exists in the document
+     - exactly one "* Chat" heading exists in the document
+     - every #+begin_user / #+begin_assistant turn block appears under
+       the "* Chat" heading, never under "* System Prompt" and never
+       before any heading
+     - the chat parser stays heading-indifferent: it locates turn
+       blocks by #+begin_user / #+begin_assistant markers, not by
+       headings, so gptel-chat-new scratch buffers (bare #+begin_user
+       blocks, no headings, no drawer) remain valid input
+
+   known_limitation: |
+     Because the chat parser is heading-indifferent (Decision 12 /
+     design.md §Finding B), a `* System Prompt` body containing a
+     literal column-0 "#+begin_user" line would be mis-parsed as a
+     turn block. Preset system prompts in this repo do not contain
+     such a line; flagged for the implementor to accept or guard.
+
+   producers:
+     - file: config/gptel/sessions/commands.org
+       function: |
+         jf/gptel--session-headings-block (heading helper) +
+         session-creation renderer
+       usage: |
+         The heading helper emits only the two heading blocks
+         (`* System Prompt` seeded from the active preset's :system,
+         then `* Chat`). The file-level config :PROPERTIES: drawer is
+         prepended by the session renderer (delegated to register/
+         boundary/scope-profile-applicator stage 2a) before the
+         heading helper's output.
+     - file: config/gptel/chat/menu.org
+       function: chat-mode save path (gptel-chat--save-state and
+         helpers)
+       usage: |
+         materialises the `* System Prompt` heading for pre-Addendum
+         sessions on first save under the new code (graceful-degrade
+         path, cf. Decision 6 / Decision B), and on every save
+         serialises gptel--system-message back into the heading body
+         (cf. register/invariant/system-prompt-heading-authoritative).
+     - file: config/gptel/tools/persistent-agent.org
+       function: |
+         jf/gptel-persistent-agent--initial-body (agent-session
+         creator)
+       usage: |
+         Conforming producer (cycle-8 resolved arch-cycle-1779477564-1):
+         delegates to jf/gptel--session-headings-block to emit the
+         folded `* System Prompt` (body seeded from the agent preset's
+         :system text when present) followed by `* Chat`. The
+         file-level config drawer is prepended by the agent caller
+         (jf/gptel-persistent-agent--task) via the scope-profile
+         applicator boundary. Agent-created session.org files satisfy
+         the validator's four structural invariants — pinned by
+         buttercup specs in config/gptel/tools/test/persistent-agent/
+         creation-spec.el ("PersistentAgent session.org matches the
+         canonical document layout"). Tracking task
+         route-agent-session-creation-through-canonical-layout
+         closed cycle-8 (merge_commit f052eb9).
+
+   consumers:
+     - file: config/gptel/chat/menu.org
+       function: |
+         gptel-chat--apply-system-prompt-heading (invoked as the final
+         step of gptel-chat--apply-declared-preset)
+       usage: reads the `* System Prompt` heading body via
+         gptel-chat--system-prompt-heading-body and installs the
+         result as buffer-local gptel--system-message (per register/
+         invariant/system-prompt-heading-authoritative)
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat--fold-config-drawer (attached to gptel-chat-
+         mode-hook)
+       usage: folds the file-level config :PROPERTIES: drawer on
+         gptel-chat-mode activation (per register/boundary/chat-mode-
+         session-display override C)
+     - file: config/gptel/chat/parser.org
+       function: chat turn parser
+       usage: locates turn blocks under `* Chat` (heading-indifferent)
+
+   validator: |
+     (defun shape/validate-session-document-layout (buf)
+       "Return nil when BUF matches the speculated session-document
+     layout, or a symbol naming the first violated invariant."
+       (with-current-buffer buf
+         (save-excursion
+           (goto-char (point-min))
+           (cond
+            ((not (looking-at-p "[ \t\n]*:PROPERTIES:"))
+             'config-drawer-not-at-point-min)
+            ((/= 1 (count-matches "^\\* System Prompt[ \t]*$"
+                                  (point-min) (point-max)))
+             'system-prompt-heading-not-singleton)
+            ((/= 1 (count-matches "^\\* Chat[ \t]*$"
+                                  (point-min) (point-max)))
+             'chat-heading-not-singleton)
+            (t
+             (let ((chat-pos (progn (goto-char (point-min))
+                                    (re-search-forward
+                                     "^\\* Chat[ \t]*$" nil t)))
+                   (turn-pos (progn (goto-char (point-min))
+                                    (re-search-forward
+                                     "^#\\+begin_\\(user\\|assistant\\)"
+                                     nil t))))
+               (if (and turn-pos chat-pos (< turn-pos chat-pos))
+                   'turn-block-before-chat-heading
+                 nil)))))))
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/invariant/system-prompt-heading-authoritative
+     - register/boundary/chat-mode-session-display
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+* Vocabulary
+
+  Entries describe enumerations / symbol sets / value sets that span a
+  boundary, plus the canonical mapping (=pcase= / dispatch table) between
+  layers. The motivating failure is bash-parser semantic-op set ↔
+  scope section keys: a =pcase= inlined at multiple sites, missing values
+  at one of them, silently mis-routing operations.
+
+** drawer-key-set
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-drawer-key-set
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/drawer-key-set
+   tier: vocabulary
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): writer-locus (rewire-expansion-writer
+     mapping function emits READ_METADATA) and reader-locus (rewire-
+     validator-config-load loader accepts the eight-key set) both honor
+     the entry. Fixture-locus pending in cycle-3 migrate-* tasks. See
+     .orchestrator/cycles/cycle-1777470320/reconciliations/
+     vocabulary-drawer-key-set.md.
+   load_bearing: true
+   enforcement_loci: [reader, writer, fixture]
+   unmapped_policy: error
+   unmapped_policy_rationale: |
+     Loader is strict on unknown drawer keys: a typo like
+     :GPTEL_SCOPE_READ_META: silently widens nothing today, but as
+     cycle-1 reconciliation noted, an "unknown key" path is exactly
+     where the legacy YAML loader's silent-widening incidents lived.
+     The buffer-first config loader emits a warning on unknown
+     :GPTEL_SCOPE_* keys (or errors, behind a defcustom — see
+     register/boundary/scope-config-loader stage 2 reconciliation).
+   title: The eight :GPTEL_SCOPE_* drawer keys and their plist field mapping
+   purpose: |
+     The closed set of property keys this change introduces in the file-
+     level :PROPERTIES: drawer of session.org, plus the canonical mapping
+     between each drawer key (and its + suffix variant for list values)
+     and the corresponding plist path under (:paths ...) or (:cloud ...).
+     Mis-routing a drawer key into the wrong plist field is the same class
+     of bug as bash-parser's :read-metadata-into-:paths.write incident:
+     it fails silent because validation still runs, just under the wrong
+     section.
+
+   members:
+     - value: ":GPTEL_SCOPE_READ:" (with "+:" suffix variant)
+       cardinality: list
+       description: read-allowed glob patterns (content reads)
+       plist_path: (:paths :read)
+     - value: ":GPTEL_SCOPE_READ_METADATA:" (with "+:" suffix variant)
+       cardinality: list
+       description: |
+         metadata-only read patterns. Permits stat-style operations
+         (test -f, which, dirname, ls -l) but not content reads.
+         Introduced cycle-2 (ask 10A) to keep `[ -f /etc/passwd ]`
+         from grant-by-side-effect to `cat /etc/passwd`. The validator
+         accepts a content-read against a path *iff* the path matches
+         GPTEL_SCOPE_READ; metadata-only paths do not satisfy the
+         content-read predicate.
+       plist_path: (:paths :read-metadata)
+       speculated_since: cycle-2 plan
+     - value: ":GPTEL_SCOPE_WRITE:" (with "+:" suffix variant)
+       cardinality: list
+       description: write-allowed glob patterns (covers :create, :create-or-modify, :append, :delete)
+       plist_path: (:paths :write)
+     - value: ":GPTEL_SCOPE_MODIFY:" (with "+:" suffix variant)
+       cardinality: list
+       description: modify-allowed glob patterns
+       plist_path: (:paths :modify)
+     - value: ":GPTEL_SCOPE_EXECUTE:" (with "+:" suffix variant)
+       cardinality: list
+       description: execute-allowed glob patterns
+       plist_path: (:paths :execute)
+     - value: ":GPTEL_SCOPE_DENY:" (with "+:" suffix variant)
+       cardinality: list
+       description: deny-list glob patterns; deny wins over allow
+       plist_path: (:paths :deny)
+     - value: ":GPTEL_SCOPE_CLOUD_AUTH:"
+       cardinality: scalar
+       description: cloud authentication detection mode
+       plist_path: (:cloud :auth-detection)
+       allowed_scalar_values: ["allow", "warn", "deny"]
+     - value: ":GPTEL_SCOPE_CLOUD_PROVIDERS:" (with "+:" suffix variant)
+       cardinality: list
+       description: explicitly-allowed cloud-auth provider names
+       plist_path: (:cloud :allowed-providers)
+
+   canonical_mapping_function: |
+     ;; Lives in scope-validation.org as the only translation between
+     ;; drawer keys and plist paths. If you find a similar pcase / cond
+     ;; inlined elsewhere translating drawer keys, that is a duplication
+     ;; bug.
+     (defun jf/gptel-scope--drawer-key-to-plist-path (key)
+       "Map a drawer KEY string (without the trailing colon or +) to a
+     two-element plist-path list."
+       (pcase key
+         ("GPTEL_SCOPE_READ"            '(:paths :read))
+         ("GPTEL_SCOPE_READ_METADATA"   '(:paths :read-metadata))
+         ("GPTEL_SCOPE_WRITE"           '(:paths :write))
+         ("GPTEL_SCOPE_MODIFY"          '(:paths :modify))
+         ("GPTEL_SCOPE_EXECUTE"         '(:paths :execute))
+         ("GPTEL_SCOPE_DENY"            '(:paths :deny))
+         ("GPTEL_SCOPE_CLOUD_AUTH"      '(:cloud :auth-detection))
+         ("GPTEL_SCOPE_CLOUD_PROVIDERS" '(:cloud :allowed-providers))
+         (_ (error "Unknown scope drawer key: %s" key))))
+
+   validator: |
+     (defun vocabulary/validate-drawer-key (key)
+       (memq key '("GPTEL_SCOPE_READ"
+                   "GPTEL_SCOPE_READ_METADATA"
+                   "GPTEL_SCOPE_WRITE"
+                   "GPTEL_SCOPE_MODIFY"
+                   "GPTEL_SCOPE_EXECUTE"
+                   "GPTEL_SCOPE_DENY"
+                   "GPTEL_SCOPE_CLOUD_AUTH"
+                   "GPTEL_SCOPE_CLOUD_PROVIDERS")))
+
+   closed_set: true
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** operation-to-drawer-key
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-operation-to-drawer-key
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/operation-to-drawer-key
+   tier: vocabulary
+   status: reconciled
+   status_note: |
+     cycle-1 reconciled the closed-set discipline, the strict-error
+     unmapped_policy, and the absence of :deny / nil-operation arms.
+     cycle-2 integrate (2026-04-29): asks 10A/B/C all encoded with
+     strict-error fallbacks; the new buttercup spec at
+     config/gptel/scope/test/expansion/operation-to-drawer-key-spec.el
+     pins all three dispositions plus the cycle-1 strict-error contract.
+     See .orchestrator/cycles/cycle-1777470320/reconciliations/
+     vocabulary-operation-to-drawer-key.md.
+     cycle-4 (2026-04-29) Ask 1 disposition: the :match-pattern member's
+     redirect_target is dropped; the action handler refuses with
+     directing user-error rather than redirecting. The reify-the-cluster
+     route is externalized to
+     .tasks/fix-match-pattern-parser-validator-boundary.md (the
+     `--validate-file-operations` first-denial-wins constraint at
+     scope-validation.el:412 means the action handler never sees a
+     full violation cluster, so the cycle-2 ask-10B redirect is not
+     implementable without parser/validator work).
+   load_bearing: true
+   enforcement_loci: [writer]
+   title: Granular operation → drawer-key collapse
+   purpose: |
+     Maps the granular :operation values produced by the validator pipeline
+     and the bash-parser semantic plugins onto the five list-shaped drawer
+     keys (READ / READ_METADATA / WRITE / MODIFY / EXECUTE). This is the
+     structural analogue of bash-parser's 11-op-to-3-section mapping that
+     drove the prior incident. The mapping lives in exactly one place —
+     jf/gptel-scope--map-operation-to-drawer-key — and any pcase / cond
+     performing the same translation at another site is a duplication bug.
+
+     GPTEL_SCOPE_DENY is *not* a collapse target: deny-listing is
+     expressed at the action layer (an explicit "add to deny scope"
+     handler), not as an :operation input. A :deny arm in this mapping
+     would be dead today (no producer emits :operation :deny) and would
+     conflate violation-outcome (denied) with operation-kind (read/write/
+     etc) which are different axes.
+
+     :match-pattern is *also* not in the writer's collapse domain. The
+     bash-parser emits :match-pattern with the literal pattern as
+     :resource (e.g. "*.txt" from `find -name`); routing the pattern
+     into a path-allowlist drawer key would grant reads on every
+     filesystem match. Cycle-4 (Ask 1) resolved this as Option B:
+     the action handler refuses with a directing user-error
+     ("use c for custom pattern, e for manual edit") rather than
+     redirecting. The cycle-2 ask-10B "smart redirect" is not
+     implementable in cycle-3-as-shipped because
+     `--validate-file-operations` (scope-validation.el:412) throws on
+     the first denial via `(catch 'error-found ...)`, so the action
+     handler never receives a full violation cluster from which to
+     pick a sibling :read-directory resource. The writer's strict-error
+     fallback therefore signals "match-pattern reached the writer" as
+     a defect, not a vocabulary gap.
+
+   members:
+     - value: :read
+       collapses_to: GPTEL_SCOPE_READ
+       producer: validator pipeline (path), bash-parser read-ops plugin
+     - value: :read-directory
+       collapses_to: GPTEL_SCOPE_READ
+       producer: filesystem-tools read-directory dispatch
+     - value: :read-metadata
+       collapses_to: GPTEL_SCOPE_READ_METADATA
+       producer: bash-parser stat / metadata plugin
+       decision_note: |
+         ask 10A resolved (cycle-2, 2026-04-29) to option (1): introduce
+         GPTEL_SCOPE_READ_METADATA as a 6th drawer key. Metadata stats
+         (e.g. `[ -f file ]`, `which python`, `dirname /path`) grant only
+         metadata access; they do not grant content-read on the file.
+         Implementation: rewire-expansion-writer task in cycle-2 batch.
+     - value: :match-pattern
+       collapses_to: NONE  # action handler refuses with directing user-error
+       producer: bash-parser globbing plugin (find/ls)
+       decision_note: |
+         Cycle-2 ask-10B resolved as "smart redirect at the action
+         handler"; cycle-3 implementation discovered that
+         `--validate-file-operations` (scope-validation.el:412) throws
+         on first denial via `(catch 'error-found ...)`, so the action
+         handler never receives a violation cluster. Cycle-4 plan
+         resolved Ask 1 as Option B: the action handler refuses with
+         a directing user-error ("use c for custom pattern, e for
+         manual edit") rather than redirecting. The reify-the-cluster
+         route is externalized to
+         .tasks/fix-match-pattern-parser-validator-boundary.md.
+         The writer never sees :match-pattern; if it does, that is a
+         defect (the action handler did not refuse). Implementation:
+         harden-add-to-scope-action-handler task in cycle-3 batch
+         (former: refuse-add-to-scope-on-nil-operation, broadened);
+         refusal-with-guidance contract finalised in cycle-4.
+     - value: :write
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: validator pipeline (path), bash-parser write-ops plugin
+     - value: :create
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser create-ops plugin (touch, mkdir)
+     - value: :create-or-modify
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser redirect plugin
+     - value: :append
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser redirect plugin (>> form)
+     - value: :delete
+       collapses_to: GPTEL_SCOPE_WRITE
+       producer: bash-parser delete-ops plugin
+       decision_note: |
+         ask 10C resolved (cycle-2, 2026-04-29) to option (2): keep
+         current WRITE collapse. Granting WRITE on a directory implies
+         delete-on-the-directory's-files. Tradeoff documented; not
+         introducing a separate GPTEL_SCOPE_DELETE bucket. The
+         recovery-asymmetry between overwrite (VCS-recoverable) and
+         delete (often not) is accepted as a known limitation; users
+         who want deletion-locked-out can add the file pattern to
+         GPTEL_SCOPE_DENY explicitly.
+     - value: :modify
+       collapses_to: GPTEL_SCOPE_MODIFY
+       producer: filesystem-tools edit_file_in_scope dispatch
+     - value: :execute
+       collapses_to: GPTEL_SCOPE_EXECUTE
+       producer: validator pipeline (bash command-execution check)
+
+   unmapped_policy: error
+   unmapped_policy_rationale: |
+     The strict-error fallback forces the typo / new-producer-value /
+     nil-from-cloud-auth case to surface at the user-visible expansion UI
+     the moment it happens, rather than silently bloating GPTEL_SCOPE_READ
+     (an allowlist — adding to it grants read access). This matches the
+     "closed-set vocabulary fails loudly" discipline that the rest of the
+     scope subsystem honours (cloud-auth scalar set; the seven drawer-key
+     set's loader-side enforcement). For violations that legitimately
+     arrive with :operation nil (cloud-auth, parse-incomplete), the
+     correct fix is upstream at the --add-to-scope action handler, not at
+     the writer. The action handler should refuse to run when the
+     violation is bash and :operation is nil, and prompt the user with a
+     different action (allow-once for metadata; "add provider to allow-
+     list" for cloud-auth; "request review" for parse-incomplete).
+
+   canonical_mapping_function: |
+     (defun jf/gptel-scope--map-operation-to-drawer-key (operation)
+       "Map a denied OPERATION keyword to the matching drawer key string.
+     The writer's input domain is ten :operation values (eleven minus
+     :match-pattern, which the action handler redirects upstream).
+     Signals an error on anything outside the closed set, including nil
+     and :match-pattern."
+       (cond
+        ((memq operation '(:read :read-directory))
+         "GPTEL_SCOPE_READ")
+        ((eq operation :read-metadata)
+         "GPTEL_SCOPE_READ_METADATA")
+        ((memq operation '(:write :create :create-or-modify :append :delete))
+         "GPTEL_SCOPE_WRITE")
+        ((eq operation :modify)  "GPTEL_SCOPE_MODIFY")
+        ((eq operation :execute) "GPTEL_SCOPE_EXECUTE")
+        ((eq operation :match-pattern)
+         (error "scope-expansion: :match-pattern reached the writer — action handler should have redirected to :read-directory"))
+        ((null operation)
+         (error "scope-expansion: cannot map nil :operation — handle at the action layer"))
+        (t
+         (error "scope-expansion: unmapped :operation %S — extend the mapping or use the deny action"
+                operation))))
+
+   validator: |
+     (defun vocabulary/validate-op-collapse (op)
+       (memq op '(:read :read-directory :read-metadata :match-pattern
+                  :write :create :create-or-modify :append :delete
+                  :modify :execute)))
+
+   closed_set: true
+   closed_set_note: |
+     Eleven members in the producer-vocabulary domain (validator
+     produces these); ten in the writer's collapse domain
+     (:match-pattern is action-layer-only). Any new bash-parser
+     semantic op type must be added here, in the canonical mapping
+     function (writer arm) or in the action handler (redirect arm),
+     and to the filesystem-tools / validator-pipeline producer in the
+     same change; the architect's vocabulary-mismatch scan flags any
+     pcase/cond that mentions an op not in this entry. The
+     unmapped_policy is `error` so a producer adding a value without
+     updating this entry surfaces at the writer immediately.
+
+   reconciled_from:
+     - speculated → divergent (cycle 1, found by reviewer of
+       implement-drawer-writer)
+     - divergent → reconciled (cycle 1, integrate, after user-authorised
+       audit produced findings 8/9/10 and inline code edits brought the
+       implementation in line with this entry's strict-error contract)
+     - reconciled → speculated (cycle 2 plan, after user dispositions
+       10A/B/C added READ_METADATA as a separate collapse target and
+       removed :match-pattern from the writer's domain; pending
+       rewire-expansion-writer + harden-add-to-scope-action-handler
+       implementation in cycle-2 / cycle-3)
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+* Boundary
+
+  Entries describe canonical mapping functions between subsystems. The
+  motivating failure is a reshape (module A's output → module B's input)
+  inlined at >1 site instead of going through a single canonical function;
+  the inline copies drift over time.
+
+** scope-config-loader
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-config-loader
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-config-loader
+   tier: boundary
+   status: divergent
+   status_note: |
+     cycle-3 disposition-empty-drawer-collapse (2026-04-29): Option B
+     applied at the code layer. Stage 3 of --load-config now composes
+     deny-all defaults (empty :paths sub-lists, "deny" cloud auth) via
+     jf/gptel-scope--deny-all-defaults rather than collapsing to nil.
+     The dispatcher proceeds straight to validation; per-violation
+     deny replaces the historical no_scope_config short-circuit (which
+     has been removed from authorize-tool-call and final-deny-response).
+     Status remains `divergent` until cycle-3 integrate flips it to
+     `reconciled` with prior_shape (Stage 3 collapse) / new_shape
+     (Stage 3 deny-all composition) documented. Tests pinned to the
+     old semantics will be migrated by the parallel
+     `migrate-validation-tests` task.
+
+     Prior cycle-2 integrate note: implementation honored the cycle-1
+     reconciliation note's "stage-3 collapse to nil" semantic; cycle-1's
+     user-resolved ask-arch-cycle-1777460733-2 said the opposite ("empty
+     drawer = deny-all defaults"). Both authorities cannot stand. User
+     disposition via cycle-3 task `disposition-empty-drawer-collapse`.
+     See .orchestrator/cycles/cycle-1777470320/reconciliations/
+     boundary-scope-config-loader.md for the divergence escalation.
+   load_bearing: true
+   title: Buffer-first / file-fallback drawer reader pipeline
+   purpose: |
+     The two-stage resolver that produces the scope-config plist for the
+     authorize-tool-call dispatcher. Stage 1 (buffer-first) reads the
+     :PROPERTIES: drawer of the live chat buffer when one is associated
+     with the session. Stage 2 (file-fallback) opens session.org head-
+     lessly when no buffer is loaded. Stage 1 is the source-of-truth
+     stage; stage 2 exists only for programmatic / out-of-buffer call
+     paths (e.g. request_scope_expansion). Stage 3 composes deny-all
+     defaults when neither stage produces a plist with :GPTEL_SCOPE_*
+     keys, so the dispatcher always sees a usable plist.
+
+   stages:
+     - n: 1
+       name: buffer-first read
+       input: chat-buffer object | nil (registry's :buffer field for jf/gptel--branch-dir)
+       output: register/shape/scope-config-plist | nil
+       can_fail_with: [no-buffer-found, drawer-empty]
+       short_circuit_policy: optional
+       notes: |
+         When the registry has a buffer for the current branch-dir,
+         stage 1 returns the parsed plist and stages 2 must not run.
+         When there is no buffer (registry miss), stage 1 returns nil
+         and stage 2 takes over.
+     - n: 2
+       name: file-fallback read
+       input: session.org file path
+       output: register/shape/scope-config-plist | nil
+       can_fail_with: [file-not-found, drawer-empty, malformed-drawer]
+       short_circuit_policy: none
+       notes: |
+         Opens the file via with-temp-buffer + insert-file-contents,
+         enables org-mode for the temp buffer, runs the same drawer
+         reader as stage 1. Discards the temp buffer. The plist shape
+         is identical to stage 1's output.
+     - n: 3
+       name: empty-plist → deny-all defaults composition
+       input: register/shape/scope-config-plist | nil (output of stages 1/2)
+       output: register/shape/scope-config-plist (always non-nil)
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         When stages 1+2 yield nil OR a plist with no :GPTEL_SCOPE_*
+         keys, --load-config returns the deny-all defaults plist
+         composed by jf/gptel-scope--deny-all-defaults: empty :paths
+         sub-lists (:read, :read-metadata, :write, :modify, :execute,
+         :deny) and :cloud (:auth-detection "deny" :allowed-providers
+         nil). The authorization dispatcher proceeds to validation;
+         per-violation deny is the authorisation outcome. Replaces
+         the historical Stage-3 collapse-to-nil → no_scope_config
+         semantic (Option B; cycle-3).
+
+   cross_stage_invariants:
+     - register/invariant/scope-no-security-key-in-plist
+     - The plist shape produced by stage 1 must equal the plist shape
+       produced by stage 2 byte-for-byte for the same drawer text. Tested
+       by a round-trip spec: write a drawer string to a temp file, read
+       it via stage 2; insert it into a temp chat buffer, read it via
+       stage 1; assert plist equality.
+
+   producers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope--load-config
+       enters_at_stage: 1
+
+   consumers:
+     - file: config/gptel/scope/scope-validation.org
+       function: jf/gptel-scope-authorize-tool-call
+       reads_output_of_stage: 2
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-profile-applicator
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-profile-applicator
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-profile-applicator
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-2 integrate (2026-04-29): Mode 2a (--render-drawer-text) is the
+     sole route from a profile-resolved scope-plist to drawer state in both
+     consumer paths (sessions/commands.org and tools/persistent-agent.org).
+     Branching uses byte-copy from parent (structurally equivalent to Mode
+     2a re-render given cross-mode idempotency). See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/boundary-scope-profile-applicator.md.
+     cycle-5 integrate (2026-05-01): stage 2a's signature gained an
+     optional PRESET-SPEC arg; stage 2b (--apply-to-drawer) gained the
+     symmetric arg. Both stages emit the chat-mode snapshot keys when
+     PRESET-SPEC is non-nil. The chat-mode save path
+     (gptel-chat--save-state → gptel-chat--write-config-drawer) is a
+     *peer producer* of an equivalent drawer key set from buffer-local
+     state — no delta-from-preset deletion. The new cross-stage
+     invariant (rendered-at-creation == saved-after-no-edit) is
+     exercised by the round-trip idempotency scenario in
+     snapshot-rendering-spec.el and the end-to-end scenarios in
+     preset-application-spec.el. The two consumer call sites were
+     updated to thread the resolved preset spec via gptel-get-preset:
+     - jf/gptel--create-session-core (sessions/commands.org)
+     - persistent-agent.org's --task flow (direct
+       --render-drawer-text call)
+     Cited by tasks: extend-render-drawer-text-with-preset-snapshot
+     (43d045f), wire-snapshot-into-session-creation (9f4b5fd),
+     replace-chat-save-with-full-snapshot-writer (5f9d762).
+     cycle-6 integrate (2026-05-03): dedupe extracted a shared
+     internal enumeration jf/gptel-scope-profile--snapshot-entries
+     (used by both --snapshot-lines and --apply-to-drawer) so the
+     two PRESET-SPEC-fed producers can no longer drift on key set
+     or ordering. The chat-mode save path's gptel-chat--write-config-
+     drawer remains a third (peer) producer of the same six-key set
+     from buffer-local state — open follow-up task harden-snapshot-
+     emission-cross-stage-parity is queued to either route the chat
+     writer through the same enumeration or, at minimum, narrow the
+     internal helper's docstring claim. Multivalued-formatter parity
+     between mode 2a (string) and mode 2b (buffer) is also covered
+     by that follow-up — currently 2a uses bare mapconcat while 2b
+     escapes via org-entry-protect-space; the asymmetry is documented
+     but not enforced. Cited by task fix-snapshot-tools-test-mock-
+     and-dedupe-applicator (c7a1f1c).
+   load_bearing: true
+   title: Profile resolution → drawer text or buffer-applied properties
+   purpose: |
+     The two-mode terminal step of the scope-profile pipeline. Mode A
+     (string mode, --render-drawer-text) produces a register/shape/
+     drawer-text-block string for embedding in a fresh session.org. Mode B
+     (buffer mode, --apply-to-drawer) calls org-entry-put against an
+     already-open buffer's drawer. Both modes must be the only routes
+     from a profile-resolved scope-plist to drawer state; any open-coded
+     ":PROPERTIES:" string-building or org-entry-put loop elsewhere is a
+     duplication bug.
+
+   stages:
+     - n: 1
+       name: profile resolution
+       input: preset-name | profile-template-path
+       output: register/shape/scope-config-plist
+       can_fail_with: [profile-not-found, variable-expansion-failed]
+       short_circuit_policy: none
+       notes: |
+         Loads the profile YAML template, expands ${project_root} and
+         related variables, deep-merges with defaults. Unchanged by this
+         change.
+     - n: 2a
+       name: render-drawer-text (string mode)
+       input: preset-name + parent-session-id + scope-plist
+       output: register/shape/drawer-text-block
+       can_fail_with: [malformed-plist]
+       short_circuit_policy: none
+       notes: |
+         Returns a string. Caller is responsible for prepending the result
+         to chat-mode initial content and calling write-region. No buffer
+         is opened during this mode.
+     - n: 2b
+       name: apply-to-drawer (buffer mode)
+       input: chat-buffer + preset-name + parent-session-id + scope-plist
+       output: side-effect (drawer mutated; non-scope keys preserved)
+       can_fail_with: [buffer-not-org-mode, properties-drawer-corrupted]
+       short_circuit_policy: none
+       notes: |
+         Calls org-entry-put for scalars and the multi-value helper for
+         lists. Existing :GPTEL_PRESET: and :GPTEL_PARENT_SESSION_ID: keys
+         are preserved; only :GPTEL_SCOPE_* keys are written.
+
+   cross_stage_invariants:
+     - register/invariant/scope-drawer-no-duplication
+     - mode 2a's output, if written verbatim to a fresh session.org file,
+       produces a drawer that mode 2b's apply pass would leave unchanged
+       (idempotency between the two modes for the same scope-plist).
+
+   producers:
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--render-drawer-text
+       enters_at_stage: 2a
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--apply-to-drawer
+       enters_at_stage: 2b
+     - file: config/gptel/scope-profiles.org
+       function: jf/gptel-scope-profile--create-for-session
+       enters_at_stage: 1
+       notes: dispatches to 2a or 2b based on caller context
+
+   consumers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel-persistent-session
+       reads_output_of_stage: 2a
+     - file: config/gptel/sessions/activities-integration.org
+       function: <activities flow session creation>
+       reads_output_of_stage: 2a
+     - file: config/gptel/tools/persistent-agent.org
+       function: <agent-creation function>
+       reads_output_of_stage: 2a
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-expansion-action-handler
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-expansion-action-handler
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-expansion-action-handler
+   tier: boundary
+   status: reconciled
+   status_note: |
+     New entry, cycle-2 plan (2026-04-29). Surfaced by the cycle-1
+     audit's finding-9 (writer's strict-error on nil :operation is
+     correct but user-hostile) and finding-10B (smart-redirect for
+     :match-pattern). The cycle-1 disposition tasks (refuse-add-to-
+     scope-on-nil-operation; disposition-match-pattern-handling)
+     point at this layer. Implemented in cycle-3 task
+     `harden-add-to-scope-action-handler`.
+
+     cycle-4 (2026-04-29) Ask 1 disposition: Stage 2 was renamed
+     to "match-pattern refuse-with-guidance" (its prior cycle-2 name
+     held the redirect verb that no longer applies).
+     The cycle-2 ask-10B "smart redirect" was discovered to be
+     unimplementable in cycle-3-as-shipped because
+     `jf/gptel-scope--validate-file-operations` (scope-validation.el:412)
+     throws on first denial via `(catch 'error-found ...)`. The action
+     handler therefore never receives a full violation cluster from
+     which to pick a sibling :read-directory resource. Option B was
+     chosen: the handler refuses with a directing user-error ("use c
+     for custom pattern, e for manual edit") and points the user at
+     the manual-edit affordances. The reify-the-cluster route is
+     externalized to
+     .tasks/fix-match-pattern-parser-validator-boundary.md.
+   load_bearing: true
+   title: Action-layer dispatch for the expansion UI's "add to scope" key
+   purpose: |
+     The function the expansion UI calls when the user presses `a` on a
+     denied violation. It must decide what *kind* of add-to-scope action
+     applies before delegating to the writer; the writer's job is the
+     drawer mutation, not the user-intent disambiguation. Mis-placing
+     intent logic in the writer is the same class of bug as putting
+     bash-parser semantic-op routing inside the YAML mutator: it forces
+     the writer to know about the action layer's vocabulary, and it
+     erases the writer's "single closed mapping" property.
+
+     Three pre-conditions block the writer:
+       1. nil :operation (cloud-auth, parse-incomplete violations) →
+          refuse the add-to-scope action; surface the right alternative
+          (allow-once for metadata; "add provider to allow-list" for
+          cloud-auth; "request review" for parse-incomplete).
+       2. :match-pattern :operation → redirect to the sibling
+          :read-directory operation in the same violation cluster
+          (find /home -name '*.txt' emits both :read-directory /home
+          and :match-pattern '*.txt'; the user's intent on `a` is to
+          scope /home, not '*.txt').
+       3. all other valid (:operation . :resource) pairs → delegate
+          to register/boundary/scope-pattern-writer.
+
+   stages:
+     - n: 1
+       name: nil-operation refuse
+       input: violation-info plist
+       output: refuse | continue
+       can_fail_with: []
+       short_circuit_policy: terminating
+       notes: |
+         When :operation is nil, the action handler displays a
+         non-error message naming the right action ("metadata stat —
+         use allow-once instead"; "cloud-auth — add provider to allow-
+         list"; "parse-incomplete — review needed"). It does not call
+         the writer. The writer's strict-error on nil :operation
+         remains; this stage prevents that error from surfacing in
+         normal use.
+     - n: 2
+       name: match-pattern refuse-with-guidance
+       input: violation-info plist
+       output: refuse | continue
+       can_fail_with: []
+       short_circuit_policy: terminating
+       notes: |
+         When :operation is :match-pattern, the action handler refuses
+         the add-to-scope action with a directing user-error pointing
+         the user at the manual-edit affordances ("use c for custom
+         pattern, e for manual edit"). It does not call the writer
+         and does not attempt a sibling-:read-directory redirect.
+
+         Constraint: `jf/gptel-scope--validate-file-operations`
+         (scope-validation.el:412) throws on the first denial via
+         `(catch 'error-found ...)`, so by the time the action handler
+         is invoked the violation cluster has been narrowed to a
+         single violation — the sibling :read-directory operation that
+         a `find /home -name '*.txt'` invocation would also produce is
+         not present alongside the :match-pattern violation. The
+         cycle-2 ask-10B "smart redirect" cannot be honoured without
+         parser/validator-side work; that work is externalized to
+         .tasks/fix-match-pattern-parser-validator-boundary.md and
+         this stage's "refuse with guidance" disposition is the
+         cycle-3-as-shipped contract (Ask 1, cycle-4 plan).
+     - n: 3
+       name: writer delegation
+       input: violation-info plist (passed-through or redirected)
+       output: side-effect (writer mutates drawer)
+       can_fail_with: [unmapped-operation]
+       short_circuit_policy: none
+       notes: |
+         Calls register/boundary/scope-pattern-writer. By stage 3 the
+         input has :operation in the writer's ten-member domain.
+
+   cross_stage_invariants:
+     - The action handler is the only producer of writer calls for
+       interactive add-to-scope. Tests assert that no other
+       expansion-UI callsite calls scope-pattern-writer's entry
+       function directly.
+
+   producers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope (and the other
+         interactive add-* dispatchers; harden task will refactor
+         to a single entry point)
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--write-pattern-to-drawer (writer)
+       reads_output_of_stage: 3
+
+   scaffolding_path: openspec/changes/gptel-scope-in-org-properties/scaffolding/boundaries/scope-expansion-action-handler.el
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect (cycle-2 plan, in response to ask-10B and
+     finding-9)
+   #+end_src
+
+** scope-pattern-writer
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-scope-pattern-writer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/scope-pattern-writer
+   tier: boundary
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): all five --add-*-to-scope action
+     handlers route through --write-pattern-to-drawer; YAML serializer
+     family deleted; (require 'jf-gptel-scope-yaml) gone. The boundary's
+     "single writer" property holds. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/boundary-scope-pattern-writer.md.
+   load_bearing: true
+   title: Single canonical drawer mutator (write-pattern-to-drawer)
+   purpose: |
+     The expansion UI's "add to scope" action used to write through a
+     YAML mutator (parse → modify plist → re-emit YAML → write file).
+     That pipeline is replaced by jf/gptel-scope--write-pattern-to-drawer:
+     a single function that takes a buffer, an operation keyword, and a
+     pattern; collapses the operation to a drawer key via register/
+     vocabulary/operation-to-drawer-key; reads the existing values;
+     dedups; writes via org-entry-put / multi-value helper; calls save-
+     buffer. There is exactly one canonical mutator. Any other site that
+     constructs ":GPTEL_SCOPE_<KEY>: <value>" lines, calls org-entry-put
+     against scope keys directly, or otherwise mutates drawer scope state
+     is a boundary-translation duplication bug.
+
+   stages:
+     - n: 1
+       name: operation-to-drawer-key collapse
+       input: violation-info plist (reads :operation)
+       output: drawer-key string
+       can_fail_with: [unmapped-operation]
+       short_circuit_policy: none
+       notes: |
+         Delegates to register/vocabulary/operation-to-drawer-key's
+         canonical mapping function.
+     - n: 2
+       name: dedup against existing drawer values
+       input: chat-buffer + drawer-key + new-pattern
+       output: keep | skip
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         If the pattern is already in the drawer's values for the target
+         key (case-sensitive equality after path normalization), the
+         writer returns :success t :patterns_added [] and does not call
+         org-entry-put. The skip is silent — no error, no warning — but
+         visible in the callback's empty :patterns_added list.
+     - n: 3
+       name: org-entry-put / multi-value emit + save-buffer
+       input: chat-buffer + drawer-key + new-pattern
+       output: side-effect (drawer line(s) added; buffer saved)
+       can_fail_with: [save-aborted, buffer-read-only, properties-drawer-corrupted]
+       short_circuit_policy: none
+       notes: |
+         First addition for a key uses the bare form (org-entry-put);
+         subsequent additions use the +: variant via the multi-value
+         helper. save-buffer triggers chat-mode's existing before-save-
+         hook chain (metadata-yml updater) — this writer must not add new
+         hooks.
+
+   cross_stage_invariants:
+     - register/invariant/scope-add-pattern-idempotent
+     - register/invariant/scope-drawer-no-duplication
+     - the writer does not modify any drawer key other than the one
+       computed by stage 1 (verified by the regression test in
+       add-drawer-corruption-regression.md)
+
+   producers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--write-pattern-to-drawer
+       enters_at_stage: 1
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-wildcard-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-custom-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-path-to-scope
+       reads_output_of_stage: 3
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-bash-to-scope
+       reads_output_of_stage: 3
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** expansion-transient-scope
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-expansion-transient-scope
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/expansion-transient-scope
+   tier: shape
+   status: speculated
+   status_note: |
+     speculated-with-deviation: the cycle-3 plan brief proposed three
+     required keys (:violation :command-name :chat-buffer) plus two
+     optional UI-disabled flags. The cycle-2 implementation
+     (commit 18e290a, scope-expansion.org §State Management
+     `--process-expansion-queue`) actually constructs a five-key plist
+     of (:violation :callback :patterns :tool-name :chat-buffer); there
+     is no :command-name key and no UI-disabled flags exist. Entry
+     records the *as-built* shape; reconciliation will flip status to
+     `confirmed` when scaffolding parity is verified by the harden task.
+   load_bearing: true
+   title: Five-key plist passed as transient-scope to the add-to-scope UI
+   purpose: |
+     The plist that lives on (transient-scope) for the expansion transient
+     menu. Constructed in `jf/gptel-scope--prompt-expansion` (initial
+     transient setup) and re-emitted in `jf/gptel-scope--process-expansion-
+     queue` (subsequent queue entries; same five keys). Consumers are every
+     transient action handler under `* Expansion Actions`
+     (`--deny-expansion`, `--add-to-scope`, `--allow-once-action`,
+     `--add-wildcard-to-scope`, `--add-custom-to-scope`, `--edit-scope`)
+     and the `:description` lambda of `jf/gptel-scope-expansion-menu`.
+
+     The :chat-buffer key was added in cycle-2 (rewire-expansion-writer,
+     commit 18e290a) so action handlers can locate the chat buffer whose
+     :PROPERTIES: drawer they must mutate when the transient closes.
+
+   required_keys:
+     - name: ":violation"
+       type: plist (register/shape/violation-info)
+       description: |
+         The violation-info plist (cycle-1 reconciled shape). Action
+         handlers read :validation-type, :resource, :tool, :reason,
+         :metadata, :operation off it.
+     - name: ":callback"
+       type: function (string -> any)
+       description: |
+         The wrapper-callback closure provided by the gptel tool wrapper
+         at violation-detection time. Action handlers funcall it with a
+         JSON-serialized result plist (`:success`/`:user_denied`/
+         `:patterns_added`/`:allowed_once`/`:message`).
+     - name: ":patterns"
+       type: list of strings
+       description: |
+         The patterns that motivated this expansion prompt (the queue
+         entry's pre-computed pattern list). `--add-to-scope` echoes
+         this list into `:patterns_added` on the success callback.
+     - name: ":tool-name"
+       type: string
+       description: |
+         Human-readable tool name for callback messages (e.g.
+         "Added 1 pattern(s) to read_file").
+     - name: ":chat-buffer"
+       type: buffer
+       description: |
+         The chat buffer that hosted the violation, captured at
+         expansion-trigger time. Retrieved via
+         `jf/gptel-scope--current-chat-buffer` and used by the drawer
+         writer (`--write-pattern-to-drawer`) and the `--edit-scope`
+         handler.
+
+   forbidden_keys: []
+
+   producers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--prompt-expansion
+       constructs: initial transient-setup :scope plist
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--process-expansion-queue
+       constructs: re-emitted plist when popping next queue entry
+
+   consumers:
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope-expansion-menu (:description lambda)
+       reads_keys: [":violation"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--deny-expansion
+       reads_keys: [":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-to-scope
+       reads_keys: [":violation", ":callback", ":patterns", ":tool-name"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--allow-once-action
+       reads_keys: [":violation", ":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-wildcard-to-scope
+       reads_keys: [":violation", ":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--add-custom-to-scope
+       reads_keys: [":violation", ":callback"]
+     - file: config/gptel/scope/scope-expansion.org
+       function: jf/gptel-scope--current-chat-buffer
+       reads_keys: [":chat-buffer"]
+
+   validator: |
+     (defun shape/validate-expansion-transient-scope (val)
+       "Returns nil on success; an error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (plistp (plist-get val :violation))) 'violation-not-plist)
+             ((not (functionp (plist-get val :callback))) 'callback-not-function)
+             ((not (listp (plist-get val :patterns))) 'patterns-not-list)
+             ((not (stringp (plist-get val :tool-name))) 'tool-name-not-string)
+             ((not (and (bufferp (plist-get val :chat-buffer))
+                        (buffer-live-p (plist-get val :chat-buffer))))
+              'chat-buffer-not-live-buffer)
+             (t nil)))
+
+   related_entries:
+     - register/shape/violation-info
+     - register/boundary/scope-expansion-action-handler
+     - register/invariant/expansion-queue-always-progresses
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
+   #+end_src
+
+** chat-menu-scope-default
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-chat-menu-scope-default
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/chat-menu-scope-default
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-5 plan (2026-05-01) — speculation: introduced for the
+     gptel-drawer-as-source-of-truth change Decision 5.
+     cycle-5 integrate (2026-05-01): reconciled (initial wiring). The
+     chat-menu prefix body sets gptel--set-buffer-locally to t before
+     transient-setup, after saving the prior value into gptel-chat--
+     scope-prior. cycle-5 verification was nine specs that called the
+     restore hook directly, bypassing the real transient call path.
+     cycle-6 reviewer (2026-05-03) found the exit_invariant violated
+     in production: the original mechanism — a transient-exit-hook
+     guarded by (unless transient-current-prefix ...) — never fired
+     on commit-style exit. transient-exit-hook runs *before*
+     transient-current-prefix is cleared (transient.el:3072), and
+     transient--export sets that variable for every committing suffix,
+     so the guard always failed and gptel--set-buffer-locally was left
+     stuck t globally. cycle-6 reconciliation (582b70e): switched to
+     transient-post-exit-hook (which fires only after the transient is
+     fully done and transient-current-prefix has been cleared);
+     dropped the now-unnecessary discriminator. Verification rebuilt
+     against the real call path: end-to-end specs that invoke
+     transient--post-exit with command set to a known committing
+     suffix and assert gptel--set-buffer-locally restores correctly,
+     and parallel coverage for the abort path. The exit_invariant now
+     holds "regardless of how the transient ends" without bespoke
+     sub-transient discrimination. Cited by tasks default-chat-menu-
+     scope-to-buffer-local (9485f3b) and fix-chat-menu-scope-restore-
+     on-real-exit (582b70e).
+     cycle-8 integrate (2026-05-23): architectural axiom appended
+     per the cycle-6→cycle-8 resolution of ask-cycle-1777625426-2.
+     Presets carry global defaults; the chat menu's per-infix scope
+     is buffer-local by design because "this conversation" is the
+     menu's semantic scope. Decision 5 is design-correct, not a
+     defensible default. A future maintainer who reads this entry
+     and wonders whether to "fix" the chat menu to inherit the
+     preset's global scope should resist: the global/buffer-local
+     split between presets and the chat menu is the WYSIWYG
+     contract, not an accident. If a user wants chat-menu changes
+     to land globally, that is a separate explicit gesture (e.g. an
+     infix to commit-to-preset), not the menu's default.
+   load_bearing: true
+   title: gptel-chat-menu enters with gptel--set-buffer-locally bound to t
+
+   purpose: |
+     The configuration scope of gptel-chat-menu (chat-mode's transient
+     wrapper around upstream gptel-menu) defaults to *buffer-local*, not
+     *global*. Tool / model / temperature / etc. selections from the chat
+     menu apply to the current chat-mode buffer, then serialise to the
+     drawer on save. Upstream gptel-menu (invoked outside chat-mode) is
+     unaffected.
+
+   scope:
+     in_scope:
+       - file: config/gptel/chat/menu.org
+         transient: gptel-chat-menu
+         entry_point: setup hook (or :setup) on the transient
+     out_of_scope:
+       - upstream gptel-menu (defaults preserved at gptel--set-buffer-locally = nil)
+       - any non-chat-mode buffer
+
+   contract:
+     entry_invariant: |
+       From the moment the user invokes gptel-chat-menu until the
+       transient finishes (commit, abort, or quit), gptel--set-buffer-
+       locally is bound to t. Bindings are restored on transient teardown
+       via unwind-protect or transient's :teardown hook.
+     exit_invariant: |
+       After the transient ends (regardless of how), gptel--set-buffer-
+       locally returns to whatever value it had at entry — typically nil
+       (upstream default) but possibly a user customisation.
+
+   why_it_matters: |
+     Without this default, "Select tools" from the chat-mode menu mutates
+     the global gptel-tools and kills the buffer-local binding installed
+     by the preset. The drawer save then sees the global value (or no
+     value, depending on order). Invisible failure mode — user thinks
+     they're editing the buffer, they're editing globally. Direct cause
+     of the WYSIWYG-defeating behaviour the parent change addresses.
+
+   producers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat-menu (transient definition)
+
+   consumers:
+     - upstream gptel infixes that read gptel--set-buffer-locally:
+       gptel-tools, gptel-system-prompt, gptel--infix-provider,
+       gptel--infix-temperature, gptel--infix-max-tokens, gptel--infix-
+       num-messages-to-send
+
+   related_entries:
+     - register/invariant/drawer-overlay-wins-over-preset
+     - register/shape/drawer-text-block
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+** chat-mode-session-display
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-chat-mode-session-display
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/chat-mode-session-display
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-7 plan (2026-05-22) — speculated by forward-mode against
+     design.md §Addendum (Finding A / Decision A, Finding C /
+     Decision C). Captures the seam where gptel-chat-mode overrides
+     org-mode's generic presentation for session buffers.
+     cycle-7 integrate (2026-05-22): reconciled. Override A landed via
+     a buffer-local font-lock OVERRIDE keyword in mode.org/el (task
+     fix-scope-drawer-value-emphasis, 4694625 / 7f290c4) with regression
+     spec at config/gptel/chat/test/display/drawer-fontification-spec.el.
+     Override C landed via the gptel-chat-mode-hook fold step (task
+     fold-config-drawer-on-open, e5f57b3 / 5c6b490) with regression spec
+     at config/gptel/chat/test/display/drawer-fold-spec.el. The
+     implementor of fix-scope-drawer-value-emphasis rewrote the
+     scaffold's override-A 're-stamps' assertion to inspect installed
+     font-lock-keyword structure rather than environment-fragile
+     plain-org-vs-chat-mode face contrast — a documented deviation
+     toward implementation-pinning rather than observable-face contract.
+     Reviewer flagged advisory; accepted with the trade-off recorded.
+     Scaffold archived in favour of the co-located regression specs.
+     See cycle-1779477564/reconciliations/boundary-chat-mode-session-
+     display.md.
+     cycle-8 integrate (2026-05-23): narrative update — the
+     cycle-7 reviewer-advisory about the implementation-pinning
+     scaffold proved exactly as costly as flagged. A user-testing
+     finding 2026-05-23 surfaced cross-line emphasis spans pairing
+     `/` delimiters across drawer lines (READ value opens with `/**`,
+     DENY value closes with `**/.git/**`), italicising the
+     intermediate KEY text and hiding the boundary slashes under
+     `org-hide-emphasis-markers`. Task suppress-cross-line-emphasis-
+     inside-config-drawer (merge_commit 8d619db) replaced the
+     per-line `gptel-chat--drawer-value-matcher` with a span-level
+     `gptel-chat--drawer-span-matcher` covering the entire
+     `:PROPERTIES: ... :END:` interior (group 0), with an OVERRIDE
+     facespec setting `(face org-property-value invisible nil)`. The
+     forced `invisible nil` defeats `org-hide-emphasis-markers`;
+     the span scope captures cross-line italic spans before org's
+     emphasis keyword fires. Override A's rule and mechanism prose
+     below were tightened (cycle-8 integrate) to name the broader
+     contract — the override now stamps the drawer *interior* (keys
+     + values + interior whitespace) rather than only *values*, and
+     the invisible-property extension is explicit. The new
+     regression spec is observable-contract end-to-end (face,
+     italic, invisible text-property at specific positions) — the
+     opposite of the cycle-7 implementation-pinning pattern.
+     Co-located scaffold (boundaries/chat-mode-session-display.el)
+     deleted inline by commit 73a1b73; scaffolding_path field
+     nulled below. A latent overlay-vs-text-property coexistence
+     with override-C is now documented in the mode.org prose:
+     override-A relies on `org-fold-core-style` defaulting to
+     `overlays` so the fold and the invisible-property override
+     occupy non-conflicting channels — flipping to text-properties
+     style would silently break override-C on every font-lock pass.
+     See cycle-1779522837/reconciliations/boundary-chat-mode-
+     session-display.md.
+     cycle-8 hotfix (2026-05-23, post-integrate): override C
+     extended after user-testing finding that the `* System Prompt'
+     heading's `:VISIBILITY: folded' property was not being honored
+     on session open. Root cause: org-mode auto-processes
+     `:VISIBILITY:' only when `org-startup-folded' is set to certain
+     non-default values; the prior `gptel-chat--fold-config-drawer'
+     only called `org-fold-hide-drawer-all'. Helper renamed to
+     `gptel-chat--apply-startup-visibility' and now also calls
+     `org-cycle-set-visibility-according-to-property' so heading-
+     level `:VISIBILITY:' is honored regardless of the user's
+     `org-startup-folded' setting. Override C's rule, mechanism,
+     and counter-assertion below were rewritten to name both folds;
+     producers stanza below names the renamed helper. drawer-fold-
+     spec.el fixture updated to mirror the canonical post-cycle-7
+     layout (which the prior fixture didn't — that's why the
+     existing tests passed against the dropped-fold defect). Three
+     new regression specs pin the `:VISIBILITY:'-honored behaviour
+     with `org-startup-folded' forced to `'showall' (the failure
+     mode). See addendum in
+     cycle-1779522837/reconciliations/boundary-chat-mode-session-
+     display.md.
+   load_bearing: false
+   title: gptel-chat-mode overrides org-mode presentation for session buffers
+
+   purpose: |
+     gptel-chat-mode is a (define-derived-mode ... org-mode), so it
+     inherits org-mode's generic fontification and visibility
+     behaviour. For session.org buffers two pieces of that inherited
+     presentation are wrong, and gptel-chat-mode overrides them. This
+     boundary is the seam between org-mode's generic presentation and
+     chat-mode's session-specific presentation. It is display polish —
+     no real-time-cost incident history — hence load_bearing: false.
+
+   scope:
+     in_scope:
+       - file: config/gptel/chat/mode.org
+         function: gptel-chat-mode (define-derived-mode body / mode hook)
+     out_of_scope:
+       - upstream org-mode fontification and visibility machinery
+       - any non-chat-mode org buffer
+       - chat-turn prose (its /emphasis/ is intentionally preserved)
+
+   contract:
+     override_A_drawer_interior_emphasis:
+       finding: Finding A (cycle-7 spec); cross-line refinement (cycle-8)
+       rule: |
+         The entire interior of a property-drawer in a chat-mode
+         buffer — keys, values, and interior whitespace alike —
+         renders as plain data (face org-property-value) and never
+         inherits org /emphasis/ font-lock, even when an emphasis
+         span opened on one drawer line is paired with a `/` on a
+         later line. The override also forces the `invisible`
+         text-property to nil across the drawer interior so that
+         `org-hide-emphasis-markers` cannot hide boundary `/` (or
+         other emphasis-trigger) characters. A directory value such
+         as `:GPTEL_SCOPE_READ: /Users/jeff/emacs/` is a syntactically
+         valid org emphasis span (leading `/` opens, trailing `/`
+         closes); org would otherwise render it italic and dim or
+         hide the boundary slashes. Two drawer lines whose values
+         contain an odd `/` (e.g. `:GPTEL_SCOPE_READ: /**` followed
+         by `:GPTEL_SCOPE_DENY: **/.git/**`) would otherwise pair
+         across the line break and italicise the intervening KEY
+         text — addressed by the cycle-8 span-level matcher.
+       mechanism: |
+         gptel-chat-mode installs a buffer-local font-lock keyword
+         (`gptel-chat--drawer-span-matcher`, cycle-8 successor to
+         the per-line matcher) that searches for `^:PROPERTIES:` to
+         `^:END:` spans and stamps group 0 (the drawer interior,
+         exclusive of the delimiter lines) with the OVERRIDE
+         facespec `(0 '(face org-property-value invisible nil) t)`.
+         `font-lock-multiline` is set buffer-locally so that edits
+         inside the drawer refontify the whole span (the cross-line
+         case is by definition multiline); `invisible` is added to
+         `font-lock-extra-managed-props` so font-lock cleans up the
+         text-property when buffer text changes. The OVERRIDE flag
+         plus `'append` ordering ensure the keyword wins over org's
+         emphasis keyword in `org-font-lock-extra-keywords`.
+       counter_assertion: |
+         /emphasis/ in chat-turn prose is unaffected — the override
+         is scoped to drawer interiors only, not the whole buffer.
+         A test in drawer-fontification-spec.el's "override A —
+         drawer interior emphasis suppression" describe block
+         positively asserts that `/emphasized/` text below `* Chat`
+         keeps `italic` face and does NOT carry `org-property-value`.
+       latent_coupling: |
+         The `invisible nil` text-property override coexists with
+         override C's overlay-based fold ONLY because
+         `org-fold-core-style` defaults to `'overlays` — the two
+         channels (text-property vs overlay) are non-conflicting in
+         that mode. Flipping `org-fold-core-style` to
+         `'text-properties` would cause override A to clobber
+         override C's fold-as-text-property on every font-lock pass.
+         The codebase has not flipped the style anywhere; if it
+         ever does, override A must detect a folded drawer and skip
+         it (or fall back to face-only suppression). Documented at
+         config/gptel/chat/mode.org override-A prose.
+     override_C_startup_visibility_applied_on_open:
+       finding: Finding C (cycle-7 spec); cycle-8 hotfix extension
+       rule: |
+         On gptel-chat-mode activation TWO startup-visibility steps
+         apply, producing the WYSIWYG "two headings, drawer folded,
+         System Prompt body folded" experience for a persisted
+         session.org:
+           (1) the file-level config :PROPERTIES: drawer (the
+               point-min drawer of register/shape/session-document-
+               layout) is folded;
+           (2) the `* System Prompt' heading's `:VISIBILITY: folded'
+               property is honored — the heading body collapses, so
+               the user sees the heading line but not the (often
+               long) preset-seeded prompt text.
+       mechanism: |
+         A single helper (`gptel-chat--apply-startup-visibility',
+         cycle-8 hotfix rename of `gptel-chat--fold-config-drawer')
+         calls (a) `org-fold-hide-drawer-all' for the drawer fold
+         and (b) `org-cycle-set-visibility-according-to-property' for
+         the heading-level :VISIBILITY: processing. The helper MUST
+         be installed via `gptel-chat-mode-hook' (after
+         `run-mode-hooks'), NOT in the `define-derived-mode' body,
+         because `org-fold-core' silently drops fold calls that fire
+         before mode-hook invocation. cycle-7's first implementor
+         placed the call in the body and the spec failed against the
+         live buffer; the re-task moved it to the hook and the fold
+         worked. This hook-vs-body discipline is the cycle-7
+         mechanism note. Step (b) is the cycle-8 hotfix: org-mode
+         only auto-processes `:VISIBILITY:' when `org-startup-folded'
+         is set to certain non-default values (t / content /
+         show2levels / overview / fold) — calling
+         `org-cycle-set-visibility-according-to-property' explicitly
+         from the hook makes the heading fold regardless of the
+         user's `org-startup-folded' setting.
+       counter_assertion: |
+         A scratch buffer with no drawer AND no `:VISIBILITY:'
+         properties — e.g. a gptel-chat-new scratch buffer with a
+         bare `#+begin_user' block — is a no-op: both helpers find
+         nothing to act on and raise no error. Subtrees without
+         `:VISIBILITY:' properties (e.g. the `* Chat' heading) stay
+         visible — step (b) is heading-property-scoped, not
+         buffer-wide.
+
+   why_it_matters: |
+     Without override A, scope path values render italicised and the
+     boundary "/" characters are dimmed or hidden — the user cannot
+     read the path they scoped, defeating the WYSIWYG goal for the one
+     drawer that most needs to be legible. Without override C, opening
+     a session.org shows a wall of configuration instead of two
+     headings plus a folded drawer. Both are presentation defects that
+     erode the "session.org is a clean, readable source of truth"
+     contract, but neither has caused a runtime fault — display polish,
+     not load-bearing correctness.
+
+   producers:
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat-mode (define-derived-mode body)
+       usage: |
+         installs the buffer-local font-lock OVERRIDE keyword
+         (gptel-chat--drawer-span-matcher) that re-stamps drawer
+         interiors as `org-property-value` and forces `invisible
+         nil` (override A; cycle-8 span-level refinement)
+     - file: config/gptel/chat/mode.org
+       function: |
+         gptel-chat--apply-startup-visibility (cycle-8 hotfix rename
+         of gptel-chat--fold-config-drawer; attached to gptel-chat-
+         mode-hook at load time, NOT called from the define-derived-
+         mode body — see override_C.mechanism for why)
+       usage: |
+         applies session.org startup visibility on gptel-chat-mode
+         activation: folds every drawer (covering the file-level
+         config drawer's wall-of-properties) AND honors the
+         `* System Prompt' heading's `:VISIBILITY: folded' property
+         (override C).
+
+   consumers:
+     - the chat-mode session buffer's font-lock and visibility state
+       (no downstream module re-reads this; the contract is observable
+       only via buffer face properties and fold state)
+
+   scaffolding_path: null  # cycle-8 cleanup: the boundaries/chat-mode-session-display.el scaffold was deleted by inline-fix commit 73a1b73; the regression spec at config/gptel/chat/test/display/drawer-fontification-spec.el is the live enforcement (status_note "Scaffold archived in favour of the co-located regression specs")
+
+   related_entries:
+     - register/shape/session-document-layout
+     - register/shape/drawer-text-block
+     - register/boundary/chat-menu-scope-default
+
+   discovered_from: gptel-drawer-as-source-of-truth
+** chat-block-body-indentation
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-chat-block-body-indentation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/chat-block-body-indentation
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: chat-mode body indent/dedent pipeline
+   purpose: |
+     Symmetric pipeline that keeps chat-block body content off column 0,
+     where org's structural scanners (heading regex `^\*+ `, special-block
+     closers `^#\+end_…`, drawers, keywords) are anchored. Every write path
+     (streaming insertion, paste/yank, file-read migration) indents body
+     content by `gptel-chat-content-indentation` spaces; the send path
+     strips each message segment's common leading indentation so the LLM
+     only ever sees clean, column-0 content. The pipeline carves ALL
+     column-0 org structure out of chat-block bodies — they render as
+     indented plain text — leaving real structural affordances to
+     `gptel-chat-edit-turn` (deferred). See proposal.md and design.md
+     (Decisions 1, 3, 4, 5, 6, 7).  Supersedes the retired per-`*`
+     heading-collision escape and the `,#+end_*` delimiter escape — a
+     uniformly indented body neutralises every column-0 collision class.
+
+   stages:
+     - n: 1
+       name: write-indent
+       input: |
+         Body content arriving at any chat-block insertion site:
+           - assistant chunk via `gptel-chat--sanitize-chunk` (stream)
+           - inserted region via `after-change-functions` (paste/yank)
+           - existing on-disk content via mode-activation migration
+         User typing reaches the indented state via a buffer-local
+         `indent-line-function` + electric-indent — an editing affordance,
+         not a write producer (design.md Decision 6).
+       output: |
+         Same content with every body line indented by
+         `gptel-chat-content-indentation` spaces (default 2; runtime floor
+         clamped to 1 by `gptel-chat--body-indent`). Blank lines are left
+         empty. Delimiter lines — outer `#+begin_*` / `#+end_*` and nested
+         `#+begin_tool` / `#+end_tool` — are never indented. Streaming
+         indents per line; paste shifts the inserted region as a unit
+         (`shift = max(0, N - region-min-indent)`, structure-preserving);
+         migration shifts per content-region.
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         Streaming is idempotent by construction (fresh content). Paste
+         and migration are idempotent — already-indented content shifts
+         by 0.
+
+     - n: 2
+       name: parse-dedent
+       input: |
+         Indented chat-block body content as it appears in the buffer or
+         on disk, captured per message segment by the parser.
+       output: |
+         Clean message content: each segment dedented by its own common
+         minimum leading indentation (`org-do-remove-indentation` model —
+         measured, not assumed). Robust against
+         `gptel-chat-content-indentation` changes and legacy content with
+         different widths. Delivered to the LLM via
+         `gptel-chat--segment-to-messages` / `gptel-chat--turn-to-messages`.
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         Symmetric to stage 1 by intent, NOT by exact-character count:
+         stage 1 indents by exactly N; stage 2 strips whatever common
+         indent it measures. Per-segment, so a column-0 `#+begin_tool` /
+         `#+end_tool` line never drags a segment's measured minimum to 0.
+         See design.md Decision 3.
+
+   cross_stage_invariants:
+     - register/invariant/chat-block-body-is-indented
+     - register/invariant/chat-body-indent-roundtrip-transparent
+     - register/invariant/chat-block-delimiter-lines-stay-at-column-0
+     - register/invariant/all-write-paths-indent-body
+
+   producers:
+     - file: config/gptel/chat/stream.org
+       function: gptel-chat--sanitize-chunk
+       enters_at_stage: 1
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat--indent-inserted-region
+       enters_at_stage: 1
+     - file: config/gptel/chat/mode.org
+       function: gptel-chat--migrate-buffer
+       enters_at_stage: 1
+
+   consumers:
+     - file: config/gptel/chat/parser.org
+       function: gptel-chat--turn-to-messages
+       reads_output_of_stage: 2
+     - file: config/gptel/chat/parser.org
+       function: gptel-chat--segment-to-messages
+       reads_output_of_stage: 2
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+* Invariant
+
+  Entries describe rules that must hold across the system but don't fit
+  the structural tiers. Each entry names its =enforcement_mechanism=
+  (=test= / =runtime-check= / =lint= / =structural-audit= /
+  =review-discipline=) — an invariant whose only enforcement is review
+  discipline is fragile and flagged for migration to a stronger mechanism.
+
+  Candidate invariants for this codebase, to be entered during plan-phase
+  forward-mode of the relevant change:
+
+  - =lexical-binding-on-line-1= — every tangled =.el= begins with
+    =;;; <name>.el --- ... -*- lexical-binding: t; -*-= on line 1.
+    /Not in scope for gptel-scope-in-org-properties./
+  - =module-load-order-transient-before-language= — module loader respects
+    the documented load-order invariants (=transient= before
+    =language-modes= and =major-modes/magit=; =major-modes/magit= before
+    =major-modes/org=). /Not in scope for gptel-scope-in-org-properties./
+  - =scope-allow-once-is-single-shot= — an =allow-once= permission grants
+    the next invocation only and self-removes. /Not in scope for
+    gptel-scope-in-org-properties (untouched by this change)./
+
+** scope-parse-complete-is-true
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-parse-complete-is-true
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-parse-complete-is-true
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): --validate-parse-completeness reads
+     jf/gptel-scope--enforce-parse-complete defconst (value t) directly;
+     the plist :security :enforce-parse-complete read path is gone.
+     Invariant enforced by construction. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/invariant-scope-parse-complete-
+     is-true.md.
+   load_bearing: true
+   title: enforce-parse-complete is the constant t at module level
+
+   statement: |
+     scope-validation.el treats jf/gptel-scope--enforce-parse-complete as
+     a defconst whose value is exactly t. Stage 1 of the bash validation
+     pipeline reads the constant directly; no caller passes it in, no
+     plist key carries it, and no per-session override exists. Stage 1's
+     "warn when not enforced" branch is removed entirely because the
+     constant is unconditionally true.
+
+   why_it_matters: |
+     The :security plist key was the historical override mechanism;
+     removing the key without enforcing the constant would silently
+     downgrade Stage 1 to permissive mode (if a stale code path read
+     a now-undefined plist value as nil). The user explicitly directed
+     "no per-session escape hatch"; this invariant is the structural
+     enforcement of that decision, not just a default.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       scaffolding test asserts (= jf/gptel-scope--enforce-parse-complete t)
+       and the absence of any (plist-get config :security ...) read in
+       scope-validation.el. Architect's invariant-gap audit re-checks at
+       integrate.
+
+   related_entries:
+     - register/shape/scope-config-plist
+     - register/boundary/scope-config-loader
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-coverage-threshold-is-1
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-coverage-threshold-is-1
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-coverage-threshold-is-1
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): --check-coverage-threshold reads
+     jf/gptel-scope--coverage-threshold defconst (value 1.0) directly;
+     plist read path removed. Invariant enforced by construction. See
+     .orchestrator/cycles/cycle-1777470320/reconciliations/
+     invariant-scope-coverage-threshold-is-1.md.
+   load_bearing: true
+   title: max-coverage-threshold is the constant 1.0 at module level
+
+   statement: |
+     scope-validation.el treats jf/gptel-scope--coverage-threshold as a
+     defconst whose value is exactly 1.0. Stage 5 of the bash validation
+     pipeline reads the constant directly; no plist key carries it. The
+     coverage warning fires (non-blocking) whenever bash-parser semantic-
+     plugin coverage is below 100 percent.
+
+   why_it_matters: |
+     Same class as scope-parse-complete-is-true: removing the :security
+     plist key without locking the threshold would default it to nil at
+     read sites where the old code expected a numeric, silently disabling
+     the warning. The user explicitly accepted that 1.0 will produce
+     warnings on most non-trivial commands.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       scaffolding test asserts (= jf/gptel-scope--coverage-threshold 1.0)
+       and the absence of any (plist-get config :max-coverage-threshold)
+       read.
+
+   related_entries:
+     - register/shape/scope-config-plist
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-no-security-key-in-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-no-security-key-in-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-no-security-key-in-plist
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): both layers hold. L1 — producer
+     (--load-config / --load-from-buffer / --load-from-file) emits no
+     :security key. L2 — no (plist-get _ :security ...) reads survive in
+     scope-validation.el (verified by grep). Cycle-3
+     delete-yaml-and-security-residue is the residual sweep across non-
+     validation modules. See .orchestrator/cycles/cycle-1777470320/
+     reconciliations/invariant-scope-no-security-key-in-plist.md.
+   load_bearing: true
+   title: Loaded scope-config plist has exactly :paths and :cloud — no :security
+
+   statement: |
+     The plist returned by jf/gptel-scope--load-config (and its two stage
+     producers, jf/gptel-scope--load-from-buffer and --load-from-file)
+     contains exactly two top-level keys: :paths and :cloud. The :security
+     key is forbidden in the loaded plist; any reader that does
+     (plist-member val :security) must observe nil; any (plist-get val
+     :security ...) read in implementation code is a divergence signal
+     from this invariant.
+
+   why_it_matters: |
+     Closing the :security removal cleanly. A key that exists "with default
+     values" is dead structure that future readers will assume is real
+     configuration. The cleanest "removed" state is "absent at the plist
+     level"; tests that pin shape behaviour catch divergence early.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Buttercup spec under config/gptel/scope/test/drawer/load-from-buffer-
+       spec.el and load-from-file-spec.el: assert (null (plist-member
+       result :security)) for every loader output.
+
+   related_entries:
+     - register/shape/scope-config-plist
+     - register/invariant/scope-parse-complete-is-true
+     - register/invariant/scope-coverage-threshold-is-1
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-drawer-no-duplication
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-drawer-no-duplication
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-drawer-no-duplication
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): both creation paths (sessions,
+     persistent-agent) write exactly one drawer via single with-temp-file
+     + (concat drawer-text body); branching uses byte-copy from parent.
+     Invariant enforced by structure. Runtime regression spec lands in
+     cycle-3's add-drawer-corruption-regression. See .orchestrator/cycles/
+     cycle-1777470320/reconciliations/invariant-scope-drawer-no-duplication.md.
+     cycle-8 integrate (2026-05-23): narrative update — the
+     enforcement test at config/gptel/scope/test/drawer/no-duplicate-
+     drawer-spec.el was tightened (task tighten-scope-drawer-no-
+     duplication-fixture-and-counter, merge_commit 8c497e0) to scope
+     the :PROPERTIES:/:END: counters to the file-level drawer span,
+     because the post-cycle-7 canonical session.org layout (register/
+     shape/session-document-layout) introduces a second heading-level
+     :PROPERTIES: drawer on `* System Prompt` that inflated the
+     pre-cycle-8 buffer-wide counter to 2/2. The first cycle-8 cut
+     of the tightened counter (`(point-min)..(first :END:)`) blinded
+     the test to the stacked-drawer corruption class the invariant
+     was created to catch (multiple consecutive file-level drawers
+     stacked at point-min — see openspec/changes/gptel-org-mode-
+     sessions/handoff-property-drawer-corruption.md). On-touch
+     architect arch-cycle-1779522837-2 flagged the regression; inline
+     fix (commit 7b771a5) widened the span to `(point-min)..(first
+     ^* heading or point-max)`, restoring stacked-drawer detection
+     while preserving the canonical-layout false-positive cure. A
+     post-cycle-7-shape fixture (`jf/gptel-test--with-session-
+     document`) lives in helpers-spec.el for further coverage. See
+     cycle-1779522837/reconciliations/invariant-scope-drawer-no-
+     duplication.md.
+   load_bearing: true
+   title: After any add-to-scope sequence, the buffer has exactly one :PROPERTIES: drawer
+
+   statement: |
+     For every chat-buffer touched by jf/gptel-scope--write-pattern-to-
+     drawer (or any caller of it), the buffer's text contains exactly one
+     ":PROPERTIES:" line and exactly one ":END:" line for the file-level
+     drawer at point-min. The writer must use org-entry-put against the
+     existing drawer; it must not insert a second drawer; it must not
+     allow a second drawer to be created by any of its save-buffer-
+     triggered hooks.
+
+   why_it_matters: |
+     The gptel-org-mode-sessions change resolved a drawer-corruption bug
+     traced to duplicate gptel--save-state hooks producing a second
+     :PROPERTIES: block on save. The full root-cause analysis is
+     preserved at ~/org/roam/20260419111957-gptel_preset_property_
+     corruption.org. Adding more state to the same drawer expands the
+     surface for any regression of that bug class. This invariant is
+     the structural lockout: even if a hook regression is reintroduced,
+     the architect's audit and the regression test will catch a doubled
+     drawer immediately rather than after silent corruption.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Regression spec at config/gptel/scope/test/drawer/no-duplicate-
+       drawer-spec.el (created by add-drawer-corruption-regression
+       task; tightened cycle-8 by tighten-scope-drawer-no-duplication-
+       fixture-and-counter + inline arch-2 widening). The
+       `--file-level-drawer-region` helper scopes the
+       `:PROPERTIES:`/`:END:` counters to the pre-heading region
+       `(point-min)..(first ^* heading or point-max)` — wide enough
+       to catch stacked file-level drawers, narrow enough to exclude
+       the canonical-layout heading-level drawer on `* System Prompt`.
+       Runs an add-to-scope sequence (≥3 cycles, several distinct
+       keys) and asserts exactly one `:PROPERTIES:` and one `:END:`
+       line remain in that span after each save. The post-cycle-7-
+       shape fixture macro `jf/gptel-test--with-session-document`
+       (helpers-spec.el) exercises the writer against the canonical
+       layout.
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/shape/session-document-layout
+     - register/boundary/scope-pattern-writer
+     - register/boundary/scope-profile-applicator
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** scope-add-pattern-idempotent
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scope-add-pattern-idempotent
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scope-add-pattern-idempotent
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-2 integrate (2026-04-29): --write-pattern-to-drawer reads
+     existing values, returns nil and skips org-entry-put-multivalued-
+     property when (member pattern existing). Invariant enforced by
+     construction. Runtime spec lands in cycle-3's migrate-expansion-tests.
+     See .orchestrator/cycles/cycle-1777470320/reconciliations/
+     invariant-scope-add-pattern-idempotent.md.
+     cycle-8 integrate (2026-05-23): narrative update —
+     arch-cycle-1779522837-4 (informational, end-of-cycle architect's
+     load-bearing-invariant fixture sweep) surfaced that
+     `enforcement_mechanism.location` cited
+     `config/gptel/scope/test/drawer/write-pattern-spec.el` which
+     does not exist. The pre-existing drift was not introduced by
+     cycle-8 (it long-predated the cycle's diffs). The buffer-text
+     half of the contract IS exercised — `no-duplicate-drawer-spec.el`
+     `it "is idempotent for duplicate patterns"` (line 169) covers
+     the writer's no-op-on-duplicate behaviour. The callback-shape
+     half (`:success t :patterns_added []` on dedup) is currently
+     guaranteed only by construction at scope-expansion.org:686-690
+     (the callback's `:patterns_added` is `(vconcat patterns)` where
+     `patterns` is the writer's return value; on dedup the writer
+     returns nil and the callback's vector arm at line 690 emits
+     `:patterns_added (vector)`). Enforcement_mechanism.location
+     prose below was updated to cite the live test plus the
+     callback-shape gap. A separate cycle-8 candidate ask
+     (`ask-cycle-1779522837-2`) tracks adding an explicit
+     callback-shape spec.
+   load_bearing: true
+   title: Adding the same pattern twice is a no-op (idempotent writer)
+
+   statement: |
+     For any drawer key K and any pattern P, calling jf/gptel-scope--
+     write-pattern-to-drawer with (BUFFER, OPERATION → K, P) when P is
+     already in the drawer's values for K leaves the buffer text
+     byte-for-byte unchanged. The callback still reports :success t with
+     an empty :patterns_added list.
+
+   why_it_matters: |
+     The inline-flow trigger re-enters jf/gptel-scope-authorize-tool-call
+     after each add-to-scope, and a multi-violation tool call can pass
+     through the same pattern twice on retry. Without idempotency, the
+     drawer would accumulate duplicate values, the buffer would gain
+     spurious save events, and (under some org versions) duplicate values
+     could trigger reader edge cases.
+
+   enforcement_mechanism:
+     kind: test + structural
+     location: |
+       Buffer-text half: buttercup spec at config/gptel/scope/test/
+       drawer/no-duplicate-drawer-spec.el `it "is idempotent for
+       duplicate patterns"` (line 169) — asserts the writer leaves the
+       buffer byte-for-byte unchanged across a duplicate-pattern
+       write.
+       Callback-shape half: currently guaranteed by construction at
+       config/gptel/scope/scope-expansion.org:686-690 — the
+       `:patterns_added` field is `(vconcat patterns)` where
+       `patterns` is the writer's return value; on dedup the writer
+       returns nil and the callback's vector-arm path emits
+       `:patterns_added (vector)`. NOT pinned by a dedicated
+       buttercup spec; the structural guarantee is the contract
+       surface. Adding an explicit callback-shape `it` block is
+       tracked as cycle-8 candidate ask
+       `ask-cycle-1779522837-2` (defer-if-archived since this
+       invariant is unrelated to the gptel-drawer-as-source-of-
+       truth change's outcome).
+
+   related_entries:
+     - register/boundary/scope-pattern-writer
+     - register/vocabulary/operation-to-drawer-key
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect
+   #+end_src
+
+** expansion-queue-always-progresses
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-expansion-queue-always-progresses
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/expansion-queue-always-progresses
+   tier: invariant
+   status: speculated
+   status_note: |
+     speculated-with-deviation: cycle-3 plan brief framed this as "every
+     `--add-*-to-scope` action handler pumps the queue", but the cycle-2
+     code (commit 18e290a, scope-expansion.org `* Expansion Actions`)
+     has the queue-pump call in *all five* terminal action handlers,
+     including `--deny-expansion` and `--allow-once-action`, not only
+     the three `--add-*` variants. Entry records the broader as-built
+     contract (every terminal action handler progresses the queue).
+     Reconciliation flips to `confirmed` after the harden task lands
+     and demonstrates that its new refusal/dedup branches also pump.
+   load_bearing: true
+   title: Every terminal expansion-menu action handler pumps the queue
+
+   statement: |
+     After `transient-quit-one`, every terminal action handler of
+     `jf/gptel-scope-expansion-menu` calls
+     `jf/gptel-scope--process-expansion-queue`. The five terminal
+     handlers are `--deny-expansion`, `--add-to-scope`,
+     `--allow-once-action`, `--add-wildcard-to-scope`, and
+     `--add-custom-to-scope`. Without the queue-pump call, queued
+     expansion prompts would silently strand: a multi-violation tool
+     call would prompt the user once, the user would resolve it (deny,
+     add, allow-once), the transient would close, and the remaining
+     queued violations would never surface — the wrapper's callbacks
+     would never fire and the LLM's tool call would hang indefinitely.
+
+     The harden task's Stage 1 refusal branches (nil-operation,
+     `:match-pattern` no-sibling, `:parse-incomplete`) and Stage 4
+     no-op success/refusal callbacks (bare-command, dedup) must
+     preserve this invariant — every branch that calls the wrapper
+     callback must also pump the queue, even when the writer was a
+     no-op or the action was refused.
+
+   why_it_matters: |
+     The cycle-2 rewire (commit 18e290a) discovered that
+     `--add-wildcard-to-scope` and `--add-custom-to-scope` previously
+     did NOT pump the queue: queued expansions resolved via wildcard
+     or custom-pattern silently dropped. That was a latent bug that
+     pre-dated the cycle-2 work; the writer rewire fixed it
+     incidentally, but no test pinned the new uniform contract. This
+     invariant is the structural lockout: any future code path that
+     adds a new terminal action handler, or any branch in an existing
+     handler that returns without pumping, regresses the queue's
+     liveness guarantee.
+
+   enforcement_mechanism:
+     kind: structural-audit + test
+     location: |
+       L1 (structural): scaffolding test grep-asserts that each of the
+       five terminal action handlers in scope-expansion.org contains a
+       call to `jf/gptel-scope--process-expansion-queue`. Architect's
+       on-touch audit re-runs whenever scope-expansion.org changes.
+       L2 (runtime): scaffolding spec fires a synthetic three-element
+       queue (three violations queued via `--prompt-expansion`),
+       drives one action-handler invocation, and asserts the queue
+       length monotonically decreases until empty.
+
+   related_entries:
+     - register/shape/expansion-transient-scope
+     - register/boundary/scope-expansion-action-handler
+     - register/boundary/scope-pattern-writer
+
+   discovered_from: gptel-scope-in-org-properties
+   discovered_by: architect (cycle-2 audit, arch-cycle-1777470320-3)
+   #+end_src
+
+** drawer-system-key-write-exclusion
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-drawer-system-key-write-exclusion
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/drawer-system-key-write-exclusion
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-5 plan (2026-05-01) — speculation: introduced for the
+     gptel-drawer-as-source-of-truth change Decision 2.
+     cycle-5 integrate (2026-05-01): reconciled. Three producers of
+     register/shape/drawer-text-block — the renderer
+     (jf/gptel-scope-profile--render-drawer-text), the buffer-mode
+     applicator (jf/gptel-scope-profile--apply-to-drawer), and the
+     chat-mode save path (gptel-chat--save-state via
+     gptel-chat--write-config-drawer) — all skip the :GPTEL_SYSTEM:
+     key unconditionally. Verified by spec absence assertions in:
+     - config/gptel/test/snapshot-rendering-spec.el (renderer +
+       applicator: 4 scenarios that supply non-nil :system in
+       PRESET-SPEC and assert :GPTEL_SYSTEM: absent in output)
+     - config/gptel/chat/test/menu/save-state-spec.el (writer:
+       NEVER writes GPTEL_SYSTEM with gptel--system-message set;
+       preserves manually authored entries on save)
+     - config/gptel/test/session-creation-spec.el and
+       config/gptel/sessions/test/commands/session-org-creation-
+       spec.el and activity-session-chat-spec.el (creation
+       integration: assert (string-match-p ":GPTEL_SYSTEM:") nil
+       in the saved file)
+     - config/gptel/sessions/test/commands/preset-application-
+       spec.el (end-to-end save round-trip preserves
+       :GPTEL_SYSTEM: absence)
+     The asymmetric read-side contract (chat-mode overlay still
+     respects manually authored :GPTEL_SYSTEM: entries) is locked
+     in by the "drawer-authored :GPTEL_SYSTEM: still wins on read
+     (back-compat)" scenario in preset-wiring-spec.el. Cited by
+     tasks: extend-render-drawer-text (43d045f), replace-chat-save
+     (5f9d762), verify-and-spec-drawer-overlay-wins (b1f06d1),
+     update-preset-application-spec (3a8abaf).
+   load_bearing: true
+   title: Neither the chat-mode save path nor the renderer ever emits :GPTEL_SYSTEM:
+
+   statement: |
+     Two producers of register/shape/drawer-text-block — the renderer
+     (jf/gptel-scope-profile--render-drawer-text, stage 2a of register/
+     boundary/scope-profile-applicator) and the chat-mode save path
+     (gptel-chat--save-state and any helper it delegates to in
+     config/gptel/chat/menu.org) — never emit a :GPTEL_SYSTEM: line. The
+     drawer overlay (register/invariant/drawer-overlay-wins-over-preset)
+     DOES read :GPTEL_SYSTEM: when present (back-compat for hand-authored
+     entries) but no code path under our control writes it.
+
+   why_it_matters: |
+     The user's stated constraint is that long, multi-line, special-
+     character system-prompt strings are unwieldy as a single org
+     property value (backticks, asterisks, embedded newlines mangle the
+     drawer). Decision 2 of design.md picks "writer never emits, reader
+     still respects manual entries". Without this invariant the drawer
+     could grow a multi-line :GPTEL_SYSTEM: across saves and silently
+     corrupt the drawer's structural anchors (register/shape/drawer-
+     text-block's :PROPERTIES:/:END: discipline). The asymmetric
+     write/read contract is exactly the bug surface this entry exists
+     to keep visible.
+
+   enforcement_mechanism:
+     kind: structural-audit + spec assertion
+     location: |
+       Spec scenarios in
+       config/gptel/chat/test/menu/save-state-spec.el (writer side: assert
+       (search-forward ":GPTEL_SYSTEM:") returns nil after save) and
+       config/gptel/sessions/test/commands/preset-application-spec.el
+       (renderer side: assert :GPTEL_SYSTEM: absent in fresh session.org).
+       Architect's invariant-gap audit re-checks at integrate.
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/boundary/scope-profile-applicator
+     - register/invariant/drawer-overlay-wins-over-preset
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+** drawer-overlay-wins-over-preset
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-drawer-overlay-wins-over-preset
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/drawer-overlay-wins-over-preset
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-5 plan (2026-05-01) — speculation: introduced for the
+     gptel-drawer-as-source-of-truth change Decision 3.
+     cycle-5 integrate (2026-05-01): reconciled. Verification
+     confirmed that gptel-chat--apply-drawer-overrides already
+     implements the contract — for each non-nil upstream-tuple
+     field, it does (set (make-local-variable sym) val) with no
+     "if drawer matches preset, skip" branch. No code change was
+     required; the task delivered docstring / commentary refresh
+     plus three new spec scenarios that lock the contract in:
+     - "drawer GPTEL_MODEL wins over preset model" (preset-
+       wiring-spec.el)
+     - "preset :system survives when drawer omits :GPTEL_SYSTEM:"
+       (preset-wiring-spec.el — asymmetric exception verified)
+     - "drawer-authored :GPTEL_SYSTEM: still wins on read (back-
+       compat)" (preset-wiring-spec.el)
+     Plus end-to-end coverage in
+     config/gptel/sessions/test/commands/preset-application-spec.el:
+     - "drawer GPTEL_MODEL wins over preset model on chat-mode
+       activation" (real preset registration + real find-file +
+       real chat-mode hook)
+     - "save after drawer-wins reopen re-emits the drawer model,
+       not the preset model" (round-trip integrity)
+     Cited by task verify-and-spec-drawer-overlay-wins (b1f06d1)
+     and update-preset-application-spec-for-snapshot (3a8abaf).
+     cycle-7 integrate (2026-05-22): re-reconciled to three-tier
+     :system precedence. design.md §Addendum Finding B / Decision B
+     inserts the `* System Prompt` heading body ahead of the prior
+     two-tier :system exception; the title and :system clause now
+     describe the three-tier order. The "drawer always wins, no
+     delta check" contract for non-:system keys is unchanged.
+     Triggered by on-touch finding arch-cycle-1779477564-3 against
+     task make-system-prompt-heading-authoritative; composes with
+     (does not contradict) register/invariant/system-prompt-heading-
+     authoritative — that invariant owns the heading-body tier, this
+     one owns the drawer-vs-preset tier. See cycle-1779477564/
+     reconciliations/invariant-drawer-overlay-wins-over-preset.md.
+   load_bearing: true
+   title: On mode activation, every drawer-present key wins over the active preset (except :system, which falls through a three-tier precedence)
+
+   statement: |
+     The chat-mode activation overlay (gptel-chat--apply-drawer-overrides
+     in config/gptel/chat/menu.org) installs every drawer-present key
+     buffer-locally, regardless of whether the value matches the active
+     preset's value for that key. There is no "if drawer matches preset,
+     skip" check anywhere in the overlay.
+
+     :GPTEL_SYSTEM: is the asymmetric exception and resolves through a
+     three-tier precedence on chat-mode activation, highest first:
+       1. `* System Prompt` heading body when non-blank (post-Addendum;
+          owned by register/invariant/system-prompt-heading-authoritative)
+       2. legacy :GPTEL_SYSTEM: drawer entry when present (back-compat
+          for hand-authored entries; never written by code under our
+          control — see register/invariant/drawer-system-key-write-
+          exclusion)
+       3. preset :system as the fallthrough seed
+     A blank heading body and an absent drawer entry together fall
+     through to the preset; an authored drawer entry still beats the
+     preset on read even when the heading body is blank.
+
+   why_it_matters: |
+     This invariant is the *read-side* counterpart to register/invariant/
+     drawer-system-key-write-exclusion and the structural reason the
+     drawer is a credible WYSIWYG source of truth. If the overlay had
+     "delta" semantics (skip when drawer == preset), then editing a
+     preset value to match what the drawer carries would silently flip
+     authority back to the preset on next reopen — a hidden state
+     bifurcation. Decision 3 of design.md picks "drawer always wins" for
+     simplicity and testability.
+
+   enforcement_mechanism:
+     kind: spec assertion + Architect dead-branch audit
+     location: |
+       Spec scenarios in
+       config/gptel/chat/test/menu/preset-wiring-spec.el (drawer-model-
+       wins-over-preset; preset-system-prompt-survives-when-drawer-omits-
+       it). Architect's dead-branch audit checks no "match preset, skip"
+       branch is added to gptel-chat--apply-drawer-overrides.
+
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/invariant/drawer-system-key-write-exclusion
+     - register/boundary/chat-menu-scope-default
+
+   discovered_from: gptel-drawer-as-source-of-truth
+   discovered_by: architect
+   #+end_src
+
+** system-prompt-heading-authoritative
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-system-prompt-heading-authoritative
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/system-prompt-heading-authoritative
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-7 plan (2026-05-22) — speculated by forward-mode against
+     design.md §Addendum (Finding B, Decision B). Reverses Decision 2's
+     "system prompt rides the preset only" model: the system prompt is
+     relocated into a visible `* System Prompt` heading body and that
+     body becomes authoritative.
+     cycle-7 integrate (2026-05-22): reconciled. The three-tier restore
+     precedence (heading body > legacy :GPTEL_SYSTEM: drawer > preset
+     :system), blank-body fallback, and create -> restore -> save
+     idempotence all held — implementation in config/gptel/chat/menu.org
+     (gptel-chat--system-prompt-heading-body /
+     gptel-chat--apply-system-prompt-heading /
+     gptel-chat--write-system-prompt-heading) lands the contract.
+     17 new specs across save-state-spec.el, preset-wiring-spec.el, and
+     the integration suites pin the round trip; on-touch Architect
+     finding arch-cycle-1779477564-4 re-verified composition with
+     register/invariant/drawer-system-key-write-exclusion. Scaffold at
+     scaffolding_path matured from failing stubs to a full contract test
+     during implementation; archived in favour of the co-located specs.
+     See cycle-1779477564/reconciliations/invariant-system-prompt-
+     heading-authoritative.md.
+     cycle-8 integrate (2026-05-23): narrative update — task
+     extract-system-prompt-heading-region-helper (merge_commit
+     ba0bc50) refactored the reader/writer pair to share a single
+     `gptel-chat--system-prompt-heading-body-region` helper. This
+     made the trim-vs-pad asymmetry an explicit, single decision
+     point in the helper docstring and removed the four-place edit
+     cost of the duplicate scan logic. Both the three-tier
+     precedence and the round-trip idempotence are preserved. Task
+     harden-system-prompt-save-against-missing-chat-heading
+     (merge_commit d774f43) hardened the save path against the
+     off-nominal `* System Prompt`-without-`* Chat` document layout:
+     the write branch now bounds the in-place rewrite at the first
+     `^#+begin_(user|assistant)` turn-block marker (rather than
+     blindly at point-max) and re-materialises `* Chat` so the
+     canonical layout is restored. Eight new specs cover the
+     off-nominal layout. On-touch architect produced no finding
+     against this entry — the helper extraction and harden are
+     strict refactors against the invariant. See cycle-1779522837/
+     reconciliations/invariant-system-prompt-heading-authoritative.md.
+   load_bearing: true
+   title: The `* System Prompt` heading body is the authoritative source of gptel--system-message
+
+   statement: |
+     For a session.org document (register/shape/session-document-
+     layout), the body of the `* System Prompt` heading is the
+     authoritative source of the buffer-local gptel--system-message.
+
+     Restore precedence on chat-mode activation is, highest first:
+       1. `* System Prompt` heading body, when non-blank
+       2. legacy :GPTEL_SYSTEM: drawer entry, when present
+       3. preset :system
+     A blank (whitespace-only or absent) heading body is treated as
+     "not authored" and falls through to the next source — an empty
+     heading never silently wipes the prompt.
+
+     On before-save-hook the current buffer-local gptel--system-message
+     is serialised back into the `* System Prompt` heading body. The
+     writer still never emits a :GPTEL_SYSTEM: drawer line — this
+     composes with, and does not contradict, register/invariant/drawer-
+     system-key-write-exclusion: that invariant governs the *drawer*,
+     this one governs the *heading body*. The preset's :system only
+     *seeds* a fresh session's heading body at creation.
+
+     The round trip create -> restore -> save -> re-restore is stable:
+     a save that changes nothing produces no diff to the heading body
+     (idempotent save), and re-restoring yields the same
+     gptel--system-message.
+
+   why_it_matters: |
+     design.md Decision 2 excluded the system prompt from session.org
+     because long, multi-line, special-character strings are unwieldy
+     as a single org property *value*. Finding B observes that the
+     objection is specific to property values; an org heading *body*
+     carries multi-line special-character text with no escaping. If the
+     precedence order were wrong — preset winning over an authored
+     heading body, or a blank body wiping the prompt — the document
+     would stop being a credible WYSIWYG source of truth: a user would
+     edit the visible `* System Prompt` body and see no effect, or open
+     a fresh session and find the prompt gone. The fallback-on-blank
+     rule is the specific guard against an empty heading silently
+     erasing the prompt.
+
+   enforcement_mechanism:
+     kind: failing scaffolded test (buttercup) + Architect invariant audit
+     location: |
+       Scaffolded failing buttercup test at scaffolding_path asserts
+       (a) the three-level precedence order, (b) blank-body fallback to
+       preset, and (c) the create -> restore -> save -> re-restore
+       round-trip stability. Implementor wires the restore path
+       (config/gptel/chat/menu.org's `gptel-chat--system-prompt-heading-
+       body` reader and `gptel-chat--apply-system-prompt-heading`
+       applicator, invoked as the final step of `gptel-chat--apply-
+       declared-preset`) and the before-save serialisation
+       (config/gptel/chat/menu.org's `gptel-chat--write-system-prompt-
+       heading`). Architect's invariant audit re-checks that no drawer
+       :GPTEL_SYSTEM: write was added and that the precedence branch
+       order matches this statement. cycle-7 integrate (arch-cycle-
+       1779477564-7): corrected from the pre-cycle prose that named
+       `mode.org` for the restore path — both halves live in `menu.org`.
+
+   related_entries:
+     - register/invariant/drawer-system-key-write-exclusion
+     - register/shape/session-document-layout
+     - register/invariant/drawer-overlay-wins-over-preset
+
+   scaffolding_path: openspec/changes/gptel-drawer-as-source-of-truth/scaffolding/invariants/system-prompt-heading-authoritative.test.el
+
+   discovered_from: gptel-drawer-as-source-of-truth
+** chat-block-body-is-indented
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-block-body-is-indented
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-block-body-is-indented
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: every chat-block body line is indented; none begins with column-0 org structure
+
+   statement: |
+     For any buffer in `gptel-chat-mode`, every non-blank line whose
+     position is strictly between an outer `#+begin_user` /
+     `#+begin_assistant` / `#+begin_tool` opener and its matching
+     `#+end_*` closer SHALL be indented by at least
+     `gptel-chat-content-indentation` spaces (runtime floor 1) — so no
+     body line begins with an org structural token (`*`, `#+end_*`,
+     `#+begin_src`, a drawer, a keyword) at column 0. The invariant is
+     maintained at every write path (streaming insert, paste / yank,
+     file-read migration) by the chat-block-body-indentation boundary's
+     stage 1, and by a buffer-local `indent-line-function` for typing.
+
+   why_it_matters: |
+     Empirically (research.md Finding 2), an `^\*+ ` line at column 0
+     inside a chat block causes `org-element-parse-buffer` to lose the
+     special-block entirely — the AST collapses to
+     `paragraph | headline | paragraph`, the block's delimiter lines
+     demote to paragraph content, and the heading absorbs every line
+     below it into its outline subtree. The same failure is latent for
+     any column-0 structural token. Indenting the whole body moves all
+     content off column 0 at once, so org's column-0-anchored scanners
+     never mistake body text for document structure. The chat-mode
+     regex parser is structurally indifferent — message construction
+     still works — but the host buffer would otherwise become unusable
+     as an editing surface. Past incident:
+     `~/.gptel/sessions/heading-test-20260430145834/branches/main/session.org`.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-block-body-is-indented.test.el — failing-stub assertion over
+       the write-path entry points listed in the boundary entry.
+       Architect's invariant-gap audit re-checks at integrate.
+     indent_floor: |
+       The body indent width is read through `gptel-chat--body-indent`,
+       which clamps `gptel-chat-content-indentation` (or 2, when unbound)
+       to a runtime floor of 1 — a 0-width indent would leave content at
+       column 0 and violate this invariant. The defcustom's `:type
+       'natnum` is customize-time defense-in-depth only; the accessor
+       owns the floor. A future "tighten :type" task MUST NOT remove the
+       accessor clamp on the assumption that customize already guards it.
+
+   related_entries:
+     - register/boundary/chat-block-body-indentation
+     - register/invariant/chat-body-indent-roundtrip-transparent
+     - register/invariant/all-write-paths-indent-body
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** chat-body-indent-roundtrip-transparent
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-body-indent-roundtrip-transparent
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-body-indent-roundtrip-transparent
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: body indent/dedent round-trip is content-preserving
+
+   statement: |
+     For any message segment destined for a chat-block body: applying
+     the write-path indent (boundary stage 1) and then the parser dedent
+     (boundary stage 2) yields content equal to the original modulo a
+     uniform leading-indentation shift. The dedent measures and strips
+     each segment's common minimum indentation, so it is robust against
+     changes to `gptel-chat-content-indentation` and legacy content with
+     different indent widths, and it preserves the relative indentation
+     of nested content (lists, code) within the segment.
+
+   why_it_matters: |
+     The whole point of the indentation is that the LLM never sees it;
+     what the user composes and what the LLM receives must be identical
+     except for the on-disk body indent. A dedent that stripped a fixed
+     assumed width would corrupt content under any width change; a dedent
+     that stripped all leading whitespace would flatten intentional
+     nested indentation. Measure-and-strip of the common minimum is the
+     `org-do-remove-indentation` model and is the only form that
+     round-trips both robustly and structure-preservingly. Known
+     accepted edge case: a segment whose every line is indented loses
+     its outermost indent level — identical to org src-block behaviour.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-body-indent-roundtrip-transparent.test.el — failing-stub
+       round-trip property test exercised against the streaming indenter,
+       parser dedent, and on-disk migration paths.
+
+   related_entries:
+     - register/boundary/chat-block-body-indentation
+     - register/invariant/chat-block-body-is-indented
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** chat-block-delimiter-lines-stay-at-column-0
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-block-delimiter-lines-stay-at-column-0
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-block-delimiter-lines-stay-at-column-0
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: all chat-block delimiter lines remain at column 0
+
+   statement: |
+     The body indentation applied by the chat-block-body-indentation
+     boundary SHALL modify only content lines inside a chat-block body.
+     Delimiter lines themselves — the outer `#+begin_user` /
+     `#+begin_assistant` / `#+end_user` / `#+end_assistant` AND the
+     nested `#+begin_tool` / `#+end_tool` — SHALL remain at column 0 in
+     the buffer and on disk. The streaming indenter, the paste
+     region-shift, and the migration pass each skip delimiter lines; the
+     buffer-local `indent-line-function` indents a delimiter line to
+     column 0. The display layer MAY render `#+begin_tool` / `#+end_tool`
+     with a cosmetic `line-prefix` so they appear aligned — that affects
+     display only, never buffer text.
+
+   why_it_matters: |
+     A delimiter line at column N breaks chat-mode's regex parser:
+     `gptel-chat-parse-buffer` matches `^#\+begin_(user|assistant|tool)`
+     and `^#\+end_…` strictly at column 0. An indented delimiter
+     disappears from message construction. This is also what makes
+     indentation an escape (design.md Decision 4): because outer
+     delimiters are recognised only at column 0, a user can type the
+     literal text `#+end_user` in a message — it is indented body
+     content and the parser ignores it. The nested tool delimiters stay
+     at column 0 for the same parser reason (Decision 5 — Path C);
+     keeping them there is what lets the parser and the
+     block-body predicate stay unchanged.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-block-delimiter-lines-stay-at-column-0.test.el — failing-stub
+       assertion that walks every chat-block opener/closer (outer and
+       nested tool) in a fixture buffer after a write-path operation and
+       confirms column 0.
+
+   related_entries:
+     - register/boundary/chat-block-body-indentation
+     - register/invariant/chat-block-body-is-indented
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** chat-migration-on-read-clean-buffer-stays-clean
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-chat-migration-on-read-clean-buffer-stays-clean
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/chat-migration-on-read-clean-buffer-stays-clean
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: read-time migration MUST NOT mark an already-indented buffer as modified
+
+   statement: |
+     When `gptel-chat-mode` activates on a buffer whose chat-block
+     bodies are already in the indented form (no legacy escape
+     artifacts, every content region already at the body indent), the
+     migration pass SHALL NOT mark the buffer as modified. The boolean
+     "did-any-rewrite-happen" must be the sole determiner of whether
+     `set-buffer-modified-p t` runs. Buffers that DID need migration
+     ARE marked modified, so the next `save-buffer` persists the
+     normalised form (this is intentional, see design.md Decision 7).
+
+   why_it_matters: |
+     Read-time migration is the design's reversibility promise: if the
+     user opens a session and the migration was unnecessary, they
+     SHOULD see no buffer-modified indicator and `M-x revert-buffer`
+     SHOULD have nothing to undo. Spurious modification flags train
+     users to ignore the modified marker, defeating the explicit
+     reversibility guarantee. Sister property to "migration is scoped
+     to chat-block bodies only" — both are about NOT touching content
+     the user didn't ask us to touch. The migration must be idempotent:
+     a buffer it produced, re-opened, is clean.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       chat-migration-on-read-clean-buffer-stays-clean.test.el —
+       failing-stub assertion: open a fixture session whose chat blocks
+       are already indented, activate gptel-chat-mode, assert
+       `(buffer-modified-p)` returns nil.
+
+   related_entries:
+     - register/boundary/chat-block-body-indentation
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+** all-write-paths-indent-body
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-all-write-paths-indent-body
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/all-write-paths-indent-body
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: every content-introduction path into a chat-block body produces indented content
+
+   statement: |
+     Every distinct path by which content enters a chat-block body
+     SHALL leave that content indented by the body width:
+       - streaming assistant insertion — `gptel-chat--sanitize-chunk`
+         indents each line (boundary stage 1)
+       - paste / yank / programmatic insert — `after-change-functions`
+         via `gptel-chat--indent-inserted-region` shifts the region
+       - file-read migration — `gptel-chat-mode` activation via
+         `gptel-chat--migrate-buffer`
+       - user typing — a buffer-local `indent-line-function` plus
+         electric-indent start new body lines at the body indent
+     Adding a fifth content-introduction path (e.g. drag-and-drop, a
+     new yank-handler, a programmatic inserter that bypasses
+     `after-change-functions`) WITHOUT ensuring it produces indented
+     content SHALL be treated as a violation, even if no current test
+     fails.
+
+   why_it_matters: |
+     The boundary entry's correctness is conjunctive: missing one path
+     silently corrupts the host buffer's outline whenever that path is
+     exercised, while the other paths remain demonstrably correct in
+     tests. The invariant exists so a future change adding a new
+     content-introduction route trips the structural audit even if the
+     change's tests pass on existing paths. Sister invariant to
+     `chat-block-body-is-indented` — that one names the property; this
+     one names the enforcement enumeration. Note typing is maintained
+     by an editing affordance, not a reactive producer (design.md
+     Decision 6) — it is "best effort, org-babel-like," not a hard
+     guarantee, and the audit treats it accordingly.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       openspec/changes/gptel-chat-heading-scoping/scaffolding/invariants/
+       all-write-paths-indent-body.test.el — failing-stub assertion that
+       greps the named functions/wirings and confirms each indents body
+       content. Architect's module-purpose audit at end-of-cycle
+       re-checks for new content-introduction sites.
+
+   related_entries:
+     - register/boundary/chat-block-body-indentation
+     - register/invariant/chat-block-body-is-indented
+
+   discovered_from: gptel-chat-heading-scoping
+   discovered_by: architect
+   #+end_src
+
+* Status legend
+
+| Status      | Meaning                                                                                  |
+|-------------+------------------------------------------------------------------------------------------|
+| speculated  | Architect-proposed at plan; pressure-tested by implementation; reviewer ignores.        |
+| confirmed   | Implementation matched the speculation; entry is now load-bearing for next cycles.      |
+| divergent   | Implementation revealed the speculation was wrong; awaits user disposition or rewrite.  |
+| reconciled  | Speculation absorbed an implementation discovery; carries =why_tests_missed= rationale. |

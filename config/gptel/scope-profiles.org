@@ -7,9 +7,28 @@
 Scope profile templates for gptel sessions. Profiles define default permissions
 (file paths, org-roam patterns, shell commands, bash tools) that can be associated with
 presets. When a session starts, the profile is resolved, variables are expanded,
-and the result is written as =scope.yml= into the session directory.
+and the result is rendered as a =:PROPERTIES:= drawer block to be embedded in
+the new =session.org= (or applied to an open buffer's drawer for buffer-mode
+callers).
 
 Profile templates live as YAML files in =config/gptel/scope-profiles/=.
+
+The terminal step of profile resolution implements the
+=register/boundary/scope-profile-applicator= boundary in two modes:
+
+- *Mode 2a (string mode)* — =--render-drawer-text= returns a string of the
+  shape =register/shape/drawer-text-block= for prepending to a fresh
+  =session.org=.
+- *Mode 2b (buffer mode)* — =--apply-to-drawer= mutates an already-open
+  buffer's =:PROPERTIES:= drawer at =point-min= via =org-entry-put= /
+  =org-entry-put-multivalued-property=.
+
+The dispatcher =--create-for-session= resolves the profile, expands
+variables, deep-merges worktree paths, and returns the rendered drawer
+text (Mode 2a). The previous =scope.yml= writer has been removed; all
+callers (=sessions/commands.org=, =sessions/branching.org=,
+=tools/persistent-agent.org=) have been rewired to consume the rendered
+drawer text directly.
 
 ** Scope Profile Sections
 
@@ -139,27 +158,31 @@ See =config/gptel/scope/scope-shell-tools.org= for complete documentation on the
 
 ;; Scope profile templates for gptel sessions.
 ;; Loads YAML profile templates, resolves them for presets,
-;; expands variables, and writes scope.yml into session directories.
+;; expands variables, and renders the result as an org `:PROPERTIES:'
+;; drawer block (Mode 2a) or applies it to an open buffer's drawer
+;; (Mode 2b).  The previous `scope.yml' writer has been removed.
 
 ;;; Code:
 
 (require 'cl-lib)
 (require 'yaml)
+(require 'org)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
-(require 'jf-gptel-scope-yaml
-         (expand-file-name "scope/scope-yaml.el"
-                          (file-name-directory (or load-file-name buffer-file-name))))
 #+end_src
 
 * Key Normalization Helpers
 
-Convert between snake_case (YAML on-disk format) and kebab-case (Elisp plist format).
+Convert YAML profile data (snake_case keys, =:true=/=:false=/=:null=
+boolean keywords) into the Elisp plist shape (kebab-case keys, real
+elisp booleans) used by the rest of the scope subsystem.
 
-NOTE: This implementation is duplicated in =preset-registration.org= and
-=scope-shell-tools.org=. The duplication is intentional - early-loaded modules
-(preset-registration, scope-profiles) cannot depend on late-loaded modules
-(scope-shell-tools requires scope-core and scope-expansion).
+NOTE: =preset-registration.org= has a sibling =jf/gptel-preset--normalize-keys=
+for the same shape transformation on preset plists.  These are two
+independent inlined implementations.  The previous shared
+=scope-yaml.el= boundary module was retired together with =scope.yml=
+on-disk persistence; profile YAML is now the only YAML the scope
+subsystem touches.
 
 ** Normalize YAML Boolean Values
 
@@ -180,20 +203,37 @@ Returns VALUE unchanged if it's not a boolean keyword."
 
 ** Normalize Parsed YAML Plist
 
-#+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--normalize-keys (parsed)
-  "Normalize snake_case keys in PARSED plist to kebab-case.
-Delegates to scope-yaml module."
-  (jf/gptel-scope-yaml--normalize-keys parsed))
-#+end_src
-
-** Kebab Case to Snake Case
+Recursively walks PARSED, converting underscored snake_case keys
+(e.g. =:org_roam_patterns=) to kebab-case (=:org-roam-patterns=) and
+normalizing YAML boolean keywords (=:true= / =:false= / =:null=) to
+real elisp booleans.  Profile YAML is the only remaining YAML the
+scope subsystem touches; the previous shared scope-yaml boundary
+module was removed when scope.yml was retired.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--kebab-to-snake (key)
-  "Convert KEY from kebab-case keyword to snake_case keyword.
-Delegates to scope-yaml module."
-  (intern (concat ":" (jf/gptel-scope-yaml--kebab-to-snake key))))
+(defun jf/gptel-scope-profile--normalize-keys (plist)
+  "Normalize PLIST keys from snake_case to kebab-case.
+Also normalizes YAML boolean keywords (:true, :false, :null) to elisp
+booleans.  Recursively processes nested plists."
+  (let ((result nil))
+    (while plist
+      (let* ((key (car plist))
+             (value (cadr plist))
+             (normalized-key (intern (replace-regexp-in-string
+                                      "_" "-"
+                                      (symbol-name key))))
+             (normalized-value
+              (cond
+               ;; Nested plist: recurse
+               ((and (listp value)
+                     (not (null value))
+                     (keywordp (car value)))
+                (jf/gptel-scope-profile--normalize-keys value))
+               ;; Boolean keywords: normalize via shared helper
+               (t (jf/gptel-scope-profile--normalize-boolean value)))))
+        (setq result (plist-put result normalized-key normalized-value))
+        (setq plist (cddr plist))))
+    result))
 #+end_src
 
 * Load Profile from YAML File
@@ -333,79 +373,488 @@ Returns a new plist with expanded values."
     result))
 #+end_src
 
-* Write Scope YAML
+* Cloud Auth Vocabulary
 
-** Convert Plist to YAML String
+Closed scalar set for =:GPTEL_SCOPE_CLOUD_AUTH:=. The same three values
+that the loader (=jf/gptel-scope--load-from-buffer= at
+=config/gptel/scope/scope-validation.el=) accepts. Both writers below
+consult this vocabulary before emitting; a mis-typed value at write time
+errors immediately rather than failing later at load time with no path
+back to the writer that produced the bad value.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--plist-to-yaml (plist indent)
-  "Convert PLIST to YAML string with INDENT level.
-Converts kebab-case keys back to snake_case for on-disk format.
-Handles nested plists and lists of strings."
-  (let ((lines nil)
-        (prefix (make-string (* indent 2) ?\s)))
-    (cl-loop for (key val) on plist by #'cddr
-             do (let ((yaml-key (substring
-                                 (symbol-name
-                                  (jf/gptel-scope-profile--kebab-to-snake key))
-                                 1)))
-                  (cond
-                   ;; Nested plist
-                   ((and (listp val) (keywordp (car-safe val)))
-                    (push (format "%s%s:" prefix yaml-key) lines)
-                    (push (jf/gptel-scope-profile--plist-to-yaml val (1+ indent)) lines))
-                   ;; Boolean false / nil (MUST come before list check since nil is also a list)
-                   ((null val)
-                    ;; Context-dependent: security booleans are false, paths are []
-                    ;; Check if this is a known boolean field
-                    (if (memq key '(:enforce-parse-complete :auth-enabled))
-                        (push (format "%s%s: false" prefix yaml-key) lines)
-                      (push (format "%s%s: []" prefix yaml-key) lines)))
-                   ;; List of strings - inline YAML array
-                   ((and (listp val) (stringp (car-safe val)))
-                    (let ((items (mapconcat (lambda (s) (format "\"%s\"" s)) val ", ")))
-                      (push (format "%s%s: [%s]" prefix yaml-key items) lines)))
-                   ;; Single string
-                   ((stringp val)
-                    (push (format "%s%s: \"%s\"" prefix yaml-key val) lines))
-                   ;; Boolean true (elisp t → YAML true)
-                   ((eq val t)
-                    (push (format "%s%s: true" prefix yaml-key) lines))
-                   ;; Number
-                   ((numberp val)
-                    (push (format "%s%s: %s" prefix yaml-key val) lines))
-                   ;; YAML boolean keywords (defensive: normalize if present)
-                   ((eq val :true)
-                    (push (format "%s%s: true" prefix yaml-key) lines))
-                   ((or (eq val :false) (eq val :null))
-                    (push (format "%s%s: false" prefix yaml-key) lines))
-                   ;; Other symbols (should not occur after normalization)
-                   (t
-                    (lwarn 'gptel-scope :warning
-                           "Unexpected symbol value in plist-to-yaml: %S for key %S" val key)
-                    (push (format "%s%s: %s" prefix yaml-key val) lines)))))
-    (string-join (nreverse lines) "\n")))
+(defconst jf/gptel-scope-profile--cloud-auth-values
+  '("allow" "warn" "deny")
+  "Closed-set of accepted values for `:GPTEL_SCOPE_CLOUD_AUTH:'.
+Mirrors the loader's enforcement at
+`jf/gptel-scope--load-from-buffer'; mutating one without the other is
+a vocabulary-mismatch finding.")
+
+(defun jf/gptel-scope-profile--validate-cloud-auth (auth)
+  "Signal an error when AUTH is not in the closed cloud-auth value set.
+Returns AUTH unchanged on success.  Accepts nil (treated as `unset' —
+the renderer / applicator decide whether to omit the key)."
+  (cond
+   ((null auth) auth)
+   ((and (stringp auth)
+         (member auth jf/gptel-scope-profile--cloud-auth-values))
+    auth)
+   (t
+    (error "scope-profile: cloud :auth-detection must be one of %S, got %S"
+           jf/gptel-scope-profile--cloud-auth-values auth))))
 #+end_src
 
-** Write Scope File
+* Render Drawer Text (Mode 2a)
+
+The pure renderer: given a preset name, optional parent-session id, and a
+canonical scope plist (=register/shape/scope-config-plist=), produce a
+=register/shape/drawer-text-block= string.
+
+Structural invariants honoured:
+
+- Single =:PROPERTIES:= header at byte 0.
+- Single =:END:= terminator preceded by all key lines.
+- Trailing newline so callers can concatenate with chat-mode initial
+  content directly.
+- Every key line matches =^:[A-Z_+]+: .*$=.
+
+Empty path lists are *omitted* (they would otherwise render as bare
+=KEY:= lines with no value, which the reader interprets as "the empty
+list"). The renderer's contract is "paths absent ⇒ no key" — that is the
+shape session readers expect.
+
+Drawer key vocabulary is fixed by =register/vocabulary/drawer-key-set=
+and is the single canonical mapping between plist paths and drawer keys
+in this module.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--write-scope-yml (target-dir scope-plist)
-  "Write SCOPE-PLIST as YAML to scope.yml in TARGET-DIR.
-Uses `jf/gptel-session--scope-file' constant for the filename.
-If SCOPE-PLIST is nil or empty, writes minimal YAML with empty sections."
-  (let ((scope-file (expand-file-name jf/gptel-session--scope-file target-dir))
-        (effective-plist (or scope-plist
-                             (list :paths (list :read nil :write nil :deny nil)
-                                   :org-roam-patterns (list :subdirectory nil :tags nil :node-ids nil)
-                                   :bash-tools (list :categories (list :read-only (list :commands nil)
-                                                                       :safe-write (list :commands nil)
-                                                                       :dangerous (list :commands nil))
-                                                     :deny nil)))))
-    (with-temp-file scope-file
-      (insert (jf/gptel-scope-profile--plist-to-yaml effective-plist 0))
-      (insert "\n"))
-    (jf/gptel--log 'info "Wrote scope file: %s" scope-file)))
+(declare-function gptel--model-name "gptel" (model))
+(declare-function gptel-backend-name "gptel" (backend))
+(declare-function gptel-tool-name "gptel" (tool))
+(declare-function gptel--modify-value "gptel" (original new-spec))
+
+(defun jf/gptel-scope-profile--resolve-tool-names (tools-spec)
+  "Resolve TOOLS-SPEC to a list of tool name strings.
+
+TOOLS-SPEC is the value of a preset's `:tools' field.  Three shapes
+are supported:
+
+- A modify-list spec (a list whose first element is one of
+  `:append', `:prepend', `:remove', `:eval', `:function', or
+  `:merge') — resolved against the current `gptel-tools' value via
+  `gptel--modify-value'.  Returns nil when `gptel-tools' is unbound,
+  since we cannot resolve a modifier without a base list.
+- A bare list of tool structs / name symbols / name strings —
+  mapped element-wise to their names.
+- A single tool struct / symbol / string — wrapped as a singleton.
+
+Per Decision 4 of gptel-drawer-as-source-of-truth: the renderer
+emits the *resolved* tool name list, mirroring the buffer-local
+state that preset application installs.  Modify-list specs are
+resolved against the current global default; this matches what
+`gptel--apply-preset' would install at session creation time."
+  (let* ((base (and (boundp 'gptel-tools) (default-value 'gptel-tools)))
+         (resolved
+          (cond
+           ;; Modify-list spec: dispatch to upstream resolver.
+           ((and (consp tools-spec)
+                 (keywordp (car tools-spec)))
+            (when base
+              (gptel--modify-value base tools-spec)))
+           ;; List of tools (or names).
+           ((listp tools-spec) tools-spec)
+           ;; Single tool / symbol / string.
+           (t (list tools-spec)))))
+    (delq nil
+          (mapcar (lambda (tool)
+                    (cond
+                     ((stringp tool) tool)
+                     ((symbolp tool) (symbol-name tool))
+                     ((and (recordp tool)
+                           (fboundp 'gptel-tool-name)
+                           (eq (type-of tool) 'gptel-tool))
+                      (gptel-tool-name tool))
+                     ;; cl-defstruct on older Emacs may produce vectors.
+                     ((and (vectorp tool) (fboundp 'gptel-tool-name))
+                      (ignore-errors (gptel-tool-name tool)))
+                     (t nil)))
+                  resolved))))
+
+(defun jf/gptel-scope-profile--snapshot-format-model (value)
+  "Format a `:model' snapshot VALUE as a drawer scalar string.
+Returns nil when VALUE is nil so the key is omitted."
+  (and value (gptel--model-name value)))
+
+(defun jf/gptel-scope-profile--snapshot-format-backend (value)
+  "Format a `:backend' snapshot VALUE as a drawer scalar string.
+VALUE is either a backend struct or a bare backend-name string.
+Returns nil when VALUE is nil so the key is omitted."
+  (and value (if (stringp value) value (gptel-backend-name value))))
+
+(defun jf/gptel-scope-profile--snapshot-format-number (value)
+  "Format a numeric snapshot VALUE as a drawer scalar string.
+Returns nil for non-numbers (including nil) so the key is omitted."
+  (and (numberp value) (number-to-string value)))
+
+(defconst jf/gptel-scope-profile--snapshot-spec
+  (list
+   (list "GPTEL_MODEL" :model :scalar
+         #'jf/gptel-scope-profile--snapshot-format-model
+         'gptel-model)
+   (list "GPTEL_BACKEND" :backend :scalar
+         #'jf/gptel-scope-profile--snapshot-format-backend
+         'gptel-backend)
+   (list "GPTEL_TOOLS" :tools :multivalued
+         #'jf/gptel-scope-profile--resolve-tool-names
+         'gptel-tools)
+   (list "GPTEL_TEMPERATURE" :temperature :scalar
+         #'jf/gptel-scope-profile--snapshot-format-number
+         'gptel-temperature)
+   (list "GPTEL_MAX_TOKENS" :max-tokens :scalar
+         #'jf/gptel-scope-profile--snapshot-format-number
+         'gptel-max-tokens)
+   (list "GPTEL_NUM_MESSAGES_TO_SEND" :num-messages-to-send :scalar
+         #'jf/gptel-scope-profile--snapshot-format-number
+         'gptel--num-messages-to-send))
+  "Registry of the chat-mode snapshot drawer keys.
+
+This is the *single* enumeration of the snapshot key set.  Each row
+is a list (DRAWER-KEY PLIST-KEY KIND EXTRACTOR SOURCE-VAR):
+
+- DRAWER-KEY  — the bare org property name (no surrounding colons).
+- PLIST-KEY   — the keyword the value is read under from a snapshot
+                plist (matching the resolved-preset plist shape).
+- KIND        — `:scalar' (rendered value is a string) or
+                `:multivalued' (a list of strings).
+- EXTRACTOR   — a one-argument function mapping the raw plist value
+                to its formatted form (string for `:scalar', list of
+                strings for `:multivalued'), or nil to omit the key.
+- SOURCE-VAR  — the gptel variable whose buffer-local value the
+                chat-mode save path reads (see
+                `jf/gptel-scope-profile--buffer-snapshot-plist').
+
+Every snapshot producer derives from this table:
+`jf/gptel-scope-profile--snapshot-entries' (and through it
+`--snapshot-lines' / the string renderer and `--apply-to-drawer'),
+`jf/gptel-scope-profile--snapshot-keys', and the chat-mode save
+path's `gptel-chat--write-config-drawer'.  Adding a seventh snapshot
+key is therefore a single edit here — no producer needs changing.
+
+`:GPTEL_SYSTEM:' is *deliberately absent*: long, multi-line, special-
+character system prompts are unwieldy as a single org property value,
+so the writer never round-trips them (Decision 2 of gptel-drawer-as-
+source-of-truth, `register/invariant/drawer-system-key-write-
+exclusion'; the read-side overlay still respects manually authored
+entries).")
+
+(defun jf/gptel-scope-profile--snapshot-keys ()
+  "Return the canonical ordered list of snapshot drawer key strings.
+Derived from `jf/gptel-scope-profile--snapshot-spec' — the single
+registry of the snapshot key set."
+  (mapcar #'car jf/gptel-scope-profile--snapshot-spec))
+
+(defun jf/gptel-scope-profile--buffer-snapshot-plist ()
+  "Build a snapshot plist from the current buffer's gptel configuration.
+
+Reads the buffer-local value of each snapshot key's SOURCE-VAR (see
+`jf/gptel-scope-profile--snapshot-spec') and returns a plist keyed by
+the same keywords a resolved preset spec uses (`:model', `:backend',
+`:tools', `:temperature', `:max-tokens', `:num-messages-to-send').
+
+The result is a valid SNAPSHOT-PLIST argument for
+`jf/gptel-scope-profile--snapshot-entries', so the chat-mode save
+path (`gptel-chat--write-config-drawer') and the preset-spec render
+path share one key enumeration and cannot drift.
+
+Unbound source variables are omitted.  Type and emptiness filtering
+is `--snapshot-entries'' responsibility, not this function's."
+  (let (plist)
+    (dolist (row jf/gptel-scope-profile--snapshot-spec)
+      (pcase-let ((`(,_key ,plist-key ,_kind ,_extractor ,var) row))
+        (when (boundp var)
+          (setq plist (plist-put plist plist-key (symbol-value var))))))
+    plist))
+
+(defun jf/gptel-scope-profile--snapshot-entries (snapshot-plist)
+  "Return ordered snapshot entries derived from SNAPSHOT-PLIST.
+
+SNAPSHOT-PLIST is a plist keyed by `:model', `:backend', `:tools',
+`:temperature', `:max-tokens', and `:num-messages-to-send'.  Two
+sources produce it:
+
+- a resolved preset plist from `gptel-get-preset' (the preset-spec
+  pipeline — session creation and the string renderer); or
+- `jf/gptel-scope-profile--buffer-snapshot-plist', built from the
+  current buffer's gptel configuration (the chat-mode save path).
+
+Either may be nil when no configuration is in effect.
+
+Each returned entry is a list (DRAWER-KEY VALUE KIND) where
+DRAWER-KEY is the bare org property name (no surrounding colons),
+KIND is `:scalar' (VALUE is a string) or `:multivalued' (VALUE is a
+list of strings), and the order is canonical: model, backend, tools,
+temperature, max-tokens, num-messages-to-send.  Entries whose source
+value is missing, wrong-typed, or (for tools) resolves to the empty
+list are omitted.
+
+The key set, ordering, per-key extractor, and `:GPTEL_SYSTEM:' write-
+side exclusion all come from `jf/gptel-scope-profile--snapshot-spec'
+\(the single registry).  Every snapshot producer routes through this
+function or `jf/gptel-scope-profile--snapshot-keys', so the cross-
+stage idempotency invariant of
+`register/boundary/scope-profile-applicator' cannot drift between
+producers.
+
+Returns nil when SNAPSHOT-PLIST is nil or carries none of the
+snapshot keys."
+  (when snapshot-plist
+    (delq nil
+          (mapcar
+           (lambda (row)
+             (pcase-let ((`(,key ,plist-key ,kind ,extractor ,_var) row))
+               (let ((value (funcall extractor
+                                     (plist-get snapshot-plist plist-key))))
+                 (pcase kind
+                   (:scalar
+                    (when (and (stringp value)
+                               (not (string-empty-p value)))
+                      (list key value kind)))
+                   (:multivalued
+                    (when (consp value)
+                      (list key value kind)))))))
+           jf/gptel-scope-profile--snapshot-spec))))
+
+(defun jf/gptel-scope-profile--snapshot-lines (preset-spec)
+  "Build the chat-mode snapshot drawer lines from PRESET-SPEC.
+
+Thin formatter over `jf/gptel-scope-profile--snapshot-entries' (the
+canonical enumeration of the snapshot key set; see its docstring and
+`jf/gptel-scope-profile--snapshot-spec' for the included keys,
+ordering, and the `:GPTEL_SYSTEM:' write-side exclusion).  Each entry
+is rendered as a single `:KEY: VALUE' line: scalars verbatim,
+multivalued lists space-joined.
+
+Multivalued values are escaped element-wise with
+`org-entry-protect-space' before joining — exactly what
+`org-entry-put-multivalued-property' does in the buffer-mode
+applicator `jf/gptel-scope-profile--apply-to-drawer'.  This keeps the
+two producers in lockstep: a value containing whitespace (or a
+newline) renders as one escaped token in both modes, so it round-
+trips through `org-entry-get-multivalued-property' as a single
+element and the cross-mode idempotency invariant of
+`register/boundary/scope-profile-applicator' holds for *all* inputs,
+not only the whitespace-free tool identifiers that are the common
+case.
+
+Returns nil when PRESET-SPEC is nil or carries none of the snapshot
+keys."
+  (mapcar (lambda (entry)
+            (pcase-let ((`(,key ,value ,kind) entry))
+              (format ":%s: %s"
+                      key
+                      (if (eq kind :multivalued)
+                          (mapconcat #'org-entry-protect-space value " ")
+                        value))))
+          (jf/gptel-scope-profile--snapshot-entries preset-spec)))
+
+(defun jf/gptel-scope-profile--render-drawer-text
+    (preset-name parent-session-id scope-plist &optional preset-spec)
+  "Render a `:PROPERTIES:' drawer block as a string.
+
+PRESET-NAME (symbol or string) becomes the value of `:GPTEL_PRESET:'.
+PARENT-SESSION-ID (string or nil) becomes `:GPTEL_PARENT_SESSION_ID:'
+when non-nil and non-empty.  SCOPE-PLIST has the canonical shape
+described in `register/shape/scope-config-plist' — i.e.
+\(:paths (:read (...) :write (...) :modify (...) :execute (...) :deny (...))
+ :cloud (:auth-detection STRING :allowed-providers (...))).
+
+PRESET-SPEC, when non-nil, is the resolved preset plist (as returned
+by `gptel-get-preset').  Its non-nil snapshot fields are emitted as
+the upstream-compatible chat-mode keys (`:GPTEL_MODEL:',
+`:GPTEL_BACKEND:', `:GPTEL_TOOLS:', `:GPTEL_TEMPERATURE:',
+`:GPTEL_MAX_TOKENS:', `:GPTEL_NUM_MESSAGES_TO_SEND:') alongside the
+existing scope keys.  `:GPTEL_SYSTEM:' is *never* emitted, even when
+PRESET-SPEC has a non-nil `:system' (Decision 2 of gptel-drawer-as-
+source-of-truth, register/invariant/drawer-system-key-write-
+exclusion).  When PRESET-SPEC is nil, only the existing preset-name /
+parent-session-id / scope keys are emitted (legacy shape).
+
+Empty path lists are omitted from the rendered drawer.  Cloud auth-
+detection equal to \"warn\" with no allowed providers is treated as the
+default and omitted.
+
+Returns a string of `register/shape/drawer-text-block':
+
+  :PROPERTIES:
+  :GPTEL_PRESET: <preset>
+  [:GPTEL_PARENT_SESSION_ID: <parent>]
+  [:GPTEL_MODEL: <model-name>]
+  [:GPTEL_BACKEND: <backend-name>]
+  [:GPTEL_TOOLS: <tool0> <tool1> ...]
+  [:GPTEL_TEMPERATURE: <number>]
+  [:GPTEL_MAX_TOKENS: <number>]
+  [:GPTEL_NUM_MESSAGES_TO_SEND: <number>]
+  [:GPTEL_SCOPE_<KEY>: value0 value1 ... valueN]
+  :END:
+\\n
+
+Multi-value list entries render as a single space-separated `:KEY:
+value0 value1 ...' line.  This matches the line shape that
+`org-entry-put-multivalued-property' produces, which is critical for
+the cross-mode idempotency invariant of
+`register/boundary/scope-profile-applicator': writing the rendered
+text verbatim to a fresh `session.org' and then re-applying the same
+SCOPE-PLIST via `--apply-to-drawer' must leave the buffer unchanged.
+
+Spaces inside individual values are escaped with `%20' (and newlines
+with `%0A') via `org-entry-protect-space', matching the on-the-wire
+format `org-entry-get-multivalued-property' expects."
+  (let* ((paths (plist-get scope-plist :paths))
+         (cloud (plist-get scope-plist :cloud))
+         (lines (list ":PROPERTIES:"))
+         (parent (and (stringp parent-session-id)
+                      (not (string-empty-p parent-session-id))
+                      parent-session-id)))
+    (when preset-name
+      (push (format ":GPTEL_PRESET: %s"
+                    (if (symbolp preset-name)
+                        (symbol-name preset-name)
+                      preset-name))
+            lines))
+    (when parent
+      (push (format ":GPTEL_PARENT_SESSION_ID: %s" parent) lines))
+    ;; Chat-mode snapshot keys (Decision 4): emit before scope keys so
+    ;; the upstream-compatible block reads naturally above the scope
+    ;; block.
+    (dolist (line (jf/gptel-scope-profile--snapshot-lines preset-spec))
+      (push line lines))
+    (dolist (op '((:read    . "GPTEL_SCOPE_READ")
+                  (:write   . "GPTEL_SCOPE_WRITE")
+                  (:modify  . "GPTEL_SCOPE_MODIFY")
+                  (:execute . "GPTEL_SCOPE_EXECUTE")
+                  (:deny    . "GPTEL_SCOPE_DENY")))
+      (let ((vals (plist-get paths (car op)))
+            (key (cdr op)))
+        (when vals
+          (push (format ":%s: %s"
+                        key
+                        (mapconcat #'org-entry-protect-space vals " "))
+                lines))))
+    (let ((auth (jf/gptel-scope-profile--validate-cloud-auth
+                 (plist-get cloud :auth-detection)))
+          (providers (plist-get cloud :allowed-providers)))
+      (when (and (stringp auth) (not (string= auth "warn")))
+        (push (format ":GPTEL_SCOPE_CLOUD_AUTH: %s" auth) lines))
+      (when providers
+        (push (format ":GPTEL_SCOPE_CLOUD_PROVIDERS: %s"
+                      (mapconcat #'org-entry-protect-space providers " "))
+              lines)))
+    (push ":END:" lines)
+    (concat (mapconcat #'identity (nreverse lines) "\n") "\n")))
+#+end_src
+
+* Apply To Drawer (Mode 2b)
+
+In-place buffer mutator: applies the scope plist to BUFFER's existing
+=:PROPERTIES:= drawer at =point-min= using =org-entry-put= /
+=org-entry-put-multivalued-property=.  Existing non-scope drawer keys
+(e.g. =:GPTEL_PRESET:=, =:GPTEL_PARENT_SESSION_ID:=) are preserved.
+
+Bare property names (without surrounding colons) are passed to the
+=org-entry-*= API per its convention.  Drawer-literal text containing
+the colons is the renderer's concern, not this function's.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope-profile--apply-to-drawer
+    (buffer scope-plist &optional preset-spec)
+  "Apply SCOPE-PLIST to BUFFER's `:PROPERTIES:' drawer at `point-min'.
+
+Writes each `:GPTEL_SCOPE_*' key via `org-entry-put' (scalars) or
+`org-entry-put-multivalued-property' (list-valued keys).  Existing non-
+scope drawer keys (e.g. `:GPTEL_PRESET:', `:GPTEL_PARENT_SESSION_ID:')
+are preserved.  The buffer is saved when mutation completes.
+
+SCOPE-PLIST has the canonical shape `register/shape/scope-config-plist'
+\(see also `jf/gptel-scope-profile--render-drawer-text').
+
+PRESET-SPEC, when non-nil, is the resolved preset plist (as from
+`gptel-get-preset').  Its non-nil snapshot fields are written as the
+upstream-compatible chat-mode keys (`:GPTEL_MODEL:', `:GPTEL_BACKEND:',
+`:GPTEL_TOOLS:', `:GPTEL_TEMPERATURE:', `:GPTEL_MAX_TOKENS:',
+`:GPTEL_NUM_MESSAGES_TO_SEND:').  `:GPTEL_SYSTEM:' is *never* written
+here (Decision 2 of gptel-drawer-as-source-of-truth, register/
+invariant/drawer-system-key-write-exclusion).  When PRESET-SPEC is
+nil, only the scope keys are written (legacy behaviour).
+
+Empty path lists clear nothing — to remove a key, the caller should
+pass an explicit empty list and call `org-entry-delete' separately.
+This function only writes the keys that are present and non-empty in
+SCOPE-PLIST."
+  (with-current-buffer buffer
+    (save-excursion
+      (save-restriction
+        (widen)
+        (goto-char (point-min))
+        ;; Snapshot keys first so they read above the scope block in the
+        ;; drawer (matches --render-drawer-text's emission order).  Both
+        ;; producers consume the same `--snapshot-entries' enumeration so
+        ;; the chat-mode key set cannot drift between modes 2a and 2b
+        ;; (cross-stage idempotency invariant of
+        ;; `register/boundary/scope-profile-applicator').
+        (dolist (entry (jf/gptel-scope-profile--snapshot-entries preset-spec))
+          (pcase-let ((`(,key ,value ,kind) entry))
+            (pcase kind
+              (:scalar
+               (org-entry-put (point) key value))
+              (:multivalued
+               (apply #'org-entry-put-multivalued-property
+                      (point) key value)))))
+        (let ((paths (plist-get scope-plist :paths))
+              (cloud (plist-get scope-plist :cloud)))
+          (dolist (op '((:read    . "GPTEL_SCOPE_READ")
+                        (:write   . "GPTEL_SCOPE_WRITE")
+                        (:modify  . "GPTEL_SCOPE_MODIFY")
+                        (:execute . "GPTEL_SCOPE_EXECUTE")
+                        (:deny    . "GPTEL_SCOPE_DENY")))
+            (let ((vals (plist-get paths (car op))))
+              (when vals
+                ;; org-entry-put-multivalued-property uses &rest VALUES;
+                ;; values must be spliced in via apply.
+                (apply #'org-entry-put-multivalued-property
+                       (point) (cdr op) vals))))
+          (let ((auth (jf/gptel-scope-profile--validate-cloud-auth
+                       (plist-get cloud :auth-detection)))
+                (providers (plist-get cloud :allowed-providers)))
+            (when (and (stringp auth) (not (string= auth "warn")))
+              (org-entry-put (point) "GPTEL_SCOPE_CLOUD_AUTH" auth))
+            (when providers
+              (apply #'org-entry-put-multivalued-property
+                     (point) "GPTEL_SCOPE_CLOUD_PROVIDERS" providers))))
+        (when (buffer-file-name)
+          (save-buffer))))))
+#+end_src
+
+* Removed: scope.yml writer (delegated to drawer)
+
+The previous =--write-scope-yml= terminal effect and its YAML emitter
+helpers (=--plist-to-yaml=) have been removed.  They have been replaced
+by the drawer-text renderer (Mode 2a) and the in-place applicator
+(Mode 2b) above.  A stub remains for callers that have not been rewired
+yet so they fail loudly rather than silently regress.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-scope-profile--write-scope-yml (_target-dir _scope-plist)
+  "Stub for the removed scope.yml writer.
+
+Signals an error.  Callers must be migrated to either
+`jf/gptel-scope-profile--render-drawer-text' (string mode, embed in
+fresh `session.org' initial content) or
+`jf/gptel-scope-profile--apply-to-drawer' (buffer mode, mutate an
+already-open chat buffer's `:PROPERTIES:' drawer).
+
+Tracked in change `gptel-scope-in-org-properties'; rewires live in the
+`rewire-session-creation' and `rewire-persistent-agent' tasks."
+  (error "jf/gptel-scope-profile--write-scope-yml has been removed; use --render-drawer-text or --apply-to-drawer"))
 #+end_src
 
 * Deep Merge for Scope Configuration
@@ -475,24 +924,57 @@ future additions to scope configuration."
 
 * High-Level Session Integration
 
+The dispatcher resolves the preset's profile, expands ${project_root}
+variables, deep-merges worktree-supplied paths, and *returns* the
+rendered drawer-text-block string (Mode 2a).  The previous behaviour
+\(writing =scope.yml= as a side effect) has been removed; the public
+signature is preserved so existing call sites continue to compile, but
+their *handling of the return value* must change — see the
+=rewire-session-creation= and =rewire-persistent-agent= tasks for that
+work.
+
+The =target-dir= argument is retained in the signature because the
+dispatcher's call shape is the contract callers depend on; future
+subclasses (Mode 2b dispatch) can use it to locate an already-open
+buffer.  In Mode 2a it is unused.
+
 #+begin_src emacs-lisp
-(defun jf/gptel-scope-profile--create-for-session (preset-name target-dir &optional project-root worktree-paths)
-  "Create scope.yml for a session in TARGET-DIR.
-PRESET-NAME is used to resolve the scope profile.
-PROJECT-ROOT is used for variable expansion.
-WORKTREE-PATHS, if provided, is deep-merged with the preset's scope
-configuration (paths are concatenated, bash_tools preserved, etc.).
+(defun jf/gptel-scope-profile--create-for-session
+    (preset-name target-dir &optional project-root worktree-paths parent-session-id preset-spec)
+  "Resolve the scope profile for PRESET-NAME and return drawer text.
 
-Flow:
-  1. Resolve profile for PRESET-NAME (get bash_tools, org_roam_patterns, etc.)
-  2. Expand variables with PROJECT-ROOT
-  3. If WORKTREE-PATHS provided: deep-merge into preset's scope config
-  4. Write scope.yml to TARGET-DIR
+Returns a `register/shape/drawer-text-block' string ready to be
+prepended to a fresh `session.org's initial content (Mode 2a).
 
-Deep merge is schema-agnostic and works for any future scope configuration:
-- Lists (read/write paths): concatenated and deduplicated
-- Nested plists: recursively merged
-- Scalars: worktree-paths wins"
+PRESET-NAME selects the scope profile via
+`jf/gptel-scope-profile--resolve'.  PROJECT-ROOT, when non-nil, is used
+to expand ${project_root} variables.  WORKTREE-PATHS, when provided, is
+deep-merged on top of the preset's resolved scope configuration.
+PARENT-SESSION-ID, when a non-empty string, becomes the
+`:GPTEL_PARENT_SESSION_ID:' line.
+
+PRESET-SPEC, when non-nil, is the resolved preset plist (as from
+`gptel-get-preset').  Its non-nil snapshot keys (`:model', `:backend',
+`:tools', `:temperature', `:max-tokens', `:num-messages-to-send') are
+threaded through to `--render-drawer-text' and emitted as the
+upstream-compatible chat-mode keys in the rendered drawer.  When
+PRESET-SPEC is omitted, the legacy preset-name-only drawer shape is
+rendered (no chat-mode snapshot keys, only `:GPTEL_PRESET:' and the
+scope keys).  Callers that want the full snapshot must pass
+PRESET-SPEC explicitly — Layer 2 of gptel-drawer-as-source-of-truth
+(task `wire-snapshot-into-session-creation') threads it from session-
+creation entrypoints.
+
+TARGET-DIR is currently unused (the renderer returns a string; callers
+write it to disk themselves).  The argument is retained so existing
+call sites continue to compile against the public signature.
+
+The previous side effect (writing `scope.yml' to TARGET-DIR) has been
+removed.  Callers that have not yet been rewired to handle the returned
+drawer text will silently drop it; see the change
+`gptel-scope-in-org-properties' (tasks `rewire-session-creation' and
+`rewire-persistent-agent') for the integration work."
+  (ignore target-dir)
   (let* ((resolved (jf/gptel-scope-profile--resolve preset-name))
          (expanded (when resolved
                      (jf/gptel-scope-profile--expand-variables resolved project-root)))
@@ -517,7 +999,8 @@ Deep merge is schema-agnostic and works for any future scope configuration:
            (t
             (jf/gptel--log 'warn "No scope configuration available for preset: %s" preset-name)
             nil))))
-    (jf/gptel-scope-profile--write-scope-yml target-dir scope-plist)))
+    (jf/gptel-scope-profile--render-drawer-text
+     preset-name parent-session-id scope-plist preset-spec)))
 #+end_src
 
 * Provide Feature

@@ -16,7 +16,12 @@
 ;;  ;;(setq chatgpt-shell-model-version "gpt-4o")
 
 (use-package gptel
-  :straight t
+  ;; TODO: Tracking moogah/gptel on a single-patch branch while the
+  ;; `parse-list-and-insert' fix is in flight. Switch to upstream
+  ;; (`:straight t') once it's merged, or to a longer-lived
+  ;; integration branch on the fork as more local patches accumulate.
+  :straight (gptel :type git :host github :repo "moogah/gptel"
+                   :branch "fix-tool-name-quoting-in-parse-list-and-insert")
   :custom
   (gptel-model 'claude-opus-4-6) ;; model is now a symbol, not a string
   (gptel-log-level 'debug) ;; Enable debug logging for testing
@@ -147,10 +152,7 @@ Run this after preset registration to inject skill content into presets."
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
 
-;; Load scope-yaml boundary module (required by all scope modules)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-yaml.el" jf/emacs-dir))
-
-;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
+;; Load scope-profiles (used by preset registration and session creation to render scope drawer text)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 
 ;; Load scope-metadata (required by scope-tool-wrapper for context-aware validation)
@@ -208,6 +210,12 @@ Run this after preset registration to inject skill content into presets."
 ;; drawer stacking bug. Commented out to rule out trace hooks as a
 ;; contributor to the corruption. Re-enable to capture a fresh run.
 ;; (jf/load-module (expand-file-name "config/gptel/drawer-trace.el" jf/emacs-dir))
+
+;; Persistent-agent hang trace — standalone diagnostic. Loads the
+;; advice definitions but does NOT install them; activate per-session
+;; with `M-x jf/gptel-pa-trace-start' before reproducing a hang, then
+;; `M-x jf/gptel-pa-trace-stop' / `jf/gptel-pa-trace-snapshot'.
+(jf/load-module (expand-file-name "config/gptel/tools/persistent-agent-trace.el" jf/emacs-dir))
 
 (defun jf/gptel-launcher ()
   "Launch gptel session with a selected backend and model.

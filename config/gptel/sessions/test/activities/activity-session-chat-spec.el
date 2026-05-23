@@ -99,7 +99,7 @@
 
   (describe "session.org initial content (Decision 4)"
 
-    (it "contains the PROPERTIES drawer with GPTEL_PRESET and the empty user block"
+    (it "contains the config drawer, a folded * System Prompt heading, and a * Chat heading with the empty user block"
       ;; Run the full helper with write-side I/O captured.  The helper
       ;; goes through `jf/gptel--create-session-core' which owns the
       ;; initial-content default; the activities path no longer
@@ -122,20 +122,49 @@
             (jf-gptel-activities-test--register-cleanup
              (plist-get info :session-id) "main")
             (expect content :to-be-truthy)
-            ;; First write contains the pre-populated drawer followed
-            ;; by the chat-mode empty-user-block template (no worktree
-            ;; paths in this scenario, so no follow-up
-            ;; `<!-- gptel-activity-worktrees: ... -->' line is
-            ;; appended).
-            (expect content :to-equal
-                    (concat ":PROPERTIES:\n"
-                            ":GPTEL_PRESET: executor\n"
-                            ":END:\n"
-                            "#+begin_user\n"
-                            "\n"
-                            "#+end_user\n"))
-            (expect content :not :to-match "^###")
-            (expect content :not :to-match "^# "))))))
+            ;; First write contains the file-level config drawer
+            ;; (preset + chat-mode snapshot keys per Decision 4 of
+            ;; gptel-drawer-as-source-of-truth), then a folded
+            ;; `* System Prompt' heading and a `* Chat' heading with
+            ;; the empty user block (§Addendum Decision B; no worktree
+            ;; paths here, so no `<!-- gptel-activity-worktrees: ...
+            ;; -->' line is appended).  Structural assertions so the
+            ;; test stays stable as the `executor' preset evolves.
+            (expect content :to-match "\\`:PROPERTIES:\n")
+            (expect content :to-match ":GPTEL_PRESET: executor\n")
+            (expect content :to-match "\n:END:\n")
+            ;; The `* System Prompt' / `* Chat' headings frame the
+            ;; document body; the empty user block sits under `* Chat'.
+            (expect content :to-match
+                    "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
+            (expect content :to-match
+                    "^\\* Chat\n#\\+begin_user\n\n#\\+end_user\n\\'")
+            ;; :GPTEL_SYSTEM: must NEVER be in the rendered drawer
+            ;; (Decision 2; register/invariant/drawer-system-key-
+            ;; write-exclusion).
+            (expect (string-match-p ":GPTEL_SYSTEM:" content)
+                    :to-be nil)
+            ;; The renderer never seeds markdown markup.  The
+            ;; `* System Prompt' body is excluded — it is verbatim
+            ;; preset `:system' text and may legitimately contain
+            ;; markdown lines (`executor.md' does).  Assert the
+            ;; renderer-owned regions only: the header (up to and
+            ;; including the heading drawer) and the `* Chat' block.
+            (let* ((header-region
+                    (substring content 0
+                               (progn
+                                 (string-match
+                                  (concat "^\\* System Prompt\n:PROPERTIES:\n"
+                                          ":VISIBILITY: folded\n:END:\n")
+                                  content)
+                                 (match-end 0))))
+                   (chat-region
+                    (substring content
+                               (string-match "^\\* Chat" content))))
+              (expect header-region :not :to-match "^###")
+              (expect header-region :not :to-match "^# ")
+              (expect chat-region :not :to-match "^###")
+              (expect chat-region :not :to-match "^# ")))))))
 
   (describe "no Local Variables block in session.org"
 
@@ -299,13 +328,19 @@
                 (jf-gptel-activities-test--register-cleanup
                  (plist-get info :session-id) "main")
                 (expect content :to-be-truthy)
-                ;; The pre-populated drawer + chat-mode template is
-                ;; still the leading content.
-                (expect content :to-match
-                        (concat "\\`:PROPERTIES:\n"
-                                ":GPTEL_PRESET: executor\n"
-                                ":END:\n"
-                                "#\\+begin_user\n\n#\\+end_user\n"))
+                ;; The drawer carries GPTEL_PRESET and the resolved
+                ;; :GPTEL_SCOPE_*: keys for the worktree paths
+                ;; (gptel-scope-in-org-properties drawer-resident
+                ;; scope) — the worktree-paths flow into the renderer
+                ;; via `jf/gptel-scope-profile--create-for-session'
+                ;; (Mode 2a) deep-merge. The drawer is followed by
+                ;; the chat-mode empty-user-block template.
+                (expect content :to-match "\\`:PROPERTIES:\n")
+                (expect content :to-match "^:GPTEL_PRESET: executor$")
+                (expect content :to-match "^:GPTEL_SCOPE_READ:.*/work/repo/")
+                (expect content :to-match "^:GPTEL_SCOPE_WRITE:.*/work/repo/")
+                (expect content :to-match "^:END:$")
+                (expect content :to-match "#\\+begin_user\n\n#\\+end_user\n")
                 ;; And the worktree annotation is appended — untouched
                 ;; by this task's scope.
                 (expect content :to-match

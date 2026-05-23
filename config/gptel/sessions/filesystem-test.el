@@ -50,7 +50,7 @@ hierarchy: session-dir/branches/main/ with session.org inside."
              (session-dir (expand-file-name "test-session" temp-dir)))
         (make-directory session-dir t)
         (cl-letf (((symbol-function 'jf/gptel-scope-profile--create-for-session)
-                   (lambda (_preset _dir &optional _root _paths) nil)))
+                   (lambda (_preset _dir &optional _root _paths _parent) nil)))
           (let ((result (jf/gptel--create-session-core
                          "test-session-20260311"
                          session-dir

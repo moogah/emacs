@@ -24,7 +24,7 @@ session is automatically created with:
 
 - Directory structure under =~/emacs-activities/<activity-name>/session/=
 - Branch-based session management (=branches/main/= by default)
-- Scoped file access via =scope.yml= (default: deny-all for security)
+- Scoped file access via the =:PROPERTIES:= drawer in =session.org= (default: deny-all for security)
 - Preset configuration for model, backend, and tools
 - Auto-initialization when you open session files
 - Integration with activity suspend/resume workflow
@@ -108,7 +108,12 @@ Note: =gptel-cache= can also be set to ='(system message)= to cache only specifi
 
 #+begin_src emacs-lisp
 (use-package gptel
-  :straight t
+  ;; TODO: Tracking moogah/gptel on a single-patch branch while the
+  ;; `parse-list-and-insert' fix is in flight. Switch to upstream
+  ;; (`:straight t') once it's merged, or to a longer-lived
+  ;; integration branch on the fork as more local patches accumulate.
+  :straight (gptel :type git :host github :repo "moogah/gptel"
+                   :branch "fix-tool-name-quoting-in-parse-list-and-insert")
   :custom
   (gptel-model 'claude-opus-4-6) ;; model is now a symbol, not a string
   (gptel-log-level 'debug) ;; Enable debug logging for testing
@@ -272,10 +277,7 @@ This replaces the =gptel-agent= package dependency.
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
 
-;; Load scope-yaml boundary module (required by all scope modules)
-(jf/load-module (expand-file-name "config/gptel/scope/scope-yaml.el" jf/emacs-dir))
-
-;; Load scope-profiles (used by preset registration and session creation to write scope.yml)
+;; Load scope-profiles (used by preset registration and session creation to render scope drawer text)
 (jf/load-module (expand-file-name "config/gptel/scope-profiles.el" jf/emacs-dir))
 
 ;; Load scope-metadata (required by scope-tool-wrapper for context-aware validation)
@@ -304,7 +306,7 @@ This replaces the =gptel-agent= package dependency.
 
 Persistent gptel sessions provide file-backed, auto-saving conversation buffers with:
 - Branch-based versioning for experimental conversation threads
-- Scope-based file access controls (via =scope.yml=)
+- Scope-based file access controls (via the =:PROPERTIES:= drawer in =session.org=)
 - Preset-based configuration (backend, model, tools, system prompts)
 - Auto-initialization when opening session files (no manual resume needed)
 - Integration with activities package for activity-scoped sessions
@@ -370,6 +372,12 @@ Load session management modules in dependency order:
 ;; drawer stacking bug. Commented out to rule out trace hooks as a
 ;; contributor to the corruption. Re-enable to capture a fresh run.
 ;; (jf/load-module (expand-file-name "config/gptel/drawer-trace.el" jf/emacs-dir))
+
+;; Persistent-agent hang trace — standalone diagnostic. Loads the
+;; advice definitions but does NOT install them; activate per-session
+;; with `M-x jf/gptel-pa-trace-start' before reproducing a hang, then
+;; `M-x jf/gptel-pa-trace-stop' / `jf/gptel-pa-trace-snapshot'.
+(jf/load-module (expand-file-name "config/gptel/tools/persistent-agent-trace.el" jf/emacs-dir))
 #+end_src
 
 * GPTEL Session Launcher

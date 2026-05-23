@@ -1,21 +1,19 @@
 schema: spec-driven
 
-# Project context (optional)
-# This is shown to AI when creating artifacts.
-# Add your tech stack, conventions, style guides, domain knowledge, etc.
-# Example:
-#   context: |
-#     Tech stack: TypeScript, React, Node.js
-#     We use conventional commits
-#     Domain: e-commerce platform
+# Project context shown to AI when creating any artifact.
+context: |
+  This is a literate Emacs configuration (~/emacs).
+  Workflow: edit .org files → ./bin/tangle-org.sh tangles to .el → Emacs loads .el.
+  Always edit .org; .el files are generated and overwritten.
+  Test frameworks: Buttercup (preferred for new tests; BDD with describe/it/expect/spies)
+  and ERT (maintained for legacy; ert-deftest with should/should-not).
+  Tests live in config/<module>/test/ (Buttercup *-spec.el) or co-located
+  config/<module>/*-test.el (ERT).
 
-# Per-artifact rules (optional)
-# Add custom rules for specific artifacts.
-# Example:
-#   rules:
-#     proposal:
-#       - Keep proposals under 500 words
-#       - Always include a "Non-goals" section
-#     design:
-#       - Document all technical decisions
-#       - Include integration points
+# Per-artifact rules. These overlay the user-level spec-driven-tasks schema
+# at ~/.local/share/openspec/schemas/spec-driven-tasks/.
+rules:
+  tasks:
+    - Implementation file paths use .org extensions (literate). Tangled .el files are generated; never list .el-only edits.
+    - Verification steps MUST include ./bin/tangle-org.sh <file> to validate parens after .org edits.
+    - Verification steps MUST include ./bin/run-tests.sh -d <dir> for the affected module's test directory.

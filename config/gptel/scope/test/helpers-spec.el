@@ -27,7 +27,6 @@
 
 (require 'buttercup)
 (require 'cl-lib)
-(require 'jf-gptel-scope-yaml)
 
 ;; Load contract validation for mock self-validation
 ;; config/gptel/scope/test/ -> config/test/contracts/ (3 levels up, then test/contracts)
@@ -168,89 +167,42 @@ If EXIT-CODE is nil, defaults to 0 (success)."
 
 ;;; Fixture Creation Helpers
 
-(defun helpers-spec-make-scope-yml (content)
-  "Create temporary scope.yml file with CONTENT.
-Returns path to the created file."
-  (let ((scope-file (make-temp-file "scope-" nil ".yml")))
-    (with-temp-file scope-file
-      (insert content))
-    scope-file))
+(cl-defun helpers-spec-make-scope-config
+    (&key read write execute modify deny read-metadata
+          (auth-detection "warn") allowed-providers)
+  "Construct a scope-config plist directly for validator tests.
 
-(defun helpers-spec-make-minimal-scope ()
-  "Create minimal valid scope.yml for testing.
-Returns path to the created file."
-  (helpers-spec-make-scope-yml
-   "paths:
-  read:
-    - \"/workspace\"
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute:
-    - \"/workspace/scripts/**\"
-  modify:
-    - \"/workspace/config/**\"
-  deny:
-    - \"/etc/**\"
+Returns the canonical plist shape produced by
+`jf/gptel-scope--load-from-buffer' (see
+`register/shape/scope-config-plist'): top-level keys :paths and :cloud
+only.  No :security key (deleted in cycle-1; see
+`register/invariant/scope-no-security-key-in-plist').
 
-bash_tools:
-  deny:
-    - rm
-    - sudo
+This replaces the historical scope-yml-on-disk + load-schema path:
+unit tests construct the plist directly rather than round-tripping
+through a YAML file or an org drawer.  For tests that exercise the
+loader itself (drawer parsing, file fallback), use
+`jf/gptel-test--with-scope-drawer' or write a real `session.org' to a
+tmpdir."
+  (list :paths (list :read read
+                     :read-metadata read-metadata
+                     :write write
+                     :modify modify
+                     :execute execute
+                     :deny deny)
+        :cloud (list :auth-detection auth-detection
+                     :allowed-providers allowed-providers)))
 
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-
-(defun helpers-spec-make-scope-with-cloud-deny ()
-  "Create scope.yml with cloud auth denied.
-Returns path to the created file."
-  (helpers-spec-make-scope-yml
-   "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-
-bash_tools:
-  deny: [rm]
-
-cloud:
-  auth_detection: \"deny\"
-
-security:
-  enforce_parse_complete: true
-"))
-
-(defun helpers-spec-make-scope-with-allowed-providers (providers)
-  "Create scope.yml with specific allowed cloud PROVIDERS.
-PROVIDERS should be a list like (:aws :gcp).
-Returns path to the created file."
-  (let ((providers-yaml
-         (mapconcat (lambda (p) (format "    - %s" (substring (symbol-name p) 1)))
-                    providers "\n")))
-    (helpers-spec-make-scope-yml
-     (format "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-
-bash_tools:
-  deny: [rm]
-
-cloud:
-  auth_detection: \"warn\"
-  allowed_providers:
-%s
-
-security:
-  enforce_parse_complete: true
-" providers-yaml))))
+(defun helpers-spec-make-minimal-scope-config ()
+  "Construct a minimal valid scope-config plist for testing.
+Returns a plist matching `register/shape/scope-config-plist'."
+  (helpers-spec-make-scope-config
+   :read    '("/workspace" "/workspace/**")
+   :write   '("/workspace/**")
+   :execute '("/workspace/scripts/**")
+   :modify  '("/workspace/config/**")
+   :deny    '("/etc/**")
+   :auth-detection "warn"))
 
 ;;; Assertion Helpers
 
@@ -431,81 +383,62 @@ Also converts YAML boolean keywords to Emacs booleans:
       (mapcar #'helpers-spec--convert-vectors-to-lists obj)))
    (t obj)))
 
-(defun helpers-spec-load-scope-config (scope-file)
-  "Load scope configuration from SCOPE-FILE.
-Returns scope-config plist ready for validation functions."
-  (jf/gptel-scope-yaml--load-schema scope-file))
+;; Note: scope-yml fixtures and YAML-based loader helpers were retired
+;; alongside `jf/gptel-scope-yaml--load-schema' in cycle-3
+;; (delete-yaml-and-security-residue). validation/ tests now construct
+;; scope-config plists directly via `helpers-spec-make-scope-config' or
+;; — for loader tests — drawer fixtures via
+;; `jf/gptel-test--with-scope-drawer'.
+;;
+;; The legacy helpers below (`helpers-spec-make-scope-yml',
+;; `helpers-spec-load-scope-config', `helpers-spec--scope-with-paths',
+;; `helpers-spec--scope-with-cloud', `helpers-spec-make-minimal-scope',
+;; `helpers-spec-make-scope-with-cloud-deny',
+;; `helpers-spec-make-scope-with-allowed-providers') survive only as
+;; load-time defuns so that integration/expansion specs that have not
+;; yet been migrated still load.  Calling them will signal a runtime
+;; error because the underlying YAML loader is gone.
 
-(defun helpers-spec--scope-with-paths (read write execute modify deny)
-  "Build scope.yml with operation-specific paths.
-READ, WRITE, EXECUTE, MODIFY, DENY are lists of path patterns.
+(defun helpers-spec-make-scope-yml (content)
+  "Deprecated.  Returns a temp filename containing CONTENT.
 
-Returns formatted YAML string."
-  (let ((format-paths (lambda (paths)
-                        (if paths
-                            (mapconcat (lambda (p) (format "    - \"%s\"" p))
-                                       paths "\n")
-                          "    []"))))
-    (format "paths:
-  read:
-%s
-  write:
-%s
-  execute:
-%s
-  modify:
-%s
-  deny:
-%s
+The YAML loader these temp files were intended for has been deleted
+(cycle-3 delete-yaml-and-security-residue).  Use
+`helpers-spec-make-scope-config' for unit tests, or
+`jf/gptel-test--with-scope-drawer' for loader tests."
+  (let ((scope-file (make-temp-file "scope-" nil ".yml")))
+    (with-temp-file scope-file
+      (insert content))
+    scope-file))
 
-bash_tools:
-  deny: []
+(defun helpers-spec-make-minimal-scope ()
+  "Deprecated.  Use `helpers-spec-make-minimal-scope-config' instead."
+  (helpers-spec-make-scope-yml
+   "paths:\n  read:\n    - \"/workspace\"\n"))
 
-cloud:
-  auth_detection: \"warn\"
+(defun helpers-spec-load-scope-config (_scope-file)
+  "Deprecated stub: the YAML loader is gone.
 
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"
-            (funcall format-paths read)
-            (funcall format-paths write)
-            (funcall format-paths execute)
-            (funcall format-paths modify)
-            (funcall format-paths deny))))
+Tests that called `helpers-spec-load-scope-config' should be migrated
+to construct a plist directly via `helpers-spec-make-scope-config' or
+to use `jf/gptel-test--with-scope-drawer' + `jf/gptel-scope--load-from-buffer'."
+  (error "helpers-spec-load-scope-config: YAML loader removed; migrate to helpers-spec-make-scope-config or jf/gptel-test--with-scope-drawer"))
 
-(defun helpers-spec--scope-with-cloud (auth-detection allowed-providers)
-  "Build scope.yml with cloud config.
-AUTH-DETECTION is a string (\"allow\", \"warn\", or \"deny\").
-ALLOWED-PROVIDERS is a list of provider keywords (:aws, :gcp, etc.).
+(defun helpers-spec--scope-with-paths (&rest _args)
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec--scope-with-paths: YAML helpers removed; use helpers-spec-make-scope-config"))
 
-Returns formatted YAML string."
-  (let ((providers-yaml
-         (if allowed-providers
-             (format "  allowed_providers:\n%s"
-                     (mapconcat (lambda (p)
-                                  (format "    - %s"
-                                          (substring (symbol-name p) 1)))
-                                allowed-providers "\n"))
-           "")))
-    (format "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
+(defun helpers-spec--scope-with-cloud (&rest _args)
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec--scope-with-cloud: YAML helpers removed; use helpers-spec-make-scope-config"))
 
-bash_tools:
-  deny: []
+(defun helpers-spec-make-scope-with-cloud-deny ()
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec-make-scope-with-cloud-deny: YAML helpers removed; use helpers-spec-make-scope-config"))
 
-cloud:
-  auth_detection: \"%s\"
-%s
-
-security:
-  enforce_parse_complete: true
-"
-            auth-detection
-            providers-yaml)))
+(defun helpers-spec-make-scope-with-allowed-providers (_providers)
+  "Deprecated stub.  Use `helpers-spec-make-scope-config'."
+  (error "helpers-spec-make-scope-with-allowed-providers: YAML helpers removed; use helpers-spec-make-scope-config"))
 
 ;;; Additional Custom Matchers
 
@@ -614,6 +547,193 @@ PATH, COMMAND, PROVIDER, OPERATION provide context for the message."
     ("unknown-org-roam-tool"
      (format "Unknown org-roam tool: %s" (or command "unknown")))
     (_ (format "Validation failed: %s" error-code))))
+
+;;; Drawer Fixture Helpers
+
+(defun jf/gptel-test--render-drawer (alist)
+  "Render an org `:PROPERTIES:' drawer block from ALIST.
+ALIST is a list of (KEY . VALUES) entries where KEY is an org property
+keyword like :GPTEL_SCOPE_READ and VALUES is either a list (multi-value:
+emitted as a single space-separated line, mirroring
+`org-entry-put-multivalued-property') or a string (scalar).  Returns
+the drawer text including a trailing newline.
+
+The closed set of acceptable keys is enumerated in
+`register/vocabulary/drawer-key-set' (the seven :GPTEL_SCOPE_* keys).
+This helper does not enforce the closed set — callers that need that
+discipline should validate input before rendering.
+
+This helper canonicalises on the single-line space-separated form
+because that is what `jf/gptel-scope--write-pattern-to-drawer'
+emits via `org-entry-put-multivalued-property'.  Org's multi-value
+reader (`org-entry-get-multivalued-property') accepts both the
+single-line form and the `:KEY+:' continuation form, so the choice
+of writer-emission style is invisible to readers; matching the
+production writer keeps fixture text byte-equivalent to what real
+sessions produce."
+  (let ((lines (list ":PROPERTIES:")))
+    (dolist (entry alist)
+      (let ((key (car entry))
+            (val (cdr entry)))
+        (cond
+         ((stringp val)
+          (push (format "%s: %s" key val) lines))
+         ((listp val)
+          (push (format "%s: %s" key
+                        (mapconcat (lambda (v) (format "%s" v)) val " "))
+                lines)))))
+    (push ":END:" lines)
+    (concat (mapconcat #'identity (nreverse lines) "\n") "\n")))
+
+(defmacro jf/gptel-test--with-scope-drawer (alist &rest body)
+  "Run BODY in a temp buffer whose `:PROPERTIES:' drawer is built from ALIST.
+The buffer is in `org-mode' with point at `point-min' before BODY runs.
+After the drawer, a minimal chat-mode initial-content stub
+\(`#+begin_user' / `#+end_user') is inserted so the buffer matches the
+shape of a real session.org.  ALIST has the same shape as
+`jf/gptel-test--render-drawer'."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (insert (jf/gptel-test--render-drawer ,alist))
+     (insert "#+begin_user\n\n#+end_user\n")
+     (org-mode)
+     (goto-char (point-min))
+     ,@body))
+
+(defmacro jf/gptel-test--with-session-document (alist &rest body)
+  "Run BODY in a temp buffer shaped like a post-cycle-7 `session.org'.
+
+ALIST has the same shape as `jf/gptel-test--render-drawer'.  After the
+file-level config drawer, the canonical heading block emitted by
+`jf/gptel--session-headings-block' is inserted: a `* System Prompt'
+heading with its own `:PROPERTIES:/:VISIBILITY: folded/:END:' drawer
+and an empty body, followed by a `* Chat' heading containing the
+empty `#+begin_user' / `#+end_user' template.
+
+The buffer is in `org-mode' with point at `point-min' before BODY runs.
+
+Use this macro (instead of `jf/gptel-test--with-scope-drawer') when the
+test must verify behaviour against the *full document shape* described
+by `register/shape/session-document-layout' — most importantly, the
+presence of a second `:PROPERTIES:' drawer attached to `* System
+Prompt'.  Buffer-wide `:PROPERTIES:'/`:END:' counts will therefore be
+2/2 here, not 1/1; assertions about the file-level drawer must be
+scoped to the span before the first heading (see e.g.
+`no-duplicate-drawer-spec--count-properties-headers' in
+`config/gptel/scope/test/drawer/no-duplicate-drawer-spec.el')."
+  (declare (indent 1))
+  `(with-temp-buffer
+     (insert (jf/gptel-test--render-drawer ,alist))
+     (insert "* System Prompt\n"
+             ":PROPERTIES:\n"
+             ":VISIBILITY: folded\n"
+             ":END:\n"
+             "\n"
+             "* Chat\n"
+             "#+begin_user\n\n#+end_user\n")
+     (org-mode)
+     (goto-char (point-min))
+     ,@body))
+
+;;; Self-tests for the drawer fixture helpers
+;;
+;; Exercising the helper from inside helpers-spec.el itself documents
+;; its expected behaviour and gives the suite a canary if the org-mode
+;; multi-value reader's contract drifts under us.
+
+(describe "jf/gptel-test--render-drawer"
+  (it "wraps a multi-value entry in a :PROPERTIES:/:END: block as a single space-separated line"
+    (let ((text (jf/gptel-test--render-drawer
+                 '((:GPTEL_SCOPE_READ . ("/a" "/b"))))))
+      (expect text :to-equal
+              ":PROPERTIES:\n:GPTEL_SCOPE_READ: /a /b\n:END:\n")))
+
+  (it "emits a scalar value as a single bare key line"
+    (let ((text (jf/gptel-test--render-drawer
+                 '((:GPTEL_SCOPE_CLOUD_AUTH . "warn")))))
+      (expect text :to-equal
+              ":PROPERTIES:\n:GPTEL_SCOPE_CLOUD_AUTH: warn\n:END:\n")))
+
+  (it "renders an empty alist as a bare drawer"
+    (expect (jf/gptel-test--render-drawer '())
+            :to-equal ":PROPERTIES:\n:END:\n"))
+
+  (it "matches the byte-for-byte output of org-entry-put-multivalued-property"
+    ;; The writer (jf/gptel-scope--write-pattern-to-drawer) goes through
+    ;; org-entry-put-multivalued-property, which emits a single space-
+    ;; separated line; the fixture helper must produce the same shape so
+    ;; round-trip tests do not diverge from production drawer text.
+    (let ((helper-text (jf/gptel-test--render-drawer
+                        '((:GPTEL_SCOPE_READ . ("/a" "/b" "/c")))))
+          (org-text
+           (with-temp-buffer
+             (insert ":PROPERTIES:\n:END:\n")
+             (org-mode)
+             (goto-char (point-min))
+             (org-entry-put-multivalued-property
+              (point) "GPTEL_SCOPE_READ" "/a" "/b" "/c")
+             (buffer-substring-no-properties (point-min) (point-max)))))
+      (expect helper-text :to-equal org-text))))
+
+(describe "jf/gptel-test--with-scope-drawer"
+  (it "round-trips a multi-value list through org-entry-get-multivalued-property"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a" "/b")))
+      (expect (org-entry-get-multivalued-property (point-min) "GPTEL_SCOPE_READ")
+              :to-equal '("/a" "/b"))))
+
+  (it "leaves point at point-min before BODY runs"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect (point) :to-equal (point-min))))
+
+  (it "puts the buffer in org-mode"
+    (jf/gptel-test--with-scope-drawer
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect major-mode :to-equal 'org-mode))))
+
+(describe "jf/gptel-test--with-session-document"
+  (it "round-trips a multi-value list through org-entry-get-multivalued-property at point-min"
+    ;; The file-level config drawer remains at point-min and is read by
+    ;; the scope loader exactly the same way as in the pre-Addendum
+    ;; fixture; the added headings must not displace it.
+    (jf/gptel-test--with-session-document
+        '((:GPTEL_SCOPE_READ . ("/a" "/b")))
+      (expect (org-entry-get-multivalued-property (point-min) "GPTEL_SCOPE_READ")
+              :to-equal '("/a" "/b"))))
+
+  (it "emits exactly one '* System Prompt' heading"
+    (jf/gptel-test--with-session-document '()
+      (goto-char (point-min))
+      (expect (count-matches "^\\* System Prompt[ \t]*$" (point-min) (point-max))
+              :to-equal 1)))
+
+  (it "emits exactly one '* Chat' heading"
+    (jf/gptel-test--with-session-document '()
+      (goto-char (point-min))
+      (expect (count-matches "^\\* Chat[ \t]*$" (point-min) (point-max))
+              :to-equal 1)))
+
+  (it "carries two :PROPERTIES: drawers buffer-wide (file-level + heading-level)"
+    ;; This is the meta-fact that motivates the sibling counter
+    ;; (`no-duplicate-drawer-spec--count-properties-headers') being scoped
+    ;; to the file-level drawer span rather than the whole buffer.  If
+    ;; this expectation ever changes, the counter scoping must be revisited.
+    (jf/gptel-test--with-session-document '()
+      (expect (count-matches "^[ \t]*:PROPERTIES:[ \t]*$" (point-min) (point-max))
+              :to-equal 2)
+      (expect (count-matches "^[ \t]*:END:[ \t]*$" (point-min) (point-max))
+              :to-equal 2)))
+
+  (it "leaves point at point-min before BODY runs"
+    (jf/gptel-test--with-session-document
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect (point) :to-equal (point-min))))
+
+  (it "puts the buffer in org-mode"
+    (jf/gptel-test--with-session-document
+        '((:GPTEL_SCOPE_READ . ("/a")))
+      (expect major-mode :to-equal 'org-mode))))
 
 ;;; Provide
 

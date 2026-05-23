@@ -8,11 +8,11 @@
 ;;; Commentary:
 
 ;; The expansion UI's "Add to scope" action needs the denied path in
-;; violation-info :resource to know what to add to scope.yml. These
-;; tests inject canonical validation errors (denied-pattern /
-;; not-in-scope with :resource and :validation-type) into
-;; trigger-inline-expansion and verify the resulting violation-info
-;; preserves the denied path.
+;; violation-info :resource to know what to write to the chat
+;; buffer's :PROPERTIES: drawer.  These tests inject canonical
+;; validation errors (denied-pattern / not-in-scope with :resource
+;; and :validation-type) into trigger-inline-expansion and verify
+;; the resulting violation-info preserves the denied path.
 
 ;;; Code:
 

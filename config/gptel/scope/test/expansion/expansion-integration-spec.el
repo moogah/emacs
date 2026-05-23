@@ -13,20 +13,16 @@
 ;; components, ensuring proper data flow from validators through to
 ;; the expansion UI without mismatches in field names or formats.
 ;;
-;; Sources:
-;; - scope/test/integration-validator-expansion-spec.el (7 tests, absorbed)
-;; - New end-to-end scenarios: validation failure -> expansion -> approval flow
+;; Migration note: rewritten as part of migrate-expansion-tests
+;; (cycle-3) — scope_config plists are now constructed directly via
+;; `helpers-spec-make-scope-config' (no scope.yml round-trip).
 ;;
 ;; Test coverage:
 ;; 1. Path validator output -> build-violation-info -> violation-info format
 ;; 2. Pattern validator output -> build-violation-info -> violation-info format
 ;; 3. Bash validator output -> build-violation-info -> violation-info format
 ;; 4. Violation-info -> Expansion UI rendering (no crashes on missing fields)
-;; 5. End-to-end: validator failure -> expansion trigger -> approval -> retry
-;;
-;; Mocking approach:
-;; - Mock: transient menu user choices, call-process
-;; - Real: validation functions, build-violation-info, expansion triggering logic
+;; 5. End-to-end: validator failure -> expansion -> approval flow
 
 ;;; Code:
 
@@ -47,14 +43,13 @@
 ;;; Test Fixtures
 
 (defvar expansion-integration--test-scope-config
-  '(:paths (:read ("/workspace/allowed/**")
-            :write ("/workspace/writable/**")
-            :execute ()
-            :modify ()
-            :deny ("/workspace/denied/**"))
-    :cloud (:auth-detection "warn")
-    :security (:enforce-parse-complete t
-               :max-coverage-threshold 0.8))
+  (helpers-spec-make-scope-config
+   :read    '("/workspace/allowed/**")
+   :write   '("/workspace/writable/**")
+   :execute '()
+   :modify  '()
+   :deny    '("/workspace/denied/**")
+   :auth-detection "warn")
   "Test scope configuration for validators.")
 
 ;;; Helper Functions
@@ -68,7 +63,7 @@ Returns check-result from validator."
      expansion-integration--test-scope-config nil)))
 
 ;;; ============================================================
-;;; Tests absorbed from integration-validator-expansion-spec.el
+;;; Validator -> build-violation-info contract tests
 ;;; ============================================================
 
 (describe "Validator -> build-violation-info -> Expansion UI Integration"
@@ -133,9 +128,7 @@ Returns check-result from validator."
         (expect (plist-get violation-info :tool) :to-equal "run_bash_command")
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")
         (expect (plist-get violation-info :reason) :to-be-truthy)
-        (expect (plist-get violation-info :validation-type) :to-equal 'bash)))
-
-    )
+        (expect (plist-get violation-info :validation-type) :to-equal 'bash))))
 
   (describe "Reason extracted from :message field"
 
@@ -162,7 +155,7 @@ Returns check-result from validator."
         (expect (plist-get violation-info :resource) :to-equal "/tmp/file.txt")))))
 
 ;;; ============================================================
-;;; End-to-end expansion integration tests (new)
+;;; End-to-end expansion integration tests
 ;;; ============================================================
 
 (describe "End-to-end: Validator failure -> expansion -> approval flow"
@@ -195,7 +188,7 @@ Returns check-result from validator."
         ;; Mock expansion UI to simulate add-to-scope approval
         (spy-on 'jf/gptel-scope-prompt-expansion
                 :and-call-fake
-                (lambda (vi callback patterns tool-name)
+                (lambda (vi callback _patterns _tool-name)
                   (setq expansion-called t)
                   ;; Verify violation-info fields are accessible
                   (expect (plist-get vi :tool) :to-equal "read_file_in_scope")
@@ -221,8 +214,7 @@ Returns check-result from validator."
   (describe "Bash validator -> expansion -> allow-once approval"
 
     (it "bash validation failure triggers expansion, allow-once delivers success"
-      (let* ((scope-yml (helpers-spec-make-minimal-scope))
-             (scope-config (helpers-spec-load-scope-config scope-yml))
+      (let* ((scope-config (helpers-spec-make-minimal-scope-config))
              (command "cat /tmp/data.txt")
              (directory "/workspace")
              (expansion-called nil)
@@ -264,16 +256,13 @@ Returns check-result from validator."
 
         (expect expansion-called :to-be t)
         (let ((parsed (json-parse-string expansion-result :object-type 'plist)))
-          (expect (plist-get parsed :allowed_once) :to-be t))
-
-        (delete-file scope-yml))))
+          (expect (plist-get parsed :allowed_once) :to-be t)))))
 
   (describe "Validation -> expansion -> denial preserves error"
 
     (it "denial flow preserves original validation error context"
       ;; End-to-end: validation fails -> expansion -> user denies -> error context preserved
-      (let* ((scope-yml (helpers-spec-make-minimal-scope))
-             (scope-config (helpers-spec-load-scope-config scope-yml))
+      (let* ((scope-config (helpers-spec-make-minimal-scope-config))
              (command "cat /etc/shadow")
              (directory "/workspace")
              (denial-result nil))
@@ -298,7 +287,7 @@ Returns check-result from validator."
             ;; Step 3: User denies
             (spy-on 'jf/gptel-scope-prompt-expansion
                     :and-call-fake
-                    (lambda (vi callback patterns tool-name)
+                    (lambda (_vi callback _patterns _tool-name)
                       (funcall callback
                                (json-serialize
                                 (list :success nil
@@ -315,11 +304,7 @@ Returns check-result from validator."
         (let ((parsed (json-parse-string denial-result :object-type 'plist)))
           (expect (plist-get parsed :user_denied) :to-be t)
           (expect (or (eq (plist-get parsed :success) :json-false)
-                      (eq (plist-get parsed :success) nil)) :to-be t))
-
-        (delete-file scope-yml))))
-
-  )
+                      (eq (plist-get parsed :success) nil)) :to-be t))))))
 
 (provide 'expansion-integration-spec)
 ;;; expansion-integration-spec.el ends here

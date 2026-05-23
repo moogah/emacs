@@ -36,6 +36,19 @@
   (require 'gptel-persistent-agent
            (expand-file-name "persistent-agent.el" tools-dir)))
 
+;; Helper: open AGENT-DIR's `session.org' in `org-mode' so drawer
+;; queries (`org-entry-get', `org-entry-get-multivalued-property')
+;; route through the same parser the production loader uses
+;; (`register/shape/drawer-text-block', `register/boundary/scope-profile-applicator').
+(defmacro jf/persistent-agent-test--with-agent-session-org (agent-dir &rest body)
+  "Open AGENT-DIR's session.org in a temp org buffer and run BODY there."
+  (declare (indent 1) (debug t))
+  `(let ((session-org (expand-file-name "session.org" ,agent-dir)))
+     (with-temp-buffer
+       (insert-file-contents session-org)
+       (org-mode)
+       ,@body)))
+
 ;;; Tests
 
 (describe "PersistentAgent creation flow"
@@ -70,31 +83,78 @@
   (it "writes session.org with a self-describing :PROPERTIES: drawer"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Agent session
     ;; creation" -> "session.org carries a self-describing :PROPERTIES:
-    ;; drawer"
+    ;; drawer".  The drawer carries `:GPTEL_PRESET:',
+    ;; `:GPTEL_PARENT_SESSION_ID:', the agent's `:GPTEL_SCOPE_*:' keys
+    ;; (Mode 2a — `register/boundary/scope-profile-applicator'), and
+    ;; the resolved preset's chat-mode snapshot keys
+    ;; (`:GPTEL_MODEL:', `:GPTEL_BACKEND:', etc. —
+    ;; `register/shape/drawer-text-block', Decision 4 of
+    ;; gptel-drawer-as-source-of-truth).  `:GPTEL_SYSTEM:' is NEVER
+    ;; emitted (Decision 2 / `register/invariant/drawer-system-key-
+    ;; write-exclusion').
+    ;; With `allowed-paths' omitted, the drawer has the standard deny
+    ;; set + `:GPTEL_SCOPE_WRITE: /tmp/**' but no `:GPTEL_SCOPE_READ:'.
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir  (expand-file-name "agents" mock-branch-dir))
-                (agent-name  (car (cl-remove-if
-                                   (lambda (n) (member n '("." "..")))
-                                   (directory-files agents-dir))))
-                (agent-dir   (expand-file-name agent-name agents-dir))
-                (session-org (expand-file-name "session.org" agent-dir))
-                (content     (with-temp-buffer
-                               (insert-file-contents session-org)
-                               (buffer-string)))
-                (expected    (format
-                              ":PROPERTIES:\n:GPTEL_PRESET: %s\n:GPTEL_PARENT_SESSION_ID: %s\n:END:\n#+begin_user\n%s\n#+end_user\n"
-                              "test-preset" mock-session-id "DO THE THING")))
+         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                (agent-name (car (cl-remove-if
+                                  (lambda (n) (member n '("." "..")))
+                                  (directory-files agents-dir))))
+                (agent-dir  (expand-file-name agent-name agents-dir))
+                (session-org (expand-file-name "session.org" agent-dir)))
            (expect (file-exists-p session-org) :to-be t)
-           (expect content :to-equal expected))))))
+           (jf/persistent-agent-test--with-agent-session-org agent-dir
+             (expect (org-entry-get (point-min) "GPTEL_PRESET")
+                     :to-equal "test-preset")
+             (expect (org-entry-get (point-min) "GPTEL_PARENT_SESSION_ID")
+                     :to-equal mock-session-id)
+             ;; Chat-mode snapshot keys (Decision 4 / Layer 2 of
+             ;; gptel-drawer-as-source-of-truth).  Structural
+             ;; assertions (presence-only) so the test stays stable as
+             ;; the resolved `gptel-backend' / `gptel-model' values
+             ;; change between environments — the wire-snapshot
+             ;; production path emits these from the resolved
+             ;; `preset-spec' and forcing it nil drops the lines.
+             (expect (org-entry-get (point-min) "GPTEL_MODEL")
+                     :not :to-be nil)
+             (expect (org-entry-get (point-min) "GPTEL_BACKEND")
+                     :not :to-be nil)
+             ;; :GPTEL_SYSTEM: must NEVER appear in the rendered
+             ;; drawer (Decision 2 /
+             ;; register/invariant/drawer-system-key-write-exclusion).
+             (expect (org-entry-get (point-min) "GPTEL_SYSTEM")
+                     :to-be nil)
+             ;; No allowed-paths supplied ⇒ no `:GPTEL_SCOPE_READ:'.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_READ")
+                     :to-be nil)
+             ;; Standard write target: `/tmp/**'.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_WRITE")
+                     :to-equal '("/tmp/**"))
+             ;; Standard deny set hoisted to a defconst in
+             ;; persistent-agent.org (cycle-2 rewire-persistent-agent);
+             ;; reference the defconst so the test does not double-pin
+             ;; the literal pattern strings.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_DENY")
+                     :to-equal jf/gptel-persistent-agent--standard-deny-paths)
+             ;; Body still carries the user prompt.
+             (expect (buffer-string) :to-match "#\\+begin_user\nDO THE THING\n#\\+end_user"))
+           ;; No `scope.yml' is produced (drawer-resident scope —
+           ;; cycle-2 rewire-persistent-agent).
+           (expect (file-exists-p (expand-file-name "scope.yml" agent-dir))
+                   :to-be nil))))))
 
-  (it "writes scope.yml with allowed paths"
+  (it "writes session.org drawer with :GPTEL_SCOPE_READ reflecting allowed paths"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Agent session
-    ;; creation" -> "scope.yml written via scope-module helper"
+    ;; creation" -> "scope keys recorded in agent's session.org drawer".
+    ;; Replaces the legacy "writes scope.yml with allowed paths" test;
+    ;; drawer-resident scope is the sole route — no `scope.yml' sidecar.
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
@@ -107,24 +167,42 @@
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
                 (agent-dir  (expand-file-name agent-name agents-dir))
-                (scope-yml  (expand-file-name "scope.yml" agent-dir))
-                (content    (with-temp-buffer
-                              (insert-file-contents scope-yml)
-                              (buffer-string))))
-           (expect (file-exists-p scope-yml) :to-be t)
-           ;; paths.read contains both supplied patterns, exactly.
-           (expect content :to-match "  read:\n    - \"/path/to/project/\\*\\*\"\n    - \"/another/\\*\\*\"\n")
-           ;; paths.write is the constant /tmp/** entry.
-           (expect content :to-match "  write:\n    - \"/tmp/\\*\\*\"\n")
-           ;; paths.deny includes the four standard deny patterns.
-           (expect content :to-match "    - \"\\*\\*/\\.git/\\*\\*\"")
-           (expect content :to-match "    - \"\\*\\*/runtime/\\*\\*\"")
-           (expect content :to-match "    - \"\\*\\*/\\.env\"")
-           (expect content :to-match "    - \"\\*\\*/node_modules/\\*\\*\""))))))
+                (session-org (expand-file-name "session.org" agent-dir)))
+           (expect (file-exists-p session-org) :to-be t)
+           (jf/persistent-agent-test--with-agent-session-org agent-dir
+             ;; Read patterns reflect the supplied allowed paths,
+             ;; in order, with no inheritance from parent.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_READ")
+                     :to-equal '("/path/to/project/**" "/another/**"))
+             ;; Standard write target.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_WRITE")
+                     :to-equal '("/tmp/**"))
+             ;; Standard deny set referenced by defconst.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_DENY")
+                     :to-equal jf/gptel-persistent-agent--standard-deny-paths)
+             ;; Parent-session-id captured (positive assertion —
+             ;; this drawer-key is the agent-side pointer to the
+             ;; parent session).
+             (expect (org-entry-get (point-min) "GPTEL_PARENT_SESSION_ID")
+                     :to-equal mock-session-id))
+           ;; No `scope.yml' is produced.
+           (expect (file-exists-p (expand-file-name "scope.yml" agent-dir))
+                   :to-be nil))))))
 
-  (it "writes scope.yml with empty read paths when allowed-paths is omitted"
+  (it "writes session.org drawer with no :GPTEL_SCOPE_READ when allowed-paths is omitted"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Tool invocation
-    ;; and validation" -> "Explicit path configuration (zero inheritance)"
+    ;; and validation" -> "Explicit path configuration (zero inheritance)".
+    ;; Replaces the legacy "writes scope.yml with empty read paths" test.
+    ;; The drawer has `:GPTEL_PRESET:', `:GPTEL_PARENT_SESSION_ID:',
+    ;; `:GPTEL_SCOPE_WRITE:' and `:GPTEL_SCOPE_DENY:' but the
+    ;; `:GPTEL_SCOPE_READ:' key is absent (zero inheritance).
+    ;;
+    ;; Note: this test pins the agent-side renderer's behaviour only —
+    ;; downstream validator behaviour for the empty-allowed-paths case
+    ;; is still subject to `disposition-empty-drawer-collapse'.
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
@@ -136,18 +214,33 @@
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
                 (agent-dir  (expand-file-name agent-name agents-dir))
-                (scope-yml  (expand-file-name "scope.yml" agent-dir))
-                (content    (with-temp-buffer
-                              (insert-file-contents scope-yml)
-                              (buffer-string))))
-           (expect (file-exists-p scope-yml) :to-be t)
-           ;; Literal `read:\n    []` (zero inheritance).
-           (expect content :to-match "  read:\n    \\[\\]\n")
-           ;; The mock-parent-session fixture writes no parent scope.yml,
-           ;; so absence of any inherited pattern is implicit; assert no
-           ;; sample inherited pattern appears.
-           (expect content :not :to-match "/path/to/project/")
-           (expect content :not :to-match "/another/"))))))
+                (session-org (expand-file-name "session.org" agent-dir)))
+           (expect (file-exists-p session-org) :to-be t)
+           (jf/persistent-agent-test--with-agent-session-org agent-dir
+             ;; `:GPTEL_SCOPE_READ:' is absent (zero inheritance).
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_READ")
+                     :to-be nil)
+             ;; Standard write + deny still present.
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_WRITE")
+                     :to-equal '("/tmp/**"))
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_DENY")
+                     :to-equal jf/gptel-persistent-agent--standard-deny-paths)
+             ;; Identity keys preserved.
+             (expect (org-entry-get (point-min) "GPTEL_PRESET")
+                     :to-equal "test-preset")
+             (expect (org-entry-get (point-min) "GPTEL_PARENT_SESSION_ID")
+                     :to-equal mock-session-id)
+             ;; Mock-parent-session fixture writes no parent scope; the
+             ;; agent's drawer should not carry any inherited pattern.
+             (expect (buffer-string) :not :to-match "/path/to/project/")
+             (expect (buffer-string) :not :to-match "/another/"))
+           ;; No `scope.yml' is produced (negative assertion catches
+           ;; regressions where the YAML write path is re-introduced).
+           (expect (file-exists-p (expand-file-name "scope.yml" agent-dir))
+                   :to-be nil))))))
 
   (it "rejects an unknown preset before any directory is created"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Error handling"
@@ -198,6 +291,190 @@
       (expect arg-names :to-contain "prompt")
       (expect arg-names :to-contain "allowed_paths")
       (expect arg-names :not :to-contain "denied_paths"))))
+
+(describe "PersistentAgent session.org matches the canonical document layout"
+  ;; Cycle-8 task `route-agent-session-creation-through-canonical-layout'.
+  ;; The agent-creation path SHALL produce a session.org that conforms to
+  ;; `register/shape/session-document-layout' (see interfaces.org and
+  ;; `openspec/changes/gptel-drawer-as-source-of-truth/specs/gptel/
+  ;; sessions-persistence.md' Scenario "Fresh agent session.org carries
+  ;; parent session id and full snapshot" / "Agent session.org matches the
+  ;; canonical document layout"). The structural invariants pinned here
+  ;; mirror `shape/validate-session-document-layout' in interfaces.org.
+
+  (it "emits the config drawer at point-min, then * System Prompt, then * Chat"
+    ;; Structural invariants 1, 2, 3, 4 of register/shape/
+    ;; session-document-layout (config drawer at point-min, singleton
+    ;; `* System Prompt' heading, singleton `* Chat' heading, turn
+    ;; blocks under `* Chat').
+    (jf/persistent-agent-test--with-mock-parent-session
+     (jf/persistent-agent-test--with-mock-preset 'test-preset
+       (let ((captured nil))
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "DO THE THING"))
+         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                (agent-name (car (cl-remove-if
+                                  (lambda (n) (member n '("." "..")))
+                                  (directory-files agents-dir))))
+                (agent-dir  (expand-file-name agent-name agents-dir))
+                (session-org (expand-file-name "session.org" agent-dir))
+                (content (with-temp-buffer
+                           (insert-file-contents session-org)
+                           (buffer-string))))
+           ;; Invariant 1: file-level config drawer at point-min — no
+           ;; heading, no blank line, no content precedes ":PROPERTIES:".
+           (expect content :to-match "\\`:PROPERTIES:\n")
+           (expect content :to-match "\n:END:\n")
+           ;; Invariant 2: exactly one `* System Prompt' heading.
+           (expect (with-temp-buffer
+                     (insert content)
+                     (count-matches "^\\* System Prompt[ \t]*$"
+                                    (point-min) (point-max)))
+                   :to-equal 1)
+           ;; Invariant 3: exactly one `* Chat' heading.
+           (expect (with-temp-buffer
+                     (insert content)
+                     (count-matches "^\\* Chat[ \t]*$"
+                                    (point-min) (point-max)))
+                   :to-equal 1)
+           ;; `* System Prompt' carries its folded :VISIBILITY: drawer.
+           (expect content :to-match
+                   "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
+           ;; Invariant 4: turn block(s) appear under `* Chat', never
+           ;; before it.
+           (let ((chat-pos (string-match "^\\* Chat[ \t]*$" content))
+                 (turn-pos (string-match "^#\\+begin_user" content)))
+             (expect chat-pos :to-be-truthy)
+             (expect turn-pos :to-be-truthy)
+             (expect (< chat-pos turn-pos) :to-be t))
+           ;; Document ordering: config drawer :END: precedes
+           ;; `* System Prompt'; `* System Prompt' precedes `* Chat'.
+           (let ((end-pos    (string-match "^:END:$" content))
+                 (sysp-pos   (string-match "^\\* System Prompt" content))
+                 (chat-pos   (string-match "^\\* Chat" content)))
+             (expect (and end-pos sysp-pos chat-pos) :to-be-truthy)
+             (expect (< end-pos sysp-pos) :to-be t)
+             (expect (< sysp-pos chat-pos) :to-be t))
+           ;; The user-block prompt body lives under `* Chat'.
+           (expect content :to-match
+                   "^\\* Chat\n#\\+begin_user\nDO THE THING\n#\\+end_user\n\\'"))))))
+
+  (it "seeds the * System Prompt heading body from the preset's :system text"
+    ;; The preset's `:system' text seeds the heading body verbatim
+    ;; (§Addendum Decision B / register/invariant/system-prompt-heading-
+    ;; authoritative). With-mock-preset does not declare `:system', so
+    ;; we register an explicit preset with a system prompt here.
+    (jf/persistent-agent-test--with-mock-parent-session
+     (let ((preset-name 'test-preset-with-system)
+           (system-text "You are a careful executor.\nObey the drawer."))
+       (unwind-protect
+           (progn
+             (gptel-make-preset preset-name
+               :description "test preset with system"
+               :backend gptel-backend
+               :model gptel-model
+               :system system-text)
+             (let ((captured nil))
+               (jf/persistent-agent-test--with-mock-gptel-request captured
+                 (jf/gptel-persistent-agent--task
+                  #'ignore (symbol-name preset-name)
+                  "analyze code" "DO THE THING"))
+               (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                      (agent-name (car (cl-remove-if
+                                        (lambda (n) (member n '("." "..")))
+                                        (directory-files agents-dir))))
+                      (agent-dir  (expand-file-name agent-name agents-dir))
+                      (session-org (expand-file-name "session.org" agent-dir))
+                      (content (with-temp-buffer
+                                 (insert-file-contents session-org)
+                                 (buffer-string))))
+                 ;; The system text appears verbatim between the
+                 ;; heading's :END: drawer line and the `* Chat'
+                 ;; heading.
+                 (expect content :to-match (regexp-quote system-text))
+                 (expect content :to-match
+                         (concat ":END:\n"
+                                 (regexp-quote system-text)
+                                 "\n\n\\* Chat\n"))
+                 ;; :GPTEL_SYSTEM: still never appears in the drawer
+                 ;; (Decision 2).
+                 (expect (string-match-p ":GPTEL_SYSTEM:" content)
+                         :to-be nil))))
+         (setq gptel--known-presets
+               (assq-delete-all preset-name gptel--known-presets))))))
+
+  (it "emits the * System Prompt heading even when the preset has no :system"
+    ;; Structural invariant: exactly one `* System Prompt' heading
+    ;; regardless of whether the preset declares `:system'. The body
+    ;; is empty when there is no `:system' text.
+    (jf/persistent-agent-test--with-mock-parent-session
+     ;; `with-mock-preset' registers a preset without `:system'.
+     (jf/persistent-agent-test--with-mock-preset 'test-preset
+       (let ((captured nil))
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "DO THE THING"))
+         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                (agent-name (car (cl-remove-if
+                                  (lambda (n) (member n '("." "..")))
+                                  (directory-files agents-dir))))
+                (agent-dir  (expand-file-name agent-name agents-dir))
+                (session-org (expand-file-name "session.org" agent-dir))
+                (content (with-temp-buffer
+                           (insert-file-contents session-org)
+                           (buffer-string))))
+           ;; Heading present with its folded :VISIBILITY: drawer …
+           (expect content :to-match
+                   "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n")
+           ;; … followed immediately by a blank line and `* Chat' (no
+           ;; body text between the heading's :END: and `* Chat').
+           (expect content :to-match
+                   "^\\* System Prompt\n:PROPERTIES:\n:VISIBILITY: folded\n:END:\n\n\\* Chat\n"))))))
+
+  (it "the produced session.org passes the canonical layout validator"
+    ;; Mirrors `shape/validate-session-document-layout' from
+    ;; interfaces.org so this spec catches drift in the agent path the
+    ;; same way the validator would.
+    (jf/persistent-agent-test--with-mock-parent-session
+     (jf/persistent-agent-test--with-mock-preset 'test-preset
+       (let ((captured nil))
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "DO THE THING"))
+         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+                (agent-name (car (cl-remove-if
+                                  (lambda (n) (member n '("." "..")))
+                                  (directory-files agents-dir))))
+                (agent-dir  (expand-file-name agent-name agents-dir))
+                (session-org (expand-file-name "session.org" agent-dir)))
+           (with-temp-buffer
+             (insert-file-contents session-org)
+             ;; Inline the validator body (avoid coupling the test to
+             ;; an as-yet-unimplemented helper function — the
+             ;; structural assertions match interfaces.org's
+             ;; `shape/validate-session-document-layout' verbatim).
+             (save-excursion
+               (goto-char (point-min))
+               (expect (looking-at-p "[ \t\n]*:PROPERTIES:") :to-be t))
+             (expect (count-matches "^\\* System Prompt[ \t]*$"
+                                    (point-min) (point-max))
+                     :to-equal 1)
+             (expect (count-matches "^\\* Chat[ \t]*$"
+                                    (point-min) (point-max))
+                     :to-equal 1)
+             (let* ((chat-pos (save-excursion
+                                (goto-char (point-min))
+                                (re-search-forward
+                                 "^\\* Chat[ \t]*$" nil t)))
+                    (turn-pos (save-excursion
+                                (goto-char (point-min))
+                                (re-search-forward
+                                 "^#\\+begin_\\(user\\|assistant\\)"
+                                 nil t))))
+               (expect chat-pos :to-be-truthy)
+               (expect turn-pos :to-be-truthy)
+               (expect (< chat-pos turn-pos) :to-be t)))))))))
 
 (provide 'creation-spec)
 ;;; creation-spec.el ends here

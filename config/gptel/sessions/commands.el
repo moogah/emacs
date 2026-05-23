@@ -13,18 +13,23 @@
 ;; commands have been removed. Use standard Emacs file navigation instead.
 ;;
 ;; ARCHITECTURE: Presets are registered in gptel--known-presets at startup.
-;; Session creation writes scope.yml (from preset's scope profile) and
-;; pre-populates session.org with a :PROPERTIES: drawer containing
-;; GPTEL_PRESET (and GPTEL_PARENT_SESSION_ID for agents). Every time the
-;; session file is opened, `gptel-chat-mode' activation reads the drawer
-;; and applies the declared preset (plus overlaying non-preset deltas
-;; and `GPTEL_PARENT_SESSION_ID') via `gptel-chat--apply-declared-preset';
-;; the save hook writes it back on every save. The drawer is the
-;; authoritative session-level configuration source — session buffers run
-;; `gptel-chat-mode' exclusively (Decision 16) and do NOT round-trip
-;; through gptel--save-state / gptel--restore-state. Session creation no
-;; longer writes a metadata.yml sidecar; all session-level state is
-;; either path-derivable or drawer-derived (design Decision 4 /
+;; Session creation pre-populates session.org with a :PROPERTIES: drawer
+;; containing GPTEL_PRESET, optional GPTEL_PARENT_SESSION_ID (agent
+;; sessions), and the resolved scope keys (GPTEL_SCOPE_*). The drawer is
+;; rendered by `jf/gptel-scope-profile--render-drawer-text' (Mode 2a) and
+;; embedded in the initial content during the single `write-region' that
+;; creates session.org — there is no longer a separate `scope.yml' file
+;; (gptel-scope-in-org-properties: drawer-resident scope). Every time
+;; the session file is opened, `gptel-chat-mode' activation reads the
+;; drawer and applies the declared preset (plus overlaying non-preset
+;; deltas and `GPTEL_PARENT_SESSION_ID') via
+;; `gptel-chat--apply-declared-preset'; the save hook writes it back on
+;; every save. The drawer is the authoritative session-level
+;; configuration source — session buffers run `gptel-chat-mode'
+;; exclusively (Decision 16) and do NOT round-trip through
+;; gptel--save-state / gptel--restore-state. Session creation no longer
+;; writes a metadata.yml sidecar nor a scope.yml file; all session-level
+;; state is either path-derivable or drawer-derived (design Decision 4 /
 ;; Decision 6).
 
 ;;; Code:
@@ -228,88 +233,132 @@ critical."
                   (and (jf/gptel--valid-session-directory-p session-dir)
                        (jf/gptel--valid-branch-directory-p branch-dir))
                 (jf/gptel--valid-branch-directory-p branch-dir))
+          (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
+                         session-type session-id branch-name)
+
+          ;; Mode flip is its own concern. A failing preset (e.g. one
+          ;; that references a tool not registered in this build) must
+          ;; not abort the buffer-local state-setting that follows.
+          ;; Activating chat-mode fires `gptel-chat-mode-hook', which
+          ;; runs `gptel-chat--apply-declared-preset' to apply the
+          ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
+          ;; `:PROPERTIES:' drawer (design.md §Decisions 5, 6, 9). If
+          ;; preset application errors (missing tool, schema drift,
+          ;; etc.), the buffer is left in whatever state mode-activation
+          ;; reached — preset NOT applied, session vars still set.
+          ;;
+          ;; Never calls (gptel-mode 1) — Decision 16.
+          (condition-case err
+              (jf/gptel--ensure-mode-once)
+            (error
+             (jf/gptel--log
+              'warn
+              "Mode activation/preset failed for %s/%s: %s; session vars set, preset NOT applied"
+              session-id branch-name (error-message-string err))))
+
+          ;; Buffer-local session vars: always set when validation
+          ;; passed. These do not depend on preset application
+          ;; succeeding. (Mode activation wipes buffer-locals via
+          ;; `kill-all-local-variables', so these run after.)
+          (setq-local jf/gptel--session-id session-id)
+          (setq-local jf/gptel--session-dir session-dir)
+          (setq-local jf/gptel--branch-name branch-name)
+          (setq-local jf/gptel--branch-dir branch-dir)
+
+          ;; Registry registration + current-symlink update: wrapped so
+          ;; a failure cannot abort the other, but independent of
+          ;; preset-application state. Skip the symlink update for
+          ;; legacy flat agent layout (no `branches/' dir).
           (condition-case err
               (progn
-                (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
-                               session-type session-id branch-name)
-
-                ;; Ensure chat-mode is the active major mode FIRST,
-                ;; before setting any buffer-local session vars.
-                ;; Activating a major mode calls
-                ;; `kill-all-local-variables', which would wipe any
-                ;; session vars set beforehand (they are not declared
-                ;; `permanent-local').
-                ;;
-                ;; Activating chat-mode also fires
-                ;; `gptel-chat-mode-hook', which runs
-                ;; `gptel-chat--apply-declared-preset' to apply the
-                ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
-                ;; `:PROPERTIES:' drawer. The drawer is the
-                ;; authoritative configuration source (design.md
-                ;; §Decisions 5, 6, 9) — auto-init does not read
-                ;; metadata.yml or apply presets itself.
-                ;;
-                ;; Never calls (gptel-mode 1) — Decision 16.
-                (jf/gptel--ensure-mode-once)
-
-                ;; Set buffer-local session variables (after mode
-                ;; activation, since mode activation wipes them).
-                (setq-local jf/gptel--session-id session-id)
-                (setq-local jf/gptel--session-dir session-dir)
-                (setq-local jf/gptel--branch-name branch-name)
-                (setq-local jf/gptel--branch-dir branch-dir)
-
-                ;; Register the buffer in the session registry.
                 (jf/gptel--register-session session-dir
                                             (current-buffer)
                                             session-id
                                             branch-name
                                             branch-dir)
                 (setq-local jf/gptel-autosave-enabled t)
-
-                ;; Update current symlink to point to this branch.
-                ;; Skip for legacy flat agent layout: the agent directory
-                ;; has no `branches/' subdirectory, so pointing `current'
-                ;; at `branches/main' there would create a dangling
-                ;; symlink. Nested agents update the parent session's
-                ;; `current' symlink to the real branch name.
                 (unless (eq session-type 'agent-flat)
-                  (jf/gptel--update-current-symlink session-dir branch-name))
-
-                (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
-                               session-type session-id branch-name)
-                (message "Session initialized: %s (branch: %s)"
-                         session-id branch-name))
+                  (jf/gptel--update-current-symlink session-dir branch-name)))
             (error
-             (jf/gptel--log 'error "Failed to auto-initialize %s session: %s"
-                            session-type (error-message-string err))
-             (message "Warning: Session auto-init failed. File opened in basic mode."))))))))
+             (jf/gptel--log 'warn
+                            "Post-init registry/symlink work failed for %s/%s: %s"
+                            session-id branch-name (error-message-string err))))
 
-(defun jf/gptel--initial-session-content (preset-name &optional parent-session-id)
-  "Return initial content for a freshly-created `session.org' file.
+          (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
+                         session-type session-id branch-name)
+          (message "Session initialized: %s (branch: %s)"
+                   session-id branch-name))))))
 
-PRESET-NAME is a symbol naming a registered preset in
-`gptel--known-presets'.
+(defun jf/gptel--session-headings-block (system-prompt user-block)
+  "Return the heading portion of a `session.org' as a string.
 
-PARENT-SESSION-ID, when a non-empty string, adds a
-`:GPTEL_PARENT_SESSION_ID:' line to the drawer so the chat-mode
-restore path installs `jf/gptel--parent-session-id' buffer-locally
-on first open (design Decision 3 / Decision 4).
+SYSTEM-PROMPT is the system-prompt body text (a string) or nil.
+When nil or an all-whitespace string, the `* System Prompt'
+heading is emitted with an empty body.
 
-Returns a string starting with a `:PROPERTIES:' drawer followed by
-an empty `#+begin_user' / `#+end_user' block (the chat-mode
-new-chat template, Decision 9 / Decision 18). The shape is
-identical to what the save hook writes on first save with no
-overrides, so creation → open → save is a no-op."
-  (let ((parent-line
-         (if (and parent-session-id
-                  (stringp parent-session-id)
-                  (not (string-empty-p parent-session-id)))
-             (format ":GPTEL_PARENT_SESSION_ID: %s\n" parent-session-id)
-           "")))
-    (format ":PROPERTIES:\n:GPTEL_PRESET: %s\n%s:END:\n#+begin_user\n\n#+end_user\n"
-            (symbol-name preset-name)
-            parent-line)))
+USER-BLOCK is the chat-turn block string that lives under the
+`* Chat' heading (typically the empty `#+begin_user' /
+`#+end_user' template).
+
+Emits, in order:
+  * System Prompt
+  :PROPERTIES:
+  :VISIBILITY: folded
+  :END:
+  <system-prompt body, when non-blank>
+
+  * Chat
+  <user-block>
+
+This is the single source of truth for the heading shape
+described by `register/shape/session-document-layout'; the
+`* System Prompt' heading body is made authoritative by the
+sibling task `make-system-prompt-heading-authoritative'.
+
+The caller prepends the file-level `:PROPERTIES:' config drawer
+\(rendered by `jf/gptel-scope-profile--render-drawer-text', Mode
+2a) so the composed document is `(concat drawer-text headings)'."
+  (let* ((body (and (stringp system-prompt)
+                    (not (string-blank-p system-prompt))
+                    system-prompt))
+         ;; A non-blank body is emitted verbatim followed by a
+         ;; newline; a blank/nil body emits the heading and its
+         ;; drawer only.  Either way a blank line separates the
+         ;; `* System Prompt' subtree from `* Chat'.
+         (body-text (if body (concat body "\n") "")))
+    (concat "* System Prompt\n"
+            ":PROPERTIES:\n"
+            ":VISIBILITY: folded\n"
+            ":END:\n"
+            body-text
+            "\n"
+            "* Chat\n"
+            user-block)))
+
+(defun jf/gptel--initial-session-body (&optional system-prompt)
+  "Return the chat-mode body portion of a fresh `session.org'.
+
+SYSTEM-PROMPT, when a non-blank string, seeds the body of the
+`* System Prompt' heading.  When nil or all-whitespace, the
+heading is emitted with an empty body — the document shape stays
+canonical (`register/shape/session-document-layout').
+
+The body is the `* System Prompt' heading (folded via
+`:VISIBILITY: folded') followed by a `* Chat' heading holding the
+empty `#+begin_user' / `#+end_user' block template (design.md
+§Addendum Decision B; Decision 9 / Decision 18).  Callers are
+expected to prepend a file-level `:PROPERTIES:' config drawer
+rendered by `jf/gptel-scope-profile--render-drawer-text' before
+writing the file.
+
+The chat parser is heading-indifferent (design.md §Decision 12):
+it locates turn blocks by `#+begin_user' / `#+begin_assistant'
+markers, so the headings and the system-prompt body are
+commentary to it and `gptel-chat-new' scratch buffers (bare
+`#+begin_user' blocks, no headings) remain valid input."
+  (jf/gptel--session-headings-block
+   system-prompt
+   "#+begin_user\n\n#+end_user\n"))
 
 (defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root parent-session-id)
   "Create session directory structure with branching support.
@@ -317,14 +366,22 @@ overrides, so creation → open → save is a no-op."
 SESSION-ID - unique session identifier
 SESSION-DIR - parent directory for session (will contain branches/)
 PRESET-NAME - symbol, name of registered preset in gptel--known-presets
-INITIAL-CONTENT - optional initial content for session.org (default:
-  a pre-populated `:PROPERTIES:' drawer containing `GPTEL_PRESET'
-  (and `GPTEL_PARENT_SESSION_ID' when PARENT-SESSION-ID is a
-  non-empty string) followed by the chat-mode empty-user-block
-  template — see `jf/gptel--initial-session-content'. The shape
-  matches what the save hook writes on first save, so a fresh
-  session looks identical to a freshly-saved standalone chat
-  buffer with a preset applied (design Decision 4).
+INITIAL-CONTENT - optional initial content for session.org. When
+  provided, written verbatim (the caller assumes responsibility for
+  any drawer it embeds). When nil, the helper composes the file
+  content as `(concat drawer-text body)' where:
+    - drawer-text is the
+      `register/shape/drawer-text-block' string returned by
+      `jf/gptel-scope-profile--create-for-session' (Mode 2a). It
+      carries `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID',
+      and the resolved `GPTEL_SCOPE_*' keys for the preset's scope
+      profile (with `WORKTREE-PATHS' deep-merged in when present
+      and `${project_root}' expanded against PROJECT-ROOT).
+    - body is the heading block returned by
+      `jf/gptel--initial-session-body': a `* System Prompt'
+      heading seeded from the preset's `:system' text, then a
+      `* Chat' heading holding the empty `#+begin_user' /
+      `#+end_user' template (design.md §Addendum Decision B).
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
 PROJECT-ROOT - optional project root for scope profile variable expansion
 PARENT-SESSION-ID - optional string, parent session id for agent
@@ -335,13 +392,16 @@ PARENT-SESSION-ID - optional string, parent session id for agent
 
 Creates:
 - SESSION-DIR/branches/main/ directory structure
-- scope.yml (from preset's scope profile, or explicit worktree-paths)
-- session.org pre-populated with the drawer + empty user block
+- session.org pre-populated with the drawer-resident scope (preset
+  + scope keys), then a `* System Prompt' heading (folded, seeded
+  from the preset's `:system' text) and a `* Chat' heading holding
+  the empty user block
 - current symlink pointing to main branch
 
-NOTE: No `metadata.yml' is written. The drawer embedded in
-`session.org' is the authoritative session-level configuration
-source (design Decision 6).
+NOTE: No `metadata.yml' is written. No `scope.yml' is written.
+The drawer embedded in `session.org' is the authoritative
+session-level configuration source (design Decision 6;
+gptel-scope-in-org-properties drawer-resident scope).
 
 Returns plist with:
   :session-id - session identifier
@@ -352,22 +412,52 @@ Returns plist with:
 
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
-         (initial-content (or initial-content
-                              (jf/gptel--initial-session-content
-                               preset-name parent-session-id))))
-
-    ;; Write scope.yml from preset's scope profile
-    (jf/gptel-scope-profile--create-for-session
-     preset-name main-branch-dir project-root worktree-paths)
+         ;; Resolve the preset spec for the chat-mode snapshot keys
+         ;; (Decision 4 / Layer 2 of gptel-drawer-as-source-of-truth).
+         ;; A registered preset returns the plist (:model :backend
+         ;; :tools :temperature :max-tokens :num-messages-to-send
+         ;; :system) — non-nil snapshot fields are emitted as drawer
+         ;; lines by `--render-drawer-text'.  An unregistered preset
+         ;; resolves to nil, and the renderer falls back to the
+         ;; legacy preset+scope-only shape (design.md §Decision 6:
+         ;; existing-session graceful degradation).  The `:system'
+         ;; field is NOT a drawer line — it seeds the `* System
+         ;; Prompt' heading body instead (design.md §Addendum
+         ;; Decision B).
+         (preset-spec (and preset-name
+                           (fboundp 'gptel-get-preset)
+                           (gptel-get-preset preset-name)))
+         ;; Resolve the preset's scope profile and render the
+         ;; drawer-text block (Mode 2a). The renderer carries
+         ;; `GPTEL_PRESET', optional `GPTEL_PARENT_SESSION_ID', the
+         ;; resolved `GPTEL_SCOPE_*' keys, and (when PRESET-SPEC is
+         ;; non-nil) the chat-mode snapshot keys.  `:GPTEL_SYSTEM:' is
+         ;; never emitted (Decision 2).  No `scope.yml' is written as
+         ;; a side effect (cycle-1 removed that path).
+         (drawer-text (jf/gptel-scope-profile--create-for-session
+                       preset-name
+                       main-branch-dir   ; target-dir (currently unused)
+                       project-root
+                       worktree-paths
+                       parent-session-id
+                       preset-spec))
+         (final-content (or initial-content
+                            (concat drawer-text
+                                    (jf/gptel--initial-session-body
+                                     (and preset-spec
+                                          (plist-get preset-spec :system)))))))
 
     ;; Create current symlink pointing to main
     (jf/gptel--update-current-symlink session-dir "main")
 
-    ;; Create session file with initial content (pre-populated drawer
-    ;; + empty user block). The drawer is authoritative — no
-    ;; metadata.yml sidecar is written (design Decision 6).
+    ;; Create session file with initial content (file-level config
+    ;; drawer + `* System Prompt' heading + `* Chat' heading with
+    ;; the empty user block).  The drawer is authoritative — no
+    ;; metadata.yml sidecar and no scope.yml file are written
+    ;; (design Decision 6; gptel-scope-in-org-properties drawer-
+    ;; resident scope).
     (with-temp-file session-file
-      (insert initial-content))
+      (insert final-content))
     (jf/gptel--log 'info "Created session file: %s" session-file)
 
     ;; Return paths as plist

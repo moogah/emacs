@@ -118,6 +118,8 @@ The persistent-agent-rebuild change can archive once verify-end-to-end is record
 
 A `:confirm t` tool, called from gptel-chat-mode, results in a visible approval surface (overlay or transient) at the time the tool block is rendered. Pressing the accept binding runs the tool, the result lands inside the rendered block, and the FSM advances to DONE / further tool calls. Pressing reject feeds a deny message back to the LLM, which sees the rejection and (typically) explains.
 
+**Workaround in current tree:** `:confirm t` was removed from the `PersistentAgent` registration in `config/gptel/tools/persistent-agent.org` (during the `gptel-scope-in-org-properties` smoke pass on 2026-04-30) so the smoke test could exercise the agent path. When this `.tasks/` item lands, restore `:confirm t` on that registration to verify the new UI works on the agent path.
+
 Concretely:
 - Smoke: with `gptel-confirm-tool-calls` set to its default (`'auto`), drive a chat-mode session that uses `PersistentAgent`. Approve. Agent should run and return its text. Repeat with reject; LLM should see the deny.
 - Test (Buttercup): a spec under `config/gptel/chat/test/` driving the stream callback with a synthetic `(tool-call . ((tool-spec args cb)))` event, asserting that the UI surface fires and that calling its accept entry-point invokes `cb`.
