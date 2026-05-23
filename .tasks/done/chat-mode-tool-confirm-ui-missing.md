@@ -1,11 +1,58 @@
 ---
 name: chat-mode-tool-confirm-ui-missing
 description: gptel-chat-mode lacks a confirmation UI for :confirm t tool calls; the FSM hangs forever after the tool block is rendered because chat-mode's stream callback ignores the continuation upstream supplies for the user-approval path.
-status: ready
+status: done
 source: openspec/changes/persistent-agent-rebuild
 relations:
   - "discovered-from:verify-end-to-end"
 ---
+
+## Resolution (2026-05-23)
+
+Implemented chat-mode-native overlay UI mirroring upstream's
+`gptel--display-tool-calls` pattern but with chat-mode-specific
+reject semantics (deny-string feedback so the FSM advances, since
+chat-mode has no `gptel-menu` resume affordance).
+
+Landed:
+
+- `config/gptel/chat/tool-confirm.{org,el}` — new module.
+  - `gptel-chat-tool-call-actions-map` keymap (`C-c C-c` accept,
+    `C-c C-k` reject).
+  - `gptel-chat--display-tool-confirm` — overlay creator. Stores
+    pending calls on a `gptel-tool`-tagged overlay so
+    `get-char-property-and-overlay` recovers them in the handler
+    interactive forms (upstream-shape compatible).
+  - `gptel-chat--accept-tool-calls` — dispatches each tool's
+    function (sync or async) and routes the result through
+    upstream's `process-tool-result` continuation, which fires
+    `(tool-result . ...)` back through chat-mode's stream callback
+    and fills the matching `#+begin_tool` block.
+  - `gptel-chat--reject-tool-calls` — funcalls each continuation
+    with the customizable `gptel-chat-tool-reject-message` so the
+    FSM advances to DONE and the LLM sees the rejection.
+- `config/gptel/chat/stream.org` `(tool-call . ,calls)` arm — adds
+  one call to `gptel-chat--display-tool-confirm` after the existing
+  empty-block rendering. Preserves the FIFO so accept-path
+  tool-result events fill the matching block exactly as before;
+  reject-path tool-result events fill the block with the deny
+  string.
+- `config/gptel/chat/chat.org` — loader registers `tool-confirm`
+  before `stream`.
+- `config/gptel/chat/test/stream/tool-confirm-spec.el` — Buttercup
+  spec: overlay properties, sync/async accept dispatch, error
+  capture, reject deny-string dispatch, stream-callback integration
+  (overlay placement, accept round-trip fills the block, reject
+  round-trip fills the block with the deny string).
+
+All 369 chat-mode specs pass on `persistent-agent-review`.
+
+Pre-existing test failures observed but not addressed (out of
+scope): one ERT failure in `config/gptel/sessions/filesystem-test.el`
+asserting `metadata.yml` after the file was renamed to
+`branch-metadata.yml` by `rewire-session-creation`; 22 buttercup
+failures in scope/expansion/bash integration suites that match the
+HEAD baseline `test-report.txt`.
 
 ## Symptom
 

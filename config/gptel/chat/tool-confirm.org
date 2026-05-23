@@ -1,0 +1,338 @@
+#+title: GPTEL Chat Mode - Tool-Call Confirmation UI
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle tool-confirm.el :comments both
+#+auto_tangle: y
+
+* Introduction
+
+Chat-mode-native overlay UI for tool calls that arrive on the
+=:confirm= path of upstream's tool-use FSM. Without this layer, a tool
+registered with =:confirm t= (e.g. =PersistentAgent=) wedges the
+chat-mode FSM forever: upstream's =gptel--handle-tool-use=
+(=gptel-request.el:1684-1752=) emits =(tool-call . pending-calls)=
+through the stream callback and then waits for the third element of
+each call — the =process-tool-result= continuation — to be invoked.
+Chat-mode's stream callback rendered the empty =#+begin_tool= block
+but discarded the continuation, so nothing ever advanced the FSM past
+=TOOL= state.
+
+This module mirrors upstream's overlay pattern (=gptel.el:1721-1838=,
+=gptel--accept-tool-calls=/=gptel--reject-tool-calls=) but is
+chat-mode-specific in two ways:
+
+1. The overlay is anchored against the chat-mode stream callback's
+   own insertion marker (the advance marker at the assistant body),
+   not the upstream =tracking-marker= / =start-marker= pair that
+   chat-mode does not maintain.
+2. =gptel-chat--reject-tool-calls= feeds a /deny string/ into each
+   continuation so the FSM advances to =DONE= and the LLM sees the
+   rejection on the next request round. Upstream's reject simply
+   removes the overlay and leaves the FSM dangling — that works for
+   gptel-mode because =gptel-menu= can resume the request, but
+   chat-mode has no such resume affordance, so we close the FSM
+   cleanly by surfacing the deny as the tool's result.
+
+See =.tasks/done/chat-mode-tool-confirm-ui-missing.md= (and its
+predecessor in =.tasks/=) for the bug's root-cause analysis.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; tool-confirm.el --- GPTEL Chat-Mode Tool-Call Confirmation UI -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;;; Commentary:
+
+;; Overlay-driven confirmation UI for `:confirm t' tool calls emitted
+;; by upstream gptel on `gptel-chat-mode' buffers.  Mirrors upstream's
+;; `gptel--display-tool-calls' / `gptel--accept-tool-calls' /
+;; `gptel--reject-tool-calls' (see `gptel.el:1721-1838') but plumbs
+;; the pending-call continuations through chat-mode's own stream
+;; callback so the FSM advances cleanly on accept OR reject.
+;;
+;; Public surface:
+;;   `gptel-chat--display-tool-confirm'    — overlay creator (called
+;;                                            from the stream callback)
+;;   `gptel-chat--accept-tool-calls'       — `C-c C-c' on the overlay
+;;   `gptel-chat--reject-tool-calls'       — `C-c C-k' on the overlay
+;;   `gptel-chat-tool-call-actions-map'    — keymap bound on the overlay
+;;   `gptel-chat-tool-reject-message'      — customizable deny string
+
+;;; Code:
+#+end_src
+
+* Dependencies
+
+=cl-lib= for =cl-loop=. =gptel= is required softly because chat-mode
+loads before upstream gptel installs (see =init.org= module order);
+all references to upstream symbols (=gptel-tool-name=,
+=gptel-tool-async=, =gptel-tool-function=) live inside command bodies
+that only run at call time, by which point upstream is loaded.
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+(require 'gptel nil t)
+
+;; Forward declarations to silence the byte-compiler when this module
+;; is byte-compiled before upstream gptel is on `load-path'.  At
+;; call time the symbols are bound.
+(declare-function gptel-tool-name     "gptel" (tool))
+(declare-function gptel-tool-async    "gptel" (tool))
+(declare-function gptel-tool-function "gptel" (tool))
+#+end_src
+
+* Customization
+
+Re-use the parent =gptel-chat= group when it has been defined (e.g.
+when =display.el= has loaded first); otherwise the soft =defgroup= here
+makes =M-x customize-group RET gptel-chat RET= work in batch tests
+that load this module in isolation.
+
+#+begin_src emacs-lisp
+(defgroup gptel-chat nil
+  "Multi-turn gptel chat-mode buffers."
+  :group 'gptel
+  :prefix "gptel-chat-")
+
+(defcustom gptel-chat-tool-reject-message
+  "User rejected this tool call."
+  "String fed to each pending tool call's continuation on reject.
+
+When the user presses `C-c C-k' on a tool-call confirmation overlay,
+`gptel-chat--reject-tool-calls' funcalls each pending call's
+`process-tool-result' continuation (the third element of the
+upstream-emitted 3-list) with this string as the tool result.  The
+string then surfaces in the chat buffer's matching `#+begin_tool'
+block and is sent back to the LLM as the tool result in the next
+request round, so the assistant can react gracefully instead of the
+buffer wedging in `TOOL' state."
+  :type 'string
+  :group 'gptel-chat)
+#+end_src
+
+* Keymap
+
+Two bindings, deliberately matching upstream's
+=gptel-tool-call-actions-map= so muscle memory transfers between
+gptel-mode and chat-mode. The =C-c C-i= inspect binding is deferred to
+a later task; v1 ships accept + reject only.
+
+#+begin_src emacs-lisp
+(defvar-keymap gptel-chat-tool-call-actions-map
+  :doc "Keymap on `gptel-chat-mode' tool-call confirmation overlays.
+
+`C-c C-c' accepts the pending calls and runs each tool, plumbing the
+result back through chat-mode's stream callback (which fills the
+matching `#+begin_tool' block).  `C-c C-k' rejects them by feeding
+`gptel-chat-tool-reject-message' into each pending continuation so
+the FSM advances and the LLM sees the deny."
+  "C-c C-c" #'gptel-chat--accept-tool-calls
+  "C-c C-k" #'gptel-chat--reject-tool-calls)
+#+end_src
+
+* Overlay creator
+
+=gptel-chat--display-tool-confirm= is invoked by the stream callback's
+=tool-call= arm after the empty =#+begin_tool= blocks have been
+rendered. It places an overlay over those blocks carrying:
+
+- =gptel-tool= property (value: =CALLS= list) — this is the
+  interactive-form anchor that =get-char-property-and-overlay= uses
+  inside =gptel-chat--accept-tool-calls= / =gptel-chat--reject-tool-calls=
+  to recover the pending-call list from cursor context. The property
+  name matches upstream's convention; we deliberately reuse it so the
+  shape is familiar.
+- =keymap= → =gptel-chat-tool-call-actions-map= — covers the
+  overlay's character range so cursor-in-region keys fire.
+- =before-string= — a one-line action banner (=Run tools: C-c C-c | Cancel: C-c C-k=)
+  followed by a per-call summary, propertized so it stands out
+  against assistant prose without altering the buffer's underlying
+  text (=buffer-substring-no-properties= is unchanged by overlay
+  before-strings, which preserves the chat-mode roundtrip invariant
+  that on-disk file content equals buffer string).
+
+The overlay spans from =overlay-start= (the buffer position at the
+moment the =tool-call= event arrived, before any empty blocks were
+rendered) to =insertion-marker='s current position (just inside the
+last opened block's result-target). That range covers the rendered
+empty blocks, so the user can press =C-c C-c= with point anywhere
+inside the block region.
+
+When the user accepts, the tool runs and fires =(tool-result . ...)=
+back through the stream callback, which fills the matching block via
+the existing FIFO. The accept handler then deletes the overlay. The
+overlay's =rear-advance= flag is =t= so the inserted result text
+expands the overlay rather than escaping past its end.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--display-tool-confirm (calls overlay-start insertion-marker)
+  "Place a confirmation overlay for pending tool CALLS.
+
+CALLS is the list of `(TOOL-SPEC ARG-VALUES PROCESS-TOOL-RESULT)'
+3-lists upstream `gptel--handle-tool-use' emits on the `:confirm'
+path (see `gptel-request.el:1684-1752', the `pending-calls' branch).
+
+OVERLAY-START is a buffer position (integer or marker) captured by
+the stream callback BEFORE rendering the empty `#+begin_tool' blocks
+for this batch — i.e. where the assistant body's insertion point
+was when the tool-call event arrived.
+
+INSERTION-MARKER is the same advance marker the stream callback
+operates on; its current position is the overlay's right edge,
+positioned just inside the last opened block's result-target.
+
+Returns the new overlay so callers can inspect / mutate it
+(tests do this; production code does not)."
+  (with-current-buffer (marker-buffer insertion-marker)
+    (let* ((start (if (markerp overlay-start)
+                      (marker-position overlay-start)
+                    overlay-start))
+           (end   (marker-position insertion-marker))
+           ;; `rear-advance' t so inserted tool results expand the
+           ;; overlay rather than escaping past its end.
+           (ov    (make-overlay start end nil nil t))
+           (actions-string
+            (concat (propertize "Run tools: " 'face 'font-lock-string-face)
+                    (propertize "C-c C-c" 'face 'help-key-binding)
+                    (propertize ", Cancel: " 'face 'font-lock-string-face)
+                    (propertize "C-c C-k" 'face 'help-key-binding)))
+           (call-summary
+            (mapconcat
+             (lambda (call)
+               (let* ((tool-spec (nth 0 call))
+                      (args      (nth 1 call))
+                      (name      (or (and tool-spec
+                                          (fboundp 'gptel-tool-name)
+                                          (gptel-tool-name tool-spec))
+                                     "?")))
+                 (format "  %s%s"
+                         (propertize name 'face 'font-lock-keyword-face)
+                         (if args
+                             (concat " " (string-trim
+                                          (prin1-to-string args)
+                                          "(" ")"))
+                           ""))))
+             calls "\n")))
+      (overlay-put ov 'gptel-tool calls)
+      (overlay-put ov 'gptel-chat-tool-confirm t)
+      (overlay-put ov 'keymap gptel-chat-tool-call-actions-map)
+      (overlay-put ov 'mouse-face 'highlight)
+      (overlay-put ov 'help-echo
+                   (substring-no-properties
+                    (concat "Tool call(s) pending. " actions-string)))
+      (overlay-put ov 'before-string
+                   (concat "\n" actions-string "\n"
+                           (propertize "wants to run:\n"
+                                       'face 'font-lock-string-face)
+                           call-summary "\n"))
+      ov)))
+#+end_src
+
+* Accept handler
+
+Mirrors upstream's =gptel--accept-tool-calls= (=gptel.el:1955=). For
+each pending call's =(TOOL-SPEC ARG-VALUES PROCESS-TOOL-RESULT)=:
+
+- Async tool: invoke =gptel-tool-function= with =PROCESS-TOOL-RESULT=
+  as the first argument followed by =ARG-VALUES= — the tool eventually
+  calls =PROCESS-TOOL-RESULT= itself when it has a result.
+- Sync tool: invoke =gptel-tool-function= with =ARG-VALUES=, capture
+  the return value (with =condition-case= so an error surfaces as a
+  stringified error rather than aborting the loop), and funcall
+  =PROCESS-TOOL-RESULT= with that result.
+
+Either path triggers upstream's stored continuation, which fires
+=(tool-result . ...)= back through chat-mode's stream callback. The
+callback's existing tool-result arm pops the FIFO and fills the
+matching empty =#+begin_tool= block with the real result.
+
+After dispatching the calls, delete the overlay. For sync tools the
+=tool-result= event has already been processed by the time we get
+here (everything ran in this synchronous extent); for async tools
+the overlay deletion is fine because the stored continuation does
+not reference it.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--accept-tool-calls (&optional response ov)
+  "Accept pending tool calls; run each tool and invoke its continuation.
+
+Interactively: locates RESPONSE (the pending-calls list) and OV (the
+confirmation overlay) from the overlay at point via
+`get-char-property-and-overlay' on the `gptel-tool' property, mirroring
+upstream's `gptel--accept-tool-calls' (`gptel.el:1955').
+
+For each `(TOOL-SPEC ARG-VALUES PROCESS-TOOL-RESULT)' 3-list in
+RESPONSE: dispatches the tool function (async or sync) and routes the
+result into PROCESS-TOOL-RESULT, which fires `(tool-result . ...)'
+back through chat-mode's stream callback and advances the FSM.
+
+Signals `user-error' if invoked outside a confirmation overlay."
+  (interactive (pcase-let ((`(,resp . ,o) (get-char-property-and-overlay
+                                           (point) 'gptel-tool)))
+                 (list resp o)))
+  (unless response
+    (user-error "gptel-chat: no pending tool calls at point"))
+  (message "Continuing query...")
+  (cl-loop for (tool-spec arg-values process-tool-result) in response
+           do
+           (if (gptel-tool-async tool-spec)
+               (apply (gptel-tool-function tool-spec)
+                      process-tool-result arg-values)
+             (let ((result
+                    (condition-case errdata
+                        (apply (gptel-tool-function tool-spec) arg-values)
+                      (error (mapconcat (lambda (x) (format "%s" x))
+                                        errdata " ")))))
+               (funcall process-tool-result result))))
+  (when (and (overlayp ov) (overlay-buffer ov))
+    (delete-overlay ov)))
+#+end_src
+
+* Reject handler
+
+The chat-mode-native divergence from upstream. Upstream's
+=gptel--reject-tool-calls= just removes the overlay and points the
+user at =gptel-menu= to resume the request; chat-mode has no such
+resume affordance, so reject closes the FSM cleanly by funcalling
+each =PROCESS-TOOL-RESULT= with =gptel-chat-tool-reject-message=. The
+string surfaces in the matching =#+begin_tool= block via the stream
+callback's tool-result arm, and the LLM sees it as the tool's result
+on the next request round — typically responding with an explanation
+or a follow-up question rather than the buffer wedging in =TOOL=
+state.
+
+#+begin_src emacs-lisp
+(defun gptel-chat--reject-tool-calls (&optional response ov)
+  "Reject pending tool calls; feed `gptel-chat-tool-reject-message' to each.
+
+Interactively: locates RESPONSE and OV from the overlay at point via
+`get-char-property-and-overlay' on the `gptel-tool' property.
+
+For each `(TOOL-SPEC ARG-VALUES PROCESS-TOOL-RESULT)' 3-list in
+RESPONSE, funcalls PROCESS-TOOL-RESULT with
+`gptel-chat-tool-reject-message'.  This fires `(tool-result . ...)'
+back through chat-mode's stream callback (which fills the matching
+`#+begin_tool' block with the deny string) and advances the FSM to
+`DONE' — unlike upstream's reject, which abandons the FSM.
+
+Signals `user-error' if invoked outside a confirmation overlay."
+  (interactive (pcase-let ((`(,resp . ,o) (get-char-property-and-overlay
+                                           (point) 'gptel-tool)))
+                 (list resp o)))
+  (unless response
+    (user-error "gptel-chat: no pending tool calls at point"))
+  (message "Tool call(s) rejected.")
+  (cl-loop for (_tool-spec _arg-values process-tool-result) in response
+           do (funcall process-tool-result gptel-chat-tool-reject-message))
+  (when (and (overlayp ov) (overlay-buffer ov))
+    (delete-overlay ov)))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'gptel-chat-tool-confirm)
+
+;;; tool-confirm.el ends here
+#+end_src

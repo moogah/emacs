@@ -14,13 +14,14 @@ The subsystem is factored into cohesive feature modules, each with a
 narrow responsibility and small public surface (see
 =openspec/changes/gptel-chat-mode/architecture.md= §Components):
 
-- =mode=     - Major mode, keymap, font-lock, activation hooks
-- =parser=   - Buffer walker producing a turn list (user/assistant)
-- =stream=   - Streaming callback and accumulator state machine
-- =send=     - Interactive =gptel-chat-send= and =gptel-request= wiring
-- =nav=      - Turn navigation and regenerate-last-response
-- =display=  - Presentation layer (faces, overlays, toggle)
-- =menu=     - Transient prefix + preset-application wiring
+- =mode=         - Major mode, keymap, font-lock, activation hooks
+- =parser=       - Buffer walker producing a turn list (user/assistant)
+- =tool-confirm= - Overlay UI for =:confirm t= tool calls
+- =stream=       - Streaming callback and accumulator state machine
+- =send=         - Interactive =gptel-chat-send= and =gptel-request= wiring
+- =nav=          - Turn navigation and regenerate-last-response
+- =display=      - Presentation layer (faces, overlays, toggle)
+- =menu=         - Transient prefix + preset-application wiring
 
 This loader only loads those feature modules. Their actual
 implementation lives in the sibling =.org= files and is delivered by
@@ -82,23 +83,31 @@ Notes (from architecture.md §Components / §Interfaces):
    readability convention, not a hard requirement.
 2. =parser= walks the buffer producing a turn list. Standalone — no
    load-time references to other chat-mode modules.
-3. =stream= builds the streaming callback; its internal
+3. =tool-confirm= defines the overlay UI invoked by =stream='s
+   =tool-call= arm. Loaded BEFORE =stream= so the callback's
+   =fboundp= guard finds =gptel-chat--display-tool-confirm= during
+   normal init (the guard preserves test isolation, but production
+   init should hit the real symbol). No load-time references back
+   to =stream= or any other chat-mode module.
+4. =stream= builds the streaming callback; its internal
    =gptel-chat--sanitize-chunk= handles delimiter-collision escaping
    (see architecture.md §Components). The callback closure references
-   =parser= helpers only at call time.
-4. =send= is the interactive command bound to =C-c C-c=. It calls
+   =parser= helpers only at call time, and references
+   =gptel-chat--display-tool-confirm= (from =tool-confirm=) only at
+   tool-call dispatch time.
+5. =send= is the interactive command bound to =C-c C-c=. It calls
    into =parser= and =stream= from inside the command body
    (call-time).
-5. =nav= ordering after =send= is *convention*, not a load-time
+6. =nav= ordering after =send= is *convention*, not a load-time
    dependency. =gptel-chat-regenerate= invokes =gptel-chat-send=
    from inside its interactive body, and the navigation commands
    call =gptel-chat-parse-buffer= the same way. Architecture.md
    §=gptel-chat-nav= explicitly denies coupling to parser internals.
    Nav can safely load before send; the order here just mirrors the
    "send pipeline first, ergonomic wrappers next" reading order.
-6. =display= is presentation-only; safe to load last among the core
+7. =display= is presentation-only; safe to load last among the core
    modules.
-7. =menu= ordering after =send= is also convention. The transient
+8. =menu= ordering after =send= is also convention. The transient
    prefix references =gptel-chat-send= (and the preset-application
    hook references parser/send symbols), but transient resolves
    suffix command symbols at click time. The convention keeps
@@ -107,6 +116,7 @@ Notes (from architecture.md §Components / §Interfaces):
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/gptel/chat/mode.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/chat/parser.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/gptel/chat/tool-confirm.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/chat/stream.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/chat/send.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/chat/nav.el" jf/emacs-dir))

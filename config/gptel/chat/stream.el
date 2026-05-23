@@ -603,19 +603,27 @@ State captured in the closure:
         (`(reasoning . ,_)
          nil)
         ;; Tool-call event: open one #+begin_tool block per call,
-        ;; push each result-target marker onto the FIFO, and route
-        ;; subsequent streaming to the LAST opened block (if any)
-        ;; so prose arriving between tool-call and tool-result
-        ;; lands inside the tool body.
+        ;; push each result-target marker onto the FIFO, route
+        ;; subsequent streaming to the LAST opened block, and surface
+        ;; the confirmation overlay so the user can accept/reject.
         ;;
         ;; Upstream emits each element of CALLS as a 3-list
-        ;; `(TOOL-STRUCT ARGS CB)' — see `gptel-request.el:1812-1827'
-        ;; (callback docstring) and `gptel.el:1801'
-        ;; (`pcase-dolist' destructuring in `gptel--run-tool-confirm').
-        ;; CB is the continuation upstream itself calls with the
-        ;; tool result; we only render here, so CB is ignored.
+        ;; `(TOOL-STRUCT ARGS PROCESS-TOOL-RESULT)' — see
+        ;; `gptel-request.el:1684-1752' (the `pending-calls' branch)
+        ;; and `gptel.el:1801'.  PROCESS-TOOL-RESULT is the continuation
+        ;; that fires `(tool-result . ...)' back through this callback
+        ;; when invoked.  We hand the full CALLS list to
+        ;; `gptel-chat--display-tool-confirm', which stores it on a
+        ;; `gptel-tool'-tagged overlay so the accept/reject keymap
+        ;; commands can recover it via `get-char-property-and-overlay'.
+        ;;
+        ;; The auto-approved path NEVER reaches here — upstream's
+        ;; `gptel--handle-tool-use' runs auto-approved tools inline and
+        ;; emits only `(tool-result . ...)' for them.  So firing the
+        ;; confirmation UI on every `tool-call' is safe.
         (`(tool-call . ,calls)
-         (let (last-marker)
+         (let ((overlay-start (marker-position insertion-marker))
+               last-marker)
            (pcase-dolist (`(,tool-spec ,args ,_cb) calls)
              (let ((m (gptel-chat--stream-open-tool-block
                        insertion-marker tool-spec args)))
@@ -623,7 +631,15 @@ State captured in the closure:
                      (append pending-tool-markers (list m))
                      last-marker m)))
            (when last-marker
-             (funcall set-tool last-marker))))
+             (funcall set-tool last-marker))
+           ;; Surface the confirmation overlay over the empty tool
+           ;; blocks we just rendered.  Soft `fboundp' guard keeps the
+           ;; callback safe during isolated tests that load
+           ;; `gptel-chat-stream' without `gptel-chat-tool-confirm';
+           ;; in normal init the loader pulls in tool-confirm first.
+           (when (fboundp 'gptel-chat--display-tool-confirm)
+             (gptel-chat--display-tool-confirm
+              calls overlay-start insertion-marker))))
         ;; Tool-result event: for each result, close the matching
         ;; pending block (confirmation path) or synthesize a fresh
         ;; `#+begin_tool' block (auto-approved path — upstream fires
