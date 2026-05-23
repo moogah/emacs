@@ -349,6 +349,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      currently bypasses the layout (see follow-up task route-agent-
      session-creation-through-canonical-layout). See cycle-1779477564/
      reconciliations/shape-session-document-layout.md.
+     cycle-8 integrate (2026-05-23): narrative update — the
+     persistent-agent.org CYCLE-7 GAP closed by task route-agent-
+     session-creation-through-canonical-layout (merge_commit f052eb9):
+     jf/gptel-persistent-agent--initial-body now delegates to the
+     shared jf/gptel--session-headings-block helper to emit the folded
+     `* System Prompt` (body seeded from the agent preset's :system
+     text when present) followed by `* Chat`, with the file-level
+     config drawer prepended by the agent caller. Layout validator
+     pins the four invariants for agent-created session.org files via
+     new buttercup specs in tools/test/persistent-agent/creation-spec.el.
+     The pre-Addendum exemplar helpers (`jf/gptel--initial-session-content`,
+     `jf/gptel-persistent-agent--initial-content`) and their tests
+     were deleted by task remove-dead-initial-session-content-helpers
+     (merge_commit 4488b71); the canonical layout is now the only
+     producer shape any reader encounters. cycle-7 helper-extraction
+     in chat/menu.org and cycle-8 harden-system-prompt-save (against
+     missing `* Chat`) preserve the four structural invariants. See
+     cycle-1779522837/reconciliations/shape-session-document-layout.md.
    load_bearing: true
    title: Structural layout of a freshly-created session.org document
    purpose: |
@@ -438,11 +456,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          jf/gptel-persistent-agent--initial-body (agent-session
          creator)
        usage: |
-         CYCLE-7 GAP: emits a bare `#+begin_user` block and skips the
-         canonical config drawer + `* System Prompt` + `* Chat` layout.
-         Routes around jf/gptel--session-headings-block. Tracked by
-         in-change follow-up route-agent-session-creation-through-
-         canonical-layout (arch-cycle-1779477564-1).
+         Conforming producer (cycle-8 resolved arch-cycle-1779477564-1):
+         delegates to jf/gptel--session-headings-block to emit the
+         folded `* System Prompt` (body seeded from the agent preset's
+         :system text when present) followed by `* Chat`. The
+         file-level config drawer is prepended by the agent caller
+         (jf/gptel-persistent-agent--task) via the scope-profile
+         applicator boundary. Agent-created session.org files satisfy
+         the validator's four structural invariants — pinned by
+         buttercup specs in config/gptel/tools/test/persistent-agent/
+         creation-spec.el ("PersistentAgent session.org matches the
+         canonical document layout"). Tracking task
+         route-agent-session-creation-through-canonical-layout
+         closed cycle-8 (merge_commit f052eb9).
 
    consumers:
      - file: config/gptel/chat/menu.org
@@ -1455,6 +1481,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      sub-transient discrimination. Cited by tasks default-chat-menu-
      scope-to-buffer-local (9485f3b) and fix-chat-menu-scope-restore-
      on-real-exit (582b70e).
+     cycle-8 integrate (2026-05-23): architectural axiom appended
+     per the cycle-6→cycle-8 resolution of ask-cycle-1777625426-2.
+     Presets carry global defaults; the chat menu's per-infix scope
+     is buffer-local by design because "this conversation" is the
+     menu's semantic scope. Decision 5 is design-correct, not a
+     defensible default. A future maintainer who reads this entry
+     and wonders whether to "fix" the chat menu to inherit the
+     preset's global scope should resist: the global/buffer-local
+     split between presets and the chat menu is the WYSIWYG
+     contract, not an accident. If a user wants chat-menu changes
+     to land globally, that is a separate explicit gesture (e.g. an
+     infix to commit-to-preset), not the menu's default.
    load_bearing: true
    title: gptel-chat-menu enters with gptel--set-buffer-locally bound to t
 
@@ -1542,6 +1580,39 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Scaffold archived in favour of the co-located regression specs.
      See cycle-1779477564/reconciliations/boundary-chat-mode-session-
      display.md.
+     cycle-8 integrate (2026-05-23): narrative update — the
+     cycle-7 reviewer-advisory about the implementation-pinning
+     scaffold proved exactly as costly as flagged. A user-testing
+     finding 2026-05-23 surfaced cross-line emphasis spans pairing
+     `/` delimiters across drawer lines (READ value opens with `/**`,
+     DENY value closes with `**/.git/**`), italicising the
+     intermediate KEY text and hiding the boundary slashes under
+     `org-hide-emphasis-markers`. Task suppress-cross-line-emphasis-
+     inside-config-drawer (merge_commit 8d619db) replaced the
+     per-line `gptel-chat--drawer-value-matcher` with a span-level
+     `gptel-chat--drawer-span-matcher` covering the entire
+     `:PROPERTIES: ... :END:` interior (group 0), with an OVERRIDE
+     facespec setting `(face org-property-value invisible nil)`. The
+     forced `invisible nil` defeats `org-hide-emphasis-markers`;
+     the span scope captures cross-line italic spans before org's
+     emphasis keyword fires. Override A's rule and mechanism prose
+     below were tightened (cycle-8 integrate) to name the broader
+     contract — the override now stamps the drawer *interior* (keys
+     + values + interior whitespace) rather than only *values*, and
+     the invisible-property extension is explicit. The new
+     regression spec is observable-contract end-to-end (face,
+     italic, invisible text-property at specific positions) — the
+     opposite of the cycle-7 implementation-pinning pattern.
+     Co-located scaffold (boundaries/chat-mode-session-display.el)
+     deleted inline by commit 73a1b73; scaffolding_path field
+     nulled below. A latent overlay-vs-text-property coexistence
+     with override-C is now documented in the mode.org prose:
+     override-A relies on `org-fold-core-style` defaulting to
+     `overlays` so the fold and the invisible-property override
+     occupy non-conflicting channels — flipping to text-properties
+     style would silently break override-C on every font-lock pass.
+     See cycle-1779522837/reconciliations/boundary-chat-mode-
+     session-display.md.
    load_bearing: false
    title: gptel-chat-mode overrides org-mode presentation for session buffers
 
@@ -1564,24 +1635,59 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        - chat-turn prose (its /emphasis/ is intentionally preserved)
 
    contract:
-     override_A_drawer_value_emphasis:
-       finding: Finding A
+     override_A_drawer_interior_emphasis:
+       finding: Finding A (cycle-7 spec); cross-line refinement (cycle-8)
        rule: |
-         A property-drawer *value* in a chat-mode buffer renders as
-         plain data — face org-property-value — and never inherits org
-         /emphasis/ font-lock. A directory value such as
-         ":GPTEL_SCOPE_READ: /Users/jeff/emacs/" is a syntactically
-         valid org emphasis span (leading / opens, trailing / closes);
-         org would otherwise render it italic and dim the boundary
-         slashes.
+         The entire interior of a property-drawer in a chat-mode
+         buffer — keys, values, and interior whitespace alike —
+         renders as plain data (face org-property-value) and never
+         inherits org /emphasis/ font-lock, even when an emphasis
+         span opened on one drawer line is paired with a `/` on a
+         later line. The override also forces the `invisible`
+         text-property to nil across the drawer interior so that
+         `org-hide-emphasis-markers` cannot hide boundary `/` (or
+         other emphasis-trigger) characters. A directory value such
+         as `:GPTEL_SCOPE_READ: /Users/jeff/emacs/` is a syntactically
+         valid org emphasis span (leading `/` opens, trailing `/`
+         closes); org would otherwise render it italic and dim or
+         hide the boundary slashes. Two drawer lines whose values
+         contain an odd `/` (e.g. `:GPTEL_SCOPE_READ: /**` followed
+         by `:GPTEL_SCOPE_DENY: **/.git/**`) would otherwise pair
+         across the line break and italicise the intervening KEY
+         text — addressed by the cycle-8 span-level matcher.
        mechanism: |
-         gptel-chat-mode installs a buffer-local font-lock keyword that
-         re-stamps org-property-value over property-drawer value spans
-         with the OVERRIDE flag, so it wins over org's emphasis keyword.
+         gptel-chat-mode installs a buffer-local font-lock keyword
+         (`gptel-chat--drawer-span-matcher`, cycle-8 successor to
+         the per-line matcher) that searches for `^:PROPERTIES:` to
+         `^:END:` spans and stamps group 0 (the drawer interior,
+         exclusive of the delimiter lines) with the OVERRIDE
+         facespec `(0 '(face org-property-value invisible nil) t)`.
+         `font-lock-multiline` is set buffer-locally so that edits
+         inside the drawer refontify the whole span (the cross-line
+         case is by definition multiline); `invisible` is added to
+         `font-lock-extra-managed-props` so font-lock cleans up the
+         text-property when buffer text changes. The OVERRIDE flag
+         plus `'append` ordering ensure the keyword wins over org's
+         emphasis keyword in `org-font-lock-extra-keywords`.
        counter_assertion: |
-         /emphasis/ in chat-turn prose is unaffected — the override is
-         scoped to property-drawer value spans only, not the whole
-         buffer.
+         /emphasis/ in chat-turn prose is unaffected — the override
+         is scoped to drawer interiors only, not the whole buffer.
+         A test in drawer-fontification-spec.el's "override A —
+         drawer interior emphasis suppression" describe block
+         positively asserts that `/emphasized/` text below `* Chat`
+         keeps `italic` face and does NOT carry `org-property-value`.
+       latent_coupling: |
+         The `invisible nil` text-property override coexists with
+         override C's overlay-based fold ONLY because
+         `org-fold-core-style` defaults to `'overlays` — the two
+         channels (text-property vs overlay) are non-conflicting in
+         that mode. Flipping `org-fold-core-style` to
+         `'text-properties` would cause override A to clobber
+         override C's fold-as-text-property on every font-lock pass.
+         The codebase has not flipped the style anywhere; if it
+         ever does, override A must detect a folded drawer and skip
+         it (or fall back to face-only suppression). Documented at
+         config/gptel/chat/mode.org override-A prose.
      override_C_config_drawer_folded_on_open:
        finding: Finding C
        rule: |
@@ -1617,8 +1723,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - file: config/gptel/chat/mode.org
        function: gptel-chat-mode (define-derived-mode body)
        usage: |
-         installs the buffer-local font-lock OVERRIDE keyword that
-         re-stamps drawer values as org-property-value (override A)
+         installs the buffer-local font-lock OVERRIDE keyword
+         (gptel-chat--drawer-span-matcher) that re-stamps drawer
+         interiors as `org-property-value` and forces `invisible
+         nil` (override A; cycle-8 span-level refinement)
      - file: config/gptel/chat/mode.org
        function: |
          gptel-chat--fold-config-drawer (attached to gptel-chat-mode-
@@ -1633,7 +1741,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        (no downstream module re-reads this; the contract is observable
        only via buffer face properties and fold state)
 
-   scaffolding_path: openspec/changes/gptel-drawer-as-source-of-truth/scaffolding/boundaries/chat-mode-session-display.el
+   scaffolding_path: null  # cycle-8 cleanup: the boundaries/chat-mode-session-display.el scaffold was deleted by inline-fix commit 73a1b73; the regression spec at config/gptel/chat/test/display/drawer-fontification-spec.el is the live enforcement (status_note "Scaffold archived in favour of the co-located regression specs")
 
    related_entries:
      - register/shape/session-document-layout
@@ -1830,6 +1938,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Invariant enforced by structure. Runtime regression spec lands in
      cycle-3's add-drawer-corruption-regression. See .orchestrator/cycles/
      cycle-1777470320/reconciliations/invariant-scope-drawer-no-duplication.md.
+     cycle-8 integrate (2026-05-23): narrative update — the
+     enforcement test at config/gptel/scope/test/drawer/no-duplicate-
+     drawer-spec.el was tightened (task tighten-scope-drawer-no-
+     duplication-fixture-and-counter, merge_commit 8c497e0) to scope
+     the :PROPERTIES:/:END: counters to the file-level drawer span,
+     because the post-cycle-7 canonical session.org layout (register/
+     shape/session-document-layout) introduces a second heading-level
+     :PROPERTIES: drawer on `* System Prompt` that inflated the
+     pre-cycle-8 buffer-wide counter to 2/2. The first cycle-8 cut
+     of the tightened counter (`(point-min)..(first :END:)`) blinded
+     the test to the stacked-drawer corruption class the invariant
+     was created to catch (multiple consecutive file-level drawers
+     stacked at point-min — see openspec/changes/gptel-org-mode-
+     sessions/handoff-property-drawer-corruption.md). On-touch
+     architect arch-cycle-1779522837-2 flagged the regression; inline
+     fix (commit 7b771a5) widened the span to `(point-min)..(first
+     ^* heading or point-max)`, restoring stacked-drawer detection
+     while preserving the canonical-layout false-positive cure. A
+     post-cycle-7-shape fixture (`jf/gptel-test--with-session-
+     document`) lives in helpers-spec.el for further coverage. See
+     cycle-1779522837/reconciliations/invariant-scope-drawer-no-
+     duplication.md.
    load_bearing: true
    title: After any add-to-scope sequence, the buffer has exactly one :PROPERTIES: drawer
 
@@ -1857,13 +1987,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      kind: test
      location: |
        Regression spec at config/gptel/scope/test/drawer/no-duplicate-
-       drawer-spec.el (created by add-drawer-corruption-regression task).
-       Runs an add-to-scope sequence (≥3 cycles, several distinct keys)
-       and asserts exactly one ":PROPERTIES:\n" and one "\n:END:\n"
-       remain at point-min after each save.
+       drawer-spec.el (created by add-drawer-corruption-regression
+       task; tightened cycle-8 by tighten-scope-drawer-no-duplication-
+       fixture-and-counter + inline arch-2 widening). The
+       `--file-level-drawer-region` helper scopes the
+       `:PROPERTIES:`/`:END:` counters to the pre-heading region
+       `(point-min)..(first ^* heading or point-max)` — wide enough
+       to catch stacked file-level drawers, narrow enough to exclude
+       the canonical-layout heading-level drawer on `* System Prompt`.
+       Runs an add-to-scope sequence (≥3 cycles, several distinct
+       keys) and asserts exactly one `:PROPERTIES:` and one `:END:`
+       line remain in that span after each save. The post-cycle-7-
+       shape fixture macro `jf/gptel-test--with-session-document`
+       (helpers-spec.el) exercises the writer against the canonical
+       layout.
 
    related_entries:
      - register/shape/drawer-text-block
+     - register/shape/session-document-layout
      - register/boundary/scope-pattern-writer
      - register/boundary/scope-profile-applicator
 
@@ -1887,6 +2028,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      construction. Runtime spec lands in cycle-3's migrate-expansion-tests.
      See .orchestrator/cycles/cycle-1777470320/reconciliations/
      invariant-scope-add-pattern-idempotent.md.
+     cycle-8 integrate (2026-05-23): narrative update —
+     arch-cycle-1779522837-4 (informational, end-of-cycle architect's
+     load-bearing-invariant fixture sweep) surfaced that
+     `enforcement_mechanism.location` cited
+     `config/gptel/scope/test/drawer/write-pattern-spec.el` which
+     does not exist. The pre-existing drift was not introduced by
+     cycle-8 (it long-predated the cycle's diffs). The buffer-text
+     half of the contract IS exercised — `no-duplicate-drawer-spec.el`
+     `it "is idempotent for duplicate patterns"` (line 169) covers
+     the writer's no-op-on-duplicate behaviour. The callback-shape
+     half (`:success t :patterns_added []` on dedup) is currently
+     guaranteed only by construction at scope-expansion.org:686-690
+     (the callback's `:patterns_added` is `(vconcat patterns)` where
+     `patterns` is the writer's return value; on dedup the writer
+     returns nil and the callback's vector arm at line 690 emits
+     `:patterns_added (vector)`). Enforcement_mechanism.location
+     prose below was updated to cite the live test plus the
+     callback-shape gap. A separate cycle-8 candidate ask
+     (`ask-cycle-1779522837-2`) tracks adding an explicit
+     callback-shape spec.
    load_bearing: true
    title: Adding the same pattern twice is a no-op (idempotent writer)
 
@@ -1906,13 +2067,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      could trigger reader edge cases.
 
    enforcement_mechanism:
-     kind: test
+     kind: test + structural
      location: |
-       Buttercup spec at config/gptel/scope/test/drawer/write-pattern-
-       spec.el: "duplicate pattern is a no-op" and "callback reports
-       empty patterns-added on dedup". Both assertions are part of the
-       writer's contract; failure is a contract violation, not a
-       performance regression.
+       Buffer-text half: buttercup spec at config/gptel/scope/test/
+       drawer/no-duplicate-drawer-spec.el `it "is idempotent for
+       duplicate patterns"` (line 169) — asserts the writer leaves the
+       buffer byte-for-byte unchanged across a duplicate-pattern
+       write.
+       Callback-shape half: currently guaranteed by construction at
+       config/gptel/scope/scope-expansion.org:686-690 — the
+       `:patterns_added` field is `(vconcat patterns)` where
+       `patterns` is the writer's return value; on dedup the writer
+       returns nil and the callback's vector-arm path emits
+       `:patterns_added (vector)`. NOT pinned by a dedicated
+       buttercup spec; the structural guarantee is the contract
+       surface. Adding an explicit callback-shape `it` block is
+       tracked as cycle-8 candidate ask
+       `ask-cycle-1779522837-2` (defer-if-archived since this
+       invariant is unrelated to the gptel-drawer-as-source-of-
+       truth change's outcome).
 
    related_entries:
      - register/boundary/scope-pattern-writer
@@ -2208,6 +2381,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      during implementation; archived in favour of the co-located specs.
      See cycle-1779477564/reconciliations/invariant-system-prompt-
      heading-authoritative.md.
+     cycle-8 integrate (2026-05-23): narrative update — task
+     extract-system-prompt-heading-region-helper (merge_commit
+     ba0bc50) refactored the reader/writer pair to share a single
+     `gptel-chat--system-prompt-heading-body-region` helper. This
+     made the trim-vs-pad asymmetry an explicit, single decision
+     point in the helper docstring and removed the four-place edit
+     cost of the duplicate scan logic. Both the three-tier
+     precedence and the round-trip idempotence are preserved. Task
+     harden-system-prompt-save-against-missing-chat-heading
+     (merge_commit d774f43) hardened the save path against the
+     off-nominal `* System Prompt`-without-`* Chat` document layout:
+     the write branch now bounds the in-place rewrite at the first
+     `^#+begin_(user|assistant)` turn-block marker (rather than
+     blindly at point-max) and re-materialises `* Chat` so the
+     canonical layout is restored. Eight new specs cover the
+     off-nominal layout. On-touch architect produced no finding
+     against this entry — the helper extraction and harden are
+     strict refactors against the invariant. See cycle-1779522837/
+     reconciliations/invariant-system-prompt-heading-authoritative.md.
    load_bearing: true
    title: The `* System Prompt` heading body is the authoritative source of gptel--system-message
 

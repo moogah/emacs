@@ -11,8 +11,16 @@
 ;;
 ;; Pins the structural invariant `register/invariant/scope-drawer-no-duplication':
 ;; an add-to-scope sequence routed through `jf/gptel-scope--write-pattern-to-drawer'
-;; produces exactly one `:PROPERTIES: ... :END:' block in the buffer, no matter
-;; how many times the writer is invoked across distinct operations.
+;; produces exactly one `:PROPERTIES:' line and one `:END:' line in the
+;; *pre-heading region* of the buffer (the span the file-level drawer occupies —
+;; `(point-min)..(first ^* heading or point-max)' per
+;; `no-duplicate-drawer-spec--file-level-drawer-region'), no matter how many
+;; times the writer is invoked across distinct operations.  The pre-heading
+;; scope is what excludes the canonical post-Addendum session.org's
+;; heading-level `:PROPERTIES:' drawer on `* System Prompt' (per
+;; `register/shape/session-document-layout') from the count while still
+;; catching stacked file-level drawers at point-min (arch-cycle-1779522837-2).
+;; The helper's docstring is the canonical span definition.
 ;;
 ;; This spec is anchored by the prior corruption incident
 ;; (`~/org/roam/20260419111957-gptel_preset_property_corruption.org') in which a
@@ -230,7 +238,7 @@ narrower regression that emits a stray `:END:' without a paired
         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :write "/output/**")
         (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :execute "/usr/local/bin/**")
         ;; File-level drawer remains singular (counters scoped to the
-        ;; point-min..first :END: span).
+        ;; pre-heading region per `--file-level-drawer-region').
         (expect (no-duplicate-drawer-spec--count-properties-headers
                  (current-buffer))
                 :to-equal 1)
