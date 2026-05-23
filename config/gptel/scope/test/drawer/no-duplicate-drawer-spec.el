@@ -53,26 +53,32 @@
   (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir)))
 
 (defun no-duplicate-drawer-spec--file-level-drawer-region (buffer)
-  "Return (BEG . END) of the file-level drawer span in BUFFER.
+  "Return (BEG . END) of the pre-heading region in BUFFER.
 
-The span starts at `(point-min)' and ends at the buffer position
-immediately AFTER the first line whose content is `^[ \\t]*:END:[ \\t]*$'
-\(the file-level drawer's terminator).  If no terminator is found,
-returns nil.
+The span starts at `(point-min)' and ends at the position
+immediately BEFORE the first `^\\* ' heading line (or `(point-max)'
+when no heading is present).  Always returns a region — never nil
+— because the empty pre-heading region is still a valid scope for
+counting.
 
-Scoping the `:PROPERTIES:'/`:END:' counters to this span makes the
-test match the prose of `register/invariant/scope-drawer-no-duplication',
-which restricts the singleton claim to the file-level drawer at
-point-min.  Buffer-wide counting was correct as long as no fixture
-emitted a second drawer; the post-cycle-7 canonical layout
-\(`register/shape/session-document-layout') introduces a heading-level
-drawer on `* System Prompt' that would inflate a buffer-wide count to
-2/2 even when the file-level drawer remains singular."
+Scoping the `:PROPERTIES:'/`:END:' counters to the pre-heading
+region makes the test match the prose of
+`register/invariant/scope-drawer-no-duplication', which restricts
+the singleton claim to the file-level drawer at point-min, AND
+preserves detection of the stacked-drawer corruption class
+documented at `openspec/changes/gptel-org-mode-sessions/handoff-
+property-drawer-corruption.md' — multiple consecutive `:PROPERTIES:'
+drawers at point-min before any heading would still raise the
+count above 1 under this span.  An earlier cycle-8 implementation
+stopped the span at the first `:END:' line, which had the unwanted
+side effect of hiding any second stacked drawer immediately after
+the terminator (arch-cycle-1779522837-2)."
   (with-current-buffer buffer
     (save-excursion
       (goto-char (point-min))
-      (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
-        (cons (point-min) (line-end-position))))))
+      (let ((heading-pos (and (re-search-forward "^\\* " nil t)
+                              (line-beginning-position))))
+        (cons (point-min) (or heading-pos (point-max)))))))
 
 (defun no-duplicate-drawer-spec--count-properties-headers (buffer)
   "Count `:PROPERTIES:' header lines in the file-level drawer of BUFFER.
