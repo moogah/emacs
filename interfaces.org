@@ -335,19 +335,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/session-document-layout
    tier: shape
-   status: speculated
+   status: reconciled
    status_note: |
      cycle-7 plan (2026-05-22) — speculated by forward-mode against
      design.md §Addendum (Finding B, Finding C, Decisions B and C).
-     Captures the structural shape of a freshly-created session.org
-     after the Addendum relocates the system prompt from a drawer
-     property into a visible `* System Prompt` heading body and folds
-     the config drawer / system-prompt subtree on open. Reconciliation
-     flips to `confirmed` once emit-system-prompt-and-chat-headings-at-
-     creation lands and the creation specs assert the layout. The
-     shape tier is opt-in for scaffolding and this project does not
-     opt in, so this entry carries its own `validator` field rather
-     than a scaffolding file.
+     cycle-7 integrate (2026-05-22): reconciled. The shape held for
+     the session-creation renderer (commands.org / commands.el via the
+     new jf/gptel--session-headings-block helper) and for the chat-mode
+     save path materialise-on-first-save fallback. Producers prose
+     tightened: the commands.org helper emits only the two heading
+     blocks (config drawer is prepended separately by the renderer),
+     and persistent-agent.org is added as a third producer that
+     currently bypasses the layout (see follow-up task route-agent-
+     session-creation-through-canonical-layout). See cycle-1779477564/
+     reconciliations/shape-session-document-layout.md.
    load_bearing: true
    title: Structural layout of a freshly-created session.org document
    purpose: |
@@ -413,24 +414,51 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    producers:
      - file: config/gptel/sessions/commands.org
-       function: session-creation renderer / initial-body helper
+       function: |
+         jf/gptel--session-headings-block (heading helper) +
+         session-creation renderer
        usage: |
-         emits the full document layout (config drawer + `* System
-         Prompt` heading seeded from the preset :system + `* Chat`
-         heading) for a fresh session.org
+         The heading helper emits only the two heading blocks
+         (`* System Prompt` seeded from the active preset's :system,
+         then `* Chat`). The file-level config :PROPERTIES: drawer is
+         prepended by the session renderer (delegated to register/
+         boundary/scope-profile-applicator stage 2a) before the
+         heading helper's output.
      - file: config/gptel/chat/menu.org
        function: chat-mode save path (gptel-chat--save-state and
          helpers)
        usage: |
          materialises the `* System Prompt` heading for pre-Addendum
          sessions on first save under the new code (graceful-degrade
-         path, cf. Decision 6 / Decision B)
+         path, cf. Decision 6 / Decision B), and on every save
+         serialises gptel--system-message back into the heading body
+         (cf. register/invariant/system-prompt-heading-authoritative).
+     - file: config/gptel/tools/persistent-agent.org
+       function: |
+         jf/gptel-persistent-agent--initial-body (agent-session
+         creator)
+       usage: |
+         CYCLE-7 GAP: emits a bare `#+begin_user` block and skips the
+         canonical config drawer + `* System Prompt` + `* Chat` layout.
+         Routes around jf/gptel--session-headings-block. Tracked by
+         in-change follow-up route-agent-session-creation-through-
+         canonical-layout (arch-cycle-1779477564-1).
 
    consumers:
+     - file: config/gptel/chat/menu.org
+       function: |
+         gptel-chat--apply-system-prompt-heading (invoked as the final
+         step of gptel-chat--apply-declared-preset)
+       usage: reads the `* System Prompt` heading body via
+         gptel-chat--system-prompt-heading-body and installs the
+         result as buffer-local gptel--system-message (per register/
+         invariant/system-prompt-heading-authoritative)
      - file: config/gptel/chat/mode.org
-       function: gptel-chat-mode restore path
-       usage: reads the `* System Prompt` heading body to install
-         gptel--system-message; folds the config drawer on activation
+       function: gptel-chat--fold-config-drawer (attached to gptel-chat-
+         mode-hook)
+       usage: folds the file-level config :PROPERTIES: drawer on
+         gptel-chat-mode activation (per register/boundary/chat-mode-
+         session-display override C)
      - file: config/gptel/chat/parser.org
        function: chat turn parser
        usage: locates turn blocks under `* Chat` (heading-indifferent)
@@ -1492,16 +1520,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/chat-mode-session-display
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
      cycle-7 plan (2026-05-22) — speculated by forward-mode against
      design.md §Addendum (Finding A / Decision A, Finding C /
      Decision C). Captures the seam where gptel-chat-mode overrides
-     org-mode's generic presentation for session buffers. Reconciliation
-     flips to `confirmed` once fix-scope-drawer-value-emphasis and
-     fold-config-drawer-on-open land and the scaffolded contract test
-     passes. Scaffolded as a failing buttercup contract test; see
-     scaffolding_path.
+     org-mode's generic presentation for session buffers.
+     cycle-7 integrate (2026-05-22): reconciled. Override A landed via
+     a buffer-local font-lock OVERRIDE keyword in mode.org/el (task
+     fix-scope-drawer-value-emphasis, 4694625 / 7f290c4) with regression
+     spec at config/gptel/chat/test/display/drawer-fontification-spec.el.
+     Override C landed via the gptel-chat-mode-hook fold step (task
+     fold-config-drawer-on-open, e5f57b3 / 5c6b490) with regression spec
+     at config/gptel/chat/test/display/drawer-fold-spec.el. The
+     implementor of fix-scope-drawer-value-emphasis rewrote the
+     scaffold's override-A 're-stamps' assertion to inspect installed
+     font-lock-keyword structure rather than environment-fragile
+     plain-org-vs-chat-mode face contrast — a documented deviation
+     toward implementation-pinning rather than observable-face contract.
+     Reviewer flagged advisory; accepted with the trade-off recorded.
+     Scaffold archived in favour of the co-located regression specs.
+     See cycle-1779477564/reconciliations/boundary-chat-mode-session-
+     display.md.
    load_bearing: false
    title: gptel-chat-mode overrides org-mode presentation for session buffers
 
@@ -1548,6 +1588,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          On gptel-chat-mode activation the file-level config
          :PROPERTIES: drawer (the point-min drawer of register/shape/
          session-document-layout) is folded.
+       mechanism: |
+         The fold call (gptel-chat--fold-config-drawer) MUST be
+         installed via gptel-chat-mode-hook (after run-mode-hooks),
+         NOT in the define-derived-mode body, because org-fold-core
+         silently drops fold calls that fire before mode-hook
+         invocation. cycle-7's first implementor placed the call in
+         the body and the spec failed against the live buffer; the
+         re-task moved it to the hook and the fold worked. This
+         hook-vs-body discipline is the cycle-7 mechanism note.
        counter_assertion: |
          A drawerless buffer — e.g. a gptel-chat-new scratch buffer with
          no :PROPERTIES: drawer — is a no-op: the fold step finds no
@@ -1566,10 +1615,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    producers:
      - file: config/gptel/chat/mode.org
-       function: gptel-chat-mode
+       function: gptel-chat-mode (define-derived-mode body)
        usage: |
-         installs the buffer-local font-lock OVERRIDE keyword (A) and
-         folds the config drawer on activation (C)
+         installs the buffer-local font-lock OVERRIDE keyword that
+         re-stamps drawer values as org-property-value (override A)
+     - file: config/gptel/chat/mode.org
+       function: |
+         gptel-chat--fold-config-drawer (attached to gptel-chat-mode-
+         hook at load time, NOT called from the define-derived-mode
+         body — see override_C.mechanism for why)
+       usage: |
+         folds the file-level config :PROPERTIES: drawer on
+         gptel-chat-mode activation (override C)
 
    consumers:
      - the chat-mode session buffer's font-lock and visibility state
@@ -2058,18 +2115,40 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        not the preset model" (round-trip integrity)
      Cited by task verify-and-spec-drawer-overlay-wins (b1f06d1)
      and update-preset-application-spec-for-snapshot (3a8abaf).
+     cycle-7 integrate (2026-05-22): re-reconciled to three-tier
+     :system precedence. design.md §Addendum Finding B / Decision B
+     inserts the `* System Prompt` heading body ahead of the prior
+     two-tier :system exception; the title and :system clause now
+     describe the three-tier order. The "drawer always wins, no
+     delta check" contract for non-:system keys is unchanged.
+     Triggered by on-touch finding arch-cycle-1779477564-3 against
+     task make-system-prompt-heading-authoritative; composes with
+     (does not contradict) register/invariant/system-prompt-heading-
+     authoritative — that invariant owns the heading-body tier, this
+     one owns the drawer-vs-preset tier. See cycle-1779477564/
+     reconciliations/invariant-drawer-overlay-wins-over-preset.md.
    load_bearing: true
-   title: On mode activation, every drawer-present key wins over the active preset (except :system, which falls back to the preset)
+   title: On mode activation, every drawer-present key wins over the active preset (except :system, which falls through a three-tier precedence)
 
    statement: |
      The chat-mode activation overlay (gptel-chat--apply-drawer-overrides
      in config/gptel/chat/menu.org) installs every drawer-present key
      buffer-locally, regardless of whether the value matches the active
-     preset's value for that key. The asymmetric exception is
-     :GPTEL_SYSTEM: — when absent from the drawer, the preset's :system
-     is applied; when present in the drawer (back-compat for manual
-     entries), the drawer entry wins. There is no "if drawer matches
-     preset, skip" check anywhere in the overlay.
+     preset's value for that key. There is no "if drawer matches preset,
+     skip" check anywhere in the overlay.
+
+     :GPTEL_SYSTEM: is the asymmetric exception and resolves through a
+     three-tier precedence on chat-mode activation, highest first:
+       1. `* System Prompt` heading body when non-blank (post-Addendum;
+          owned by register/invariant/system-prompt-heading-authoritative)
+       2. legacy :GPTEL_SYSTEM: drawer entry when present (back-compat
+          for hand-authored entries; never written by code under our
+          control — see register/invariant/drawer-system-key-write-
+          exclusion)
+       3. preset :system as the fallthrough seed
+     A blank heading body and an absent drawer entry together fall
+     through to the preset; an authored drawer entry still beats the
+     preset on read even when the heading body is blank.
 
    why_it_matters: |
      This invariant is the *read-side* counterpart to register/invariant/
@@ -2107,16 +2186,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/system-prompt-heading-authoritative
    tier: invariant
-   status: speculated
+   status: reconciled
    status_note: |
      cycle-7 plan (2026-05-22) — speculated by forward-mode against
      design.md §Addendum (Finding B, Decision B). Reverses Decision 2's
      "system prompt rides the preset only" model: the system prompt is
      relocated into a visible `* System Prompt` heading body and that
-     body becomes authoritative. Reconciliation flips to `confirmed`
-     once make-system-prompt-heading-authoritative lands and the
-     scaffolded test passes. Scaffolded as a failing buttercup test;
-     see scaffolding_path.
+     body becomes authoritative.
+     cycle-7 integrate (2026-05-22): reconciled. The three-tier restore
+     precedence (heading body > legacy :GPTEL_SYSTEM: drawer > preset
+     :system), blank-body fallback, and create -> restore -> save
+     idempotence all held — implementation in config/gptel/chat/menu.org
+     (gptel-chat--system-prompt-heading-body /
+     gptel-chat--apply-system-prompt-heading /
+     gptel-chat--write-system-prompt-heading) lands the contract.
+     17 new specs across save-state-spec.el, preset-wiring-spec.el, and
+     the integration suites pin the round trip; on-touch Architect
+     finding arch-cycle-1779477564-4 re-verified composition with
+     register/invariant/drawer-system-key-write-exclusion. Scaffold at
+     scaffolding_path matured from failing stubs to a full contract test
+     during implementation; archived in favour of the co-located specs.
+     See cycle-1779477564/reconciliations/invariant-system-prompt-
+     heading-authoritative.md.
    load_bearing: true
    title: The `* System Prompt` heading body is the authoritative source of gptel--system-message
 
@@ -2166,11 +2257,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        Scaffolded failing buttercup test at scaffolding_path asserts
        (a) the three-level precedence order, (b) blank-body fallback to
        preset, and (c) the create -> restore -> save -> re-restore
-       round-trip stability. Implementor makes it pass by wiring the
-       restore path (config/gptel/chat/mode.org) and the before-save
-       serialisation (config/gptel/chat/menu.org). Architect's invariant
-       audit re-checks that no drawer :GPTEL_SYSTEM: write was added and
-       that the precedence branch order matches this statement.
+       round-trip stability. Implementor wires the restore path
+       (config/gptel/chat/menu.org's `gptel-chat--system-prompt-heading-
+       body` reader and `gptel-chat--apply-system-prompt-heading`
+       applicator, invoked as the final step of `gptel-chat--apply-
+       declared-preset`) and the before-save serialisation
+       (config/gptel/chat/menu.org's `gptel-chat--write-system-prompt-
+       heading`). Architect's invariant audit re-checks that no drawer
+       :GPTEL_SYSTEM: write was added and that the precedence branch
+       order matches this statement. cycle-7 integrate (arch-cycle-
+       1779477564-7): corrected from the pre-cycle prose that named
+       `mode.org` for the restore path — both halves live in `menu.org`.
 
    related_entries:
      - register/invariant/drawer-system-key-write-exclusion
