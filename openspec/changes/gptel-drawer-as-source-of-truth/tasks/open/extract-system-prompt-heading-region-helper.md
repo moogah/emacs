@@ -76,3 +76,60 @@ Expect: one definition of `gptel-chat--system-prompt-heading-body-region`; both 
 Provenance: end-of-cycle Architect finding `arch-cycle-1779477564-5`, severity **blocking** under literate-org overlay (`duplication: blocking`). Finding file: `.orchestrator/cycles/cycle-1779477564/findings/arch-cycle-1779477564-5.md`.
 
 Cited register entries: `interfaces.org#register-shape-session-document-layout` (the corruption class this helper guards against), `interfaces.org#register-invariant-system-prompt-heading-authoritative` (the contract both sites enforce).
+
+## Observations
+
+- The pre-refactor reader and writer were near-identical, but not exactly identical: the writer's `if` test for the heading was `(re-search-forward ...)` (advancing point) while the reader did the same and then used `line-end-position` from the post-search point. After the refactor both go through the helper, which uses one `re-search-forward` and computes the same `heading-end = line-end-position` once — semantically equivalent to the prior writer (whose enclosing `if` body still saw the same heading-end position) and to the prior reader. No behavioural change expected; the existing save-state-spec.el round-trip + idempotence specs (lines ~534-621) continue to pass.
+- The writer's heading-absent branch (the `* System Prompt` / `* Chat` materialiser using `jf/gptel--session-headings-block`) was left untouched — it does not share the body-region scan, only the heading-anchor regexp. Folding that branch into the helper would conflate two responsibilities (locate vs. materialise) and was correctly out of scope.
+- The reader had been declared "uses a narrow/regexp scan, not `org-element-parse-buffer'" (chat-mode parser Decision 1). The new helper inherits and documents that contract — the helper docstring repeats the Decision 1 note so anyone refactoring the helper does not accidentally reach for `org-element`.
+- The existing `system prompt heading save` describe block (save-state-spec.el lines ~524-621) is well-asserted: round-trip stability, idempotence, no `:GPTEL_SYSTEM:` drawer leak, heading singleton, materialise path. The new structural describe block I added is complementary, not duplicative — it asserts the helper's *return shape* and the writer's *delete-region bounds*, which the existing specs only catch transitively.
+- `gptel-chat--config-drawer-end` (lines ~735-750) follows a similar pattern but for a different region (the file-level config drawer at `point-min`, not the heading's own drawer). I did not attempt to unify it with the new helper — the two scans answer different questions (where the file-level drawer ends vs. where the System Prompt heading's body lives) and merging them would be over-fitting.
+
+## Discoveries
+
+- class: duplication-resolved
+  description: |
+    Cycle-7 cited `arch-cycle-1779477564-5` (blocking, duplication of
+    the four-step heading-body scan between reader and writer in
+    `config/gptel/chat/menu.org`). This task extracts
+    `gptel-chat--system-prompt-heading-body-region` as the single scan
+    site and rewrites both call sites to consume it. The trim-vs-pad
+    asymmetry now lives at exactly one decision point (helper returns
+    the post-drawer region verbatim; reader trims, writer pads).
+  affected_register_entry: register/shape/session-document-layout
+  recommendation: |
+    No follow-up action. The duplication finding is resolved; the
+    helper's docstring documents the trim-vs-pad policy decision so a
+    future refactor cannot silently reintroduce divergence. The
+    structural spec in `save-state-spec.el` pins the helper's return
+    shape and the writer's delete-region bounds, so silent drift would
+    fail the suite.
+
+- class: contract-preserved
+  description: |
+    The two reconciled, load-bearing entries cited by the task were
+    pressure-tested against the refactor and held intact:
+      - `register/invariant/system-prompt-heading-authoritative`: the
+        reader's trim-and-blank-check (treat whitespace-only body as
+        "not authored", fall through to next precedence level) is
+        unchanged — only its location moved (the substring extraction
+        + trim + blank check are now downstream of the helper, but
+        the policy is identical). Round-trip create -> restore ->
+        save -> re-restore idempotence is still pinned by
+        save-state-spec.el's "is idempotent — a no-change save
+        produces no buffer diff" spec.
+      - `register/shape/session-document-layout`: the writer's
+        heading-absent branch (materialise via
+        `jf/gptel--session-headings-block`) is unchanged. The
+        helper's heading-present branch preserves the exact
+        delete-region bounds the prior writer used, so the layout's
+        "exactly one `* System Prompt` heading" and "config drawer
+        at point-min" invariants are unaffected. The new structural
+        spec asserts the heading line and `* Chat` heading both
+        survive a round-trip through the writer.
+  affected_register_entry: register/invariant/system-prompt-heading-authoritative
+  recommendation: |
+    No push-back. Both entries remain reconciled and load-bearing.
+    The helper extraction is a strict refactor — no contract
+    surface changes.
+

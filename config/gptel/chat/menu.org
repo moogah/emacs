@@ -307,19 +307,39 @@ to the =* System Prompt= heading, then skip its property drawer — not
 =org-element-parse-buffer= (chat-mode parser Decision 1: the parser
 stays a regexp state machine, no org-element dependency).
 
+The four-step scan (anchor heading → heading-end → next-heading-or-EOB
+subtree-end → skip the heading's own =:PROPERTIES:= drawer) is shared
+with the save-side writer =gptel-chat--write-system-prompt-heading=
+via the helper =gptel-chat--system-prompt-heading-body-region=. The
+helper returns the post-drawer body region verbatim; the *reader*
+trims trailing whitespace and treats a blank result as "not authored"
+(per =register/invariant/system-prompt-heading-authoritative=); the
+*writer* pads with the leading/trailing newlines the document layout
+requires (per =register/shape/session-document-layout=). Single-
+sourcing the scan keeps reader/writer agreement on what "body" means
+visible at one decision point — silent divergence on body bounds is
+exactly the shape-corruption class the shape register guards against.
+
 #+begin_src emacs-lisp
-(defun gptel-chat--system-prompt-heading-body ()
-  "Return the body text of the `* System Prompt' heading, or nil.
+(defun gptel-chat--system-prompt-heading-body-region ()
+  "Return (BODY-START . SUBTREE-END) for `* System Prompt', or nil.
 
 Locates the first top-level `* System Prompt' heading in the current
-buffer, skips its `:PROPERTIES:' ... `:END:' drawer (and any blank
-lines after it), and returns the remaining subtree text up to — but
-not including — the next heading.  Trailing whitespace is trimmed.
+buffer.  BODY-START is the buffer position immediately after the
+heading's own `:PROPERTIES:'/`:END:' drawer (when present), or the
+position immediately after the heading line otherwise.  SUBTREE-END
+is the start of the next `^\\* ' heading, or `point-max'.
 
-Returns nil when there is no `* System Prompt' heading, or when the
-heading body is blank (absent or whitespace-only) — a blank body is
-treated as \"not authored\" so it never overrides the preset
-(register/invariant/system-prompt-heading-authoritative).
+Returns nil when the `* System Prompt' heading is absent.  The
+returned region is *verbatim* — no trim, no pad: the reader
+(`gptel-chat--system-prompt-heading-body') trims and treats a blank
+result as \"not authored\" per register/invariant/system-prompt-
+heading-authoritative; the writer
+(`gptel-chat--write-system-prompt-heading') pads with the leading/
+trailing newlines required by register/shape/session-document-layout.
+Centralising the scan keeps reader and writer agreed on what \"body\"
+means — silent divergence on body bounds is exactly the corruption
+class the shape register guards against.
 
 Uses a narrow/regexp scan, not `org-element-parse-buffer' (chat-mode
 parser Decision 1)."
@@ -345,12 +365,32 @@ parser Decision 1)."
                     (when (re-search-forward "^[ \t]*:END:[ \t]*$"
                                              subtree-end t)
                       (forward-line 1)))
-                  (point)))
-               (body (and (< body-start subtree-end)
-                          (buffer-substring-no-properties
-                           body-start subtree-end))))
-          (when (and body (not (string-blank-p body)))
-            (string-trim-right body)))))))
+                  (point))))
+          (cons body-start subtree-end))))))
+
+(defun gptel-chat--system-prompt-heading-body ()
+  "Return the body text of the `* System Prompt' heading, or nil.
+
+Locates the first top-level `* System Prompt' heading in the current
+buffer, skips its `:PROPERTIES:' ... `:END:' drawer (and any blank
+lines after it), and returns the remaining subtree text up to — but
+not including — the next heading.  Trailing whitespace is trimmed.
+
+Returns nil when there is no `* System Prompt' heading, or when the
+heading body is blank (absent or whitespace-only) — a blank body is
+treated as \"not authored\" so it never overrides the preset
+(register/invariant/system-prompt-heading-authoritative).
+
+Delegates the heading-and-drawer scan to
+`gptel-chat--system-prompt-heading-body-region'; the only work here is
+substring extraction, the trim policy, and the blank-body check."
+  (when-let* ((region (gptel-chat--system-prompt-heading-body-region))
+              (body-start (car region))
+              (subtree-end (cdr region))
+              ((< body-start subtree-end))
+              (body (buffer-substring-no-properties body-start subtree-end))
+              ((not (string-blank-p body))))
+    (string-trim-right body)))
 
 (defun gptel-chat--apply-system-prompt-heading ()
   "Install the `* System Prompt' heading body as `gptel--system-message'.
@@ -662,7 +702,15 @@ Two cases:
 
 - *Heading present* (a current-layout session) — the body between the
   heading's =:PROPERTIES:= drawer and the next heading is replaced
-  with the current =gptel--system-message=.
+  with the current =gptel--system-message=. The body region is located
+  via =gptel-chat--system-prompt-heading-body-region= — the *same*
+  helper the reader uses, so reader and writer agree on what "body"
+  means (the four-step anchor/heading-end/subtree-end/drawer-skip scan
+  exists once). The writer then pads with the leading/trailing
+  newlines the layout requires; the reader trims. Single-sourcing the
+  scan removes a documented duplication finding (arch-cycle-
+  1779477564-5) and keeps the trim/pad asymmetry visible at one
+  decision point.
 - *Heading absent* (a pre-Addendum session — graceful degrade,
   Decision 6 / Decision B) — the =* System Prompt= and =* Chat=
   headings are *materialised*. Everything currently after the config
@@ -715,6 +763,12 @@ no drawer is found."
 When the buffer already has a `* System Prompt' heading, replace its
 body text (between the heading's own `:PROPERTIES:' drawer and the
 next heading) with the current buffer-local `gptel--system-message'.
+The body region is located via
+`gptel-chat--system-prompt-heading-body-region', the shared
+reader/writer scan helper — guarantees reader and writer agree on
+where \"body\" starts and ends (register/shape/session-document-
+layout).  The writer pads with the leading/trailing newlines the
+layout requires; the reader trims.
 
 When the buffer has no `* System Prompt' heading — a pre-Addendum
 session — materialise the `* System Prompt' and `* Chat' headings
@@ -735,27 +789,13 @@ and calls this only in chat-mode buffers."
     (save-excursion
       (save-restriction
         (widen)
-        (goto-char (point-min))
-        (if (re-search-forward "^\\* System Prompt[ \t]*$" nil t)
-            ;; Heading present — replace the body in place.
-            (let* ((heading-end (line-end-position))
-                   (subtree-end
-                    (save-excursion
-                      (goto-char heading-end)
-                      (if (re-search-forward "^\\* " nil t)
-                          (line-beginning-position)
-                        (point-max))))
-                   (body-start
-                    (save-excursion
-                      (goto-char heading-end)
-                      (forward-line 1)
-                      (when (and (< (point) subtree-end)
-                                 (looking-at-p
-                                  "^[ \t]*:PROPERTIES:[ \t]*$"))
-                        (when (re-search-forward
-                               "^[ \t]*:END:[ \t]*$" subtree-end t)
-                          (forward-line 1)))
-                      (point))))
+        (if-let* ((region (gptel-chat--system-prompt-heading-body-region)))
+            ;; Heading present — replace the body in place.  The helper
+            ;; returns the post-drawer region verbatim; the writer pads
+            ;; with the leading/trailing newlines required by
+            ;; register/shape/session-document-layout.
+            (let ((body-start (car region))
+                  (subtree-end (cdr region)))
               (delete-region body-start subtree-end)
               (goto-char body-start)
               ;; A non-blank body is written verbatim followed by a
