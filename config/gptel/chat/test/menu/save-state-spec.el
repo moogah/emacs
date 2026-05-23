@@ -51,16 +51,12 @@
 ;; Load the modules under test from the co-located source directory.
 ;; `file-name-directory' of this spec is .../config/gptel/chat/test/menu/;
 ;; two levels up is .../config/gptel/chat/, which holds `menu.el' and
-;; `mode.el'.  `.../config/gptel/sessions/' holds `commands.el', the
-;; module that owns the shared `jf/gptel--session-headings-block'
-;; heading helper used by the save-path materialiser.
+;; `mode.el'.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
        (chat-dir (expand-file-name "../../" spec-dir))
-       (gptel-dir (expand-file-name "../../../" spec-dir))
-       (sessions-dir (expand-file-name "../../../sessions/" spec-dir)))
+       (gptel-dir (expand-file-name "../../../" spec-dir)))
   (add-to-list 'load-path chat-dir)
-  (add-to-list 'load-path gptel-dir)
-  (add-to-list 'load-path sessions-dir))
+  (add-to-list 'load-path gptel-dir))
 
 (require 'gptel)
 (require 'gptel-chat-mode)
@@ -71,12 +67,6 @@
 ;; writer lazily requires it; load it eagerly here so the unit specs
 ;; that call the writer directly have the registry available.
 (require 'gptel-scope-profiles)
-;; `gptel-chat--write-system-prompt-heading' materialises the
-;; `* System Prompt' / `* Chat' headings for pre-Addendum sessions via
-;; `jf/gptel--session-headings-block' in `gptel-session-commands'.
-;; The writer lazily requires it; load it eagerly so the
-;; materialisation spec exercises the real heading helper.
-(require 'gptel-session-commands nil t)
 
 ;; The save hook requires `gptel-org' lazily for the read-side overlay.
 ;; Soft-require here so existing tests can pre-load it; the cold-load

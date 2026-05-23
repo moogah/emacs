@@ -388,15 +388,15 @@ The agent's =session.org= is composed in a single shot as
   =:GPTEL_PRESET:=, =:GPTEL_PARENT_SESSION_ID:=, and the resolved
   =:GPTEL_SCOPE_READ:= / =:WRITE:= / =:DENY:= keys built from
   =allowed-paths= + the standard deny set.
-- =body= is the canonical heading block from
-  =jf/gptel-persistent-agent--initial-body=: a folded
-  =* System Prompt= heading (body seeded from the preset's =:system=
-  text) followed by a =* Chat= heading holding the populated
-  =#+begin_user= block (the agent's initial prompt).
+- =body= is the populated =#+begin_user= block from
+  =jf/gptel-persistent-agent--initial-body= (the agent's initial
+  prompt). No headings are emitted; the preset's =:system= is
+  materialised in a sibling =system-prompt.<ext>= file by a separate
+  task in =replace-system-prompt-heading-with-sibling-file=.
 
-This matches the interactive creation path's document shape
-(=register/shape/session-document-layout=) so the agent
-=session.org= is a conforming producer of that register entry.
+The resulting agent =session.org= mirrors the interactive creation
+path's shape: file-level config drawer at =point-min= followed
+directly by a single turn block, no headings.
 
 No =scope.yml= is written. The drawer is the authoritative carrier of
 scope state (cycle-2 task =rewire-persistent-agent=,

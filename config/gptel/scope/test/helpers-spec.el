@@ -601,26 +601,27 @@ shape of a real session.org.  ALIST has the same shape as
      ,@body))
 
 (defmacro jf/gptel-test--with-session-document (alist &rest body)
-  "Run BODY in a temp buffer shaped like a post-cycle-7 `session.org'.
+  "Run BODY in a temp buffer holding a multi-drawer org document.
 
-ALIST has the same shape as `jf/gptel-test--render-drawer'.  After the
-file-level config drawer, the canonical heading block emitted by
-`jf/gptel--session-headings-block' is inserted: a `* System Prompt'
-heading with its own `:PROPERTIES:/:VISIBILITY: folded/:END:' drawer
-and an empty body, followed by a `* Chat' heading containing the
-empty `#+begin_user' / `#+end_user' template.
+ALIST has the same shape as `jf/gptel-test--render-drawer'.  After
+the file-level config drawer this macro inserts a `* System Prompt'
+heading carrying its own `:PROPERTIES:/:VISIBILITY: folded/:END:'
+drawer and an empty body, followed by a `* Chat' heading containing
+the empty `#+begin_user' / `#+end_user' template.
 
 The buffer is in `org-mode' with point at `point-min' before BODY runs.
 
-Use this macro (instead of `jf/gptel-test--with-scope-drawer') when the
-test must verify behaviour against the *full document shape* described
-by `register/shape/session-document-layout' — most importantly, the
-presence of a second `:PROPERTIES:' drawer attached to `* System
-Prompt'.  Buffer-wide `:PROPERTIES:'/`:END:' counts will therefore be
-2/2 here, not 1/1; assertions about the file-level drawer must be
-scoped to the span before the first heading (see e.g.
-`no-duplicate-drawer-spec--count-properties-headers' in
-`config/gptel/scope/test/drawer/no-duplicate-drawer-spec.el')."
+HISTORICAL NOTE: this shape was the canonical session.org layout under
+the prior `gptel-drawer-as-source-of-truth' change.
+`replace-system-prompt-heading-with-sibling-file' removed the
+`* System Prompt' / `* Chat' headings from production session.org
+output; no production code path now emits this multi-drawer shape.
+The macro is retained as a defensive fixture for tests that need to
+verify file-level-drawer-region scoping survives ANY future
+multi-drawer document — buffer-wide `:PROPERTIES:'/`:END:' counts are
+2/2 here, not 1/1.  Callers that want the production-current shape
+should use `jf/gptel-test--with-scope-drawer' (drawer + bare
+`#+begin_user' block, no headings)."
   (declare (indent 1))
   `(with-temp-buffer
      (insert (jf/gptel-test--render-drawer ,alist))
