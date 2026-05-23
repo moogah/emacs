@@ -44,3 +44,22 @@ Expect: no matches for `org-set-visibility-according-to-property` in chat-mode t
 architecture.md §Components — `chat/mode.org` may carry the activation; investigation step in the implementation confirms.
 
 design.md §Goals — the heading layout is removed wholesale; this task cleans up one of the activation hooks introduced specifically to support it.
+
+## Cycle 1779565028 updates (cycle-1779565028)
+
+- **Heading shape is fully gone after this cycle**: cycle-1779565028
+  closed the five foundational tasks (heading reader/writer deleted
+  from `chat/menu.org`, headings-block helper deleted from
+  `sessions/commands.org`, agent path updated). The
+  `org-set-visibility-according-to-property` activation now has *no*
+  `:VISIBILITY: folded` heading to fold in any production-emitted
+  session.org — the cleanup is safe and the dead-code claim in this
+  task's "Why" section is now empirically true.
+- **No impact-set hits in code yet**: the cycle did not touch the
+  hook's likely location (chat/mode.org or wherever it's wired). The
+  investigation grep in step 1 is still the right place to start.
+- **Test surface to verify**: the chat-mode suite (483-497 specs in
+  cycle-1779565028) does not currently have any spec that depends on
+  the visibility hook firing. Verification command in step 4 is
+  sufficient; no spec deletions expected.
+

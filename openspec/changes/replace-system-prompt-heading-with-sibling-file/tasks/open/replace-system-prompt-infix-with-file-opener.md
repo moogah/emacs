@@ -2,7 +2,7 @@
 name: replace-system-prompt-infix-with-file-opener
 description: Replace the upstream `gptel-system-prompt` infix in the chat-mode transient menu with a new "Edit system prompt" suffix that opens the sibling system-prompt file in another window via `find-file-other-window`. When the drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:` property yet, the suffix prompts for a filename (default `system-prompt.md`), writes the property, creates an empty file, and opens it. Upstream `gptel-system-prompt` (invoked outside the chat-mode menu) is unchanged.
 change: replace-system-prompt-heading-with-sibling-file
-status: blocked
+status: ready
 relations:
   - blocked-by:add-sibling-file-restore-to-chat-mode
 ---
@@ -59,3 +59,27 @@ architecture.md §Interfaces — `gptel-chat--edit-system-prompt-file` is the ne
 design.md §Decision 5 — rationale for replacing the upstream infix in the chat-mode menu only, not globally.
 
 design.md §Open Question 2 — transient suffix vs. bound key; default to transient suffix in this task. A bound key can be added later if there's demand.
+
+## Cycle 1779565028 updates (cycle-1779565028)
+
+- **Unblocked**: `add-sibling-file-restore-to-chat-mode` landed
+  (merge `301f99c`). `gptel-chat--system-prompt-file-path` is
+  available; reuse it for step 2a of the implementation rather than
+  reimplementing the drawer lookup.
+- **Existing menu transient** lives in `config/gptel/chat/menu.org`
+  under the `* =gptel-chat-menu= transient` section, with
+  subsections for `Send suffix`, `Scope default: buffer-local for
+  chat-menu lifetime`, and `Prefix definition`. The upstream
+  `gptel-system-prompt` infix entry should be locatable in the
+  prefix definition block.
+- **Test fixture pattern**: the new
+  `system-prompt-file-spec.el` already establishes a
+  `find-file-noselect` against a temp session.org pattern. Reuse
+  the helper functions (`jf-sysprompt-file-test--write-session`,
+  `jf-sysprompt-file-test--write-sibling`) — extend rather than
+  re-declare.
+- **macOS quirk**: as in the restore task, use `file-truename`
+  when comparing the resolved path to an expected path in tests;
+  `find-file-noselect` canonicalises `/var/folders/...` to
+  `/private/var/folders/...`.
+

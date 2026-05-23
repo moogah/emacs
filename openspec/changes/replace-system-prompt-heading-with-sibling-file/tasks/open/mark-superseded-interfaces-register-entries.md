@@ -61,3 +61,53 @@ architecture.md §Boundaries — the interfaces register is the bookkeeping surf
 design.md §Decision 7 — wholesale heading deletion. Marking the register entries superseded is the formal closure of the heading-shape contract.
 
 The prior change's discoveries (`disc-make-system-prompt-heading-authoritative-2`, `disc-make-system-prompt-heading-authoritative-3`) flipped these entries from `speculated` to `confirmed`. This task flips `confirmed` to `superseded`.
+
+## Cycle 1779565028 updates (cycle-1779565028)
+
+> Cycle 1779565028: this task now has concrete pre-written
+> reconciliation content from the integrate phase. Treat it as the
+> authoritative source for the rewrite — copy/adapt the prose rather
+> than re-derive it from scratch.
+
+- **Three reconciliation notes** already capture the supersession
+  prose; use them as the source for the `supersession_note:` fields
+  the implementation steps prescribe:
+  - `.orchestrator/cycles/cycle-1779565028/reconciliations/shape-session-document-layout.md`
+    — full new-shape spec, deletion rationale, producers post-cycle,
+    `why_tests_missed`, and meta-discovery.
+  - `.orchestrator/cycles/cycle-1779565028/reconciliations/invariant-system-prompt-heading-authoritative.md`
+    — new precedence chain (sibling file > legacy drawer > preset),
+    enforcement-mechanism update, provisional new-entry id.
+  - `.orchestrator/cycles/cycle-1779565028/reconciliations/invariant-drawer-system-key-write-exclusion.md`
+    — unchanged contract; included for audit trail.
+
+- **Architect finding `arch-cycle-1779565028-1`**
+  (`.orchestrator/cycles/cycle-1779565028/findings/arch-cycle-1779565028-1.md`)
+  formally routes the spec-signal to this task. The finding's
+  "Recommended resolution" section enumerates the specific
+  rewrites: drop the two heading regions from `document_regions`,
+  add the `:GPTEL_SYSTEM_PROMPT_FILE:` key to the drawer enumeration,
+  rewrite the embedded validator, create
+  `register/invariant/system-prompt-file-authoritative` with
+  enforcement at the two named spec files. **Implementation step 3
+  (the "optional but recommended" new entry) is no longer optional**
+  — Architect finding recommends creating it now so the new contract
+  has a load-bearing register entry before this change archives.
+
+- **Provisional new-entry IDs** (from the reconciliation notes):
+  - `register/shape/session-sibling-system-prompt-file` (shape of
+    the on-disk sibling artifact + the `:GPTEL_SYSTEM_PROMPT_FILE:`
+    drawer key shape).
+  - `register/invariant/system-prompt-file-authoritative` (the new
+    top-tier precedence invariant).
+  Enforcement: `config/gptel/chat/test/menu/system-prompt-file-spec.el`
+  (9 specs covering resolver + installer) and the
+  `system prompt restore precedence` describe block in
+  `config/gptel/chat/test/menu/preset-wiring-spec.el` (6 specs
+  covering the three-tier precedence end-to-end).
+
+- **Cross-reference cleanup hint**: the cycle's diff did not modify
+  `interfaces.org` line numbers, so the line list (404, 453, 522,
+  1795, 2155, 2464, 2614) in the original Implementation steps is
+  still accurate as of cycle-1779565028 close.
+

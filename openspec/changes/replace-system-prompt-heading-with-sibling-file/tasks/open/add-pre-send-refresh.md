@@ -2,7 +2,7 @@
 name: add-pre-send-refresh
 description: Add `gptel-chat--refresh-system-prompt-from-file` and wire it to run before every chat request in chat-mode buffers, so that mid-session edits to the sibling system-prompt file are picked up on the next send without explicitly reopening or reverting `session.org`. Implementation prefers an upstream pre-send hook if one exists; otherwise narrow `:before` advice on `gptel-request` filtered to `derived-mode-p 'gptel-chat-mode`.
 change: replace-system-prompt-heading-with-sibling-file
-status: blocked
+status: ready
 relations:
   - blocked-by:add-sibling-file-restore-to-chat-mode
 ---
@@ -62,3 +62,29 @@ design.md §Decision 4 — rationale for per-request refresh over file-notify wa
 design.md §Open Question 1 — investigate upstream hook availability is explicitly the first implementation step; record the finding in the task's discoveries when closing.
 
 design.md §Risks — synchronous I/O per request is acceptable (file is small, OS cache is warm). If a future profile flags this, the refresh can be gated on `file-attribute-modification-time` change; not done in this task.
+
+## Cycle 1779565028 updates (cycle-1779565028)
+
+- **Unblocked**: `add-sibling-file-restore-to-chat-mode` landed (merge `301f99c`).
+  `gptel-chat--system-prompt-file-path` (resolver) and
+  `gptel-chat--apply-system-prompt-file` (activation-time installer)
+  are now in `config/gptel/chat/menu.org` under the new
+  `* System Prompt sibling file` section, with `lexical-binding: t`
+  intact. This task's refresh function reuses the same resolver per
+  the brief — no signature drift to absorb.
+- **Wiring hint**: the activation-time installer is wired as the
+  *final* step of `gptel-chat--apply-declared-preset`. The pre-send
+  refresh added here is the *runtime* counterpart; it should not
+  hook into `gptel-chat-mode-hook` (the installer already covers
+  the activation moment).
+- **Test fixture pattern available**: the new
+  `config/gptel/chat/test/menu/system-prompt-file-spec.el` uses
+  `find-file-noselect` against a temp `session.org` written by a
+  helper macro; reuse the same fixture style for the
+  `pre-send-refresh-spec.el` "modify file on disk, simulate send"
+  scenario.
+- **macOS quirk noted**: on macOS, `find-file-noselect` canonicalises
+  `/var/folders/...` to `/private/var/folders/...`. The sibling-file
+  spec compares via `file-truename` on both sides; do the same when
+  asserting paths in this task's new spec.
+

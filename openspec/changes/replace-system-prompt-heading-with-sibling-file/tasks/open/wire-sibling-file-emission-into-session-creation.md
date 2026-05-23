@@ -2,7 +2,7 @@
 name: wire-sibling-file-emission-into-session-creation
 description: Wire `jf/gptel--write-system-prompt-sibling-file` into `jf/gptel--create-session-core` so that fresh sessions write `system-prompt.<ext>` next to `session.org` and the configuration drawer carries the new `:GPTEL_SYSTEM_PROMPT_FILE:` property pointing at that basename. Updates session-creation specs for the new property and sibling-file presence.
 change: replace-system-prompt-heading-with-sibling-file
-status: blocked
+status: ready
 relations:
   - blocked-by:add-sibling-file-writer-helper
   - blocked-by:revert-initial-session-body-and-delete-headings-block
@@ -59,3 +59,37 @@ architecture.md §Components — `jf/gptel--create-session-core` and the agent p
 design.md §Decision 1 — paths in the drawer property are basenames, resolved relative to `session.org`'s directory. This task writes basenames, never absolute paths.
 
 The previous task `revert-initial-session-body-and-delete-headings-block` establishes the no-heading baseline that this task builds on; the drawer text composition path is already simpler after R3 lands.
+
+## Cycle 1779565028 updates (cycle-1779565028)
+
+- **Unblocked**: both prerequisites landed.
+  `add-sibling-file-writer-helper` (merge `125a936`) adds
+  `jf/gptel--write-system-prompt-sibling-file` with signature
+  `(session-dir preset-name preset-spec)` — **preset-name is
+  required**, not optional. Update step 1 of the implementation
+  accordingly: the writer call passes the three args directly. No
+  third-arg conditional needed.
+- `revert-initial-session-body-and-delete-headings-block`
+  (merge `ef385f4`) collapsed the agent path's `--initial-body`
+  signature to `(prompt)` and dropped the `system-prompt` let
+  binding in `jf/gptel-persistent-agent--task`. When this task adds
+  the sibling-file writer call to the agent path, re-introduce a
+  `preset-spec` binding (still already resolved upstream for the
+  drawer renderer) and pass `(preset-name preset-spec)` to the
+  writer — do NOT thread `system-prompt` through `--initial-body`
+  again.
+- **Drawer composition gotcha**: the current `(concat drawer-text
+  (jf/gptel--initial-session-body))` has NO separator between
+  drawer and body. This task's drawer-property appending must keep
+  this invariant: insert the new `:GPTEL_SYSTEM_PROMPT_FILE:` line
+  inside the drawer's `:PROPERTIES:`...`:END:` block (e.g., via
+  string surgery on `drawer-text` before the concat), not by adding
+  it after `:END:` (that would push body separator semantics around).
+- **Register diff**: `register/shape/session-document-layout` is
+  reconciled this cycle but its prose still describes the old
+  heading shape — the rewrite is owned by
+  `mark-superseded-interfaces-register-entries`. When updating the
+  test fixtures here, do not re-cite the heading-shape invariants;
+  cite the new "drawer at point-min + turn block(s)" shape directly
+  via behavioral assertion.
+
