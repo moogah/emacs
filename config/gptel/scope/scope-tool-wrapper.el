@@ -116,6 +116,25 @@ proper Unicode codepoints sidesteps that check."
 
 
 ;; [[file:scope-tool-wrapper.org::*Scoped Tool Macro][Scoped Tool Macro:1]]
+(defvar jf/gptel-scope--scoped-tool-operations (make-hash-table :test 'equal)
+  "Map tool-name string → declared :operation symbol (or nil for bash-style).
+Populated at macro-expansion time by `gptel-make-scoped-tool'.
+Used by `jf/gptel-scope--tool-validation-type' to recover the
+validation-type a tool was registered with so downstream consumers
+(notably `request_scope_expansion') no longer have to guess.")
+
+(defun jf/gptel-scope--tool-validation-type (tool-name)
+  "Return the scope validation-type symbol for TOOL-NAME (`path' or `bash').
+A registered tool with a non-nil declared :operation is a path tool;
+a registered tool with nil operation is a bash-style tool whose file
+operations are extracted from input.  Unknown tool names default to
+`path' for backward compatibility with the old hardcoded constant."
+  (let ((entry (gethash tool-name jf/gptel-scope--scoped-tool-operations 'unset)))
+    (cond
+     ((eq entry 'unset) 'path)
+     ((null entry) 'bash)
+     (t 'path))))
+
 (defmacro gptel-make-scoped-tool (name description args &rest rest)
   "Create an async scope-aware gptel tool with automatic validation.
 
@@ -140,31 +159,33 @@ later turn."
            (arg-names (mapcar (lambda (arg-spec)
                                 (intern (plist-get arg-spec :name)))
                               (eval args))))
-      `(gptel-make-tool
-        :name ,name
-        :description ,description
-        :args ,args
-        :category "scope"
-        :async t
-        :function
-        (lambda (callback ,@arg-names)
-          (condition-case err
-              (jf/gptel-scope-authorize-tool-call
-               ,name ',operation (list ,@arg-names)
-               (lambda ()
-                 (funcall callback
-                          (jf/gptel-scope--serialize-tool-result
-                           (progn ,@body))))
-               (lambda (deny-response)
-                 (funcall callback
-                          (jf/gptel-scope--serialize-tool-result deny-response))))
-            (error
-             (funcall callback
-                      (jf/gptel-scope--serialize-tool-result
-                       (list :success nil
-                             :error "tool_exception"
-                             :message (format "Tool error: %s"
-                                              (error-message-string err))))))))))))
+      `(progn
+         (puthash ,name ',operation jf/gptel-scope--scoped-tool-operations)
+         (gptel-make-tool
+          :name ,name
+          :description ,description
+          :args ,args
+          :category "scope"
+          :async t
+          :function
+          (lambda (callback ,@arg-names)
+            (condition-case err
+                (jf/gptel-scope-authorize-tool-call
+                 ,name ',operation (list ,@arg-names)
+                 (lambda ()
+                   (funcall callback
+                            (jf/gptel-scope--serialize-tool-result
+                             (progn ,@body))))
+                 (lambda (deny-response)
+                   (funcall callback
+                            (jf/gptel-scope--serialize-tool-result deny-response))))
+              (error
+               (funcall callback
+                        (jf/gptel-scope--serialize-tool-result
+                         (list :success nil
+                               :error "tool_exception"
+                               :message (format "Tool error: %s"
+                                                (error-message-string err)))))))))))))
 ;; Scoped Tool Macro:1 ends here
 
 ;; Provide Feature

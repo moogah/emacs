@@ -128,7 +128,9 @@ and the wrapper would surface a `tool_exception' to the model."
                            (setq exit-code 124)
                            (setq output (format "Command execution timed out after %d seconds."
                                                 jf/gptel-bash--command-timeout))
-                           (setq warnings (list "Command timed out"))))
+                           (setq warnings
+                                 (list (format "Command timed out after %d seconds — consider using more specific filters (head, grep, tail, find with -maxdepth) to reduce execution time."
+                                               jf/gptel-bash--command-timeout)))))
             (setq output
                   (with-temp-buffer
                     (let ((coding-system-for-read 'utf-8-unix))
@@ -151,7 +153,7 @@ and the wrapper would surface a `tool_exception' to the model."
           (setq truncated t)
           (setq output
                 (concat (substring output 0 max-output-chars)
-                        (format "\n\n[Output truncated at %d chars. Total: %d chars.]"
+                        (format "\n\n[Output truncated at %d chars. Total: %d chars. Narrow results with head, grep, tail, or other filters.]"
                                 max-output-chars original-length)))))
 
       ;; Check for warnings
@@ -249,11 +251,12 @@ Returns:
  (lambda (callback tool_name patterns justification)
    (when (vectorp patterns)
      (setq patterns (append patterns nil)))
-   (let* ((violation-info
+   (let* ((validation-type (jf/gptel-scope--tool-validation-type tool_name))
+          (violation-info
            (list :tool tool_name
                  :resource (car patterns)
                  :reason justification
-                 :validation-type 'path
+                 :validation-type validation-type
                  :patterns patterns)))
      (jf/gptel-scope-prompt-expansion violation-info callback patterns tool_name))))
 ;; request_scope_expansion Tool:1 ends here
