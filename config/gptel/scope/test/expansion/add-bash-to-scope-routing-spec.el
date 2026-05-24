@@ -18,8 +18,9 @@
 ;;   - Path-shaped (absolute, tilde, glob, directory) → delegates to
 ;;     `jf/gptel-scope--add-path-to-scope', which writes to the drawer
 ;;     key matching the denied operation.
-;;   - Bare command names (no slash, no glob) → returns nil and emits a
-;;     user message ("not expandable in the operation-first model").
+;;   - Bare command names (no slash, no glob) → returns the sentinel
+;;     `:bare-command-refusal' so the outer action handler can emit a
+;;     structured denial (scope-rearch-followups Bug 2 fix).
 ;;
 ;; Migration note: this spec was rewritten as part of
 ;; migrate-expansion-tests (cycle-3) — fixtures moved from scope.yml
@@ -84,14 +85,16 @@
 
   (describe "with bare command name (not path-shaped)"
 
-    (it "returns nil for a bare command (no slash, no glob)"
+    (it "returns :bare-command-refusal for a bare command (no slash, no glob)"
       (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
         (jf/gptel-test--with-scope-drawer '()
           (let ((result (jf/gptel-scope--add-bash-to-scope
                          "brew" "run_bash_command" :execute)))
             ;; Bare command names are not expandable; the writer
-            ;; signals "no-op" by returning nil.
-            (expect result :to-be nil)
+            ;; signals refusal via the :bare-command-refusal sentinel
+            ;; so the outer action handler can emit a structured denial
+            ;; (scope-rearch-followups Bug 2).
+            (expect result :to-be :bare-command-refusal)
             ;; And it must NOT have written anything to any drawer key.
             (expect (org-entry-get-multivalued-property
                      (point-min) "GPTEL_SCOPE_READ")

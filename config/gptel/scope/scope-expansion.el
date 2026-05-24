@@ -430,30 +430,42 @@ expansions still progress."
 
 (defun jf/gptel-scope--add-to-scope--emit-callback (callback scope resource writer-result)
   "Stage 4 helper: emit callback based on writer return value.
-WRITER-RESULT non-nil = wrote (success + patterns_added);
-nil = no-op (either dedup short-circuit or bare-command branch).
 
-The bare-command branch (--add-bash-to-scope returning nil because the
-resource was a bare command name) and the dedup branch (writer found the
-pattern already in the drawer) are indistinguishable at this layer, but
-both should *not* claim a phantom :patterns_added with the LLM. We emit
-:success t :patterns_added [] in both cases — the LLM treats this as
-'already-allowed' and proceeds, which is correct for dedup and harmless
-for bare-command (the next attempt will re-deny with the same message,
-loop terminating because the pattern set is unchanged)."
+WRITER-RESULT classification:
+  - `:bare-command-refusal' — bare command name (not path-shaped). Emit
+    structured denial (`:success nil :error \"command_name_not_expandable\"
+    :user_denied t'); the LLM treats it as a clear refusal and adapts
+    (typically by requesting expansion for the underlying file
+    operation). Fixes `scope-rearch-followups' Bug 2: before this branch
+    existed, bare-command and dedup were both reported as `:success t
+    :patterns_added []' and the LLM looped on retry.
+  - non-nil string — wrote pattern to drawer. Emit `:success t' with
+    `:patterns_added' populated.
+  - nil — dedup short-circuit (pattern already in drawer). Emit `:success t
+    :patterns_added []' (the LLM treats this as 'already-allowed' and
+    proceeds)."
   (let* ((patterns (plist-get scope :patterns))
          (tool-name (plist-get scope :tool-name)))
     (jf/gptel-scope--safe-callback
      callback
-     (if writer-result
-         (list :success t
-               :patterns_added (vconcat patterns)
-               :message (format "Scope expanded. Added %d pattern(s) to %s"
-                                (length patterns) tool-name))
+     (cond
+      ((eq writer-result :bare-command-refusal)
+       (list :success :false
+             :error "command_name_not_expandable"
+             :message (format "Cannot expand scope for command name '%s'. Request expansion for a specific file operation (path) instead."
+                              resource)
+             :user_denied t))
+      (writer-result
+       (list :success t
+             :patterns_added (vconcat patterns)
+             :message (format "Scope expanded. Added %d pattern(s) to %s"
+                              (length patterns) tool-name)))
+      (t
        (list :success t
              :patterns_added (vector)
-             :message "Pattern already in scope (no-op).")))
-    (when writer-result
+             :message "Pattern already in scope (no-op)."))))
+    (when (and writer-result
+               (not (eq writer-result :bare-command-refusal)))
       (message "Added %s to scope" resource))))
 
 (defun jf/gptel-scope--safe-callback (callback result-plist)
@@ -557,21 +569,34 @@ callback (Stage 4)."
          callback
          (list :success nil :user_denied t))
 
-      ;; User provided a pattern — write it and thread the no-op signal.
+      ;; User provided a pattern — write it and thread the no-op /
+      ;; bare-command-refusal signals to the callback. The user can type
+      ;; anything, including a bare command name, so this branch must
+      ;; respect the same `:bare-command-refusal' sentinel that
+      ;; `--add-to-scope--emit-callback' branches on.
       (let ((writer-result
              (jf/gptel-scope--write-pattern-to-scope
               custom-pattern validation-type tool denied-operation)))
         (jf/gptel-scope--safe-callback
          callback
-         (if writer-result
-             (list :success t
-                   :patterns_added (vector custom-pattern)
-                   :message (format "Scope expanded. Added custom pattern %s" custom-pattern))
+         (cond
+          ((eq writer-result :bare-command-refusal)
+           (list :success :false
+                 :error "command_name_not_expandable"
+                 :message (format "Cannot expand scope for command name '%s'. Request expansion for a specific file operation (path) instead."
+                                  custom-pattern)
+                 :user_denied t))
+          (writer-result
+           (list :success t
+                 :patterns_added (vector custom-pattern)
+                 :message (format "Scope expanded. Added custom pattern %s" custom-pattern)))
+          (t
            (list :success t
                  :patterns_added (vector)
                  :message (format "Custom pattern %s already in scope (no-op)."
-                                  custom-pattern))))
-        (when writer-result
+                                  custom-pattern)))))
+        (when (and writer-result
+                   (not (eq writer-result :bare-command-refusal)))
           (message "Added %s to scope" custom-pattern))))
 
     (transient-quit-one)
@@ -621,10 +646,16 @@ TOOL is passed for diagnostic context only.
 DENIED-OPERATION, when non-nil, is the denied operation keyword (e.g.,
 :read-metadata) collapsed by the writer to the matching drawer key.
 
+Return value contract:
+  - String (the pattern written) — wrote to drawer.
+  - nil — dedup short-circuit (pattern already in drawer).
+  - `:bare-command-refusal' — RESOURCE is a bare command name; not
+    expandable in the operation-first model. The outer action handler
+    branches on this sentinel to emit a structured denial to the
+    wrapper callback (`scope-rearch-followups' Bug 2).
+
 Path-shaped RESOURCE values (absolute, tilde-prefixed, glob, or directory)
-delegate to `jf/gptel-scope--add-path-to-scope'. Bare command names
-emit a user message and return nil — they are not expandable in the
-operation-first model."
+delegate to `jf/gptel-scope--add-path-to-scope'."
   ;; Check if resource is a path-like pattern or a bare command name.
   ;; Path-like: absolute (/..., ~...), directory, or contains a glob wildcard
   ;; (match-pattern operations produce globs like "*.txt").
@@ -637,8 +668,9 @@ operation-first model."
 
     ;; Bare command name — not expandable in the operation-first model
     ;; (commands are validated by their file operations, not by name).
-    (message "Cannot add command '%s' to scope — use path-based expansion instead" resource)
-    nil))
+    ;; Return the sentinel so the outer action handler can emit a
+    ;; structured denial to the wrapper callback.
+    :bare-command-refusal))
 
 (defun jf/gptel-scope-prompt-expansion (violation-info callback patterns tool-name)
   "Show expansion UI for VIOLATION-INFO, or queue if one is already active.
