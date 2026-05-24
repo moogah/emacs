@@ -76,20 +76,35 @@ tab."
         (puthash name updated workspace--registry)))))
 #+end_src
 
-* kill-buffer hook
+* kill-buffer hook (DISABLED — see note)
 
-Story A (design.md §D3): =kill-buffer= is not advised, shadowed, or
-wrapped.  When a file buffer is killed, bufferlo removes it from all
-tabs' local lists automatically.  We mirror the change into the
-registry's =:buffer-files= so the persistence file does not try to
-re-open a killed buffer on restart.
+This hook was originally added to keep =:buffer-files= in sync with
+the live buffer set so the persistence file wouldn't try to re-open
+a killed buffer on restart.  But it conflated two distinct events:
+
+1. The user explicitly removes a buffer from a workspace (the
+   =workspace-remove-buffer= command — additive opt-out).
+2. The user kills a buffer for unrelated reasons (declutter, free
+   memory, etc.) and reasonably expects the workspace's saved file
+   list to be unchanged.
+
+The eager removal in case (2) breaks the close-tab-then-restore
+flow: kill a buffer → :buffer-files drops the file → workspace-restore
+has nothing to pre-load → =window-state-put= falls back to =*scratch*=.
+
+The save-time =workspace--sync-registry-from-bufferlo= already
+captures the live bufferlo membership at every layout snapshot, so
+this hook is redundant for the persist-on-save path.  Removed.
+
+The =workspace--on-buffer-killed= function definition is kept as
+dead code for now in case a future design wants an opt-in equivalent.
 
 #+begin_src emacs-lisp
 (defun workspace--on-buffer-killed ()
   "Sync the registry to reflect that the buffer being killed is gone.
 
-Runs in `kill-buffer-hook' (which fires *before* the buffer is killed,
-so the buffer's file name is still available)."
+Currently unused.  See `:before' the source block for the rationale —
+this is dead code preserved against a future opt-in design."
   (let ((path (buffer-file-name)))
     (when path
       (maphash
@@ -98,8 +113,6 @@ so the buffer's file name is still available)."
            (puthash name (workspace--remove-buffer-file ws path)
                     workspace--registry)))
        workspace--registry))))
-
-(add-hook 'kill-buffer-hook #'workspace--on-buffer-killed)
 #+end_src
 
 * workspace-remove-buffer

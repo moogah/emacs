@@ -23,12 +23,13 @@ new workspace."
 
 (global-set-key (kbd "C-x w n") #'workspace-new)
 (global-set-key (kbd "C-x w s") #'workspace-switch)
+(global-set-key (kbd "C-x w o") #'workspace-restore)
+(global-set-key (kbd "C-x w S") #'workspace-save)
 (global-set-key (kbd "C-x w l") #'workspace-switch-layout)
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
 (global-set-key (kbd "C-x w D") #'workspace-delete-layout)
 (global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
 (global-set-key (kbd "C-x w r") #'workspace-remove-buffer)
-(global-set-key (kbd "C-x w S") #'workspace-save-state)
 
 (when (fboundp 'workspace--restore)
   (workspace--restore))

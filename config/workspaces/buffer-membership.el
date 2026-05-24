@@ -36,8 +36,8 @@ tab."
 (defun workspace--on-buffer-killed ()
   "Sync the registry to reflect that the buffer being killed is gone.
 
-Runs in `kill-buffer-hook' (which fires *before* the buffer is killed,
-so the buffer's file name is still available)."
+Currently unused.  See `:before' the source block for the rationale —
+this is dead code preserved against a future opt-in design."
   (let ((path (buffer-file-name)))
     (when path
       (maphash
@@ -46,8 +46,6 @@ so the buffer's file name is still available)."
            (puthash name (workspace--remove-buffer-file ws path)
                     workspace--registry)))
        workspace--registry))))
-
-(add-hook 'kill-buffer-hook #'workspace--on-buffer-killed)
 
 (defun workspace-remove-buffer (buffer)
   "Remove BUFFER from the current workspace's membership without killing it.

@@ -21,11 +21,7 @@
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
-        (tab-bar-close-tab 2))))
-  (let* ((tabs (frame-parameter nil 'tabs))
-         (current (assq 'current-tab tabs))
-         (cell (and current (assq 'workspace-name current))))
-    (when cell (setcdr cell nil))))
+        (tab-bar-close-tab 2)))))
 
 (describe "workspace-save-layout"
   (before-each (layouts-spec--reset))
@@ -116,13 +112,22 @@
     (workspace-save-layout "tests")
     (workspace-new "beta")
     (workspace-save-layout "tests")
-    (let ((alpha-tests (workspace--find-group
-                        (gethash "alpha" workspace--registry) "tests"))
-          (beta-tests (workspace--find-group
-                       (gethash "beta" workspace--registry) "tests")))
-      (expect alpha-tests :not :to-be nil)
-      (expect beta-tests  :not :to-be nil)
-      (expect alpha-tests :not :to-equal beta-tests))))
+    (expect (workspace--find-group
+             (gethash "alpha" workspace--registry) "tests")
+            :not :to-be nil)
+    (expect (workspace--find-group
+             (gethash "beta" workspace--registry) "tests")
+            :not :to-be nil)
+    ;; Removing alpha's `tests' leaves beta's `tests' untouched —
+    ;; the real independence guarantee.
+    (workspace-switch "alpha")
+    (workspace-delete-layout "tests")
+    (expect (workspace--find-group
+             (gethash "alpha" workspace--registry) "tests")
+            :to-be nil)
+    (expect (workspace--find-group
+             (gethash "beta" workspace--registry) "tests")
+            :not :to-be nil)))
 
 (describe "workspace-delete-layout"
   (before-each (layouts-spec--reset))

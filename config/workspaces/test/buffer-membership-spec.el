@@ -34,11 +34,7 @@
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
-        (tab-bar-close-tab 2))))
-  (let* ((tabs (frame-parameter nil 'tabs))
-         (current (assq 'current-tab tabs))
-         (cell (and current (assq 'workspace-name current))))
-    (when cell (setcdr cell nil))))
+        (tab-bar-close-tab 2)))))
 
 (defun bm-spec--with-membership (alist body-fn)
   "Run BODY-FN while bufferlo's per-tab list is mocked from ALIST.
@@ -130,14 +126,18 @@ ALIST maps workspace-name (string) → list of buffer objects."
     (let ((buf (get-buffer "*scratch*")))
       (expect (workspace-remove-buffer buf) :to-throw 'user-error))))
 
-(describe "kill-buffer remains globally destructive (Story A)"
+(describe "kill-buffer does not mutate workspace membership"
+  ;; Design change: kill-buffer is no longer destructive to
+  ;; :buffer-files (the previous Story A).  Killing a buffer is a
+  ;; transient session action and should not modify the workspace's
+  ;; saved file list.  Explicit removal flows through
+  ;; `workspace-remove-buffer'.  The save-time bufferlo sync
+  ;; (workspace--autosave-current-layout) updates :buffer-files only
+  ;; when the user actually saves.
   (before-each (bm-spec--reset))
 
-  (it "removes the file from every workspace's :buffer-files when killed"
+  (it "leaves :buffer-files untouched when a buffer is killed"
     (let* ((tmpfile (make-temp-file "ws-kill-"))
-           ;; Store the truename — that's what `buffer-file-name'
-           ;; returns when the killed-buffer hook fires, since
-           ;; find-file-noselect resolves macOS /var symlinks.
            (resolved (file-truename tmpfile))
            (buf (find-file-noselect tmpfile)))
       (unwind-protect
@@ -155,10 +155,10 @@ ALIST maps workspace-name (string) → list of buffer objects."
             (kill-buffer buf)
             (expect (workspace--buffer-files
                      (gethash "alpha" workspace--registry))
-                    :to-equal nil)
+                    :to-equal (list resolved))
             (expect (workspace--buffer-files
                      (gethash "beta" workspace--registry))
-                    :to-equal nil))
+                    :to-equal (list resolved)))
         (when (buffer-live-p buf) (kill-buffer buf))
         (delete-file tmpfile)))))
 

@@ -17,42 +17,42 @@ on-disk form.")
 
 (defun workspace--frame-current-tab ()
   "Return the live current-tab alist from the selected frame's `tabs' parameter.
-Distinct from `tab-bar--current-tab', which returns a fresh copy.  This
-is the object to mutate when we want changes to persist."
+Distinct from `tab-bar--current-tab', which returns a fresh copy."
   (assq 'current-tab (frame-parameter nil 'tabs)))
 
-(defun workspace--tab-workspace-name (tab)
-  "Return the workspace name associated with TAB, or nil."
-  (cdr (assq 'workspace-name tab)))
+(defun workspace--tab-name (tab)
+  "Return the `name' slot of TAB, or nil."
+  (cdr (assq 'name tab)))
 
-(defun workspace--set-tab-workspace-name (tab name)
-  "Attach NAME to TAB as its `workspace-name' parameter, in place.
-TAB must be a live tab alist obtained from the frame's `tabs'
-parameter (use `workspace--frame-current-tab' or iterate
-`(frame-parameter nil \\='tabs)' directly)."
-  (let ((existing (assq 'workspace-name tab)))
-    (if existing
-        (setcdr existing name)
-      (nconc tab (list (cons 'workspace-name name)))))
-  tab)
+(defun workspace--tab-workspace-name (tab)
+  "Return the workspace name associated with TAB, or nil.
+
+A tab is considered owned by workspaces if its `name' matches a key
+in `workspace--registry'."
+  (let ((name (workspace--tab-name tab)))
+    (when (and name (gethash name workspace--registry))
+      name)))
 
 (defun workspace--current-name ()
   "Return the workspace name of the currently selected tab, or nil."
   (workspace--tab-workspace-name (workspace--frame-current-tab)))
 
 (defun workspace--tab-for (name)
-  "Return the live tab alist whose `workspace-name' parameter is NAME, or nil."
-  (seq-find (lambda (tab) (equal (workspace--tab-workspace-name tab) name))
+  "Return the live tab alist whose `name' is NAME and is in the registry."
+  (seq-find (lambda (tab)
+              (and (equal (workspace--tab-name tab) name)
+                   (gethash name workspace--registry)))
             (frame-parameter nil 'tabs)))
 
 (defun workspace--tab-index-for (name)
-  "Return the 1-based index of the tab whose `workspace-name' parameter is NAME.
+  "Return the 1-based index of the tab whose `name' is NAME (workspace).
 Returns nil if no such tab exists."
   (let ((tabs (frame-parameter nil 'tabs))
         (i 1)
         result)
     (while (and tabs (not result))
-      (when (equal (workspace--tab-workspace-name (car tabs)) name)
+      (when (and (equal (workspace--tab-name (car tabs)) name)
+                 (gethash name workspace--registry))
         (setq result i))
       (setq tabs (cdr tabs)
             i (1+ i)))
@@ -63,19 +63,14 @@ Returns nil if no such tab exists."
   (delete-other-windows)
   (switch-to-buffer (get-buffer-create "*scratch*")))
 
-(defun workspace--ensure-current-tab-tagged (name)
-  "Tag the currently selected tab with NAME as its `workspace-name'."
-  (workspace--set-tab-workspace-name (workspace--frame-current-tab) name))
-
 (defun workspace-new (name)
   "Create a new workspace named NAME (or select it if it already exists).
 
-A new tab is created and tagged with NAME as its :workspace-name
-parameter.  The workspace's `home' layout is initialized by calling
-`workspace-home-builder' in the context of the new tab; the resulting
-window configuration is captured later by the layout-commands task.
-For now the home builder runs but its window config is not yet
-serialized into the workspace plist."
+A new tab is created and renamed to NAME; the registry entry is
+inserted before the home builder runs so the new workspace is
+recognized by `workspace--current-name' from the builder onward.
+The home builder runs in the context of the new tab; buffers it
+displays become workspace members via the buffer-membership module."
   (interactive "sWorkspace name: ")
   (let ((existing-tab (workspace--tab-for name)))
     (if existing-tab
@@ -84,12 +79,10 @@ serialized into the workspace plist."
           (gethash name workspace--registry))
       (tab-bar-new-tab)
       (tab-bar-rename-tab name)
-      (workspace--ensure-current-tab-tagged name)
+      ;; Register BEFORE running the home builder so the new tab is
+      ;; recognized as owned by workspaces from this point on.
       (let ((ws (workspace--make name)))
         (puthash name ws workspace--registry))
-      ;; Run the home builder in the context of the new tab; buffers
-      ;; it displays will become workspace members via the buffer-
-      ;; membership integration in a later task.
       (when (and (boundp 'workspace-home-builder)
                  (functionp workspace-home-builder))
         (funcall workspace-home-builder name))

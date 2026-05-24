@@ -30,10 +30,6 @@
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
         (tab-bar-close-tab 2))))
-  (let* ((tabs (frame-parameter nil 'tabs))
-         (current (assq 'current-tab tabs))
-         (cell (and current (assq 'workspace-name current))))
-    (when cell (setcdr cell nil)))
   (setq persistence-spec--tmp-dir
         (make-temp-file "ws-state-" t)))
 

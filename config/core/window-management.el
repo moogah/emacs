@@ -15,9 +15,9 @@
     :straight t
     :custom
     (persp-mode-prefix-key (kbd "C-c M-p"))
-    (persp-modestring-short t)
-    :config
-    (persp-mode))
+    (persp-modestring-short t))
+    ;; :config
+    ;; (persp-mode)  ; disabled on add-workspaces-package branch
 
 ;; ===============================================================================
 ;; Ace Window - Quick window selection
@@ -39,14 +39,14 @@
                   "state/activities/default/")))
     (put 'activities-activities 'persist-location
          (expand-file-name subdir jf/emacs-dir)))
-  (activities-mode)
-  (activities-tabs-mode)
+  ;; (activities-mode)        ; disabled on add-workspaces-package branch
+  ;; (activities-tabs-mode)   ; disabled on add-workspaces-package branch
   ;; Prevent `edebug' default bindings from interfering.
   (setq edebug-inhibit-emacs-lisp-mode-bindings t)
 
   :config
-  (activities-mode)
-  (activities-tabs-mode)
+  ;; (activities-mode)        ; disabled on add-workspaces-package branch
+  ;; (activities-tabs-mode)   ; disabled on add-workspaces-package branch
 
   :bind
   (("C-x C-a C-n" . activities-new)

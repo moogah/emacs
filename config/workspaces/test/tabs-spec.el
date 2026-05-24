@@ -18,22 +18,19 @@
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
-        (tab-bar-close-tab 2))))
-  ;; Strip any workspace-name parameter from the remaining live tab.
-  (let* ((tabs (frame-parameter nil 'tabs))
-         (current (assq 'current-tab tabs))
-         (cell (and current (assq 'workspace-name current))))
-    (when cell (setcdr cell nil))))
+        (tab-bar-close-tab 2)))))
 
 (describe "workspace-new"
   (before-each (workspaces-spec--reset))
 
-  (it "creates a new tab and tags it with :workspace-name"
+  (it "creates a new tab whose name identifies the workspace"
     (let ((count-before (length (funcall tab-bar-tabs-function))))
       (workspace-new "alpha")
       (expect (length (funcall tab-bar-tabs-function))
               :to-equal (1+ count-before))
-      (expect (workspace--current-name) :to-equal "alpha")))
+      (expect (workspace--current-name) :to-equal "alpha")
+      (expect (workspace--tab-name (workspace--frame-current-tab))
+              :to-equal "alpha")))
 
   (it "inserts the workspace into the registry"
     (workspace-new "alpha")
@@ -66,13 +63,24 @@
 (describe "tab-switch advice"
   (before-each (workspaces-spec--reset))
 
-  (it "no-ops on tabs without :workspace-name"
+  (it "no-ops on tabs not present in the workspaces registry"
     ;; Create a vanilla tab without going through workspace-new.
     (tab-bar-new-tab)
     (expect (workspace--current-name) :to-be nil)
     ;; Selecting the previous (also untagged) tab should not error.
     (tab-bar-select-tab 1)
-    (expect (workspace--current-name) :to-be nil)))
+    (expect (workspace--current-name) :to-be nil))
+
+  (it "survives a tab-bar-select-tab round-trip"
+    ;; This is the regression for the dropped-tab-parameter bug.
+    (workspace-new "alpha")
+    (workspace-new "beta")
+    (workspace-switch "alpha")
+    (expect (workspace--current-name) :to-equal "alpha")
+    (workspace-switch "beta")
+    (expect (workspace--current-name) :to-equal "beta")
+    (workspace-switch "alpha")
+    (expect (workspace--current-name) :to-equal "alpha")))
 
 (provide 'tabs-spec)
 ;;; tabs-spec.el ends here

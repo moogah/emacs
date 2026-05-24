@@ -30,6 +30,13 @@ Winner mode allows you to undo and redo changes to your window configuration.
 * Perspective
 Perspective provides workspace functionality similar to virtual desktops.
 
+Disabled on the =add-workspaces-package= branch while the new
+=workspaces= package is being tested.  =persp-mode= scopes buffers
+per perspective and silently swaps the displayed buffer when its
+notion of the current perspective differs from ours, which masks
+window-state-capture/restore bugs in =workspaces=.  Re-enable when
+the workspaces cutover decision is made.
+
 #+begin_src emacs-lisp
   ;; ===============================================================================
   ;; Perspective - Workspace management for Emacs
@@ -39,9 +46,9 @@ Perspective provides workspace functionality similar to virtual desktops.
       :straight t
       :custom
       (persp-mode-prefix-key (kbd "C-c M-p"))
-      (persp-modestring-short t)
-      :config
-      (persp-mode))
+      (persp-modestring-short t))
+      ;; :config
+      ;; (persp-mode)  ; disabled on add-workspaces-package branch
 #+end_src
 
 * Ace Window
@@ -59,6 +66,14 @@ Ace Window provides quick window selection with visual cues.
 * Activities
 Activities provides a higher-level workspace management and task organization system.
 
+Disabled on the =add-workspaces-package= branch.  =activities-mode=
+runs a 5-second idle timer that calls =window-state-get= on the
+same frame =workspaces= is managing, and =activities-tabs-mode=
+hooks =window-configuration-change-hook= and stamps tab parameters,
+both of which add noise to interactive workspace-save / restore
+testing.  The package itself stays installed so its functions are
+still available via =M-x=; only the auto-activated modes are off.
+
 #+begin_src emacs-lisp
   ;; ===============================================================================
   ;; Activities - Advanced workspace and workflow management
@@ -73,14 +88,14 @@ Activities provides a higher-level workspace management and task organization sy
                     "state/activities/default/")))
       (put 'activities-activities 'persist-location
            (expand-file-name subdir jf/emacs-dir)))
-    (activities-mode)
-    (activities-tabs-mode)
+    ;; (activities-mode)        ; disabled on add-workspaces-package branch
+    ;; (activities-tabs-mode)   ; disabled on add-workspaces-package branch
     ;; Prevent `edebug' default bindings from interfering.
     (setq edebug-inhibit-emacs-lisp-mode-bindings t)
-  
+
     :config
-    (activities-mode)
-    (activities-tabs-mode)
+    ;; (activities-mode)        ; disabled on add-workspaces-package branch
+    ;; (activities-tabs-mode)   ; disabled on add-workspaces-package branch
 
     :bind
     (("C-x C-a C-n" . activities-new)

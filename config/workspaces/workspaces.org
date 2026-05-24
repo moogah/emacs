@@ -72,22 +72,29 @@ it is a sibling not a parent.
 |-----------+--------------------------------------|
 | =C-x w n= | =workspace-new=                      |
 | =C-x w s= | =workspace-switch=                   |
+| =C-x w o= | =workspace-restore=                  |
+| =C-x w S= | =workspace-save=                     |
 | =C-x w l= | =workspace-switch-layout=            |
 | =C-x w L= | =workspace-save-layout=              |
 | =C-x w D= | =workspace-delete-layout=            |
 | =C-x w R= | =workspace-switch-to-recent-layout=  |
 | =C-x w r= | =workspace-remove-buffer=            |
-| =C-x w S= | =workspace-save-state=               |
+
+=workspace-save= (=C-x w S=) captures the live frame and writes
+synchronously.  The lower-level =workspace-save-state= still exists
+for internal use as a debounced flush primitive, but is no longer
+bound by default.
 
 #+begin_src emacs-lisp
 (global-set-key (kbd "C-x w n") #'workspace-new)
 (global-set-key (kbd "C-x w s") #'workspace-switch)
+(global-set-key (kbd "C-x w o") #'workspace-restore)
+(global-set-key (kbd "C-x w S") #'workspace-save)
 (global-set-key (kbd "C-x w l") #'workspace-switch-layout)
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
 (global-set-key (kbd "C-x w D") #'workspace-delete-layout)
 (global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
 (global-set-key (kbd "C-x w r") #'workspace-remove-buffer)
-(global-set-key (kbd "C-x w S") #'workspace-save-state)
 #+end_src
 
 * Startup restoration

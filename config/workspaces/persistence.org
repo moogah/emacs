@@ -20,7 +20,6 @@ selection of each restored workspace (lazy activation).
 (require 'workspace-buffer-membership)
 (require 'workspace-layouts)
 (require 'tab-bar)
-(require 'frameset)
 #+end_src
 
 * Paths
@@ -158,47 +157,61 @@ creation + frameset restore is lazy.
 #+begin_src emacs-lisp
 (defun workspace--restore-tabs ()
   "Create a tab per restored workspace; do not change the active tab.
-Each new tab is tagged with its `workspace-name' parameter; layout
-restore is deferred until the user first selects that tab."
+
+Each new tab is named after its workspace; that name is the
+discriminator (see `workspace--tab-workspace-name' in tabs.el).
+Layout restore is deferred until the user first selects the tab."
   (let ((preserved (workspace--current-name)))
     (maphash
      (lambda (name _ws)
        (unless (workspace--tab-for name)
          (tab-bar-new-tab)
-         (tab-bar-rename-tab name)
-         (workspace--set-tab-workspace-name
-          (workspace--frame-current-tab) name)))
+         (tab-bar-rename-tab name)))
      workspace--registry)
     ;; If we just changed the current tab while creating new tabs,
-    ;; navigate back to where we were (or to tab 1 if nothing).
+    ;; navigate back to where we were.
     (when preserved
       (let ((idx (workspace--tab-index-for preserved)))
         (when idx (tab-bar-select-tab idx))))))
 
-(defun workspace--activate-pending-workspace (name)
-  "Restore NAME's recent-layout frameset and re-acquire its file buffers.
-Clears the :restore-pending flag.  Called from the tab-switch hook on
-first selection of a restored workspace."
+(defun workspace--apply-saved-layout (name)
+  "Apply NAME's recent saved window-state to the current frame.
+Also re-acquires its file buffers and clears any `:restore-pending'
+flag on the workspace.  No-op when no saved layout exists.
+
+File buffers are loaded *before* the window-state is applied so that
+`window-state-put' can resolve buffer references by name instead of
+falling back to `*scratch*'."
   (let ((ws (gethash name workspace--registry)))
-    (when (and ws (plist-get ws :restore-pending))
+    (when ws
       (let* ((recent (workspace--recent-group ws))
              (group (and recent (workspace--find-group ws recent)))
              (layout (and group (workspace--group-recent-layout group)))
-             (frameset (and layout (workspace--layout-frameset layout)))
+             (state (and layout (workspace--layout-frameset layout)))
              (files (workspace--buffer-files ws)))
-        (when frameset
-          (condition-case err
-              (workspace--restore-frameset frameset)
-            (error (message "Workspaces: frameset restore failed: %s"
-                            (error-message-string err)))))
-        ;; Quietly re-acquire file buffers; bufferlo's display hooks
-        ;; will pick them up as the user navigates.
+        ;; Pre-load file buffers so window-state-put can resolve the
+        ;; saved buffer names.  Without this step, window-state-put
+        ;; silently falls back to *scratch* for any missing buffer.
         (dolist (path files)
           (when (file-exists-p path)
-            (ignore-errors (find-file-noselect path)))))
-      (let ((updated (let ((copy (copy-sequence ws)))
-                       (plist-put copy :restore-pending nil))))
-        (puthash name updated workspace--registry)))))
+            (ignore-errors (find-file-noselect path))))
+        (when state
+          (condition-case err
+              (workspace--restore-frameset state)
+            (error (message "Workspaces: layout restore failed: %s"
+                            (error-message-string err))))))
+      (when (plist-get ws :restore-pending)
+        (let ((updated (let ((copy (copy-sequence ws)))
+                         (plist-put copy :restore-pending nil))))
+          (puthash name updated workspace--registry))))))
+
+(defun workspace--activate-pending-workspace (name)
+  "Restore NAME's recent layout if the workspace is `:restore-pending'.
+Called from the tab-switch hook on first selection of a restored
+workspace.  No-op when the flag is not set."
+  (let ((ws (gethash name workspace--registry)))
+    (when (and ws (plist-get ws :restore-pending))
+      (workspace--apply-saved-layout name))))
 #+end_src
 
 * Hook into tab switch advice
@@ -249,6 +262,66 @@ Safe to call at startup; no-ops cleanly when the file is absent."
     (when state
       (workspace--deserialize-state state)
       (workspace--restore-tabs))))
+#+end_src
+
+* Explicit save / restore commands
+
+=workspace-save= is the user-facing capture-and-persist command:
+it snapshots the current frame into the current workspace's recent
+layout group, then flushes the registry to disk synchronously
+(no debounce, since this is explicit user intent).
+
+=workspace-restore= materializes a saved workspace into a tab.  Its
+candidate list is the full registry — including workspaces with no
+live tab — so it complements =workspace-switch= (which is scoped to
+live tabs).  When the chosen workspace already has a tab, it switches
+to it; otherwise it creates a tab and applies the saved layout.
+
+#+begin_src emacs-lisp
+(defun workspace-save ()
+  "Save the current workspace's window configuration to disk.
+Captures the current frame into the recent layout-group, syncs the
+workspace's `:buffer-files' from bufferlo, and writes the registry to
+disk synchronously.  Errors when not on a workspaces-managed tab.
+
+The bufferlo sync is intentionally limited to this explicit save path
+(and not done by the tab-switch autosave) so that transient session
+events — killing a buffer, closing a tab — never wipe the workspace's
+saved file list."
+  (interactive)
+  (let ((ws-name (workspace--current-name)))
+    (unless ws-name
+      (user-error "Not on a workspaces-managed tab"))
+    (workspace--autosave-current-layout)
+    (workspace--sync-registry-from-bufferlo ws-name)
+    (workspace--flush-state)
+    ws-name))
+
+(defvar workspace--restore-history nil
+  "Minibuffer history for `workspace-restore'.")
+
+(defun workspace-restore (name)
+  "Materialize saved workspace NAME by creating or switching to its tab.
+
+If a tab for NAME already exists, switch to it.  Otherwise create a
+tab and apply the workspace's saved window configuration.
+
+Interactively, completes over every workspace in the registry —
+including saved workspaces that have no live tab."
+  (interactive
+   (let ((names (workspace--registered-names)))
+     (unless names
+       (user-error "No saved workspaces"))
+     (list (completing-read "Restore workspace: " names
+                            nil t nil 'workspace--restore-history))))
+  (unless (gethash name workspace--registry)
+    (user-error "No saved workspace named %s" name))
+  (if-let ((idx (workspace--tab-index-for name)))
+      (tab-bar-select-tab idx)
+    (tab-bar-new-tab)
+    (tab-bar-rename-tab name)
+    (workspace--apply-saved-layout name))
+  name)
 #+end_src
 
 * Provide
