@@ -39,23 +39,41 @@ The scope validation layer SHALL route every denial through the expansion UI ins
 
 ### Requirement: request_scope_expansion tool
 
-The system SHALL expose a regular gptel tool that lets the LLM pre-emptively request user approval before invoking a scoped tool it expects will be denied.
+The system SHALL expose a regular gptel tool that lets the LLM pre-emptively request user approval before invoking a scoped tool it expects will be denied. The tool's LLM-facing primary argument SHALL be `operation` (a closed-enum string identifying the kind of access the LLM wants to expand to), NOT `tool_name`. The violation-info plist passed to `jf/gptel-scope-prompt-expansion` SHALL carry `:validation-type` derived directly from `operation` — the same derivation the validation pipeline applies at `scope-validation.el:779-785` (`'bash` when operation indicates a bash-backed request, `'path` for filesystem operations).
 
 **Implementation**: `config/gptel/scope/scope-shell-tools.org` — §request_scope_expansion Tool
 
 #### Scenario: Tool is registered under the scope category
+
 - **WHEN** `scope-shell-tools` loads
 - **THEN** it defines `request_scope_expansion` via `gptel-make-tool` with `:async t` and `:category "scope"`
 - **AND** the tool is a regular gptel tool, not routed through any meta validation strategy
+- **AND** its argument schema declares `operation` (closed-enum string: `"read"`, `"write"`, `"modify"`, `"execute"`, `"bash"`) as the primary argument, followed by `patterns` and `justification`
 
-#### Scenario: LLM invokes request_scope_expansion
-- **WHEN** the LLM calls `request_scope_expansion` with `tool_name`, `patterns`, and `justification`
-- **THEN** the tool function constructs a violation-info plist (`:tool`, `:resource`, `:reason`, `:validation-type path`) and calls `jf/gptel-scope-prompt-expansion` directly
-- **AND** the user sees the same six-option transient menu as the inline flow
+#### Scenario: Validation-type resolves from a filesystem operation
+
+- **WHEN** the LLM invokes `request_scope_expansion` with `operation "read"` (or `"write"`, `"modify"`, `"execute"`)
+- **THEN** the violation-info carries `:validation-type 'path`
+- **AND** the violation-info carries `:operation` as the corresponding **keyword** (`:read`, `:write`, `:modify`, `:execute`) — keyword form is required for composition with `jf/gptel-scope--map-operation-to-drawer-key` (`scope-expansion.el:91`), which matches against keywords; bare symbols fall through its error arm
+- **AND** the add-to-scope handlers target the `paths.*` section (path router) for the corresponding drawer key
+
+#### Scenario: Validation-type resolves to bash for bash operations
+
+- **WHEN** the LLM invokes `request_scope_expansion` with `operation "bash"`
+- **THEN** the violation-info carries `:validation-type 'bash`
+- **AND** the violation-info carries `:operation nil` — bash has no canonical drawer key, so Stage 1 of `--add-to-scope` (`--handle-nil-operation`) handles the click rather than the writer chain. Pre-emptive bash expansion via this tool surfaces today as a structured `no-operation` denial; future work may add a dedicated bash-routing arm
+
+#### Scenario: Out-of-enum operations are rejected
+
+- **WHEN** the LLM invokes `request_scope_expansion` with an `operation` value outside the closed enum (e.g. a stale `tool_name` from a pre-migration prompt, or an unknown verb)
+- **THEN** the tool returns `:success nil`, a structured error naming the offending operation value, and a hint listing the valid enum members
+- **AND** no transient menu is shown
+- **AND** `jf/gptel-scope-prompt-expansion` is not invoked
 
 #### Scenario: Approved pre-emptive request
+
 - **WHEN** the user chooses Add to Scope (or a wildcard/custom variant)
-- **THEN** the session's drawer is updated and the LLM's response contains `:success t :patterns_added [...]`
+- **THEN** the session's `:PROPERTIES:` drawer is updated and the LLM's response contains `:success t :patterns_added [...]`
 - **AND** the LLM may then invoke the originally intended tool, which will pass validation against the updated drawer
 
 ### Requirement: Transient menu six-choice UI
@@ -143,6 +161,37 @@ Selecting Deny SHALL reject the pending invocation and cause the tool to return 
 - **WHEN** the write succeeds
 - **THEN** the wrapper callback receives `{:success t :patterns_added [...] :message "Scope expanded. Added N pattern(s) to <tool>"}`
 - **AND** the inline-flow trigger translates that into `(:approved t)` so the wrapper re-enters `jf/gptel-scope-authorize-tool-call`
+
+### Requirement: Section-targeted writes
+
+Add-to-scope variants SHALL use the denied operation to target the correct `paths.*` subsection of the session's `:PROPERTIES:` drawer (not the tool category, not the command name). Every code path SHALL invoke the expansion callback exactly once — including refusal paths that do not mutate the drawer.
+
+**Implementation**: `config/gptel/scope/scope-expansion.org` — §Add Path to Scope, §Add Bash to Scope, §Add to Scope action handler; `config/gptel/scope/scope-validation.org` — §Operation → Drawer Key Mapping
+
+#### Scenario: Operation keyword maps to drawer key
+
+- **WHEN** the violation carries `:operation :read`, `:write`, `:modify`, or `:execute`
+- **THEN** `jf/gptel-scope--map-operation-to-drawer-key` returns the matching `GPTEL_SCOPE_*` key and the pattern is written under it
+- **AND** read-like granular operations (`:read-directory`, `:read-metadata`, `:match-pattern`) collapse appropriately (`:read-metadata` gets its own bucket `GPTEL_SCOPE_READ_METADATA`; `:read-directory` collapses to `GPTEL_SCOPE_READ`); write-like granular operations (`:create`, `:create-or-modify`, `:append`, `:delete`) collapse to `GPTEL_SCOPE_WRITE`
+
+#### Scenario: Bash file-op denials route to path sections (no command-name expansion)
+
+- **WHEN** a bash validation denies a file operation on an absolute path, tilde path, or glob pattern
+- **THEN** `jf/gptel-scope--add-bash-to-scope` delegates to `jf/gptel-scope--add-path-to-scope` with the denied operation
+- **AND** the denied pattern is written and the callback is funcalled with `:success t :patterns_added [...]`
+
+#### Scenario: Bare command name refusal invokes the callback
+
+- **WHEN** the resource is a bare command name (no `/`, no `~`, no glob characters)
+- **AND** the user has chosen an Add-to-Scope variant
+- **THEN** `jf/gptel-scope--add-bash-to-scope` does NOT write to the drawer and returns the sentinel `:bare-command-refusal`
+- **AND** the outer action handler (`--add-to-scope` / `--add-custom-to-scope` / `--add-wildcard-to-scope`) funcalls the callback exactly once with `:success :false`, `:error "command_name_not_expandable"`, a human-readable message naming the offending command, and `:user_denied t`
+- **AND** the pending tool invocation resolves cleanly — it never hangs waiting for a callback
+
+#### Scenario: Missing operation falls back safely
+
+- **WHEN** no `:operation` is present on the violation
+- **THEN** `jf/gptel-scope--add-path-to-scope` defaults the target section to `:read` (the safest choice for filesystem tools whose category the caller did not pass through)
 
 ### Requirement: Add wildcard action (parent directory /**)
 

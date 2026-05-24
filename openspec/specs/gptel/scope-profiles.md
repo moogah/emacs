@@ -264,9 +264,9 @@ When session creation receives both a resolved profile and explicit worktree pat
 
 ### Requirement: Integration with preset registration
 
-Scope keys SHALL be extracted from preset frontmatter during registration and stored in `jf/gptel-preset--scope-defaults`, keyed by preset name symbol, so that `gptel--known-presets` contains no scope data.
+Scope keys SHALL be extracted from preset frontmatter during registration and stored in `jf/gptel-preset--scope-defaults`, keyed by preset name symbol, so that `gptel--known-presets` contains no scope data. The extracted keys are `:paths`, `:shell-commands`, `:bash-tools`, and `:scope-profile`. The extraction SHALL NOT include `:org-roam-patterns` (cycle-3 retired pattern-based validation) or any other key not consumed by the validation pipeline.
 
-**Implementation**: `jf/gptel-preset--extract-scope` in `config/gptel/preset-registration.org`. Extracted keys: `:paths`, `:org-roam-patterns`, `:shell-commands`, `:bash-tools`, `:scope-profile`.
+**Implementation**: `jf/gptel-preset--extract-scope` in `config/gptel/preset-registration.org`. Extracted keys: `:paths`, `:shell-commands`, `:bash-tools`, `:scope-profile`.
 
 #### Scenario: Scope defaults stored by preset name
 
@@ -279,6 +279,12 @@ Scope keys SHALL be extracted from preset frontmatter during registration and st
 - **WHEN** a session is created for preset `executor`
 - **THEN** `jf/gptel-scope-profile--resolve` looks up `executor` in `jf/gptel-preset--scope-defaults`
 - **AND** feeds the result into the resolution priority above
+
+#### Scenario: Removed keys are not extracted
+
+- **WHEN** a preset frontmatter contains the legacy scope key `:org-roam-patterns`
+- **THEN** that key is NOT stored in `jf/gptel-preset--scope-defaults`
+- **AND** `display-warning` fires once identifying the preset and the ignored key so the user can clean up the preset definition
 
 ## Integration Points
 
