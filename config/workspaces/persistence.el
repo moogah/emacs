@@ -135,13 +135,13 @@ saved buffer via the four-step fallback chain (bookmark → filename
 needed; the legacy `:buffer-files' slot is left untouched (design.md
 §D7).
 
-Increments `workspace--restore-generation' before scheduling the
-deferred `window-state-put' so that mashing restore commands cannot
-produce duplicate state-puts on the same frame (design.md §D2,
-Gotcha 3)."
+The restore generation counter (race guard against concurrent
+restores; design.md §D2 Gotcha 3) is incremented inside
+`workspace--restore-frameset' itself — every restore entry path
+participates in the guard, including direct callers like
+`workspace-switch-layout'."
   (let ((ws (gethash name workspace--registry)))
     (when ws
-      (cl-incf workspace--restore-generation)
       (let* ((recent (workspace--recent-group ws))
              (group (and recent (workspace--find-group ws recent)))
              (layout (and group (workspace--group-recent-layout group)))

@@ -225,13 +225,17 @@ which fires synchronously from within bookmark handlers.
 
 A generation counter (`workspace--restore-generation') gates the
 deferred closure: if a newer restore is queued while this one is
-pending, the older closure no-ops."
+pending, the older closure no-ops.  The counter is incremented
+HERE — at the single restore choke point — so every entry path
+(`workspace--apply-saved-layout', `workspace-switch-layout', and
+any future caller of `workspace--restore-frameset') participates
+in the race guard."
   (let* ((window-persistent-parameters
           (append workspace-window-persistent-parameters
                   window-persistent-parameters))
          (bufferized (workspace--window-state-deserialize
                       (copy-tree state)))
-         (gen workspace--restore-generation)
+         (gen (cl-incf workspace--restore-generation))
          (frame (selected-frame)))
     (run-at-time nil nil
                  (lambda ()
