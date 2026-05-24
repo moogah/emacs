@@ -55,7 +55,7 @@ booleans.  Recursively processes nested plists."
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.
 PROFILE-NAME is the base name without .yml extension.
-Returns a plist with :paths, :org-roam-patterns, :shell-commands, :bash-tools.
+Returns a plist with :paths, :shell-commands, :bash-tools.
 Returns nil and logs a warning if the file is missing or cannot be parsed.
 
 VALIDATION: Rejects profiles with bash_tools.categories section.

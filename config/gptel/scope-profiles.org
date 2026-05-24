@@ -5,7 +5,7 @@
 * Introduction
 
 Scope profile templates for gptel sessions. Profiles define default permissions
-(file paths, org-roam patterns, shell commands, bash tools) that can be associated with
+(file paths, shell commands, bash tools) that can be associated with
 presets. When a session starts, the profile is resolved, variables are expanded,
 and the result is rendered as a =:PROPERTIES:= drawer block to be embedded in
 the new =session.org= (or applied to an open buffer's drawer for buffer-mode
@@ -35,9 +35,13 @@ drawer text directly.
 Profiles can include the following configuration sections:
 
 1. *paths* - File access control (read, write, deny patterns)
-2. *org-roam-patterns* - Org-roam node filtering (subdirectory, tags, node-ids)
-3. *shell-commands* - Legacy shell command allow/deny lists (deprecated in favor of bash_tools)
-4. *bash_tools* - Category-based bash command execution with directory scoping
+2. *shell-commands* - Legacy shell command allow/deny lists (deprecated in favor of bash_tools)
+3. *bash_tools* - Category-based bash command execution with directory scoping
+
+(Earlier versions of this module also extracted an =org-roam-patterns= section
+for org-roam node filtering. Cycle-3 retired pattern-based validation; the
+section is no longer consumed and is no longer extracted from preset
+frontmatter — see =preset-registration.org= for the legacy-key warning.)
 
 ** Bash Tools Configuration
 
@@ -105,11 +109,6 @@ paths:
   read: ["/**"]
   write: ["${project_root}/**"]
   deny: ["**/.git/**", "**/runtime/**", "**/.env"]
-
-org_roam_patterns:
-  subdirectory: ["gptel/**"]
-  tags: ["gptel"]
-  node_ids: ["*"]
 
 shell_commands:
   allow: ["ls", "find", "grep", "git"]
@@ -204,7 +203,7 @@ Returns VALUE unchanged if it's not a boolean keyword."
 ** Normalize Parsed YAML Plist
 
 Recursively walks PARSED, converting underscored snake_case keys
-(e.g. =:org_roam_patterns=) to kebab-case (=:org-roam-patterns=) and
+(e.g. =:bash_tools=) to kebab-case (=:bash-tools=) and
 normalizing YAML boolean keywords (=:true= / =:false= / =:null=) to
 real elisp booleans.  Profile YAML is the only remaining YAML the
 scope subsystem touches; the previous shared scope-yaml boundary
@@ -242,7 +241,7 @@ booleans.  Recursively processes nested plists."
 (defun jf/gptel-scope-profile--load (profile-name)
   "Load scope profile PROFILE-NAME from the profiles directory.
 PROFILE-NAME is the base name without .yml extension.
-Returns a plist with :paths, :org-roam-patterns, :shell-commands, :bash-tools.
+Returns a plist with :paths, :shell-commands, :bash-tools.
 Returns nil and logs a warning if the file is missing or cannot be parsed.
 
 VALIDATION: Rejects profiles with bash_tools.categories section.

@@ -39,16 +39,21 @@ Pipeline stages (each a pure function):
 * Scope Defaults Storage
 
 Alist mapping preset name symbols to scope plists extracted during registration.
-Scope keys (=:paths=, =:org-roam-patterns=, =:shell-commands=, =:bash-tools=,
-=:scope-profile=) are stripped from the preset plist and stored here for later
-use by the scope subsystem.
+Scope keys (=:paths=, =:shell-commands=, =:bash-tools=, =:scope-profile=) are
+stripped from the preset plist and stored here for later use by the scope
+subsystem. The legacy =:org-roam-patterns= key is no longer extracted (cycle-3
+removed pattern-based validation); presets that still carry it trigger a
+=display-warning= but are otherwise registered without the legacy section
+flowing into scope-defaults.
 
 #+begin_src emacs-lisp
 (defvar jf/gptel-preset--scope-defaults nil
   "Alist mapping preset name symbols to scope plists.
 Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
-keys like :paths, :org-roam-patterns, :shell-commands, :bash-tools,
-:scope-profile that were extracted from the preset file during registration.")
+keys :paths, :shell-commands, :bash-tools, :scope-profile that were
+extracted from the preset file during registration. The legacy
+:org-roam-patterns key is no longer extracted; see
+`jf/gptel-preset--extract-scope' for the legacy-key warning behavior.")
 #+end_src
 
 * Mode Defaults Storage
@@ -195,23 +200,42 @@ Strip scope-related keys from the plist and store them in
 #+begin_src emacs-lisp
 (defun jf/gptel-preset--extract-scope (plist preset-name)
   "Extract scope keys from PLIST and store under PRESET-NAME.
-Scope keys are :paths, :org-roam-patterns, :shell-commands, :bash-tools,
-and :scope-profile.
+Scope keys are :paths, :shell-commands, :bash-tools, and :scope-profile.
 If any scope keys are present, store them in `jf/gptel-preset--scope-defaults'
 keyed by PRESET-NAME (a symbol).
-Return a new plist with scope keys removed."
-  (let ((scope-keys '(:paths :org-roam-patterns :shell-commands :bash-tools :scope-profile))
+Return a new plist with scope keys removed.
+
+Legacy keys (currently `:org-roam-patterns'): cycle-3 removed pattern-based
+validation from the scope subsystem; the key no longer has a consumer. Presets
+that still carry it trigger a `display-warning' naming the preset and the
+ignored key, and the key is dropped from the extracted scope plist."
+  (let ((scope-keys '(:paths :shell-commands :bash-tools :scope-profile))
+        (legacy-scope-keys '(:org-roam-patterns))
         (scope-plist nil)
+        (legacy-keys-present nil)
         (result nil))
-    ;; Collect scope keys and non-scope keys
+    ;; Walk the plist once: collect live scope keys, note legacy keys (and
+    ;; drop them from both scope-plist and result), pass through everything
+    ;; else.
     (let ((remaining plist))
       (while remaining
         (let ((key (pop remaining))
               (val (pop remaining)))
-          (if (memq key scope-keys)
-              (setq scope-plist (plist-put scope-plist key val))
-            (setq result (plist-put result key val))))))
-    ;; Store scope defaults if any scope keys were found
+          (cond
+           ((memq key legacy-scope-keys)
+            (push key legacy-keys-present))
+           ((memq key scope-keys)
+            (setq scope-plist (plist-put scope-plist key val)))
+           (t
+            (setq result (plist-put result key val)))))))
+    ;; Surface legacy keys via display-warning so the user can clean up.
+    (when legacy-keys-present
+      (display-warning
+       'jf-gptel-preset
+       (format "Preset %S carries legacy scope key(s) %S; the key(s) are ignored. Remove from the preset definition."
+               preset-name (nreverse legacy-keys-present))
+       :warning))
+    ;; Store scope defaults if any live scope keys were found
     (when scope-plist
       (let ((existing (assq preset-name jf/gptel-preset--scope-defaults)))
         (if existing
