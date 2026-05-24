@@ -230,10 +230,13 @@ HERE — at the single restore choke point — so every entry path
 (`workspace--apply-saved-layout', `workspace-switch-layout', and
 any future caller of `workspace--restore-frameset') participates
 in the race guard."
-  (let* ((window-persistent-parameters
-          (append workspace-window-persistent-parameters
-                  window-persistent-parameters))
-         (bufferized (workspace--window-state-deserialize
+  ;; Note: only the INNER let binding of `window-persistent-parameters'
+  ;; (inside the deferred lambda) is load-bearing — that is the binding
+  ;; in scope when `window-state-put' runs.  An earlier draft also
+  ;; bound it around `workspace--window-state-deserialize', but that
+  ;; deserializer reads the per-leaf `workspace-buffer' struct from the
+  ;; saved parameters map; it does not consult the dynamic variable.
+  (let* ((bufferized (workspace--window-state-deserialize
                       (copy-tree state)))
          (gen (cl-incf workspace--restore-generation))
          (frame (selected-frame)))

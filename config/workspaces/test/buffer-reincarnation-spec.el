@@ -79,14 +79,22 @@
           (let ((buf (get-file-buffer path)))
             (when buf (kill-buffer buf))))))
 
-    (it "is nil for a non-file workspace-buffer (no filename, no bookmark)"
-      ;; With no bookmark, no filename, no live buffer of that name,
-      ;; the chain falls through to the error buffer.  Asserting "step
-      ;; 2 returns nil" in isolation requires bypassing step 4; we
-      ;; instead assert that without filename+bookmark+live-name we
-      ;; land on the error buffer (covered in the "step 4" describe
-      ;; below).
-      (expect t :to-be t)))
+    (it "falls through cleanly when the saved filename no longer exists"
+      ;; Filename step is inlined inside `workspace--deserialize-buffer'
+      ;; (guarded by `ignore-errors').  When the saved path is gone,
+      ;; the `or' chain advances; with no name/bookmark/live-buffer
+      ;; either, we land on the error-buffer terminator.
+      (let* ((tmp (make-temp-file "br-spec-step2-"))
+             (wb (make-workspace-buffer :filename tmp
+                                        :name "br-spec-step2")))
+        (delete-file tmp)
+        (let ((result (workspace--deserialize-buffer wb)))
+          (unwind-protect
+              (progn
+                (expect (buffer-live-p result) :to-be t)
+                (expect (buffer-name result)
+                        :to-match (regexp-quote "br-spec-step2")))
+            (when (buffer-live-p result) (kill-buffer result)))))))
 
   (describe "step 3: name fallback"
     (it "returns the live buffer of that name when no bookmark or filename"
