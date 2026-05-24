@@ -30,14 +30,75 @@ The =workspace--capture-frameset= / =workspace--restore-frameset=
 names are kept for historical compatibility within the package; the
 underlying data is a window-state form, not a frameset struct.
 
+** Extended persistent parameters
+
+Emacs's default =window-persistent-parameters= is conservative: side
+windows (=window-side=, =window-slot=), preserved-size constraints,
+=no-other-window= / =no-delete-other-windows= flags, and explicit
+mode-line/header-line/tab-line overrides are NOT persisted by
+=window-state-get= unless the parameter list is extended.
+
+Users with treemacs, vterm, compilation, or other side-window-driven
+layouts otherwise lose those properties on workspace restore — the
+windows come back, but as ordinary windows rather than dedicated side
+windows.
+
+We extend the persistent-parameters list for the duration of capture
+and restore.  This matches the pattern activities.el uses (see
+=activities-window-persistent-parameters=, =activities.el:244-257=).
+
+The =writable= value tells =window-state-get= to serialize the
+parameter via =prin1= rather than store the raw value, so the result
+round-trips through =read=.
+
+#+begin_src emacs-lisp
+(defcustom workspace-window-persistent-parameters
+  '((header-line-format . writable)
+    (mode-line-format . writable)
+    (tab-line-format . writable)
+    (no-other-window . writable)
+    (no-delete-other-windows . writable)
+    (window-preserved-size . writable)
+    (window-side . writable)
+    (window-slot . writable))
+  "Window parameters preserved across workspace capture/restore.
+Extends `window-persistent-parameters' for the duration of
+`workspace--capture-frameset' and `workspace--restore-frameset'.
+
+Each entry is `(PARAMETER . writable)' where `writable' tells
+`window-state-get' to serialize the value via `prin1' so it survives
+the round trip through the on-disk eld form."
+  :type '(alist :key-type symbol :value-type symbol)
+  :group 'workspaces)
+#+end_src
+
+** Capture and restore primitives
+
+Both =workspace--capture-frameset= and =workspace--restore-frameset=
+=let=-bind =window-persistent-parameters= so the extension is scoped
+to our serialization calls and does not pollute global state for
+other packages.
+
 #+begin_src emacs-lisp
 (defun workspace--capture-frameset ()
-  "Return a window-state capturing the selected frame's root window."
-  (window-state-get (frame-root-window) 'writable))
+  "Return a window-state capturing the selected frame's root window.
+Extends `window-persistent-parameters' with
+`workspace-window-persistent-parameters' so side windows, preserved
+sizes, and explicit modeline overrides survive the round trip."
+  (let ((window-persistent-parameters
+         (append workspace-window-persistent-parameters
+                 window-persistent-parameters)))
+    (window-state-get (frame-root-window) 'writable)))
 
 (defun workspace--restore-frameset (state)
-  "Apply window-state STATE to the selected frame's root window."
-  (window-state-put state (frame-root-window) 'safe))
+  "Apply window-state STATE to the selected frame's root window.
+Extends `window-persistent-parameters' with
+`workspace-window-persistent-parameters' so side-window, preserved-size,
+and modeline parameters are recognized on restore."
+  (let ((window-persistent-parameters
+         (append workspace-window-persistent-parameters
+                 window-persistent-parameters)))
+    (window-state-put state (frame-root-window) 'safe)))
 #+end_src
 
 * Recent-layout pointer maintenance

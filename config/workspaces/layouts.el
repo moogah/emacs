@@ -3,13 +3,44 @@
 (require 'workspace-data-model)
 (require 'workspace-tabs)
 
+(defcustom workspace-window-persistent-parameters
+  '((header-line-format . writable)
+    (mode-line-format . writable)
+    (tab-line-format . writable)
+    (no-other-window . writable)
+    (no-delete-other-windows . writable)
+    (window-preserved-size . writable)
+    (window-side . writable)
+    (window-slot . writable))
+  "Window parameters preserved across workspace capture/restore.
+Extends `window-persistent-parameters' for the duration of
+`workspace--capture-frameset' and `workspace--restore-frameset'.
+
+Each entry is `(PARAMETER . writable)' where `writable' tells
+`window-state-get' to serialize the value via `prin1' so it survives
+the round trip through the on-disk eld form."
+  :type '(alist :key-type symbol :value-type symbol)
+  :group 'workspaces)
+
 (defun workspace--capture-frameset ()
-  "Return a window-state capturing the selected frame's root window."
-  (window-state-get (frame-root-window) 'writable))
+  "Return a window-state capturing the selected frame's root window.
+Extends `window-persistent-parameters' with
+`workspace-window-persistent-parameters' so side windows, preserved
+sizes, and explicit modeline overrides survive the round trip."
+  (let ((window-persistent-parameters
+         (append workspace-window-persistent-parameters
+                 window-persistent-parameters)))
+    (window-state-get (frame-root-window) 'writable)))
 
 (defun workspace--restore-frameset (state)
-  "Apply window-state STATE to the selected frame's root window."
-  (window-state-put state (frame-root-window) 'safe))
+  "Apply window-state STATE to the selected frame's root window.
+Extends `window-persistent-parameters' with
+`workspace-window-persistent-parameters' so side-window, preserved-size,
+and modeline parameters are recognized on restore."
+  (let ((window-persistent-parameters
+         (append workspace-window-persistent-parameters
+                 window-persistent-parameters)))
+    (window-state-put state (frame-root-window) 'safe)))
 
 (defun workspace--update-recent-group (ws-name group-name)
   "Set WS-NAME's recent-layout-group to GROUP-NAME in the registry."
