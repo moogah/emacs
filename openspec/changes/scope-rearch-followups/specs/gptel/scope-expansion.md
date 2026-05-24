@@ -17,14 +17,14 @@ The system SHALL expose a regular gptel tool that lets the LLM pre-emptively req
 
 - **WHEN** the LLM invokes `request_scope_expansion` with `operation "read"` (or `"write"`, `"modify"`, `"execute"`)
 - **THEN** the violation-info carries `:validation-type 'path`
-- **AND** the violation-info carries `:operation` as the corresponding symbol (`'read`, `'write`, `'modify`, `'execute`)
-- **AND** the add-to-scope handlers target the `paths.*` section (path router)
+- **AND** the violation-info carries `:operation` as the corresponding **keyword** (`:read`, `:write`, `:modify`, `:execute`) — keyword form is required for composition with `jf/gptel-scope--map-operation-to-drawer-key` (`scope-expansion.el:91`), which matches against keywords; bare symbols fall through its error arm
+- **AND** the add-to-scope handlers target the `paths.*` section (path router) for the corresponding drawer key
 
 #### Scenario: Validation-type resolves to bash for bash operations
 
 - **WHEN** the LLM invokes `request_scope_expansion` with `operation "bash"`
 - **THEN** the violation-info carries `:validation-type 'bash`
-- **AND** the add-to-scope handlers dispatch through `jf/gptel-scope--add-bash-to-scope` (bash router)
+- **AND** the violation-info carries `:operation nil` — bash has no canonical drawer key, so Stage 1 of `--add-to-scope` (`--handle-nil-operation`) handles the click rather than the writer chain. Pre-emptive bash expansion via this tool surfaces today as a structured `no-operation` denial; future work may add a dedicated bash-routing arm (carry as a spec-signal ask)
 
 #### Scenario: Out-of-enum operations are rejected
 

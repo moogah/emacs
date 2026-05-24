@@ -77,9 +77,13 @@ DENIED-OPERATION is the operation keyword from the validation error
 (e.g. :read, :write) collapsed by the writer to the matching drawer key
 via `jf/gptel-scope--map-operation-to-drawer-key'.
 
-Returns the result of the underlying drawer writer (the pattern string
-when the buffer was modified, nil on dedup short-circuit, or nil on the
-bare-command branch of bash routing — see `--add-bash-to-scope')."
+Returns the result of the underlying drawer writer:
+  - The pattern string when the buffer was modified.
+  - nil on dedup short-circuit (pattern already in the target key).
+  - The sentinel `:bare-command-refusal' on the bare-command branch of
+    bash routing (see `--add-bash-to-scope'); callers branch on it to
+    emit a structured denial via the wrapper callback rather than a
+    phantom-add."
   (pcase validation-type
     ('path
      (jf/gptel-scope--add-path-to-scope pattern tool denied-operation))
@@ -511,10 +515,14 @@ again."
 
 (defun jf/gptel-scope--add-wildcard-to-scope ()
   "Add parent-directory wildcard pattern to the scope drawer permanently.
-Threads the writer's no-op signal through to the callback (Stage 4): when
-the writer returns nil (dedup short-circuit or bare-command branch), the
-callback emits :success t :patterns_added [] :message \"...\" rather
-than a phantom-add."
+
+Threads the writer's return-value signals to the callback (Stage 4):
+  - `:bare-command-refusal' (rare — `--parent-wildcard-for' always
+    appends `/**', so the computed pattern is path-shaped; the branch is
+    defensive parity with the sibling `--add-to-scope' /
+    `--add-custom-to-scope' handlers so the three sites agree on contract).
+  - non-nil string — wrote; emit :success t :patterns_added.
+  - nil — dedup short-circuit; emit :success t :patterns_added []."
   (interactive)
   (let* ((scope (transient-scope))
          (violation (plist-get scope :violation))
@@ -530,15 +538,24 @@ than a phantom-add."
 
     (jf/gptel-scope--safe-callback
      callback
-     (if writer-result
-         (list :success t
-               :patterns_added (vector pattern)
-               :message (format "Scope expanded. Added wildcard %s" pattern))
+     (cond
+      ((eq writer-result :bare-command-refusal)
+       (list :success :false
+             :error "command_name_not_expandable"
+             :message (format "Cannot expand scope for command name '%s'. Request expansion for a specific file operation (path) instead."
+                              pattern)
+             :user_denied t))
+      (writer-result
+       (list :success t
+             :patterns_added (vector pattern)
+             :message (format "Scope expanded. Added wildcard %s" pattern)))
+      (t
        (list :success t
              :patterns_added (vector)
-             :message (format "Wildcard %s already in scope (no-op)." pattern))))
+             :message (format "Wildcard %s already in scope (no-op)." pattern)))))
 
-    (when writer-result
+    (when (and writer-result
+               (not (eq writer-result :bare-command-refusal)))
       (message "Added %s to scope" pattern))
     (transient-quit-one)
     (jf/gptel-scope--process-expansion-queue)))

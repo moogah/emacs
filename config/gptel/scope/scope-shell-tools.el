@@ -270,11 +270,27 @@ Returns:
  (lambda (callback operation patterns justification)
    (when (vectorp patterns)
      (setq patterns (append patterns nil)))
-   (let ((op-sym (and (stringp operation) (intern operation))))
+   ;; Coerce the LLM-supplied operation string into the closed enum the
+   ;; downstream pipeline expects. Filesystem operations land as
+   ;; *keywords* (`:read', `:write', `:modify', `:execute') because every
+   ;; consumer of violation-info `:operation' (--map-operation-to-drawer-key
+   ;; at scope-expansion.el:91, --add-path-to-scope at scope-expansion.el:593)
+   ;; matches against keywords. Bash is special: `:operation' is left nil
+   ;; so Stage 1 of --add-to-scope's dispatcher handles it (the bash
+   ;; routing has no single drawer key; pre-emptive bash expansion via
+   ;; this tool surfaces as a structured `no-operation' denial today —
+   ;; the LLM should request the underlying file operation instead).
+   (let ((op-key (cond
+                  ((equal operation "read")    :read)
+                  ((equal operation "write")   :write)
+                  ((equal operation "modify")  :modify)
+                  ((equal operation "execute") :execute)
+                  ((equal operation "bash")    :bash)
+                  (t nil))))
      (cond
       ;; Out-of-enum: short-circuit. This includes stale tool_name
       ;; strings from pre-migration prompts (e.g. "read_file_in_scope").
-      ((not (memq op-sym '(read write modify execute bash)))
+      ((null op-key)
        (funcall callback
                 (json-serialize
                  `(:success :false
@@ -282,14 +298,21 @@ Returns:
                    :message ,(format "Unknown operation %S. Valid values: read, write, modify, execute, bash."
                                      operation)))))
       (t
-       (let* ((vtype (if (eq op-sym 'bash) 'bash 'path))
+       (let* ((bashp (eq op-key :bash))
+              (vtype (if bashp 'bash 'path))
               (violation-info
                (list :resource (car patterns)
                      :reason justification
                      :validation-type vtype
-                     :operation op-sym
+                     ;; `:operation' is the keyword for filesystem ops
+                     ;; (composable with --map-operation-to-drawer-key);
+                     ;; nil for bash so Stage 1 of the action handler
+                     ;; intercepts (pre-emptive bash expansion has no
+                     ;; canonical drawer-key routing).
+                     :operation (unless bashp op-key)
                      :patterns patterns)))
-         (jf/gptel-scope-prompt-expansion violation-info callback patterns nil)))))))
+         (jf/gptel-scope-prompt-expansion
+          violation-info callback patterns "request_scope_expansion")))))))
 ;; request_scope_expansion Tool:1 ends here
 
 ;; Provide Feature

@@ -134,7 +134,35 @@
         (expect (length callback-payloads) :to-equal 1)
         (let* ((payload (car callback-payloads))
                (parsed (json-parse-string payload :object-type 'plist)))
-          (expect (plist-get parsed :success) :to-be t))))))
+          (expect (plist-get parsed :success) :to-be t)))))
+
+  (describe "callback payload via --add-custom-to-scope action handler"
+    ;; The sentinel is threaded through three sibling action handlers
+    ;; (--add-to-scope, --add-custom-to-scope, --add-wildcard-to-scope).
+    ;; The custom-pattern path is reachable for bare command names
+    ;; because the user can type literally any string.
+
+    (it "invokes callback with :success false when user enters a bare command name"
+      (let ((callback-payloads nil))
+        (jf/gptel-test--with-scope-drawer '()
+          (let* ((callback (lambda (payload) (push payload callback-payloads)))
+                 (violation (list :resource "brew install foo"
+                                  :reason "Install"
+                                  :validation-type 'bash
+                                  :operation :execute
+                                  :patterns '("brew install foo")))
+                 (scope (add-bash-callback-spec--make-scope
+                         violation callback '("brew install foo"))))
+            (cl-letf (((symbol-function 'read-string)
+                       (lambda (&rest _) "brew")))
+              (add-bash-callback-spec--with-stub-scope scope
+                (jf/gptel-scope--add-custom-to-scope)))))
+        (expect (length callback-payloads) :to-equal 1)
+        (let* ((payload (car callback-payloads))
+               (parsed (json-parse-string payload :object-type 'plist)))
+          (expect (plist-get parsed :success) :to-be :false)
+          (expect (plist-get parsed :error) :to-equal "command_name_not_expandable")
+          (expect (plist-get parsed :message) :to-match "brew"))))))
 
 (provide 'add-bash-to-scope-callback-spec)
 
