@@ -1,8 +1,8 @@
 ---
 name: fix-restoration-roundtrip
-description: Restoration of a saved workspace does not actually restore its window configuration. Two independent bugs were observed in user testing; one was diagnosed and partially fixed, the other is still open.
+description: Restoration of a saved workspace did not restore its window configuration. Two independent bugs (tab-bar dropping custom params; frameset wrong primitive for per-tab) were diagnosed and fixed in commit 83e7c1e. Buttercup specs cover the round-trip; manual GUI smoke deferred per user judgment 2026-05-24.
 change: add-workspaces-package
-status: ready
+status: done
 relations:
   - "discovered-from:persistence"
   - "discovered-from:layout-commands"
