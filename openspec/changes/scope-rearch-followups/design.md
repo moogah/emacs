@@ -2,9 +2,9 @@
 
 The gptel scope validation rearch (archived `2026-04-17-scope-system-cleanup`) left three specific residuals uncovered during `/opsx:verify`:
 
-- `config/gptel/scope/scope-shell-tools.org:198` — `request_scope_expansion` constructs `(list :tool tool_name :resource (car patterns) :reason justification :validation-type 'path :patterns patterns)`. The `:validation-type` is a hardcoded literal `'path`. Anything downstream that branches on `:validation-type` sees `path` even when the LLM asked about `run_bash_command`.
-- `config/gptel/scope/scope-expansion.org:490` — `(message "Cannot add command '%s' to scope — use path-based expansion instead" resource)` is the last expression of the bare-command-name branch. No callback is funcalled. The async wrapper waits forever.
-- `config/gptel/preset-registration.org:188` — `scope-keys` list still contains `:org-roam-patterns`. `config/gptel/scope-profiles.org:400` still writes a hardcoded `:org-roam-patterns` block into the empty-scope fallback. Neither codepath is exercised by live profile YAML (all five `.yml` files have been pruned), but both leak stale structure into generated artifacts.
+- `config/gptel/scope/scope-shell-tools.org` (around the `request_scope_expansion` `gptel-make-tool` block) — the tool takes `tool_name` as its primary argument and constructs `(list :tool tool_name :resource (car patterns) :reason justification :validation-type 'path :patterns patterns)`. The `:validation-type` is a hardcoded literal `'path`. Anything downstream that branches on `:validation-type` sees `path` even when the LLM asked about `run_bash_command`. **A first fix attempt** (commit `d00949f`) introduced a side-table keyed by tool name (`jf/gptel-scope--scoped-tool-operations` populated by `gptel-make-scoped-tool`) plus a lookup that decoded validation-type from the recorded `:operation`. Author-blind review (`.orchestrator/cycles/post-hoc-2026-05-24/reviews/ws-b-scope-shell-tools-validation-type.md`) found the lookup defended a `'path`-default fallback that contradicted the change's own contract, lacked the regression spec the architecture promised, and — more fundamentally — was an elaborate workaround for the wrong primary argument. **The attempt was reverted** (commit `9ed38c6`) and the disposition reshaped to D1 below.
+- `config/gptel/scope/scope-expansion.org:640` — `(message "Cannot add command '%s' to scope — use path-based expansion instead" resource)` is the last expression of the bare-command-name branch. No callback is funcalled. The async wrapper waits forever.
+- `config/gptel/preset-registration.org:198,203` — `scope-keys` list still contains `:org-roam-patterns`. `config/gptel/scope-profiles.org:38,109,207,245` still references `:org-roam-patterns` in docstrings and the empty-scope fallback. Neither codepath is exercised by live profile YAML (all five `.yml` files have been pruned), but both leak stale structure into generated artifacts.
 
 The rearch itself is stable. These are edge bugs and dead code — a small, bounded cleanup.
 
@@ -24,15 +24,37 @@ The rearch itself is stable. These are edge bugs and dead code — a small, boun
 
 ## Decisions
 
-### D1. Resolve `:validation-type` by category registry, not by tool name parsing
+### D1. Refactor `request_scope_expansion` to take `operation` as its primary argument
 
-**Choice:** Introduce a small lookup — `jf/gptel-scope--tool-validation-type` — that takes a tool-name string and returns `'path` or `'bash`. The lookup keys off the category the tool was registered under (`"scope"` via `gptel-make-scoped-tool`) plus the recorded operation; unknown tool names return `nil`.
+**Choice:** Change the LLM-facing signature from `(tool_name, patterns, justification)` to `(operation, patterns, justification)`. `operation` is a closed-enum string: one of `read`, `write`, `modify`, `execute`, or `bash`. The violation-info constructor derives `:validation-type` directly:
 
-**Alternative considered:** String-match on tool name (`"^run_bash"` → `bash`, else `path`). Rejected — it's a hack and breaks the moment someone adds another bash-backed tool.
+```elisp
+(lambda (callback operation patterns justification)
+  (when (vectorp patterns)
+    (setq patterns (append patterns nil)))
+  (let* ((op-sym (intern operation))
+         (vtype (if (eq op-sym 'bash) 'bash 'path))
+         (violation-info (list :resource (car patterns)
+                               :reason justification
+                               :validation-type vtype
+                               :operation op-sym
+                               :patterns patterns)))
+    (jf/gptel-scope-prompt-expansion violation-info callback patterns nil)))
+```
 
-**Alternative considered:** Add a second argument to `request_scope_expansion` letting the LLM specify validation-type. Rejected — asking the model to report its own intent correctly is worse than keeping the single source of truth in the tool registry.
+Operations outside the closed set short-circuit with `:success nil :error "unknown_operation"` before reaching `jf/gptel-scope-prompt-expansion`.
 
-**Why:** `gptel-make-scoped-tool` already records `:operation` (nil ⇒ bash; a filesystem symbol ⇒ path) at registration time. We expose that mapping; no model-side cooperation required. The lookup table lives next to `gptel-make-scoped-tool` in `scope-tool-wrapper.el`.
+**Alternative considered (and attempted, then reverted):** Introduce a side-table keyed by tool name (`jf/gptel-scope--scoped-tool-operations`) populated by `gptel-make-scoped-tool`, with a lookup helper that decodes validation-type from the recorded `:operation`. Implemented in `d00949f`, reverted in `9ed38c6`. The attempt failed for four reasons: an unknown-tool fallback that defaulted to `'path` (contradicting the change's own contract), no regression spec (architecture promised three `it` blocks; zero existed), a docstring that misstated when the registry was populated, and — most fundamentally — the lookup itself was an elaborate workaround for the wrong primary argument. Every other consumer of `:validation-type` in the codebase (`scope-expansion.el:310,510,546`, `scope-validation.el:914,931`, `interfaces.el:111`) derives it from operation directly via the dispatcher at `scope-validation.el:779-785`. Only `request_scope_expansion` had to recover it from a name string, because only `request_scope_expansion` took a name string as its primary argument.
+
+**Alternative considered:** String-match on tool name. Rejected for the same reason the side-table was — hacking around the wrong primary argument is the wrong direction.
+
+**Alternative considered:** Split `request_scope_expansion` into two tools, `request_scope_expansion_for_path` and `request_scope_expansion_for_bash`. Rejected — doubles the LLM tool-list cost and scales poorly if a third validation-type is introduced. Closer to a workaround for a missing arg than a real shape.
+
+**Why:** Scope is fundamentally `(operation, paths)`. The validator dispatcher already classifies `(operation nil → bash, operation non-nil → path)`. Threading `operation` through `request_scope_expansion`'s own signature aligns this one consumer with how every other consumer in the codebase recovers `:validation-type`. The model already has to know which operation it needs (it's about to invoke the corresponding tool) — supplying the operation explicitly is not new cognitive load. No registry, no lookup, no fallback arm.
+
+**Migration note:** This is a breaking LLM-API change. Model prompts that called `request_scope_expansion` with `tool_name "read_file_in_scope"` need to switch to `operation "read"`. The tool is a transient affordance, not a persisted format, so the migration is "redeploy the system prompt that documents the tool."
+
+**Detailed implementation tracker:** `.tasks/refactor-request-scope-expansion-to-take-operation.md` — captures the proposed signature in full, the open questions (drop `:tool` from violation-info?, `scope-rearch-followups` disposition), the regression spec scenarios to add, and the test file location.
 
 ### D2. Bare-command-name refusal: structured denial via callback, not `message`
 
@@ -71,7 +93,7 @@ The rearch itself is stable. These are edge bugs and dead code — a small, boun
 ### D4. One test file per bug, colocated with the module under test
 
 Already committed to in `architecture.md` per the user's answer. Files:
-- `config/gptel/scope/test/tool-wrapper/request-scope-expansion-validation-type-spec.el`
+- `config/gptel/scope/test/tool-wrapper/request-scope-expansion-operation-spec.el`
 - `config/gptel/scope/test/expansion/add-bash-to-scope-callback-spec.el`
 - `config/gptel/scope/test/yaml/empty-scope-fallback-spec.el`
 
@@ -91,8 +113,8 @@ Each spec file holds exactly the scenarios listed in the architecture's scenario
 
 ## Risks / Trade-offs
 
-- **Risk:** D1's lookup table becomes a new coupling point between `scope-tool-wrapper` and `scope-shell-tools`.
-  **Mitigation:** Place the lookup in `scope-tool-wrapper.el`, which `scope-shell-tools.el` already depends on. No new dependency edge. If we ever register scoped tools in other files, they go through the same macro and are registered automatically.
+- **Risk:** D1 is a breaking change to `request_scope_expansion`'s LLM-facing argument schema (`tool_name` → `operation`). Model prompts that documented the old shape will produce malformed calls until updated.
+  **Mitigation:** The tool is a transient LLM affordance, not a persisted format — there is no on-disk data to migrate, only the system prompt(s) that document the tool. Land the docs change in the same commit as the implementation. As a safety net, the tool's body short-circuits with a structured `:success nil :error "unknown_operation"` payload for any operation value outside the closed enum (including the LLM passing a tool-name by mistake), so a stale prompt produces a debuggable error rather than a silent mis-route.
 
 - **Risk:** D2's replacement payload invents a new error code `"command_name_not_expandable"` that is not in the canonical set (`denied-pattern`, `not-in-scope`, `parse_incomplete`, `cloud_auth_denied`, `cloud_provider_denied`).
   **Mitigation:** This code is emitted by the expansion-UI *handler*, not a validator. The canonical set governs validator output. Expansion-UI responses are a separate vocabulary (compare `"no_scope_config"` from the wrapper). Document this in the code comment next to the funcall and in the spec scenario.

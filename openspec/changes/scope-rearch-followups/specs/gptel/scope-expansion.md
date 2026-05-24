@@ -2,7 +2,7 @@
 
 ### Requirement: request_scope_expansion tool
 
-The system SHALL expose a regular gptel tool that lets the LLM pre-emptively request user approval before invoking a scoped tool it expects will be denied. The violation-info plist passed to `jf/gptel-scope-prompt-expansion` SHALL carry `:validation-type` derived from the requested tool, not a hardcoded value.
+The system SHALL expose a regular gptel tool that lets the LLM pre-emptively request user approval before invoking a scoped tool it expects will be denied. The tool's LLM-facing primary argument SHALL be `operation` (a closed-enum string identifying the kind of access the LLM wants to expand to), NOT `tool_name`. The violation-info plist passed to `jf/gptel-scope-prompt-expansion` SHALL carry `:validation-type` derived directly from `operation` — the same derivation the validation pipeline applies at `scope-validation.el:779-785` (`'bash` when operation indicates a bash-backed request, `'path` for filesystem operations).
 
 **Implementation**: `config/gptel/scope/scope-shell-tools.org` — §request_scope_expansion Tool
 
@@ -11,30 +11,33 @@ The system SHALL expose a regular gptel tool that lets the LLM pre-emptively req
 - **WHEN** `scope-shell-tools` loads
 - **THEN** it defines `request_scope_expansion` via `gptel-make-tool` with `:async t` and `:category "scope"`
 - **AND** the tool is a regular gptel tool, not routed through any meta validation strategy
+- **AND** its argument schema declares `operation` (closed-enum string: `"read"`, `"write"`, `"modify"`, `"execute"`, `"bash"`) as the primary argument, followed by `patterns` and `justification`
 
-#### Scenario: Validation-type resolves from the requested tool
+#### Scenario: Validation-type resolves from a filesystem operation
 
-- **WHEN** the LLM invokes `request_scope_expansion` with `tool_name "read_file_in_scope"` (a filesystem tool)
+- **WHEN** the LLM invokes `request_scope_expansion` with `operation "read"` (or `"write"`, `"modify"`, `"execute"`)
 - **THEN** the violation-info carries `:validation-type 'path`
+- **AND** the violation-info carries `:operation` as the corresponding symbol (`'read`, `'write`, `'modify`, `'execute`)
 - **AND** the add-to-scope handlers target the `paths.*` section (path router)
 
-#### Scenario: Validation-type resolves to bash for bash-backed tools
+#### Scenario: Validation-type resolves to bash for bash operations
 
-- **WHEN** the LLM invokes `request_scope_expansion` with `tool_name "run_bash_command"`
+- **WHEN** the LLM invokes `request_scope_expansion` with `operation "bash"`
 - **THEN** the violation-info carries `:validation-type 'bash`
 - **AND** the add-to-scope handlers dispatch through `jf/gptel-scope--add-bash-to-scope` (bash router)
 
-#### Scenario: Unknown tool names are rejected
+#### Scenario: Out-of-enum operations are rejected
 
-- **WHEN** the LLM invokes `request_scope_expansion` with a `tool_name` that is neither a registered filesystem tool nor a registered bash tool
-- **THEN** the tool returns `:success nil`, a structured error that names the unknown tool, and suggests valid tool names
+- **WHEN** the LLM invokes `request_scope_expansion` with an `operation` value outside the closed enum (e.g. a stale `tool_name` from a pre-migration prompt, or an unknown verb)
+- **THEN** the tool returns `:success nil`, a structured error naming the offending operation value, and a hint listing the valid enum members
 - **AND** no transient menu is shown
+- **AND** `jf/gptel-scope-prompt-expansion` is not invoked
 
 #### Scenario: Approved pre-emptive request
 
 - **WHEN** the user chooses Add to Scope (or a wildcard/custom variant)
-- **THEN** `scope.yml` is updated and the LLM's response contains `:success t :patterns_added [...]`
-- **AND** the LLM may then invoke the originally intended tool, which will pass validation against the updated `scope.yml`
+- **THEN** the session's `:PROPERTIES:` drawer is updated and the LLM's response contains `:success t :patterns_added [...]`
+- **AND** the LLM may then invoke the originally intended tool, which will pass validation against the updated scope
 
 ### Requirement: Section-targeted writes
 

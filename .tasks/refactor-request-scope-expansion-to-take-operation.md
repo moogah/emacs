@@ -90,9 +90,11 @@ The LLM tool description and arg enum should communicate the closed set explicit
 
 After the refactor, the new operation-spec passes; no other scope tests regress.
 
-## Why this is `.tasks/` rather than in-scope
+## Relationship to `scope-rearch-followups`
 
-The WS-B fix was attempted as part of the un-task-generated `scope-rearch-followups` change (Bug 1). Reverting it leaves that drafted change without a working Bug 1 solution. Rather than block the rest of `scope-rearch-followups` (Bugs 2 and 3) on this rework — and because the rework is a real LLM-API change that wants its own design conversation — this lives in `.tasks/` until the next maintainer of `scope-rearch-followups` (or a fresh change) picks it up.
+`openspec/changes/scope-rearch-followups/{proposal,design,specs/gptel/scope-expansion}.md` now properly document the operation-based refactor as Bug 1's disposition (the prior side-table approach in design.md D1 was struck through and replaced after `9ed38c6`'s revert). This `.tasks/` entry holds the implementation-level detail — code sketches, open questions, regression-spec shape — that doesn't belong in the design's higher-level prose.
+
+When `scope-rearch-followups` generates its `tasks/` directory (via `/opsx-tasks generate` or hand-rolled task creation), this entry should be promoted to `openspec/changes/scope-rearch-followups/tasks/open/refactor-request-scope-expansion-to-take-operation.md`. Until then it lives here as the actionable tracker for whoever picks up Bug 1.
 
 ## Context
 
