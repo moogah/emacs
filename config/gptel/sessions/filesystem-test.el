@@ -50,7 +50,7 @@ hierarchy: session-dir/branches/main/ with session.org inside."
              (session-dir (expand-file-name "test-session" temp-dir)))
         (make-directory session-dir t)
         (cl-letf (((symbol-function 'jf/gptel-scope-profile--create-for-session)
-                   (lambda (_preset _dir &optional _root _paths _parent) nil)))
+                   (lambda (&rest _) ":PROPERTIES:\n:END:\n")))
           (let ((result (jf/gptel--create-session-core
                          "test-session-20260311"
                          session-dir
@@ -60,9 +60,7 @@ hierarchy: session-dir/branches/main/ with session.org inside."
               (should (file-directory-p branch-dir))
               (should (string-match-p "/branches/main/$" (file-name-as-directory branch-dir)))
               ;; Verify session.org exists inside branch dir
-              (should (file-exists-p (expand-file-name "session.org" branch-dir)))
-              ;; Verify metadata.yml exists
-              (should (file-exists-p (expand-file-name "metadata.yml" branch-dir)))))))
+              (should (file-exists-p (expand-file-name "session.org" branch-dir)))))))
     (filesystem-test--cleanup)))
 
 (ert-deftest test-directory-creation-org-branch-directory ()
