@@ -1,0 +1,9 @@
+Test Report
+===========
+
+ERT: not run
+
+Buttercup: 20 ran, 20 passed
+
+===========
+Total: 20 ran, 20 passed

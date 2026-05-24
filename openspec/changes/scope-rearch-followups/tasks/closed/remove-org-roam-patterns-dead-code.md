@@ -2,9 +2,12 @@
 name: remove-org-roam-patterns-dead-code
 description: "Remove :org-roam-patterns from jf/gptel-preset--extract-scope's extraction list (with a legacy-key warning) and trim residual org-roam-patterns / org_roam_patterns references from scope-profiles.org. The empty-scope writer and scope-yaml.org are already dead post-cycle-3 — this task's surface is smaller than design D3 implies."
 change: scope-rearch-followups
-status: ready
+status: done
 relations: []
 ---
+
+> Merged in `144933e`; review-driven fix folded in via `80d132c` (Reviewer 3: delta spec extraction list was citing :paths/:cloud/:security/:scope-profile borrowed from D3 step 2's written-YAML surface; corrected to :paths/:shell-commands/:bash-tools/:scope-profile to match implementation).
+
 
 ## Files to modify
 

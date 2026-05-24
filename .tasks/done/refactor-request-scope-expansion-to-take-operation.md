@@ -2,10 +2,27 @@
 name: refactor-request-scope-expansion-to-take-operation
 description: `request_scope_expansion` takes a `tool_name` string and reconstructs `:validation-type` from it; scope is fundamentally `(operation, paths)`, so the tool should take `operation` directly and derive `:validation-type` the same way the validation pipeline does. Replaces the side-table-keyed-by-tool-name workaround that landed and was reverted in WS-B.
 source: scope-rearch-followups
-status: ready
+status: done
+resolved_in_cycle: cycle-1779630442
+resolved_at: 2026-05-24
 relations:
   discovered-from: scope-rearch-followups-bug-1
 ---
+
+## Resolution (2026-05-24, cycle-1779630442)
+
+Promoted into the active change as `openspec/changes/scope-rearch-followups/tasks/closed/refactor-request-scope-expansion-to-take-operation.md`. Merged in `ed8a21c` (initial implementation) plus review-driven fixes in `80d132c`:
+
+- LLM-facing signature changed to `operation` (closed enum read/write/modify/execute/bash).
+- `:operation` is built as a **keyword** (`:read`, `:write`, ...) for filesystem ops so it composes with `--map-operation-to-drawer-key` downstream. For `"bash"`, `:operation` is `nil` and Stage 1 of `--add-to-scope` (`--handle-nil-operation`) intercepts the click. This last point surfaces a known limitation: pre-emptive bash expansion via this tool has no drawer-key routing today — carried forward as `ask-cycle-1779630442-1` for a separate change.
+- `:tool` dropped from violation-info (no load-bearing downstream use; the success-message formatter now reads tool-name from the transient scope's `:tool-name` key, which is set to `"request_scope_expansion"`).
+- Regression coverage at `config/gptel/scope/test/tool-wrapper/request-scope-expansion-operation-spec.el`: 4 keyword-derivation specs (one per filesystem op) + bash → nil :operation spec + tool-name non-nil spec + out-of-enum + stale-tool-name rejection + end-to-end action-handler-traversing spec (the spec that would have caught the original bare-symbol composition bug).
+
+The original sketch in this entry's body (line ~52, `vtype = if (or (null operation) (equal operation "bash")) 'bash 'path`) was preserved in spirit; the implementation diverged on the keyword-vs-symbol choice (kept keywords throughout) and on the bash `:operation` value (nil rather than `'bash`) after the author-blind review surfaced the composition gap.
+
+---
+
+(Original entry body retained below for the design narrative — keeping it for archive provenance even though the work is done.)
 
 ## The shape problem
 

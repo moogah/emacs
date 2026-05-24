@@ -2,9 +2,12 @@
 name: fix-add-bash-to-scope-callback-hang
 description: "Replace the bare (message ...) at scope-expansion.el line 640 (bare-command-name refusal branch of jf/gptel-scope--add-bash-to-scope) with a structured funcall of the async callback. Today every other branch funcalls; this one drops the callback and the wrapper hangs forever."
 change: scope-rearch-followups
-status: ready
+status: done
 relations: []
 ---
+
+> Merged in `4d61442`; review-driven fixes folded in via `80d132c` (Reviewer 2: wildcard sentinel asymmetry + stale --write-pattern-to-scope docstring + missing --add-custom-to-scope test; all three addressed inline). Spec-signal carried as `ask-cycle-1779630442-2` (normalize :success :false vs :success nil JSON-wire-shape).
+
 
 ## Files to modify
 

@@ -2,9 +2,12 @@
 name: refactor-request-scope-expansion-to-take-operation
 description: "Refactor request_scope_expansion's LLM-facing primary arg from tool_name to operation (closed enum read/write/modify/execute/bash); derive :validation-type directly from operation, matching the validation pipeline; add three regression specs."
 change: scope-rearch-followups
-status: ready
+status: done
 relations: []
 ---
+
+> Merged in `ed8a21c`; review-driven fixes folded in via `80d132c` (Reviewer 1 surfaced a bare-symbol-vs-keyword composition bug + cosmetic "to nil" message; both addressed inline, see handshake-cycle-1779630442.json `audit_inline_fixed_findings`). Spec-signal carried as `ask-cycle-1779630442-1` (pre-emptive bash routing has no drawer-key).
+
 
 ## Files to modify
 
