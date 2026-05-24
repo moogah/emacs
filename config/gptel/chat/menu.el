@@ -1036,6 +1036,173 @@ this hook at all."
                #'gptel-chat--restore-scope-on-exit))
 ;; Scope default: buffer-local for chat-menu lifetime:1 ends here
 
+;; Diff-on-exit: mark buffer modified when tracked config changed
+
+;; Setting a buffer-local variable does NOT mark the buffer modified.
+;; Menu actions that mutate =gptel-tools=, =gptel-model=, etc. leave
+;; the chat buffer's modified flag nil — and a subsequent =save-buffer=
+;; is a no-op, never firing the =before-save-hook= that writes the
+;; configuration drawer. The user has to make an unrelated edit to
+;; force the save, which defeats the WYSIWYG promise behind moving
+;; configuration into the drawer (gptel-drawer-as-source-of-truth
+;; proposal.md §"WYSIWYG single source of truth").
+
+;; The fix mirrors the scope-prior pattern above: snapshot the tracked
+;; config vars on chat-menu entry, diff them on exit, call
+;; =set-buffer-modified-p= on the captured buffer if anything changed.
+;; The vars match what the save writer
+;; (=gptel-chat--write-config-drawer=) consumes via
+;; =jf/gptel-scope-profile--buffer-snapshot-plist=, plus =gptel--preset=
+;; and =jf/gptel--parent-session-id= which =gptel-chat--save-state=
+;; reads directly. Adding a new tracked key is a single edit to
+;; =gptel-chat--tracked-config-vars=.
+
+;; The snapshot is keyed on the buffer captured at menu entry so the
+;; diff and modified-flag-set target the right buffer even if the user
+;; navigates elsewhere mid-menu. Like the scope-prior pattern, the
+;; single global defvar is safe because =transient-post-exit-hook=
+;; only fires on the outermost prefix's full exit; sub-transients
+;; (e.g. the tool-selection sub-menu) do not fire this hook, so the
+;; diff sees the net change across the whole menu interaction.
+
+
+;; [[file:menu.org::*Diff-on-exit: mark buffer modified when tracked config changed][Diff-on-exit: mark buffer modified when tracked config changed:1]]
+(defvar gptel-chat--config-snapshot-prior nil
+  "Snapshot of tracked config taken on `gptel-chat-menu' entry.
+Plist `(:buffer BUF :snapshot ALIST)' where ALIST is
+`((VAR . VALUE) ...)' for the buffer-local vars the save writer
+consumes.  Captured by the prefix body and consumed by
+`gptel-chat--maybe-mark-modified-on-exit', a one-shot
+`transient-post-exit-hook'.  Nil between invocations.")
+
+(defconst gptel-chat--tracked-config-vars
+  '(gptel--preset
+    gptel-model
+    gptel-backend
+    gptel-tools
+    gptel-temperature
+    gptel-max-tokens
+    gptel--num-messages-to-send
+    jf/gptel--parent-session-id)
+  "Buffer-local config vars whose mutation should mark the buffer modified.
+
+Matches what `gptel-chat--write-config-drawer' and
+`gptel-chat--save-state' read: the six snapshot keys consumed via
+`jf/gptel-scope-profile--buffer-snapshot-plist', the preset name,
+and the parent-session-id chat-mode extension.  Adding a new
+drawer-emitted key is a single edit to this list.")
+
+(defun gptel-chat--capture-config-snapshot ()
+  "Return an alist `((VAR . VALUE) ...)' for the tracked config vars.
+Read from the current buffer; values are captured with `symbol-value'
+so unbound vars yield nil rather than signalling."
+  (mapcar (lambda (var)
+            (cons var (and (boundp var) (symbol-value var))))
+          gptel-chat--tracked-config-vars))
+
+(defun gptel-chat--maybe-mark-modified-on-exit ()
+  "Diff the entry-time snapshot against current values; mark modified if any changed.
+Registered on `transient-post-exit-hook' by `gptel-chat-menu's body
+alongside `gptel-chat--restore-scope-on-exit'.  The post-exit hook
+fires only on outermost prefix exit, so sub-transients do not fire
+this and the diff sees the net change across the whole menu
+interaction.
+
+Always clears the snapshot and removes itself from the hook so the
+slot is reusable across invocations."
+  (let* ((state gptel-chat--config-snapshot-prior)
+         (buf (plist-get state :buffer))
+         (snapshot (plist-get state :snapshot)))
+    (when (and (bufferp buf) (buffer-live-p buf) snapshot)
+      (let ((changed nil))
+        (dolist (entry snapshot)
+          (let* ((var (car entry))
+                 (old (cdr entry))
+                 (current (buffer-local-value var buf)))
+            (unless (equal current old)
+              (setq changed t))))
+        (when changed
+          (with-current-buffer buf
+            (set-buffer-modified-p t))))))
+  (setq gptel-chat--config-snapshot-prior nil)
+  (remove-hook 'transient-post-exit-hook
+               #'gptel-chat--maybe-mark-modified-on-exit))
+;; Diff-on-exit: mark buffer modified when tracked config changed:1 ends here
+
+;; Live drawer write on tracked-config commit
+
+;; The diff-on-exit hook above only fires when the user exits the
+;; chat-menu prefix — the drawer text catches up at menu-close. To make
+;; the drawer text reflect a menu commit *immediately* (so the buffer
+;; behind the menu shows the new value as soon as the user presses
+;; =RET= on a confirm suffix), we add an =:after= advice on upstream's
+;; central setter =gptel--set-with-scope= (=gptel-transient.el:54=).
+
+;; Upstream's tool selector (=gptel-tools= sub-transient,
+;; =gptel-transient.el:1081=) batches its UI state inside the
+;; transient-scope — letter-key toggles of individual tools do *not*
+;; call =gptel--set-with-scope=. Only the =RET= "Confirm selection"
+;; suffix calls the setter, with the final selection. The =q= "Cancel"
+;; suffix calls =transient-quit-one= and does not invoke the setter at
+;; all. So the advice's natural firing point is exactly the commit
+;; moment the user perceives: one drawer write per confirmed selection,
+;; zero drawer writes for cancelled selections.
+
+;; For one-shot infixes (model picker, temperature setter, etc.) the
+;; suffix calls =gptel--set-with-scope= directly on commit, so the
+;; advice fires once per commit — same shape, no preceding scratchpad.
+
+;; The advice is guarded so it is a no-op outside chat-mode buffers,
+;; outside buffer-local writes, and for variables not in
+;; =gptel-chat--tracked-config-vars=. Chat-mode preset application uses
+;; =(set (make-local-variable sym) val)= rather than this setter, so
+;; mode activation does not trigger spurious drawer writes on fresh
+;; buffers.
+
+;; The drawer rewrite goes through =gptel-chat--write-config-drawer=
+;; (idempotent, key-set-stable). =org-entry-put= modifying the drawer
+;; text marks the buffer modified as a side effect, so the modeline
+;; indicator switches over with the drawer text — no separate
+;; =set-buffer-modified-p= call.
+
+
+;; [[file:menu.org::*Live drawer write on tracked-config commit][Live drawer write on tracked-config commit:1]]
+(defun gptel-chat--maybe-live-write-drawer (sym _value &optional scope)
+  "Re-write the configuration drawer when a tracked var is set buffer-locally.
+
+Advice on `gptel--set-with-scope': when SCOPE is t (buffer-local
+write) and SYM is one of `gptel-chat--tracked-config-vars' in a
+`gptel-chat-mode' buffer, refresh the drawer at `point-min' so its
+text reflects the new value immediately.  Side effect: the buffer is
+marked modified by `org-entry-put' touching buffer text, so the
+modeline indicator and the drawer text update together.
+
+The upstream tool selector (`gptel-tools' sub-transient at
+`gptel-transient.el:1081') batches per-tool toggles in its
+transient-scope and only calls `gptel--set-with-scope' on the `RET'
+\"Confirm selection\" suffix; the `q' Cancel path does not invoke
+the setter at all.  So this advice fires once per confirmed
+selection — never on cancelled selections, never on individual
+letter-key toggles inside the selector.
+
+Non-chat-mode buffers, non-buffer-local writes (SCOPE nil or
+oneshot), and writes of untracked variables are no-ops.  These
+guards preserve upstream's behaviour outside chat-mode and avoid
+spurious drawer writes during chat-mode preset application (which
+uses `(set (make-local-variable sym) val)' rather than this
+setter)."
+  (when (and (eq scope t)
+             (derived-mode-p 'gptel-chat-mode)
+             (memq sym gptel-chat--tracked-config-vars))
+    (require 'gptel-org)
+    (save-excursion
+      (org-with-wide-buffer
+       (gptel-chat--write-config-drawer)))))
+
+(advice-add 'gptel--set-with-scope :after
+            #'gptel-chat--maybe-live-write-drawer)
+;; Live drawer write on tracked-config commit:1 ends here
+
 ;; Prefix definition
 
 ;; =gptel-chat-menu= mirrors the *configuration* portion of upstream
@@ -1201,6 +1368,18 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
      :format "  %k %d")]]
   [(gptel-chat--suffix-send)]
   (interactive)
+  ;; `gptel--set-buffer-locally' and several configuration infixes
+  ;; below live in `gptel-transient.el'.  The module's loading
+  ;; commentary anticipated that prior invocations of `gptel-menu' or
+  ;; `gptel-mode' would have triggered the upstream autoload chain by
+  ;; the time the user reaches this prefix, but `M-x gptel-chat-menu'
+  ;; as the first menu interaction in a session does not satisfy that
+  ;; assumption — the scope-prior setq below would then fail with
+  ;; `void-variable gptel--set-buffer-locally'.  Loading
+  ;; `gptel-transient' explicitly here makes the dependency declared
+  ;; and resolves the order-of-loading hazard without changing the
+  ;; module's top-level load-safety.
+  (require 'gptel-transient)
   (gptel--sanitize-model)
   (when gptel-context
     (setq gptel-context
@@ -1211,7 +1390,11 @@ Bound on `gptel-chat-mode-map' (see `mode.org'); also callable via
            gptel-context)))
   (setq gptel-chat--scope-prior gptel--set-buffer-locally
         gptel--set-buffer-locally t)
+  (setq gptel-chat--config-snapshot-prior
+        (list :buffer (current-buffer)
+              :snapshot (gptel-chat--capture-config-snapshot)))
   (add-hook 'transient-post-exit-hook #'gptel-chat--restore-scope-on-exit)
+  (add-hook 'transient-post-exit-hook #'gptel-chat--maybe-mark-modified-on-exit)
   (transient-setup 'gptel-chat-menu))
 ;; Prefix definition:1 ends here
 
