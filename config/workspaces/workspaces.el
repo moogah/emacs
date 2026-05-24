@@ -29,7 +29,8 @@ new workspace."
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
 (global-set-key (kbd "C-x w D") #'workspace-delete-layout)
 (global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
-(global-set-key (kbd "C-x w r") #'workspace-remove-buffer)
+(global-set-key (kbd "C-x w r") #'workspace-revert)
+(global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 
 (when (fboundp 'workspace--restore)
   (workspace--restore))

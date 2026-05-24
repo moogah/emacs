@@ -89,7 +89,7 @@ encode each window as a `leaf' node."
       (let* ((ws (gethash "alpha" workspace--registry))
              (group (workspace--find-group ws "home"))
              (layout (workspace--group-recent-layout group))
-             (captured (workspace--layout-frameset layout)))
+             (captured (workspace--layout-effective-state layout)))
         (expect (save-restore-spec--count-windows captured)
                 :to-equal 2))))
 
@@ -102,7 +102,7 @@ encode each window as a `leaf' node."
       (let* ((ws (save-restore-spec--lookup-workspace-on-disk "alpha"))
              (group (workspace--find-group ws "home"))
              (layout (workspace--group-recent-layout group))
-             (captured (workspace--layout-frameset layout)))
+             (captured (workspace--layout-effective-state layout)))
         (expect ws :not :to-be nil)
         (expect (save-restore-spec--count-windows captured)
                 :to-equal 2))))
@@ -128,13 +128,17 @@ encode each window as a `leaf' node."
         (expect (member path (workspace--buffer-files
                               (gethash "alpha" workspace--registry)))
                 :to-be-truthy)
-        ;; Simulate "close tab but keep workspace": kill the file buffer
-        ;; and the tab, leaving the workspace in the registry.
-        (let ((buf (find-buffer-visiting path)))
-          (when buf (kill-buffer buf)))
+        ;; Simulate "close tab but keep workspace": switch off alpha
+        ;; first (the tab-switch advice captures the file-buffer frame
+        ;; into :working-state at this point; v2 design.md §D4), then
+        ;; close the tab and kill the file buffer.  Doing the kill
+        ;; AFTER the switch preserves the working-state's pointer at a
+        ;; bookmark-restorable resource.
         (tab-bar-select-tab 1)
         (let ((idx (workspace--tab-index-for "alpha")))
           (tab-bar-close-tab idx))
+        (let ((buf (find-buffer-visiting path)))
+          (when buf (kill-buffer buf)))
         (expect (workspace--tab-index-for "alpha") :to-be nil)
         (expect (find-buffer-visiting path) :to-be nil)
         ;; Restore: tab should be recreated and the file buffer displayed.

@@ -147,5 +147,128 @@
     (expect (member #'workspace--kill-emacs-flush kill-emacs-hook)
             :to-be-truthy)))
 
+(describe "Schema v2 version check"
+  (before-each (persistence-spec--reset))
+  (after-each (persistence-spec--cleanup))
+
+  (it "accepts a file whose :version equals workspace--state-version"
+    (persistence-spec--with-state-file
+      (workspace-new "alpha")
+      (workspace--flush-state)
+      (expect (workspace--read-state) :not :to-be nil)
+      (expect (plist-get (workspace--read-state) :version)
+              :to-equal workspace--state-version)))
+
+  (it "rejects a v1 file with a notice and returns nil"
+    (persistence-spec--with-state-file
+      (let* ((file (workspace--state-file))
+             (messages-before (with-current-buffer "*Messages*"
+                                (buffer-string))))
+        ;; Hand-craft a v1-shaped file.
+        (make-directory (workspace--state-directory) t)
+        (with-temp-file file
+          (prin1 '(:version 1
+                            :workspaces ((:name "stale"
+                                                :recent-layout-group nil
+                                                :buffer-files nil
+                                                :layout-groups nil)))
+                 (current-buffer)))
+        (expect (workspace--read-state) :to-be nil)
+        ;; The notice mentions :version and the file path.
+        (let ((messages-after (with-current-buffer "*Messages*"
+                                (buffer-string))))
+          (expect (substring messages-after (length messages-before))
+                  :to-match ":version")))))
+
+  (it "version mismatch leaves the registry empty after workspace--restore"
+    (persistence-spec--with-state-file
+      (let ((file (workspace--state-file)))
+        (make-directory (workspace--state-directory) t)
+        (with-temp-file file
+          (prin1 '(:version 99 :workspaces ()) (current-buffer)))
+        (workspace--restore)
+        (expect (hash-table-count workspace--registry) :to-equal 0)))))
+
+(describe "Tab-switch advice writes working-state"
+  (before-each (persistence-spec--reset))
+  (after-each (persistence-spec--cleanup))
+
+  (it "snapshots the outgoing workspace into :working-state, not :saved-state"
+    (persistence-spec--with-state-file
+      (workspace-new "alpha")
+      (workspace-save)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (group (workspace--find-group ws "home"))
+             (layout (workspace--group-recent-layout group))
+             (saved-marker (workspace--layout-saved-state layout)))
+        (expect saved-marker :not :to-be nil)
+        (expect (workspace--layout-working-state layout) :to-be nil)
+        ;; Switch to tab 1 (non-workspace) — fires the before-advice.
+        (delete-other-windows)
+        (split-window-right)
+        (tab-bar-select-tab 1)
+        ;; alpha's :working-state is now populated; :saved-state is
+        ;; unchanged (clobber-impossible per register/invariant/
+        ;; autosave-never-writes-saved-state).
+        (let* ((ws (gethash "alpha" workspace--registry))
+               (group (workspace--find-group ws "home"))
+               (layout (workspace--group-recent-layout group)))
+          (expect (workspace--layout-working-state layout) :not :to-be nil)
+          (expect (workspace--layout-saved-state layout)
+                  :to-equal saved-marker)))))
+
+  (it "is a no-op when the outgoing tab is not a workspace tab"
+    (persistence-spec--with-state-file
+      (workspace-new "alpha")
+      (workspace-save)
+      ;; Switch to non-workspace tab 1.
+      (tab-bar-select-tab 1)
+      ;; Now switch from tab 1 back to another non-workspace position.
+      ;; Since we're not on alpha, the advice should not fire.
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (group (workspace--find-group ws "home"))
+             (layout (workspace--group-recent-layout group))
+             (ws-before (workspace--layout-working-state layout)))
+        ;; tab-bar-select-tab on the current (non-workspace) tab is
+        ;; effectively a no-op for the advice site.
+        (tab-bar-select-tab 1)
+        (let* ((ws-after (workspace--layout-working-state
+                          (workspace--group-recent-layout
+                           (workspace--find-group
+                            (gethash "alpha" workspace--registry) "home")))))
+          ;; No change attributable to a second non-workspace switch.
+          (expect ws-after :to-equal ws-before))))))
+
+(describe "kill-emacs flush captures working-state"
+  (before-each (persistence-spec--reset))
+  (after-each (persistence-spec--cleanup))
+
+  (it "calls autosave with :working-state once before writing"
+    (persistence-spec--with-state-file
+      (workspace-new "alpha")
+      (workspace-save)
+      (let ((calls nil))
+        (cl-letf (((symbol-function 'workspace--autosave-current-layout)
+                   (lambda (&optional slot) (push slot calls))))
+          (workspace--kill-emacs-flush)
+          ;; Exactly one call, and it targets :working-state.
+          (expect (length calls) :to-equal 1)
+          (expect (car calls) :to-equal :working-state)))))
+
+  (it "leaves :saved-state intact after the flush"
+    (persistence-spec--with-state-file
+      (workspace-new "alpha")
+      (workspace-save)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (group (workspace--find-group ws "home"))
+             (layout (workspace--group-recent-layout group))
+             (saved-before (workspace--layout-saved-state layout)))
+        (workspace--kill-emacs-flush)
+        (let* ((ws (gethash "alpha" workspace--registry))
+               (group (workspace--find-group ws "home"))
+               (layout (workspace--group-recent-layout group)))
+          (expect (workspace--layout-saved-state layout)
+                  :to-equal saved-before))))))
+
 (provide 'persistence-spec)
 ;;; persistence-spec.el ends here
