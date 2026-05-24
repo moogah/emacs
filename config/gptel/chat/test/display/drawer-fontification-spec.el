@@ -194,6 +194,64 @@ emphasis.  Used to assert the override does not flatten chat-turn
           ;; must not have claimed this span.
           (expect (gptel-chat-drawer-test--face-at-p
                    emphasis-mid 'org-property-value)
-                  :not :to-be-truthy))))))
+                  :not :to-be-truthy))))
+
+    (it "applies the override across a large drawer fontified in JIT-sized chunks (regression: real session.org drawers exceed jit-lock-chunk-size, splitting :PROPERTIES: from :END:)"
+      ;; A realistic session.org config drawer — 12 keys, ~485 chars —
+      ;; that has historically split across JIT chunks.  The matcher's
+      ;; forward search for :PROPERTIES: or :END: returns nil on chunks
+      ;; that contain only one of the two delimiters; without the
+      ;; companion `font-lock-extend-region-functions' entry the OVERRIDE
+      ;; never fires and `:GPTEL_SCOPE_DENY:' renders italic.
+      (let ((large-drawer
+             (concat ":PROPERTIES:\n"
+                     ":GPTEL_PRESET: system-explorer\n"
+                     ":GPTEL_MODEL: claude-sonnet-4-6\n"
+                     ":GPTEL_BACKEND: Claude\n"
+                     ":GPTEL_TOOLS: read_file_in_scope PersistentAgent run_bash_command\n"
+                     ":GPTEL_TEMPERATURE: 0.3\n"
+                     ":GPTEL_SCOPE_READ: /**\n"
+                     ":GPTEL_SCOPE_DENY: **/.git/** **/runtime/** **/.env"
+                     " **/node_modules/** **/.ssh/** **/.gnupg/**"
+                     " **/*_history **/credentials* **/*.key **/*.pem"
+                     " **/shadow **/sudoers\n"
+                     ":GPTEL_SCOPE_CLOUD_AUTH: deny\n"
+                     ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                     ":GPTEL_SCOPE_WRITE: /dev/null\n"
+                     ":END:\n")))
+        (with-temp-buffer
+          (insert large-drawer)
+          (gptel-chat-mode)
+          ;; Drive fontification in 100-char chunks — well below the
+          ;; drawer size, exercising both Case A (chunk starts inside
+          ;; the drawer) and Case B (chunk straddles `:PROPERTIES:'
+          ;; with `:END:' past the chunk end) of the region extender.
+          (let ((pos (point-min)))
+            (while (< pos (point-max))
+              (let ((end (min (point-max) (+ pos 100))))
+                (font-lock-fontify-region pos end)
+                (setq pos end))))
+          ;; The SCOPE_DENY key text — middle of the drawer, the
+          ;; position the user reported italic on — must carry the
+          ;; override face and stay visible.
+          (goto-char (point-min))
+          (search-forward ":GPTEL_SCOPE_DENY:")
+          (let* ((key-end (point))
+                 (key-mid (- key-end
+                             (/ (length ":GPTEL_SCOPE_DENY:") 2))))
+            (expect (gptel-chat-drawer-test--face-at-p
+                     key-mid 'org-property-value)
+                    :to-be-truthy)
+            (expect (gptel-chat-drawer-test--face-at-p key-mid 'italic)
+                    :not :to-be-truthy)
+            (expect (get-text-property key-mid 'invisible)
+                    :to-be nil))
+          ;; A boundary `/' inside `**/.git/**' must remain visible.
+          (search-forward "**/.git/**")
+          (let* ((seg-end (point))
+                 (seg-start (- seg-end (length "**/.git/**"))))
+            (cl-loop for pos from seg-start below seg-end do
+                     (expect (get-text-property pos 'invisible)
+                             :to-be nil))))))))
 
 ;;; drawer-fontification-spec.el ends here

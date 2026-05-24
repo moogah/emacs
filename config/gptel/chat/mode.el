@@ -205,6 +205,94 @@ Finding A / Decision A; cycle-8 cross-line follow-up)."
     found))
 ;; Property-drawer span fontification override:1 ends here
 
+;; Region extender — covers JIT-lock chunk splits
+
+;; The span matcher needs to see both =:PROPERTIES:= and the matching
+;; =:END:= within a single fontification call. JIT lock fontifies in
+;; chunks (=jit-lock-chunk-size=, ~500 chars by default), and a real
+;; session.org configuration drawer routinely exceeds that — a dozen
+;; keys plus a long =:GPTEL_SCOPE_DENY:= deny-list pushes a single
+;; drawer past 500 chars without difficulty. When a chunk boundary
+;; falls between =:PROPERTIES:= and =:END:=, the matcher's forward
+;; =re-search-forward= for one delimiter or the other returns nil and
+;; the OVERRIDE silently fails to stamp anything — the user sees
+;; italic drawer keys and hidden boundary slashes, the exact defect
+;; the matcher was built to prevent.
+
+;; =font-lock-multiline= alone does not rescue this. The variable
+;; relies on a =font-lock-multiline= text-property already being set
+;; on the buffer; the property is only set after the matcher fires
+;; once, and the matcher cannot fire until the chunk covers both
+;; delimiters — a chicken-and-egg.
+
+;; =gptel-chat--drawer-extend-region= breaks the cycle from the other
+;; end. It is a =font-lock-extend-region-functions= hook entry that
+;; widens any incoming =[font-lock-beg, font-lock-end]= region which
+;; intersects a drawer to cover the whole drawer. Two cases to
+;; handle:
+
+;; - =font-lock-beg= sits /inside/ a drawer (a chunk that starts after
+;;   =:PROPERTIES:= but before =:END:=). Scan backward; if the nearest
+;;   =:PROPERTIES:=/=:END:= delimiter is =:PROPERTIES:=, extend
+;;   =font-lock-beg= back to that line and =font-lock-end= forward to
+;;   the matching =:END:=.
+;; - A =:PROPERTIES:= line lies inside =[font-lock-beg, font-lock-end]=
+;;   but its matching =:END:= lies past =font-lock-end=. Walk forward
+;;   through every =:PROPERTIES:= inside the region and extend
+;;   =font-lock-end= to cover each one's =:END:=.
+
+;; Returns non-nil when either bound was widened, per
+;; =font-lock-extend-region-functions= contract.
+
+
+;; [[file:mode.org::*Region extender — covers JIT-lock chunk splits][Region extender — covers JIT-lock chunk splits:1]]
+(defun gptel-chat--drawer-extend-region ()
+  "Extend `font-lock-beg' / `font-lock-end' to cover any drawer they intersect.
+
+Hook entry for `font-lock-extend-region-functions'.  Returns non-nil
+when either bound was widened.
+
+The drawer-span matcher (`gptel-chat--drawer-span-matcher') needs to
+see both `:PROPERTIES:' and its matching `:END:' in a single
+fontification call.  JIT lock defaults to ~500-char chunks, and a
+real session.org configuration drawer (a dozen keys plus long
+`:GPTEL_SCOPE_*:' deny-lists) routinely exceeds that.  When a chunk
+splits the drawer, the matcher's forward searches return nil and
+the OVERRIDE never fires — leaving drawer lines fontified with
+org's italic emphasis face.  This extender widens any chunk that
+intersects a drawer to cover the whole drawer, restoring the
+matcher's invariant."
+  (let ((orig-beg font-lock-beg)
+        (orig-end font-lock-end))
+    (save-excursion
+      (save-match-data
+        ;; Case A: font-lock-beg is *inside* a drawer.  Walk back to
+        ;; the nearest :PROPERTIES:/:END: delimiter; if it is
+        ;; :PROPERTIES:, we are inside that drawer and must widen.
+        (goto-char font-lock-beg)
+        (when (re-search-backward
+               "^[ \t]*:\\(PROPERTIES\\|END\\):[ \t]*$" nil t)
+          (when (string= (match-string 1) "PROPERTIES")
+            (setq font-lock-beg
+                  (min font-lock-beg (line-beginning-position)))
+            (forward-line 1)
+            (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+              (setq font-lock-end
+                    (max font-lock-end (1+ (line-end-position)))))))
+        ;; Case B: a :PROPERTIES: line lies between font-lock-beg and
+        ;; font-lock-end but its matching :END: lies past
+        ;; font-lock-end.  Walk forward and extend for each.
+        (goto-char font-lock-beg)
+        (while (re-search-forward "^[ \t]*:PROPERTIES:[ \t]*$"
+                                  font-lock-end t)
+          (forward-line 1)
+          (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+            (setq font-lock-end
+                  (max font-lock-end (1+ (line-end-position))))))))
+    (or (< font-lock-beg orig-beg)
+        (> font-lock-end orig-end))))
+;; Region extender — covers JIT-lock chunk splits:1 ends here
+
 ;; Config-drawer folding
 
 ;; A persisted =session.org= opens with a file-level =:PROPERTIES:=
@@ -734,7 +822,10 @@ and forced visible via a buffer-local OVERRIDE font-lock keyword so
 neither org `/emphasis/' font-lock nor `org-hide-emphasis-markers'
 mangle drawer keys and values (design.md §Addendum Finding A; cycle-8
 cross-line follow-up).  Chat-turn prose `/emphasis/' is unaffected —
-the override is scoped to drawer interiors only.
+the override is scoped to drawer interiors only.  A companion
+`font-lock-extend-region-functions' entry widens any JIT-lock chunk
+that splits a drawer so the matcher always sees both delimiters in
+one call, regardless of drawer size.
 
 Startup visibility is applied on activation by
 `gptel-chat--apply-startup-visibility', attached to
@@ -755,6 +846,10 @@ file-level config drawer's wall-of-properties so a persisted
   (setq-local font-lock-extra-managed-props
               (cons 'invisible
                     (default-value 'font-lock-extra-managed-props)))
+  ;; Widen any JIT-lock chunk that splits a drawer so the span matcher
+  ;; can always see both `:PROPERTIES:' and `:END:' in one call.
+  (add-hook 'font-lock-extend-region-functions
+            #'gptel-chat--drawer-extend-region nil t)
   (font-lock-add-keywords
    nil
    '((gptel-chat--drawer-span-matcher
