@@ -1,5 +1,29 @@
 ;;; data-model.el --- Workspaces pure data layer -*- lexical-binding: t; -*-
 
+(require 'cl-lib)
+
+(cl-defstruct workspace-buffer
+  "Per-window-leaf reincarnation record.
+Stored under the leaf's `parameters' map by `workspace--capture-frameset',
+consumed by `workspace--deserialize-buffer' on restore.
+
+Slots:
+- `bookmark'        :: result of `bookmark-make-record', or nil for
+                       non-bookmarkable buffers.
+- `filename'        :: file path for file-backed buffers, else nil.
+- `name'            :: `buffer-name' at save time.
+- `narrowed-p'      :: t if the buffer was narrowed at save time.
+- `indirect-p'      :: t if the buffer was an indirect buffer.
+- `local-variables' :: reserved (always nil in v2); forward-compat hook.
+- `etc'             :: alist; forward-compat slot."
+  (bookmark nil)
+  (filename nil)
+  (name nil)
+  (narrowed-p nil)
+  (indirect-p nil)
+  (local-variables nil)
+  (etc nil))
+
 (defun workspace--layout-make (frameset &optional timestamp)
   "Build a layout plist wrapping FRAMESET.
 TIMESTAMP defaults to current time as an integer.  The `:git-state'

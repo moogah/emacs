@@ -162,3 +162,136 @@ Manual smoke (no longer required for task close per archive precedent, but kept 
 - Emacs `bug#56643` — the natively-compiled-subr read failure for help-mode bookmarks.
 - This task **does not** depend on `two-state-layout` and can land first. If it lands first, the persistence reader still sees `:frameset` slots; the schema bump and slot rename happen in the sibling task.
 - This task **does** add the leaf walker and the `workspace-buffer` struct, which `two-state-layout` consumes.
+
+## Observations
+
+- The brief's "Read the scaffolding files first" pointed to
+  `openspec/changes/refine-workspaces-two-state-layout/scaffolding/`,
+  but no `scaffolding/` directory exists under the change. Same for
+  the three register entries the brief cited
+  (`register/shape/workspace-buffer-struct`,
+  `register/vocabulary/buffer-reincarnation-fallback-chain`,
+  `register/boundary/buffer-reincarnation-pipeline`) — none are
+  present in `interfaces.org`. I implemented to the design + task
+  body directly; if those artifacts existed in a prior plan revision
+  they were not committed to the current `bf141a9` HEAD.
+- `workspace--apply-saved-layout` previously caught errors from
+  `workspace--restore-frameset` synchronously. With the
+  `run-at-time`-deferred restore, the `condition-case` around the
+  call now only catches scheduling errors, not errors inside the
+  deferred `window-state-put`. Errors inside the closure now leak to
+  the timer's default error handler (a `message` call). This is
+  consistent with activities.el's pattern and the design's
+  expectation, but it is a behavioral change from the previous
+  synchronous wrap.
+- Two pre-existing save/restore tests (`file buffer round-trip` and
+  `workspace-restore … creates a tab and reconstructs the saved
+  window layout when no tab exists`) had to be updated to drain
+  pending timers (`sit-for 0`, `accept-process-output`) before
+  asserting on window state. This is intrinsic to the deferred
+  design (D2 Gotcha 2); the tests were synchronous-restore tests
+  that needed a small drain helper, not a behavioral regression.
+  Helper added: `save-restore-spec--drain-timers`.
+- The `step 2: filename fallback returns nil for a non-file
+  workspace-buffer` scenario in the spec spreadsheet maps awkwardly
+  onto the chain because step 4 (error buffer) always returns a
+  live buffer — there is no "returns nil" assertable shape without
+  bypassing step 4. The describe block notes this and the contract
+  is covered by the "step 4" describe instead.
+- `workspace--deserialize-buffer`'s name and filename fallbacks are
+  wrapped with `condition-case-unless-debug` / `ignore-errors`
+  respectively. `find-file-noselect` can raise during automated
+  restore (file deleted between save and restore, permission
+  errors) and we want fall-through rather than abort — but this
+  means a transient I/O error silently demotes a file buffer to the
+  error buffer. The error buffer's body lists which step ran, so
+  diagnostics are not lost, but a future iteration could log a
+  warning at the demotion point.
+
+## Discoveries
+
+- discovery_id: disc-bookmark-reincarnation-1
+  class: spec-signal
+  description: |
+    The task body and design refer to "scaffolding" files at
+    `openspec/changes/refine-workspaces-two-state-layout/scaffolding/`
+    and to three speculated register entries in `interfaces.org`
+    (`register/shape/workspace-buffer-struct`,
+    `register/vocabulary/buffer-reincarnation-fallback-chain`,
+    `register/boundary/buffer-reincarnation-pipeline`). Neither the
+    scaffolding directory nor those register entries exist in the
+    change's worktree at `bf141a9`. Implementation proceeded against
+    the design + task body alone; the speculated entries should be
+    landed in `interfaces.org` at integrate time, reconciled against
+    the shipped shape.
+  affected_register_entry: register/shape/workspace-buffer-struct
+  recommendation: |
+    Integrate phase should: (1) add three register entries for the
+    shipped shape — the `workspace-buffer` cl-defstruct (Shape tier),
+    the four-step fallback chain `bookmark → filename → name → error
+    buffer` (Vocabulary tier), and the
+    capture/serialize/copy-tree/deserialize/run-at-time pipeline
+    (Boundary tier); (2) ensure the design's "scaffolding" reference
+    is either removed or paired with an actual scaffolding
+    directory.
+
+- discovery_id: disc-bookmark-reincarnation-2
+  class: interface-drift
+  description: |
+    `workspace--apply-saved-layout`'s `condition-case` around
+    `workspace--restore-frameset` previously caught restore errors
+    synchronously. Post-change, the actual `window-state-put` runs
+    inside a deferred `run-at-time` closure; errors there cannot be
+    caught by the outer wrap and surface only via the timer's
+    default `message`-and-continue handler. The wrap is retained
+    because `workspace--restore-frameset`'s own scheduling logic
+    (e.g. `workspace--window-state-deserialize`) can still raise
+    synchronously, but the failure surface has narrowed.
+  affected_register_entry: register/boundary/buffer-reincarnation-pipeline
+  recommendation: |
+    The Boundary entry for the reincarnation pipeline should note
+    the asymmetry: synchronous errors in the leaf-walk /
+    deserialize phase are caught by
+    `workspace--apply-saved-layout`; deferred errors in
+    `window-state-put` surface via the timer's default handler. If
+    we want unified error handling, wrap the deferred closure body
+    in its own `condition-case` with a `message` fallback.
+
+- discovery_id: disc-bookmark-reincarnation-3
+  class: deviation
+  description: |
+    The task body's step-6 sketch uses
+    `condition-case-unless-debug` around
+    `workspace--bookmark-buffer` in `workspace--deserialize-buffer`.
+    I kept that, but `workspace--bookmark-buffer` itself already
+    wraps `bookmark-jump` in `condition-case`. The double wrap is
+    intentional belt-and-suspenders against future changes that
+    might let an error escape the inner wrap (e.g. an error inside
+    the temp-buffer probe outside the inner `condition-case`'s
+    scope). No code change, but worth noting that the chain has
+    redundancy.
+  affected_register_entry: register/boundary/buffer-reincarnation-pipeline
+  recommendation: |
+    Leave the double wrap. Document the layering in the Boundary
+    entry: the inner wrap catches `bookmark-jump` failures (the
+    primary bug#56643 surface); the outer wrap catches anything
+    that escapes the temp-buffer probe.
+
+- discovery_id: disc-bookmark-reincarnation-4
+  class: scope-question
+  description: |
+    Two existing save/restore behavioral tests had to be updated
+    with a `drain-timers` helper because the deferred-restore
+    pattern moves `window-state-put` out of the synchronous call
+    path. Tests that previously asserted "after `workspace-restore`
+    returns, window-state X holds" must now drain. This is a
+    cross-cutting change to the test harness's implicit contract
+    (sync vs deferred restore).
+  affected_register_entry: register/boundary/buffer-reincarnation-pipeline
+  recommendation: |
+    Document the deferred-restore contract in the Boundary entry
+    and call it out in the workspaces test README (or
+    `test/helpers-spec.el` if one is added). Future test authors
+    need to know that any assertion downstream of a workspace
+    restore needs to drain pending timers.
+
