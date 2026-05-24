@@ -49,6 +49,16 @@ Layer 6: Error Shape Contract
         "Do denial errors have the correct plist structure?"
 #+end_example
 
+A prior "Layer 7: Operation → Scope-Section Mapping" once lived in this file
+as the property bridge between =:operation= keywords and the drawer-key
+buckets they collapse into.  It was extracted to
+=config/gptel/scope/test/core/operation-mapping-spec.el= during the
+WS-A YAML-to-drawer test migration: the mapping is now a load-bearing
+piece of the writer rather than a property of the parser contract, and
+its dedicated home pins every =:operation= case (read-like / write-like /
+modify / execute / =:match-pattern= / nil) individually.  No coverage was
+lost in the move.
+
 ** Relationship to Other Test Layers
 
 #+begin_example

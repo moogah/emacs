@@ -32,6 +32,16 @@
 ;;   4. (cycle-3 add-on) Non-scope keys (`:GPTEL_PRESET:',
 ;;      `:GPTEL_PARENT_SESSION_ID:') survive the multi-write add-to-scope
 ;;      sequence verbatim AND the drawer remains a singleton.
+;;   5. (WS-A follow-up) Scope-adjacent scalar `:GPTEL_SCOPE_CLOUD_AUTH:'
+;;      survives a path-add write — pinning the invariant that the
+;;      writer touches only its own operation-keyed drawer entry.  The
+;;      deleted `expansion-roundtrip-spec.el' previously covered this
+;;      via the YAML round-trip; the surviving home is here, against
+;;      the drawer directly.
+;;   6. (WS-A follow-up) Multi-valued `:GPTEL_SCOPE_DENY:' list survives
+;;      a path-add write — same invariant on a list-shaped key whose
+;;      surgical-edit path through `org-entry-put-multivalued-property'
+;;      is distinct from the scalar path covered by #5.
 ;;
 ;; Cycle-3 finding 1 advisory: this spec consumes the existing helpers
 ;; (`jf/gptel-test--render-drawer', `jf/gptel-test--with-scope-drawer') from
@@ -212,6 +222,46 @@ narrower regression that emits a stray `:END:' without a paired
                 :to-equal "default")
         (expect (org-entry-get (point-min) "GPTEL_PARENT_SESSION_ID")
                 :to-equal "abc-123"))))
+
+  ;; WS-A follow-up: scope-adjacent key preservation.  The deleted
+  ;; `expansion-roundtrip-spec.el' had two `it' blocks pinning that an
+  ;; add-to-scope write leaves an existing `:GPTEL_SCOPE_CLOUD_AUTH:'
+  ;; scalar and an existing `:GPTEL_SCOPE_DENY:' list untouched.  The
+  ;; cycle-3 / cycle-7 add-ons above pin the `:GPTEL_PRESET:' and
+  ;; `:GPTEL_PARENT_SESSION_ID:' (non-scope) sides; these two blocks
+  ;; cover the scope-key sides that share the writer's surgical
+  ;; `org-entry-put-multivalued-property' path but are not themselves
+  ;; touched by the writer.  Each block fixtures one of the two key
+  ;; shapes (scalar / multi-valued) alongside the operation-keyed
+  ;; scope keys the writer DOES touch, runs a multi-write sequence,
+  ;; and asserts the unrelated key survives verbatim.
+  (it "preserves an existing :GPTEL_SCOPE_CLOUD_AUTH: scalar across add-to-scope writes"
+    (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_CLOUD_AUTH . "deny")
+            (:GPTEL_SCOPE_READ . ("/initial/**")))
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :read "/added/one/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :write "/output/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :execute "/usr/local/bin/**")
+        (expect (org-entry-get (point-min) "GPTEL_SCOPE_CLOUD_AUTH")
+                :to-equal "deny")
+        (expect (no-duplicate-drawer-spec--count-properties-headers
+                 (current-buffer))
+                :to-equal 1))))
+
+  (it "preserves an existing :GPTEL_SCOPE_DENY: list across add-to-scope writes"
+    (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+      (jf/gptel-test--with-scope-drawer
+          '((:GPTEL_SCOPE_DENY . ("/etc/**" "/secrets/**"))
+            (:GPTEL_SCOPE_READ . ("/initial/**")))
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :read "/added/one/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :write "/output/**")
+        (jf/gptel-scope--write-pattern-to-drawer (current-buffer) :modify "/etc/local/**")
+        (expect (org-entry-get-multivalued-property (point-min) "GPTEL_SCOPE_DENY")
+                :to-equal '("/etc/**" "/secrets/**"))
+        (expect (no-duplicate-drawer-spec--count-properties-headers
+                 (current-buffer))
+                :to-equal 1))))
 
   ;; Post-cycle-7 fixture coverage.  `register/shape/session-
   ;; document-layout' introduced a second drawer (the `* System Prompt'
