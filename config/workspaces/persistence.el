@@ -1,5 +1,6 @@
 ;;; persistence.el --- Workspaces persistence -*- lexical-binding: t; -*-
 
+(require 'cl-lib)
 (require 'workspace-data-model)
 (require 'workspace-tabs)
 (require 'workspace-buffer-membership)
@@ -125,25 +126,26 @@ Layout restore is deferred until the user first selects the tab."
 
 (defun workspace--apply-saved-layout (name)
   "Apply NAME's recent saved window-state to the current frame.
-Also re-acquires its file buffers and clears any `:restore-pending'
-flag on the workspace.  No-op when no saved layout exists.
+Also clears any `:restore-pending' flag on the workspace.  No-op when
+no saved layout exists.
 
-File buffers are loaded *before* the window-state is applied so that
-`window-state-put' can resolve buffer references by name instead of
-falling back to `*scratch*'."
+The leaf walker in `workspace--restore-frameset' reincarnates each
+saved buffer via the four-step fallback chain (bookmark → filename
+→ name → error buffer), so no separate pre-load of file buffers is
+needed; the legacy `:buffer-files' slot is left untouched (design.md
+§D7).
+
+Increments `workspace--restore-generation' before scheduling the
+deferred `window-state-put' so that mashing restore commands cannot
+produce duplicate state-puts on the same frame (design.md §D2,
+Gotcha 3)."
   (let ((ws (gethash name workspace--registry)))
     (when ws
+      (cl-incf workspace--restore-generation)
       (let* ((recent (workspace--recent-group ws))
              (group (and recent (workspace--find-group ws recent)))
              (layout (and group (workspace--group-recent-layout group)))
-             (state (and layout (workspace--layout-frameset layout)))
-             (files (workspace--buffer-files ws)))
-        ;; Pre-load file buffers so window-state-put can resolve the
-        ;; saved buffer names.  Without this step, window-state-put
-        ;; silently falls back to *scratch* for any missing buffer.
-        (dolist (path files)
-          (when (file-exists-p path)
-            (ignore-errors (find-file-noselect path))))
+             (state (and layout (workspace--layout-frameset layout))))
         (when state
           (condition-case err
               (workspace--restore-frameset state)

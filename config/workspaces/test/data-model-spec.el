@@ -1,6 +1,7 @@
 ;;; data-model-spec.el --- Unit tests for workspace data layer -*- lexical-binding: t; -*-
 
 (require 'buttercup)
+(require 'bookmark)
 (load (expand-file-name "../data-model.el"
                         (file-name-directory
                          (or load-file-name buffer-file-name))))
@@ -146,6 +147,52 @@
     (let ((layout (workspace--layout-make 'fs)))
       (expect (plist-member layout :git-state) :to-be-truthy)
       (expect (plist-get layout :git-state) :to-equal nil))))
+
+(describe "workspace-buffer struct"
+  (it "constructs with all-nil defaults"
+    (let ((wb (make-workspace-buffer)))
+      (expect (workspace-buffer-bookmark wb) :to-be nil)
+      (expect (workspace-buffer-filename wb) :to-be nil)
+      (expect (workspace-buffer-name wb) :to-be nil)
+      (expect (workspace-buffer-narrowed-p wb) :to-be nil)
+      (expect (workspace-buffer-indirect-p wb) :to-be nil)
+      (expect (workspace-buffer-local-variables wb) :to-be nil)
+      (expect (workspace-buffer-etc wb) :to-be nil)))
+
+  (it "round-trips slots through accessors"
+    (let ((wb (make-workspace-buffer
+               :bookmark '("foo" (filename . "/tmp/foo")
+                                 (position . 42))
+               :filename "/tmp/foo"
+               :name "foo"
+               :narrowed-p t
+               :indirect-p nil)))
+      (expect (workspace-buffer-name wb) :to-equal "foo")
+      (expect (workspace-buffer-filename wb) :to-equal "/tmp/foo")
+      (expect (workspace-buffer-narrowed-p wb) :to-be t)
+      (expect (workspace-buffer-indirect-p wb) :to-be nil)
+      (expect (bookmark-prop-get (workspace-buffer-bookmark wb) 'position)
+              :to-equal 42)))
+
+  (it "accepts a nil bookmark (non-bookmarkable buffer)"
+    (let ((wb (make-workspace-buffer
+               :bookmark nil
+               :filename nil
+               :name "*scratch*")))
+      (expect (workspace-buffer-bookmark wb) :to-be nil)
+      (expect (workspace-buffer-name wb) :to-equal "*scratch*")))
+
+  (it "narrowed-p and indirect-p flags survive prin1/read round-trip"
+    (let* ((wb (make-workspace-buffer
+                :filename "/tmp/foo"
+                :name "foo"
+                :narrowed-p t
+                :indirect-p t))
+           (round-tripped (read (prin1-to-string wb))))
+      (expect (workspace-buffer-p round-tripped) :to-be t)
+      (expect (workspace-buffer-narrowed-p round-tripped) :to-be t)
+      (expect (workspace-buffer-indirect-p round-tripped) :to-be t)
+      (expect (workspace-buffer-name round-tripped) :to-equal "foo"))))
 
 (provide 'data-model-spec)
 ;;; data-model-spec.el ends here

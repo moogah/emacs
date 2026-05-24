@@ -45,6 +45,17 @@
                                              (file-name-as-directory tmp)))))
        ,@body)))
 
+(defun save-restore-spec--drain-timers ()
+  "Drain any pending immediate timers.
+`workspace--restore-frameset' defers `window-state-put' via
+`run-at-time nil nil ...' to avoid racing against
+`bookmark--jump-via''s buffer-display call (design.md §D2, Gotcha 2);
+batch tests must run the event loop briefly so the deferred closure
+fires before assertions run."
+  (sit-for 0)
+  (sit-for 0)
+  (accept-process-output nil 0.05))
+
 (defun save-restore-spec--count-windows (form)
   "Count `leaf' symbols in FORM.
 Works for both window-state forms and frameset-shaped data — both
@@ -128,6 +139,7 @@ encode each window as a `leaf' node."
         (expect (find-buffer-visiting path) :to-be nil)
         ;; Restore: tab should be recreated and the file buffer displayed.
         (workspace-restore "alpha")
+        (save-restore-spec--drain-timers)
         (expect (workspace--current-name) :to-equal "alpha")
         (expect (buffer-file-name (window-buffer (selected-window)))
                 :to-equal path)))))
@@ -160,6 +172,7 @@ encode each window as a `leaf' node."
       (expect (workspace--tab-index-for "alpha") :to-be nil)
       ;; Restore.
       (workspace-restore "alpha")
+      (save-restore-spec--drain-timers)
       (expect (workspace--current-name) :to-equal "alpha")
       (expect (length (window-list)) :to-equal 2)))
 

@@ -1,5 +1,8 @@
 ;;; layouts.el --- Workspace layout commands -*- lexical-binding: t; -*-
 
+(require 'cl-lib)
+(require 'bookmark)
+(require 'map)
 (require 'workspace-data-model)
 (require 'workspace-tabs)
 
@@ -22,25 +25,223 @@ the round trip through the on-disk eld form."
   :type '(alist :key-type symbol :value-type symbol)
   :group 'workspaces)
 
+(defun workspace--window-state-walk-leaves (state func)
+  "Return a fresh window-state like STATE with FUNC applied to each leaf.
+FUNC is called with a `(leaf . attrs)' form and must return a
+replacement form (typically a fresh leaf with translated attrs).
+
+Handles three cases per node:
+- `(leaf . _attrs)' — apply FUNC.
+- atom — return as-is.
+- `(_key . atom)' — return as-is (split-direction keywords etc).
+- proper list — recurse on its members.
+
+The one-window-frame edge case (top-level form is itself a leaf,
+not wrapped in a tree) is detected by `cl-position 'leaf' on the
+form; if non-nil, the leaf-bearing sublist is translated and the
+prefix before it preserved."
+  (cl-labels
+      ((walk (node)
+         (pcase node
+           (`(leaf . ,_attrs) (funcall func node))
+           ((pred atom) node)
+           (`(,_key . ,(pred atom)) node)
+           ((pred proper-list-p)
+            (if-let ((leaf-pos (cl-position 'leaf node)))
+                ;; One-window-frame: prefix elements + translated leaf.
+                (append (cl-subseq node 0 leaf-pos)
+                        (funcall func (cl-subseq node leaf-pos)))
+              (mapcar #'walk node)))
+           (_ node))))
+    (walk state)))
+
+(defun workspace--serialize-buffer (buffer)
+  "Return a `workspace-buffer' struct capturing BUFFER's state, or nil if dead.
+The struct carries enough to reincarnate the buffer across restart:
+a `bookmark-make-record' result (the standard Emacs primitive for
+major-mode-specific restorable state), the filename if file-backed,
+the buffer name, and the narrowed/indirect flags."
+  (when (buffer-live-p buffer)
+    (with-current-buffer buffer
+      (make-workspace-buffer
+       :bookmark (condition-case _err
+                     (bookmark-make-record)
+                   ;; Non-bookmarkable buffers (e.g. minibuffers, fresh
+                   ;; *scratch* without a file) raise; fall through.
+                   (error nil))
+       :filename (buffer-file-name buffer)
+       :name (buffer-name buffer)
+       :narrowed-p (buffer-narrowed-p)
+       :indirect-p (and (buffer-base-buffer buffer) t)))))
+
+(defun workspace--error-buffer (ws-buffer)
+  "Return a live, named buffer explaining that WS-BUFFER could not be reincarnated.
+Modelled on `activities--error-buffer' (activities.el:855-862)."
+  (let* ((orig-name (or (workspace-buffer-name ws-buffer) "<unknown>"))
+         (name (format "*workspace-restore: %s*" orig-name))
+         (buf (get-buffer-create name)))
+    (with-current-buffer buf
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (insert
+         "Workspaces could not reincarnate this buffer.\n\n"
+         (format "Original buffer name : %s\n" orig-name)
+         (format "Original filename    : %s\n"
+                 (or (workspace-buffer-filename ws-buffer) "<none>"))
+         (format "Bookmark record      : %s\n\n"
+                 (if (workspace-buffer-bookmark ws-buffer)
+                     "present (failed to restore)"
+                   "absent"))
+         "All four fallback steps failed:\n"
+         "  1. bookmark restore\n"
+         "  2. find-file-noselect on filename\n"
+         "  3. get-buffer by name\n"
+         "  4. (this buffer is step 4)\n\n"
+         "It is likely that the buffer's major mode does not support\n"
+         "the bookmark system, or the underlying resource (file, repo,\n"
+         "process) is no longer available.\n"))
+      (visual-line-mode 1))
+    buf))
+
+(defun workspace--bookmark-buffer (ws-buffer)
+  "Return the buffer produced by jumping to WS-BUFFER's bookmark record, or nil.
+Uses a temp-buffer probe to detect whether `bookmark-jump' actually
+moved off the temp buffer — `bookmark-handle-bookmark' swallows the
+\"file no longer exists\" error and returns nil, so the only reliable
+signal that the jump succeeded is observing a buffer change.
+
+NOTE: Be aware of the following note from burly.el:
+NOTE: Due to changes in help-mode.el which serialize natively
+compiled subrs in the bookmark props, which cannot be read
+back (which actually break the entire bookmark system when
+such a props is saved in the bookmarks file), we have to
+workaround a failure to read here.  See bug#56643."
+  (let ((bookmark (workspace-buffer-bookmark ws-buffer)))
+    (when bookmark
+      (with-temp-buffer
+        (let* ((temp-buffer (current-buffer))
+               (jumped-to-buffer
+                (save-window-excursion
+                  (condition-case _err
+                      (bookmark-jump bookmark)
+                    ;; bug#56643 et al.: read-back failures, missing
+                    ;; handlers, anything else.  Fall through.
+                    (error nil))
+                  (current-buffer))))
+          (unless (eq temp-buffer jumped-to-buffer)
+            jumped-to-buffer))))))
+
+(defun workspace--deserialize-buffer (ws-buffer)
+  "Reincarnate the buffer represented by WS-BUFFER.
+Returns a live buffer.  Walks the four-step fallback chain:
+bookmark → filename → name → error buffer.  Never returns nil; the
+error buffer is the floor."
+  (or
+   ;; 1. Bookmark restore.
+   (and (workspace-buffer-bookmark ws-buffer)
+        (condition-case-unless-debug _err
+            (workspace--bookmark-buffer ws-buffer)
+          (error nil)))
+   ;; 2. Filename fallback.
+   (and (workspace-buffer-filename ws-buffer)
+        (ignore-errors
+          (find-file-noselect (workspace-buffer-filename ws-buffer))))
+   ;; 3. Name fallback.
+   (and (workspace-buffer-name ws-buffer)
+        (get-buffer (workspace-buffer-name ws-buffer)))
+   ;; 4. Error buffer.  Always live.
+   (workspace--error-buffer ws-buffer)))
+
+(defun workspace--window-state-serialize (state)
+  "Return a fresh window-state like STATE with `workspace-buffer' embedded.
+Walks STATE; on each leaf, looks up the saved buffer-or-buffer-name,
+builds a `workspace-buffer' struct, and stores it in the leaf's
+`parameters' map under key `workspace-buffer'."
+  (workspace--window-state-walk-leaves
+   state
+   (lambda (leaf)
+     (pcase-let* ((`(leaf . ,attrs) leaf)
+                  ((map parameters
+                        ('buffer
+                         `(,buffer-or-buffer-name . ,_buffer-attrs)))
+                   attrs))
+       (setf (map-elt parameters 'workspace-buffer)
+             (workspace--serialize-buffer
+              (get-buffer buffer-or-buffer-name)))
+       (setf (map-elt attrs 'parameters) parameters)
+       (cons 'leaf attrs)))))
+
+(defun workspace--window-state-deserialize (state)
+  "Return a fresh window-state like STATE with each leaf's buffer reincarnated.
+Walks STATE; on each leaf, reads the `workspace-buffer' struct from
+its `parameters' map (if present), reincarnates the buffer via the
+four-step fallback chain, and rewrites the leaf's `buffer' slot to
+point at the live buffer."
+  (workspace--window-state-walk-leaves
+   state
+   (lambda (leaf)
+     (pcase-let* ((`(leaf . ,attrs) leaf)
+                  ((map parameters
+                        ('buffer
+                         `(,_buffer-name . ,buffer-attrs)))
+                   attrs)
+                  ((map workspace-buffer) parameters))
+       (when workspace-buffer
+         (let ((live (workspace--deserialize-buffer workspace-buffer)))
+           (setf (map-elt attrs 'buffer) (cons live buffer-attrs))))
+       (cons 'leaf attrs)))))
+
+(defvar workspace--restore-generation 0
+  "Monotonic counter incremented on every restore entry.
+The deferred restore closure captures the value at scheduling time
+and compares it on fire; a mismatch indicates a newer restore was
+queued and the closure should no-op.")
+
 (defun workspace--capture-frameset ()
   "Return a window-state capturing the selected frame's root window.
 Extends `window-persistent-parameters' with
 `workspace-window-persistent-parameters' so side windows, preserved
-sizes, and explicit modeline overrides survive the round trip."
-  (let ((window-persistent-parameters
-         (append workspace-window-persistent-parameters
-                 window-persistent-parameters)))
-    (window-state-get (frame-root-window) 'writable)))
+sizes, and explicit modeline overrides survive the round trip.
+
+Each leaf in the returned form carries a `workspace-buffer' struct
+in its `parameters' map, encoding enough to reincarnate the buffer
+across restart via the four-step fallback chain."
+  (let* ((window-persistent-parameters
+          (append workspace-window-persistent-parameters
+                  window-persistent-parameters))
+         (state (window-state-get (frame-root-window) 'writable)))
+    (workspace--window-state-serialize state)))
 
 (defun workspace--restore-frameset (state)
   "Apply window-state STATE to the selected frame's root window.
-Extends `window-persistent-parameters' with
-`workspace-window-persistent-parameters' so side-window, preserved-size,
-and modeline parameters are recognized on restore."
-  (let ((window-persistent-parameters
-         (append workspace-window-persistent-parameters
-                 window-persistent-parameters)))
-    (window-state-put state (frame-root-window) 'safe)))
+STATE is expected to carry a `workspace-buffer' struct in each
+leaf's `parameters' map (see `workspace--capture-frameset').
+
+The state is `copy-tree'-ed before mutation so the in-memory
+registry is not affected by buffer-replacement side effects.  The
+`window-state-put' call is deferred via `run-at-time' nil nil to
+avoid racing against `bookmark--jump-via''s buffer-display call,
+which fires synchronously from within bookmark handlers.
+
+A generation counter (`workspace--restore-generation') gates the
+deferred closure: if a newer restore is queued while this one is
+pending, the older closure no-ops."
+  (let* ((window-persistent-parameters
+          (append workspace-window-persistent-parameters
+                  window-persistent-parameters))
+         (bufferized (workspace--window-state-deserialize
+                      (copy-tree state)))
+         (gen workspace--restore-generation)
+         (frame (selected-frame)))
+    (run-at-time nil nil
+                 (lambda ()
+                   (when (= gen workspace--restore-generation)
+                     (let ((window-persistent-parameters
+                            (append workspace-window-persistent-parameters
+                                    window-persistent-parameters)))
+                       (window-state-put bufferized
+                                         (frame-root-window frame)
+                                         'safe)))))))
 
 (defun workspace--update-recent-group (ws-name group-name)
   "Set WS-NAME's recent-layout-group to GROUP-NAME in the registry."

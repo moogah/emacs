@@ -26,6 +26,54 @@ as a public API surface.
 
 #+begin_src emacs-lisp
 ;;; data-model.el --- Workspaces pure data layer -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Layout primitives
+
+** workspace-buffer struct
+
+The =workspace-buffer= struct is the per-window-leaf payload that the
+restore path needs to *reincarnate* a buffer — bring it back to life
+across an Emacs restart, complete with point position, narrowing,
+indirect-buffer status, and (most importantly) its major-mode-specific
+restorable state for non-file buffers like =magit-status=, =eshell=,
+=*Messages*=.
+
+The bookmark slot carries the result of =bookmark-make-record= — the
+standard Emacs primitive that asks each buffer's major-mode for a
+serializable representation of "what I am right now."  Because we
+write this record into our persistence file (not
+=bookmark-default-file=) it does not collide with the user's existing
+bookmarks (design.md §D2).
+
+The =local-variables= slot is reserved (always nil in v2; the
+catalog-pattern hook for the deferred =workspace-buffer-local-variables=
+defcustom).  The =etc= slot is the forward-compat alist.
+
+#+begin_src emacs-lisp
+(cl-defstruct workspace-buffer
+  "Per-window-leaf reincarnation record.
+Stored under the leaf's `parameters' map by `workspace--capture-frameset',
+consumed by `workspace--deserialize-buffer' on restore.
+
+Slots:
+- `bookmark'        :: result of `bookmark-make-record', or nil for
+                       non-bookmarkable buffers.
+- `filename'        :: file path for file-backed buffers, else nil.
+- `name'            :: `buffer-name' at save time.
+- `narrowed-p'      :: t if the buffer was narrowed at save time.
+- `indirect-p'      :: t if the buffer was an indirect buffer.
+- `local-variables' :: reserved (always nil in v2); forward-compat hook.
+- `etc'             :: alist; forward-compat slot."
+  (bookmark nil)
+  (filename nil)
+  (name nil)
+  (narrowed-p nil)
+  (indirect-p nil)
+  (local-variables nil)
+  (etc nil))
 #+end_src
 
 * Layout helpers
