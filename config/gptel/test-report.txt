@@ -1,15 +1,19 @@
 Test Report
 ===========
 
-ERT: 23 ran, 23 passed
+ERT: 23 ran, 22 passed
 
-Buttercup: 993 ran, 970 passed (1 pending)
+ERT failures:
+  test-directory-creation-org-session-structure
+  test-directory-creation-org-session-structure (0.004699 sec) at config/gptel/sessions/filesystem-test.el:43
+
+Buttercup: 1214 ran, 1191 passed
 
 Buttercup failures:
   Bug 4: end-to-end add-to-scope should enable retry success gptel callback receives success after add-to-scope correctly expands scope
-  Bug 4: end-to-end add-to-scope should enable retry success scope.yml contains valid path pattern after add-to-scope (not garbage)
+  Bug 4: end-to-end add-to-scope should enable retry success scope drawer contains valid path pattern after add-to-scope (not garbage)
+  Bug: multi-violation add-to-scope leaks subsequent denials drawer contains every denied path after user approves Add to scope
   Bug: multi-violation add-to-scope leaks subsequent denials real-world session case: ls ABSPATH 2>/dev/null adds both paths
-  Bug: multi-violation add-to-scope leaks subsequent denials scope.yml contains every denied path after user approves Add to scope
   Parallel tool callback: mixed allowed/denied both callbacks fire when one tool passes and one triggers expansion
   Parallel tool callback: session stuck reproduction single tool call works (baseline) one denied tool fires callback when user denies expansion
   Parallel tool callback: session stuck reproduction two tools fired via mapc (the production scenario) both callbacks fire when expansion UI auto-denies both
@@ -24,10 +28,10 @@ Buttercup failures:
   run_bash_command integration: file operation out of scope allow-once approves and tool body executes
   run_bash_command integration: file operation out of scope triggers expansion UI through macro for out-of-scope read
   run_bash_command integration: gptel callback contract callback receives exactly one string argument
-  run_bash_command integration: gptel callback contract no_scope_config returns JSON through callback
+  run_bash_command integration: gptel callback contract empty-drawer deny-all defaults route per-violation denial through callback
   run_bash_command integration: gptel callback contract tool is registered as async in gptel--known-tools
   run_bash_command: Timeout and resource limits suggests filters in truncation notice
   run_bash_command: Timeout and resource limits warns when long-running command is terminated
 
 ===========
-Total: 1016 ran, 993 passed
+Total: 1237 ran, 1213 passed
