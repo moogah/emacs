@@ -13,7 +13,10 @@
     (defalias 'bufferlo-mode (lambda (&optional _) nil))
     (provide 'bufferlo))
   (load (expand-file-name "../buffer-membership.el" dir))
-  (load (expand-file-name "../layouts.el"           dir)))
+  (load (expand-file-name "../layouts.el"           dir))
+  ;; persistence.el provides workspace-save and workspace--flush-state;
+  ;; the "explicit save clears :working-state" describe needs it.
+  (load (expand-file-name "../persistence.el"       dir)))
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
@@ -293,6 +296,140 @@
       ;; Two windows after the split → at least two leaves with a
       ;; workspace-buffer payload.
       (expect visits :to-be-weakly-greater-than 2))))
+
+(describe "workspace--autosave-current-layout slot routing"
+  (before-each (layouts-spec--reset))
+
+  (it ":working-state writes :working-state and leaves :saved-state untouched"
+    (workspace-new "alpha")
+    (let* ((ws (gethash "alpha" workspace--registry))
+           (layout (workspace--group-recent-layout
+                    (workspace--find-group ws "home")))
+           (saved-before (workspace--layout-saved-state layout)))
+      (workspace--autosave-current-layout :working-state)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "home"))))
+        (expect (workspace--layout-working-state layout) :not :to-be nil)
+        (expect (workspace--layout-saved-state layout)
+                :to-equal saved-before))))
+
+  (it ":saved-state writes :saved-state"
+    (workspace-new "alpha")
+    ;; Add some drift first so we can verify :saved-state changes.
+    (workspace--autosave-current-layout :working-state)
+    (let* ((ws (gethash "alpha" workspace--registry))
+           (layout (workspace--group-recent-layout
+                    (workspace--find-group ws "home")))
+           (saved-before (workspace--layout-saved-state layout)))
+      ;; Force the next capture to differ.
+      (sleep-for 1.1)
+      (delete-other-windows)
+      (split-window-right)
+      (workspace--autosave-current-layout :saved-state)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "home"))))
+        ;; saved-state differs from before (window count changed).
+        (expect (workspace--layout-saved-state layout)
+                :not :to-equal saved-before))))
+
+  (it "errors when SLOT is omitted (no default; structural enforcement of autosave-never-writes-saved-state)"
+    (workspace-new "alpha")
+    ;; The function requires an explicit slot; an omitted slot fires
+    ;; cl-assert.  This is the structural fix for the v1 MVP gap D8
+    ;; "tab-switch autosave clobbers explicit save" failure mode: an
+    ;; autosave site that forgets to pass :working-state cannot
+    ;; silently fall through to :saved-state.  See on-touch architect
+    ;; finding arch-cycle-20260524-200631-on-touch-two-state-layout-1.
+    ;; No-arg call → wrong-number-of-arguments (function signature change
+    ;; from `&optional slot' to required slot is structural, not runtime).
+    (let ((caught-no-arg
+           (condition-case _ (workspace--autosave-current-layout) (error 'caught))))
+      (expect caught-no-arg :to-equal 'caught))
+    ;; Off-vocabulary slot → cl-assertion-failed via the
+    ;; workspace--state-slot-p predicate at function entry.
+    (let ((caught-bogus
+           (condition-case _ (workspace--autosave-current-layout :bogus) (error 'caught))))
+      (expect caught-bogus :to-equal 'caught))))
+
+(describe "Explicit workspace-save clears :working-state"
+  ;; register/invariant/explicit-save-clears-working-state — pinned for
+  ;; every explicit-save variant (workspace-save, workspace-save-layout,
+  ;; workspace-new home stamp).  workspace-switch-layout is navigation,
+  ;; not an explicit-save variant per design.md §D4 — it does NOT clear
+  ;; :working-state and is intentionally out of scope here.
+  (before-each (layouts-spec--reset))
+
+  (it "workspace-save clears :working-state on the affected layout"
+    ;; Stub the disk-flush so the test doesn't write.
+    (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))
+      (workspace-new "alpha")
+      ;; Accumulate :working-state drift.
+      (workspace--autosave-current-layout :working-state)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "home"))))
+        (expect (workspace--layout-working-state layout) :not :to-be nil))
+      ;; Explicit save clears the drift.
+      (workspace-save)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "home"))))
+        (expect (workspace--layout-working-state layout) :to-be nil)
+        (expect (workspace--layout-saved-state layout) :not :to-be nil))))
+
+  (it "workspace-save-layout NAME leaves the named layout's :working-state nil"
+    ;; The named-layout save path constructs a fresh layout via
+    ;; workspace--layout-make (which pins :working-state to nil at
+    ;; construction).  If a future refactor switches to preserving a
+    ;; passed-in :working-state, this scenario catches the regression.
+    (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))
+      (workspace-new "alpha")
+      ;; Stamp a layout named "magit" with prior :working-state drift
+      ;; pre-populated via the autosave path against the recent layout
+      ;; first, then create the named layout.
+      (workspace--autosave-current-layout :working-state)
+      (workspace-save-layout "magit")
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (magit (workspace--find-group ws "magit"))
+             (layout (workspace--group-recent-layout magit)))
+        (expect (workspace--layout-saved-state layout) :not :to-be nil)
+        (expect (workspace--layout-working-state layout) :to-be nil))))
+
+  (it "workspace-new home stamp leaves the home layout's :working-state nil"
+    ;; The home-group construction path at workspace-new time uses
+    ;; workspace--layout-make → :working-state nil from the start.
+    (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))
+      (workspace-new "alpha")
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (home (workspace--find-group ws "home"))
+             (layout (workspace--group-recent-layout home)))
+        (expect (workspace--layout-saved-state layout) :not :to-be nil)
+        (expect (workspace--layout-working-state layout) :to-be nil)))))
+
+(describe "workspace-switch-layout routes outgoing capture to :working-state"
+  (before-each (layouts-spec--reset))
+
+  (it "writes the outgoing layout's :working-state, not :saved-state"
+    (workspace-new "alpha")
+    (workspace-save-layout "magit")
+    ;; alpha's recent is "magit"; switch to home should capture the
+    ;; current frame into magit's :working-state.
+    (let* ((ws (gethash "alpha" workspace--registry))
+           (magit (workspace--find-group ws "magit"))
+           (layout-before (workspace--group-recent-layout magit))
+           (saved-before (workspace--layout-saved-state layout-before)))
+      (expect (workspace--layout-working-state layout-before) :to-be nil)
+      (workspace-switch-layout "home")
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (magit (workspace--find-group ws "magit"))
+             (layout-after (workspace--group-recent-layout magit)))
+        (expect (workspace--layout-working-state layout-after)
+                :not :to-be nil)
+        ;; :saved-state untouched.
+        (expect (workspace--layout-saved-state layout-after)
+                :to-equal saved-before)))))
 
 (provide 'layouts-spec)
 ;;; layouts-spec.el ends here

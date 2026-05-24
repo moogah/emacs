@@ -24,17 +24,40 @@ Slots:
   (local-variables nil)
   (etc nil))
 
-(defun workspace--layout-make (frameset &optional timestamp)
-  "Build a layout plist wrapping FRAMESET.
-TIMESTAMP defaults to current time as an integer.  The `:git-state'
-slot is always present and always nil in MVP."
+(defun workspace--layout-make (saved-state &optional timestamp)
+  "Build a layout plist wrapping SAVED-STATE.
+TIMESTAMP defaults to current time as an integer.  The freshly-built
+layout has =:working-state= nil (no autosave drift yet) and =:etc= nil
+(forward-compat alist)."
   (list :timestamp (or timestamp (time-convert nil 'integer))
-        :frameset frameset
-        :git-state nil))
+        :saved-state saved-state
+        :working-state nil
+        :etc nil))
 
-(defun workspace--layout-frameset (layout)
-  "Return the frameset blob stored in LAYOUT."
-  (plist-get layout :frameset))
+(defun workspace--layout-saved-state (layout)
+  "Return the :saved-state window-state stored in LAYOUT.
+This is the explicit-save slot; written only by =workspace-save= and
+its variants.  Never written by autosave paths."
+  (plist-get layout :saved-state))
+
+(defun workspace--layout-working-state (layout)
+  "Return the :working-state window-state stored in LAYOUT.
+This is the autosave slot; may be nil.  Written by tab-switch advice,
+the idle-save timer, and =workspace--kill-emacs-flush=.  Cleared to nil
+by every explicit =workspace-save=."
+  (plist-get layout :working-state))
+
+(defun workspace--layout-effective-state (layout)
+  "Return the window-state to apply on restore for LAYOUT.
+Precedence: =:working-state= when non-nil, else =:saved-state=.
+Returns nil when both slots are nil (no state ever captured).
+
+This is the single dispatch point for the working-over-saved
+precedence rule (register/invariant/restore-precedence-working-over-
+saved); direct reads of either slot from the restore path are a
+regression risk."
+  (or (workspace--layout-working-state layout)
+      (workspace--layout-saved-state layout)))
 
 (defun workspace--layout-timestamp (layout)
   "Return the integer timestamp stored in LAYOUT."

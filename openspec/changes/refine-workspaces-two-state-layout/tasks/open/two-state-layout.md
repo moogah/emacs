@@ -127,3 +127,125 @@ Specific assertions:
 - `openspec/changes/refine-workspaces-two-state-layout/notes/activities-patterns-catalog.md` patterns 6, 7.
 - This task **does not** depend on `bookmark-reincarnation` and can land first. If it lands first, the layout slots are renamed but the leaves still hold buffer-name references; reincarnation is added by the sibling task.
 - Sibling tasks `anti-save-predicates` and `idle-save-mode` consume this task's autosave path; they depend on it.
+
+## Observations
+
+- The `r` binding under `C-x w` was NOT free at task start despite design.md §D9 listing it as such — bookmark-reincarnation's base commit (in scope of bookmark-reincarnation's task or earlier) had bound `C-x w r` to `workspace-remove-buffer`. To honour design.md's `C-x w r → workspace-revert` mapping I relocated `workspace-remove-buffer` to `C-x w b` (mnemonic: "buffer"). The keybinding table in `workspaces.org` notes this; no other module references the old binding.
+- The pre-existing `save-restore-spec.el` "file buffer round-trip" test required a one-line reorder: with the v2 tab-switch advice installed, the test's `(kill-buffer)` → `(tab-bar-select-tab 1)` sequence captured the post-kill `*scratch*` frame into `:working-state`, which then "won" on restore via the new working-over-saved precedence. Reordering to `(tab-bar-select-tab 1)` → `(close-tab)` → `(kill-buffer)` lets the advice capture the file-bearing frame instead. This is faithful to v2 semantics — `:working-state` is the latest snapshot of the live frame, which on switch-away is still file-bearing. The test as-was implicitly assumed a v1 single-state model.
+- `workspace--autosave-current-layout` retains a default `SLOT = :saved-state` for back-compat at the source level (no in-tree callers rely on it; every in-tree call site now passes its slot explicitly). The default is the conservative choice because an accidental omission writes the explicit slot, which is at worst a redundant write rather than a stealth corruption of an existing `:saved-state` baseline (which v1 was prone to).
+- `workspace-switch-layout` previously called `workspace--restore-frameset` against `workspace--layout-frameset` of the recent layout in the destination group. v2 routes through `workspace--layout-effective-state`, so the destination's `:working-state` (if any) wins over `:saved-state` on switch-in. This is consistent with the design's restore precedence and with the spec's "restart restores working-state, not saved-state, when both present" scenario.
+
+## Discoveries
+
+- discovery_id: disc-two-state-layout-1
+  class: deviation
+  description: |
+    The scaffolding for `register/vocabulary/workspace-state-slot`
+    declares a centralised `workspace--slot-for-trigger` pcase that
+    maps the closed set of trigger symbols (`'tab-switch`, `'idle`,
+    `'kill-emacs`, `'explicit-save`, `'save-layout`,
+    `'new-home-stamp`, `'switch-layout`) to the two slot keywords.
+    My implementation does NOT define this function. Instead, each
+    autosave call site passes the slot keyword directly:
+    `(workspace--autosave-current-layout :working-state)` in the
+    tab-switch advice, the kill-emacs flush, and
+    `workspace-switch-layout`; `(workspace--autosave-current-layout
+    :saved-state)` in `workspace-save`. Routing is by direct caller
+    specification (no trigger → slot indirection).
+  affected_register_entry: register/vocabulary/workspace-state-slot
+  recommendation: |
+    Reconcile the entry as `divergent` (or `reconciled` with the
+    canonical_mapping_function field replaced by an explicit
+    enumeration of call-site → slot pairs). Justification: with only
+    two slots and ~7 call sites, a trigger-symbol enum + dispatch
+    function adds indirection without preventing the failure mode the
+    entry guards against. Caller-level routing makes "which slot does
+    this site write to" a one-line literal at the site itself; typos
+    are syntactic keyword typos (`:save-state` instead of
+    `:saved-state`) which are caught by the existing slot-routing
+    tests and by the closed-set validator
+    `workspace--state-slot-p` (which I could provide as a
+    defensive guard at the slot-route boundary if the reviewer wants
+    structural enforcement). The closed-set discipline is preserved
+    by the two-keyword grammar of the SLOT argument itself.
+- discovery_id: disc-two-state-layout-2
+  class: scope-question
+  description: |
+    The task body §3 says "`workspace-save-layout` and
+    `workspace-switch-layout` write `:working-state` for the outgoing
+    slot (matching the autosave model)" — but design.md §D4's table
+    is explicit that `workspace-save-layout NAME` writes `:saved-state`
+    of the named layout-group (it's an explicit save variant), and
+    only `workspace-switch-layout` writes `:working-state` of the
+    outgoing group. The two statements appear to contradict.
+    I implemented per design.md §D4: `workspace-save-layout`
+    constructs a fresh layout via `workspace--layout-make` (which
+    populates `:saved-state` and leaves `:working-state` nil — i.e.
+    the named layout's saved-state is the new capture);
+    `workspace-switch-layout` calls
+    `workspace--autosave-current-layout :working-state` to snapshot
+    the outgoing layout into its `:working-state` slot.
+  affected_register_entry: register/vocabulary/workspace-state-slot
+  recommendation: |
+    Rewrite the task body §3 to align with design.md §D4, OR amend
+    design.md §D4 if the intent was that `workspace-save-layout` writes
+    `:working-state` for symmetry with the autosave path. The
+    register entry's `consumer_mapping` field aligns with design.md
+    (workspace-save-layout → :saved-state), so the register is the
+    source of truth I followed. If the design intent shifts, both
+    the layouts.org implementation and the layouts-spec.el coverage
+    need updating; flag at integrate.
+- discovery_id: disc-two-state-layout-3
+  class: invariant-gap
+  description: |
+    The scaffolding for
+    `register/invariant/explicit-save-clears-working-state` includes a
+    scenario "workspace-switch-layout's save-on-switch clears
+    :working-state on the destination". The scenario is hedged
+    ("revise the scaffold and note the design choice in `##
+    Discoveries`"). design.md §D4's table does NOT call for clearing
+    `:working-state` on the destination of a switch — only on
+    explicit `workspace-save`. I implemented per design: switch-layout
+    captures the OUTGOING into `:working-state` and restores
+    effective-state of the destination (which prefers an existing
+    `:working-state` if present). Clearing the destination would
+    contradict the "restart restores working-state when present"
+    promise. I did not write a test asserting destination-clear.
+  affected_register_entry: register/invariant/explicit-save-clears-working-state
+  recommendation: |
+    Reconcile the invariant entry's enforcement scope to
+    `{workspace-save, workspace-save-layout, workspace-new home stamp}`
+    only — workspace-switch-layout is NOT an explicit-save variant;
+    it's a navigation that incidentally captures into the outgoing
+    slot. Drop the "destination clear" scenario from the scaffolding
+    or move it to a separate "switch-layout-destination-precedence"
+    invariant (which would assert the opposite — destination keeps
+    its `:working-state` and effective-state is what restores).
+- discovery_id: disc-two-state-layout-4
+  class: shape-fragmentation
+  description: |
+    The scaffolding for `register/boundary/autosave-guard-pipeline`
+    declares a 4-stage pipeline with distinct functions
+    (`workspace--pipeline-anti-save-check`,
+    `workspace--pipeline-autosave-capture`,
+    `workspace--pipeline-slot-route`, `workspace--pipeline-flush`).
+    My implementation has the boundary present *conceptually* but
+    folded: stage 2 (capture) and stage 3 (slot-route) live inside
+    `workspace--autosave-current-layout` as a single function body;
+    stage 4 (flush) is provided by the existing
+    `workspace--persistence-after-autosave` advice (debounced) and by
+    explicit `workspace--flush-state` in `workspace-save` /
+    `workspace--kill-emacs-flush`; stage 1 (anti-save-check) does not
+    exist yet (it's the sibling task `anti-save-predicates`'s scope).
+  affected_register_entry: register/boundary/autosave-guard-pipeline
+  recommendation: |
+    Reconcile the boundary entry to reflect the merged-stage
+    implementation: stages 2+3 are a single function
+    (`workspace--autosave-current-layout`), stage 4 is the existing
+    `workspace--persistence-after-autosave` + `workspace--flush-state`
+    pair. Stage 1 remains speculated and is the sibling task's
+    deliverable. The cross-stage invariants
+    (`autosave-never-writes-saved-state`,
+    `explicit-save-clears-working-state`,
+    `explicit-save-bypasses-anti-save`) still hold structurally; only
+    the function-decomposition is different from speculation.

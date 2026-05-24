@@ -33,7 +33,7 @@
       (expect (length (workspace--layout-groups ws)) :to-equal 1)
       (let* ((g (workspace--find-group ws "home"))
              (current (workspace--group-recent-layout g)))
-        (expect (workspace--layout-frameset current) :to-equal 'fs2))))
+        (expect (workspace--layout-saved-state current) :to-equal 'fs2))))
 
   (it "preserves the original position of a replaced group"
     (let* ((ws (workspace--make "code"))
@@ -143,10 +143,41 @@
     (let ((layout (workspace--layout-make 'fs 12345)))
       (expect (workspace--layout-timestamp layout) :to-equal 12345)))
 
-  (it "always carries :git-state nil"
+  (it "stores the constructor argument in :saved-state"
     (let ((layout (workspace--layout-make 'fs)))
-      (expect (plist-member layout :git-state) :to-be-truthy)
-      (expect (plist-get layout :git-state) :to-equal nil))))
+      (expect (workspace--layout-saved-state layout) :to-equal 'fs)))
+
+  (it "initialises :working-state to nil (no autosave drift yet)"
+    (let ((layout (workspace--layout-make 'fs)))
+      (expect (plist-member layout :working-state) :to-be-truthy)
+      (expect (workspace--layout-working-state layout) :to-be nil)))
+
+  (it "always carries :etc nil (forward-compat alist slot)"
+    (let ((layout (workspace--layout-make 'fs)))
+      (expect (plist-member layout :etc) :to-be-truthy)
+      (expect (plist-get layout :etc) :to-equal nil)))
+
+  (it "does NOT carry the v1 :frameset or :git-state keys"
+    (let ((layout (workspace--layout-make 'fs)))
+      (expect (plist-member layout :frameset) :to-be nil)
+      (expect (plist-member layout :git-state) :to-be nil))))
+
+(describe "workspace--layout-effective-state"
+  (it "returns :working-state when non-nil (working-over-saved precedence)"
+    (let* ((layout (workspace--layout-make 'saved))
+           (layout (plist-put layout :working-state 'working)))
+      (expect (workspace--layout-effective-state layout)
+              :to-equal 'working)))
+
+  (it "falls back to :saved-state when :working-state is nil"
+    (let ((layout (workspace--layout-make 'saved)))
+      (expect (workspace--layout-working-state layout) :to-be nil)
+      (expect (workspace--layout-effective-state layout)
+              :to-equal 'saved)))
+
+  (it "returns nil when both slots are nil"
+    (let* ((layout (workspace--layout-make nil)))
+      (expect (workspace--layout-effective-state layout) :to-be nil))))
 
 (describe "workspace-buffer struct"
   (it "constructs with all-nil defaults"

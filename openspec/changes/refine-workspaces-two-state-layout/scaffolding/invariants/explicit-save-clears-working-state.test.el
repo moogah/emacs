@@ -18,11 +18,16 @@
 workspace-save-layout invoked on a non-recent named layout-group; the named \
 layout's :working-state must be nil after the call."))
 
-  (it "workspace-switch-layout's save-on-switch clears :working-state on the destination"
-    (error "speculated; not implemented — switch into a layout whose \
-:working-state is populated, assert the post-switch slot is nil. If the \
-design says the switch-on-save also propagates the clear, assert here; \
-otherwise revise the scaffold and note the design choice in `## Discoveries`."))
+  ;; REVISED post-implementation (on-touch architect Finding 3,
+  ;; cycle-20260524-200631): per design.md §D4 (two-state semantics),
+  ;; workspace-switch-layout is NAVIGATION, not an explicit-save
+  ;; variant.  It writes :working-state of the OUTGOING layout, never
+  ;; clears the destination's :working-state.  The original
+  ;; "save-on-switch clears destination" scenario contradicted the
+  ;; design table; dropping the scenario from this invariant.  The
+  ;; alternate (and correct) behaviour is pinned by the shipped
+  ;; layouts-spec.el test "workspace-switch-layout routes outgoing
+  ;; capture to :working-state".
 
   (it "workspace-new home stamp leaves :working-state nil (new layout, no prior drift)"
     (error "speculated; not implemented — fresh workspace, assert the \

@@ -78,12 +78,21 @@ it is a sibling not a parent.
 | =C-x w L= | =workspace-save-layout=              |
 | =C-x w D= | =workspace-delete-layout=            |
 | =C-x w R= | =workspace-switch-to-recent-layout=  |
-| =C-x w r= | =workspace-remove-buffer=            |
+| =C-x w r= | =workspace-revert=                   |
+| =C-x w b= | =workspace-remove-buffer=            |
 
 =workspace-save= (=C-x w S=) captures the live frame and writes
 synchronously.  The lower-level =workspace-save-state= still exists
 for internal use as a debounced flush primitive, but is no longer
 bound by default.
+
+=workspace-revert= (=C-x w r=) is the v2 \"throw away autosave drift\"
+affordance: it clears the current workspace's =:working-state=,
+flushes, and re-applies =:saved-state= (design.md §D9).  The
+=workspace-remove-buffer= command was relocated from =r= to =b=
+(mnemonic: \"buffer\") to free =r= for revert — design.md §D9 listed
+=r= as free, having been written against the explicit bindings
+enumerated for the v2 cycle.
 
 #+begin_src emacs-lisp
 (global-set-key (kbd "C-x w n") #'workspace-new)
@@ -94,7 +103,8 @@ bound by default.
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
 (global-set-key (kbd "C-x w D") #'workspace-delete-layout)
 (global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
-(global-set-key (kbd "C-x w r") #'workspace-remove-buffer)
+(global-set-key (kbd "C-x w r") #'workspace-revert)
+(global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 #+end_src
 
 * Startup restoration

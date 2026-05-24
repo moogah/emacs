@@ -158,7 +158,7 @@
         (let* ((ws (gethash "alpha" workspace--registry))
                (group (workspace--find-group ws "home"))
                (layout (workspace--group-recent-layout group))
-               (state (workspace--layout-frameset layout)))
+               (state (workspace--layout-effective-state layout)))
           (workspace--restore-frameset state))
         ;; window-state-put MUST NOT have been called yet — the
         ;; closure is sitting on the timer list.
@@ -192,7 +192,7 @@
         (let* ((ws (gethash "alpha" workspace--registry))
                (group (workspace--find-group ws "home"))
                (layout (workspace--group-recent-layout group))
-               (state (workspace--layout-frameset layout)))
+               (state (workspace--layout-effective-state layout)))
           (workspace--apply-saved-layout "alpha")
           (workspace--apply-saved-layout "alpha"))
         ;; Two closures queued in LIFO order: (newer older)

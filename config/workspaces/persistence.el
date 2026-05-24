@@ -22,8 +22,12 @@ unset."
   "Return the absolute path of the persistence file."
   (expand-file-name "workspaces.eld" (workspace--state-directory)))
 
-(defconst workspace--state-version 1
-  "Schema version for the workspaces persistence file.")
+(defconst workspace--state-version 2
+  "Schema version for the workspaces persistence file.
+v2 (current): per-layout =:saved-state= / =:working-state= split, per-leaf
+=workspace-buffer= reincarnation struct, =:etc= forward-compat alist.
+v1 (rejected): single =:frameset= slot.  The reader emits an *Messages*
+notice and returns nil for any file whose =:version= is not 2.")
 
 (defun workspace--serialize-registry ()
   "Walk `workspace--registry' and produce its on-disk plist form."
@@ -37,8 +41,8 @@ unset."
 (defun workspace--deserialize-state (state)
   "Read STATE (the form read from disk) into `workspace--registry'.
 Returns the list of restored workspace plists.  Does NOT create tabs;
-`workspace--restore-tabs' does that.  Tolerant of older schemas: an
-unknown :version is accepted and treated as best-effort."
+`workspace--restore-tabs' does that.  Assumes STATE has already been
+version-checked by `workspace--read-state'."
   (clrhash workspace--registry)
   (let ((ws-list (plist-get state :workspaces)))
     (dolist (ws ws-list)
@@ -58,13 +62,23 @@ Creates the parent directory if missing."
       (prin1 form (current-buffer)))))
 
 (defun workspace--read-state ()
-  "Read and return the persisted state form, or nil if missing/unreadable."
+  "Read and return the persisted state form, or nil if missing/unreadable.
+Emits an *Messages* notice and returns nil for files whose =:version= is
+not =workspace--state-version=.  v1 files on disk are expected to be
+deleted by the user before running v2 code (design.md §D3 — no migration
+during pre-alpha)."
   (let ((file (workspace--state-file)))
     (when (file-exists-p file)
       (condition-case err
-          (with-temp-buffer
-            (insert-file-contents file)
-            (read (current-buffer)))
+          (let ((form (with-temp-buffer
+                        (insert-file-contents file)
+                        (read (current-buffer)))))
+            (let ((v (plist-get form :version)))
+              (if (eql v workspace--state-version)
+                  form
+                (message "Workspaces: ignoring persistence file %s (unsupported :version %S)"
+                         file v)
+                nil)))
         (error
          (message "Workspaces: failed to read state file %s: %s"
                   file (error-message-string err))
@@ -125,9 +139,15 @@ Layout restore is deferred until the user first selects the tab."
         (when idx (tab-bar-select-tab idx))))))
 
 (defun workspace--apply-saved-layout (name)
-  "Apply NAME's recent saved window-state to the current frame.
+  "Apply NAME's recent effective window-state to the current frame.
 Also clears any `:restore-pending' flag on the workspace.  No-op when
 no saved layout exists.
+
+The effective state is `workspace--layout-effective-state', which
+prefers =:working-state= when non-nil, else =:saved-state= (register/
+invariant/restore-precedence-working-over-saved).  Direct reads of
+either slot from this code path would silently regress the precedence
+on a future refactor.
 
 The leaf walker in `workspace--restore-frameset' reincarnates each
 saved buffer via the four-step fallback chain (bookmark → filename
@@ -145,7 +165,7 @@ participates in the guard, including direct callers like
       (let* ((recent (workspace--recent-group ws))
              (group (and recent (workspace--find-group ws recent)))
              (layout (and group (workspace--group-recent-layout group)))
-             (state (and layout (workspace--layout-frameset layout))))
+             (state (and layout (workspace--layout-effective-state layout))))
         (when state
           (condition-case err
               (workspace--restore-frameset state)
@@ -176,13 +196,28 @@ workspace.  No-op when the flag is not set."
             #'workspace--persistence-after-tab-switch)
 
 (defun workspace--kill-emacs-flush ()
-  "Cancel any pending debounce and write the registry to disk synchronously."
+  "Capture working-state then write the registry to disk synchronously.
+Cancels any pending debounce.  The working-state capture is wrapped in
+`ignore-errors' so a capture failure (e.g. unusual frame state during
+shutdown) does not prevent the flush itself."
   (when workspace--save-timer
     (cancel-timer workspace--save-timer)
     (setq workspace--save-timer nil))
+  (ignore-errors (workspace--autosave-current-layout :working-state))
   (ignore-errors (workspace--write-state (workspace--serialize-registry))))
 
 (add-hook 'kill-emacs-hook #'workspace--kill-emacs-flush)
+
+(defun workspace--persistence-before-tab-switch (&rest _args)
+  "Snapshot the outgoing workspace's :working-state before the tab switch.
+No-op when the current tab is not a workspace-managed tab."
+  (when (workspace--current-name)
+    (workspace--autosave-current-layout :working-state)))
+
+(advice-add 'tab-bar-select-tab :before
+            #'workspace--persistence-before-tab-switch)
+(advice-add 'tab-bar-switch-to-tab :before
+            #'workspace--persistence-before-tab-switch)
 
 (defun workspace--restore ()
   "Read the persistence file and restore tabs (lazy frameset activation).
@@ -194,9 +229,12 @@ Safe to call at startup; no-ops cleanly when the file is absent."
 
 (defun workspace-save ()
   "Save the current workspace's window configuration to disk.
-Captures the current frame into the recent layout-group, syncs the
-workspace's `:buffer-files' from bufferlo, and writes the registry to
-disk synchronously.  Errors when not on a workspaces-managed tab.
+Captures the current frame into the recent layout-group's `:saved-state'
+slot, clears any `:working-state' drift on the same layout (the
+explicit save is the new clean baseline; register/invariant/explicit-
+save-clears-working-state), syncs the workspace's `:buffer-files' from
+bufferlo, and writes the registry to disk synchronously.  Errors when
+not on a workspaces-managed tab.
 
 The bufferlo sync is intentionally limited to this explicit save path
 (and not done by the tab-switch autosave) so that transient session
@@ -206,10 +244,46 @@ saved file list."
   (let ((ws-name (workspace--current-name)))
     (unless ws-name
       (user-error "Not on a workspaces-managed tab"))
-    (workspace--autosave-current-layout)
+    (workspace--autosave-current-layout :saved-state)
+    ;; Clear any accumulated :working-state drift now that we have a
+    ;; new explicit baseline.  Without this, the next restart would
+    ;; prefer the stale :working-state over the just-written
+    ;; :saved-state and the user's save would feel ignored.
+    (let* ((ws (gethash ws-name workspace--registry))
+           (group-name (workspace--recent-group ws))
+           (group (and group-name (workspace--find-group ws group-name)))
+           (layout (and group (workspace--group-recent-layout group))))
+      (when layout
+        (plist-put layout :working-state nil)))
     (workspace--sync-registry-from-bufferlo ws-name)
     (workspace--flush-state)
     ws-name))
+
+(defun workspace-revert ()
+  "Discard the current workspace's :working-state and re-apply :saved-state.
+The user-facing affordance for \"throw away the autosave drift and
+return to my last explicit save\".
+
+Clears the current workspace's recent layout-group's `:working-state'
+slot, flushes the registry to disk, then re-applies the layout via
+`workspace--apply-saved-layout' (which now picks `:saved-state' because
+`:working-state' is nil; register/invariant/restore-precedence-working-
+over-saved).
+
+Errors when not on a workspaces-managed tab."
+  (interactive)
+  (let ((name (workspace--current-name)))
+    (unless name
+      (user-error "Not on a workspaces-managed tab"))
+    (let* ((ws (gethash name workspace--registry))
+           (group-name (workspace--recent-group ws))
+           (group (and group-name (workspace--find-group ws group-name)))
+           (layout (and group (workspace--group-recent-layout group))))
+      (when layout
+        (plist-put layout :working-state nil)
+        (workspace--flush-state)
+        (workspace--apply-saved-layout name))
+      name)))
 
 (defvar workspace--restore-history nil
   "Minibuffer history for `workspace-restore'.")

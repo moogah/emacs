@@ -255,20 +255,77 @@ in the race guard."
                (workspace--set-recent-group ws group-name)
                workspace--registry))))
 
-(defun workspace--autosave-current-layout ()
-  "Snapshot the current frame into the current workspace's recent layout.
+(defconst workspace--valid-state-slots '(:saved-state :working-state)
+  "Closed vocabulary of layout state slots.
+See =register/vocabulary/workspace-state-slot= in =interfaces.org=.
+The two members map to: =:saved-state= (explicit-save writes;
+authoritative across restarts) and =:working-state= (autosave
+writes; cleared by explicit save).  Adding a third member is a
+register-level change, not a code-level addition.")
+
+(defun workspace--state-slot-p (slot)
+  "Return non-nil if SLOT is a valid workspace state-slot keyword."
+  (memq slot workspace--valid-state-slots))
+
+(defun workspace--autosave-current-layout (slot)
+  "Snapshot the current frame into the current workspace's recent layout SLOT.
+SLOT MUST be one of `:saved-state' (explicit save) or
+`:working-state' (autosave path).  Routing is by direct caller
+specification (no trigger → slot indirection at this site).
+
+There is no default for SLOT: the load-bearing invariant
+`autosave-never-writes-saved-state' (see =register/invariant/= in
+=interfaces.org=) is enforced structurally — a caller that forgets
+to pass a slot triggers `cl-assert' rather than silently defaulting
+to the explicit-save slot.  This is the structural fix for v1 MVP
+gap D8.
+
 Captures only the window-state; does NOT update `:buffer-files'.
 That sync is intentionally limited to explicit user save paths
 (`workspace-save'); doing it here would wipe the file list whenever
 a user switched away from a tab whose buffers had been killed since
 the last explicit save.  No-op when not on a workspace tab or when
 the workspace has no recent layout-group yet."
+  (unless (workspace--state-slot-p slot)
+    (error "workspace--autosave-current-layout: invalid SLOT %S \
+(must be one of %S)" slot workspace--valid-state-slots))
   (let ((ws-name (workspace--current-name)))
     (when ws-name
       (let* ((ws (gethash ws-name workspace--registry))
              (group-name (and ws (workspace--recent-group ws))))
         (when (and ws group-name)
-          (let* ((layout (workspace--layout-make (workspace--capture-frameset)))
+          (let* ((captured (workspace--capture-frameset))
+                 (group (workspace--find-group ws group-name))
+                 (existing (and group (workspace--group-recent-layout group)))
+                 (layout (cond
+                          ((and existing (eq slot :working-state))
+                           ;; Preserve :saved-state; update timestamp +
+                           ;; :working-state in place.
+                           (let ((copy (copy-sequence existing)))
+                             (plist-put copy :timestamp
+                                        (time-convert nil 'integer))
+                             (plist-put copy :working-state captured)))
+                          ((and existing (eq slot :saved-state))
+                           ;; Replace :saved-state; preserve :etc and
+                           ;; any prior :working-state (the caller —
+                           ;; typically `workspace-save' — decides
+                           ;; whether to clear it as a separate step).
+                           (let ((copy (copy-sequence existing)))
+                             (plist-put copy :timestamp
+                                        (time-convert nil 'integer))
+                             (plist-put copy :saved-state captured)))
+                          (t
+                           ;; No existing layout — construct a fresh one.
+                           ;; A :working-state-only first write would
+                           ;; leave :saved-state nil, which is
+                           ;; structurally valid (effective-state falls
+                           ;; through correctly) and matches the v2
+                           ;; semantics: explicit save defines the
+                           ;; baseline, autosaves layer on top.
+                           (if (eq slot :working-state)
+                               (let ((l (workspace--layout-make nil)))
+                                 (plist-put l :working-state captured))
+                             (workspace--layout-make captured)))))
                  (updated (workspace--upsert-group ws group-name layout)))
             (puthash ws-name updated workspace--registry)))))))
 
@@ -302,7 +359,11 @@ overwrites it without invoking any builder."
       name)))
 
 (defun workspace-switch-layout (name)
-  "Switch to layout NAME within the current workspace."
+  "Switch to layout NAME within the current workspace.
+The outgoing layout's `:working-state' is updated with a fresh snapshot
+of the current frame (debounced disk write per the v2 autosave model;
+design.md §D4).  The destination layout's effective state
+(`:working-state' if non-nil else `:saved-state') is restored."
   (interactive
    (list
     (completing-read "Switch to layout: "
@@ -315,11 +376,15 @@ overwrites it without invoking any builder."
            (group (workspace--find-group ws name)))
       (unless group
         (user-error "No layout named %s in workspace %s" name ws-name))
-      ;; Snapshot the outgoing layout into its slot before restoring.
-      (workspace--autosave-current-layout)
+      ;; Snapshot the outgoing layout into its :working-state slot
+      ;; before restoring.  Writing :working-state (not :saved-state)
+      ;; preserves the outgoing layout's last explicit save unaltered
+      ;; (register/invariant/autosave-never-writes-saved-state).
+      (workspace--autosave-current-layout :working-state)
       (let ((layout (workspace--group-recent-layout group)))
         (when layout
-          (workspace--restore-frameset (workspace--layout-frameset layout))))
+          (when-let ((state (workspace--layout-effective-state layout)))
+            (workspace--restore-frameset state))))
       (workspace--update-recent-group ws-name name)
       name)))
 
