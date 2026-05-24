@@ -764,6 +764,230 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** workspace-buffer-struct
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-workspace-buffer-struct
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/workspace-buffer-struct
+   tier: shape
+   status: speculated
+   load_bearing: true
+   title: workspace-buffer cl-defstruct embedded in each window-state leaf's parameters
+   purpose: |
+     The cl-defstruct carried in the =parameters= slot of every leaf in a
+     saved window-state. The capture-side walker (workspace--capture-frameset)
+     constructs it from the live buffer; the restore-side walker
+     (workspace--restore-frameset) consumes it and reincarnates the buffer
+     via the four-step fallback chain (see register/vocabulary/buffer-
+     reincarnation-fallback-chain and register/boundary/buffer-reincarnation-
+     pipeline). The struct is the unit of "what was in this window slot at
+     save time" — it replaces the v1 implicit "buffer-name in window-state"
+     contract.
+
+   required_keys:
+     - name: bookmark
+       type: bookmark-record | nil
+       description: |
+         Result of (bookmark-make-record) on the live buffer at save time.
+         Nil when the buffer's major mode does not register a
+         bookmark-make-record-function (rare; most modes inherit a default).
+         When non-nil, it is the primary reincarnation source — it preserves
+         point, narrowing, and major-mode-specific state, and works for
+         non-file buffers (magit-status, eshell, *Messages*).
+     - name: filename
+       type: string | nil
+       description: |
+         The file path for file-backed buffers; nil otherwise. The
+         second fallback when the bookmark restore errors or returns no
+         buffer (e.g. help-mode bug#56643).
+     - name: name
+       type: string
+       description: |
+         The buffer-name string at save time. The third fallback, only
+         hit when neither bookmark nor filename yields a buffer but a
+         live buffer of the same name happens to exist in the session.
+     - name: narrowed-p
+       type: boolean
+       description: |
+         Recorded for diagnostic / future-use. Narrowing itself is
+         carried by the bookmark record; this flag lets the restore path
+         emit an error-buffer note when narrowing was expected but the
+         bookmark restore did not restore it.
+     - name: indirect-p
+       type: boolean
+       description: |
+         Whether the saved buffer was an indirect (base-buffer) buffer.
+         Indirect buffers cannot be re-created from a bookmark; the flag
+         exists so the restorer can short-circuit to the error-buffer
+         step when it would otherwise restore the base buffer.
+
+   optional_keys:
+     - name: local-variables
+       type: alist | nil
+       description: |
+         Reserved for the buffer-local-variables capture extension
+         (D7 non-goal). Always nil in v2; consumers must tolerate nil.
+     - name: etc
+       type: alist | nil
+       description: |
+         Forward-compat alist for per-leaf metadata that does not
+         warrant a struct field. Matches activities-activity-state-etc.
+
+   producers:
+     - file: config/workspaces/layouts.org
+       function: workspace--capture-frameset (replaces v1 frameset-save path)
+     - file: config/workspaces/layouts.org
+       function: workspace--capture-leaf (new; one workspace-buffer per leaf)
+
+   consumers:
+     - file: config/workspaces/layouts.org
+       function: workspace--restore-frameset
+       reads_keys: [bookmark, filename, name, narrowed-p, indirect-p]
+     - file: config/workspaces/layouts.org
+       function: workspace--restore-leaf
+       reads_keys: [bookmark, filename, name]
+
+   validator: |
+     (defun shape/validate-workspace-buffer (val)
+       "Returns nil on success; error symbol otherwise."
+       (cond ((not (workspace-buffer-p val)) 'not-a-workspace-buffer)
+             ((not (or (null (workspace-buffer-bookmark val))
+                       (consp (workspace-buffer-bookmark val))))
+              'bookmark-not-record-shaped)
+             ((not (or (null (workspace-buffer-filename val))
+                       (stringp (workspace-buffer-filename val))))
+              'filename-not-string-or-nil)
+             ((not (stringp (workspace-buffer-name val))) 'name-not-string)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { bookmark: '(("foo.el" (filename . "/p/foo.el") (position . 234)))',
+           filename: "/p/foo.el", name: "foo.el",
+           narrowed-p: false, indirect-p: false }
+       - { bookmark: nil, filename: nil, name: "*scratch*",
+           narrowed-p: false, indirect-p: false }
+     invalid:
+       - { bookmark: nil, filename: nil, name: nil }   # name required
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   #+end_src
+
+** layout-v2-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-layout-v2-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/layout-v2-plist
+   tier: shape
+   status: speculated
+   load_bearing: true
+   title: Two-state layout plist (schema v2)
+   purpose: |
+     The layout shape stored under each workspace's layout-group. Replaces
+     the v1 single-frameset plist (=(:timestamp T :frameset W :git-state G)=)
+     with a two-slot shape that separates explicit-save state from
+     autosave drift, plus a forward-compat =:etc= slot. Restore precedence
+     is encoded in =workspace--layout-effective-state=: =:working-state=
+     wins when non-nil, else =:saved-state=. The shape's invariants
+     (autosave never writes :saved-state; explicit save clears
+     :working-state) live as separate invariant entries.
+
+   required_keys:
+     - name: ":timestamp"
+       type: time-list
+       description: Wall-clock time of the most recent write to this layout.
+     - name: ":saved-state"
+       type: window-state | nil
+       description: |
+         The window-state produced by =window-state-get= on the live
+         frame at workspace-save time (or by workspace-save-layout,
+         workspace-switch-layout, or workspace-new's home stamp). The
+         authoritative across-restart state. Each leaf carries a
+         workspace-buffer in its parameters slot (see register/shape/
+         workspace-buffer-struct).
+     - name: ":working-state"
+       type: window-state | nil
+       description: |
+         The window-state produced by an autosave path (tab-switch
+         advice, idle timer, kill-emacs-hook). May be nil. When
+         non-nil, it is preferred by =workspace--layout-effective-state=
+         on restore. Cleared to nil by every explicit =workspace-save=.
+     - name: ":etc"
+       type: alist | nil
+       description: |
+         Forward-compat alist; replaces the v1 single-purpose
+         =:git-state= placeholder. Consumers must tolerate nil and
+         must tolerate unknown keys.
+
+   forbidden_keys:
+     - name: ":frameset"
+       reason: |
+         v1 key. Removed in v2; reader rejects non-v2 files with an
+         *Messages* notice. Any (plist-get layout :frameset) read in
+         implementation code is a divergence signal.
+     - name: ":git-state"
+       reason: |
+         v1 placeholder. Replaced by :etc. Any read is a divergence
+         signal.
+
+   producers:
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-make (constructs the plist)
+     - file: config/workspaces/layouts.org
+       function: workspace-save (writes :saved-state, clears :working-state)
+     - file: config/workspaces/layouts.org
+       function: workspace--autosave-current-layout (writes :working-state)
+
+   consumers:
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-saved-state (accessor)
+       reads_keys: [":saved-state"]
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-working-state (accessor)
+       reads_keys: [":working-state"]
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-effective-state (precedence: working over saved)
+       reads_keys: [":saved-state", ":working-state"]
+     - file: config/workspaces/persistence.org
+       function: workspace--apply-saved-layout (calls effective-state)
+       reads_keys: [":saved-state", ":working-state"]
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state (serializes the full plist)
+
+   validator: |
+     (defun shape/validate-layout-v2-plist (val)
+       "Returns nil on success; error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((plist-member val :frameset) 'forbidden-v1-frameset)
+             ((plist-member val :git-state) 'forbidden-v1-git-state)
+             ((not (plist-member val :saved-state)) 'missing-saved-state)
+             ((not (plist-member val :working-state)) 'missing-working-state)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { :timestamp: "...", :saved-state: "<window-state>",
+           :working-state: nil, :etc: nil }
+       - { :timestamp: "...", :saved-state: "<S>",
+           :working-state: "<W>", :etc: nil }
+     invalid:
+       - { :timestamp: "...", :frameset: "<W>" }   # v1 shape; rejected
+
+   related_entries:
+     - register/vocabulary/workspace-state-slot
+     - register/invariant/restore-precedence-working-over-saved
+     - register/invariant/explicit-save-clears-working-state
+     - register/invariant/autosave-never-writes-saved-state
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -1090,6 +1314,197 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-scope-in-org-properties
    discovered_by: architect
+   #+end_src
+
+** workspace-state-slot
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-workspace-state-slot
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/workspace-state-slot
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   title: Workspace layout state-slot vocabulary and trigger → slot routing
+   purpose: |
+     The closed set of slots that hold a window-state on a v2 layout,
+     plus the canonical mapping from "what triggered this write" to
+     "which slot gets written". The motivating failure (v1 MVP gap D8):
+     re-introducing tab-switch advice in v1 wrote to the single
+     :frameset slot and clobbered explicit saves. With two slots and a
+     fixed trigger → slot map, the clobber is structurally impossible.
+     Mis-mapping a trigger (e.g. writing an autosave to :saved-state)
+     is the load-bearing failure mode.
+
+   members:
+     - value: :saved-state
+       description: |
+         The explicit-save slot. Written only by =workspace-save= and
+         its variants (=workspace-save-layout=, =workspace-switch-
+         layout=, =workspace-new='s home stamp). Authoritative across
+         restarts when no =:working-state= is present.
+     - value: :working-state
+       description: |
+         The autosave slot. Written by tab-switch advice, the
+         workspaces-mode idle timer, and kill-emacs-hook. Cleared to
+         nil by every explicit =workspace-save=. May be nil at any
+         time.
+
+   consumer_mapping:
+     - consumer: workspace-save (explicit)
+       trigger: user gesture
+       slot: :saved-state
+       side_effect: clears :working-state to nil
+     - consumer: workspace-save-layout (explicit; named layout)
+       trigger: user gesture (variant)
+       slot: :saved-state
+       side_effect: clears :working-state to nil on the named layout
+     - consumer: workspace-switch-layout
+       trigger: intra-workspace layout switch
+       slot: :working-state (of outgoing layout)
+       side_effect: none
+     - consumer: workspace-new home stamp
+       trigger: workspace creation
+       slot: :saved-state (of new home group)
+       side_effect: none
+     - consumer: tab-bar-select-tab / tab-bar-switch-to-tab advice
+       trigger: workspace context switch
+       slot: :working-state (of outgoing workspace's recent layout)
+       side_effect: none
+     - consumer: workspaces-mode idle timer
+       trigger: idle past workspaces-mode-idle-frequency
+       slot: :working-state (of current workspace's recent layout)
+       side_effect: none
+     - consumer: workspace--kill-emacs-flush
+       trigger: kill-emacs-hook
+       slot: :working-state (of current workspace's recent layout)
+       side_effect: synchronous flush after capture
+
+   canonical_mapping_function: |
+     ;; The single source of truth for "which slot does this trigger
+     ;; write?". If a pcase / cond translating triggers → slots appears
+     ;; anywhere else, that's a duplication bug. Implementor task
+     ;; two-state-layout owns this function.
+     (defun workspace--slot-for-trigger (trigger)
+       (pcase trigger
+         ((or 'explicit-save 'save-layout 'new-home-stamp) :saved-state)
+         ((or 'switch-layout 'tab-switch 'idle 'kill-emacs) :working-state)))
+
+   validator: |
+     (defun vocabulary/validate-workspace-state-slot (slot)
+       (memq slot '(:saved-state :working-state)))
+
+   closed_set: true
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/invariant/autosave-never-writes-saved-state
+     - register/invariant/explicit-save-clears-working-state
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/vocabularies/workspace-state-slot.el
+   #+end_src
+
+** buffer-reincarnation-fallback-chain
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-buffer-reincarnation-fallback-chain
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/buffer-reincarnation-fallback-chain
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   title: Buffer-reincarnation fallback steps (closed, ordered)
+   purpose: |
+     The closed, ordered set of fallback steps that
+     =workspace--restore-leaf= attempts when reincarnating a window's
+     buffer at restore time. Order is load-bearing: bookmark restore
+     comes first because it preserves point, narrowing, and non-file-
+     buffer state; filename is the cheap fast-path when bookmark
+     restore fails (e.g. help-mode bug#56643); name is the
+     session-local last-resort; error-buffer guarantees the window
+     slot is never left empty.
+
+     The vocabulary is closed at four steps; a fifth fallback is a
+     design change, not a code-level addition.
+
+   members:
+     - value: bookmark
+       description: |
+         Call =bookmark-handle-bookmark= on the workspace-buffer's
+         =bookmark= field. Restores point, narrowing, and major-mode
+         state. The only step that works for non-file buffers
+         (magit-status, eshell, *Messages*). Wrapped in
+         =condition-case-unless-debug= so a single read-time failure
+         (Emacs bug#56643) falls through to step 2 instead of
+         aborting the whole restore.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnate-via-bookmark
+     - value: filename
+       description: |
+         Call =find-file-noselect= on the workspace-buffer's
+         =filename= field. Cheap fast path for plain file buffers
+         where the bookmark restore errored or returned nil.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnate-via-filename
+     - value: name
+       description: |
+         Call =get-buffer= on the workspace-buffer's =name= field.
+         Catches the case where a live buffer of the same name happens
+         to exist in the session despite the file no longer existing
+         and no bookmark.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnate-via-name
+     - value: error-buffer
+       description: |
+         Construct and return a named, visible buffer describing the
+         failure. The window slot is never left empty. This step
+         cannot fail; it is the terminating fallback.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnation-error-buffer
+
+   consumer_mapping:
+     - consumer: workspace--restore-leaf
+       order: [bookmark, filename, name, error-buffer]
+       short_circuit_policy: deliberate
+       short_circuit_on: non-nil buffer returned
+       notes: |
+         First non-nil return wins. The chain MUST be tried in this
+         order; reordering changes the semantics (e.g. trying filename
+         first loses narrowing). The order is asserted by the
+         scaffolded test (see scaffolding/vocabularies/
+         buffer-reincarnation-fallback-chain.el).
+
+   canonical_mapping_function: |
+     ;; The only call site that decides which step to run next. The
+     ;; chain is expressed as an =or= so a non-nil buffer short-circuits.
+     ;; Any other call site iterating these steps is a duplication bug.
+     (defun workspace--reincarnate-leaf (wb)
+       (or (workspace--reincarnate-via-bookmark wb)
+           (workspace--reincarnate-via-filename wb)
+           (workspace--reincarnate-via-name wb)
+           (workspace--reincarnation-error-buffer wb)))
+
+   validator: |
+     (defun vocabulary/validate-reincarnation-step (s)
+       (memq s '(bookmark filename name error-buffer)))
+
+   closed_set: true
+
+   related_entries:
+     - register/shape/workspace-buffer-struct
+     - register/boundary/buffer-reincarnation-pipeline
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/vocabularies/buffer-reincarnation-fallback-chain.el
    #+end_src
 
 * Boundary
@@ -2137,6 +2552,212 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-chat-heading-scoping
    discovered_by: architect
+   #+end_src
+
+** buffer-reincarnation-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-buffer-reincarnation-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/buffer-reincarnation-pipeline
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Per-leaf buffer reincarnation pipeline (capture → walk → fallback chain → defer)
+   purpose: |
+     The end-to-end path that converts a live frame's window-state into
+     persisted workspace-buffer structs and back. The boundary is
+     four-staged because each stage owns a distinct contract: capture
+     (live → struct), serialization (struct → eld), restore-walk (eld
+     → leaf-by-leaf reincarnation), deferred apply (sync
+     window-state-put → run-at-time). Stage 3 short-circuits on
+     non-nil return (the fallback chain) and stage 4's deferral is
+     load-bearing because =bookmark--jump-via= calls a buffer-display
+     function as part of its restore protocol; running
+     =window-state-put= in the same tick races against it (catalog
+     pattern 14).
+
+   stages:
+     - n: 1
+       name: capture
+       input: live frame (window-state-get)
+       output: window-state form with workspace-buffer in each leaf's
+         parameters slot
+       can_fail_with: [no-bookmark-handler]
+       notes: |
+         Recursive descent over the window-state form. Detects the
+         one-window-frame edge case (=(leaf . attrs)= at the top
+         level) by =cl-position 'leaf= on the form. For each leaf,
+         calls =workspace--capture-leaf= to build a workspace-buffer.
+         A nil bookmark on the captured struct is non-fatal; restore
+         falls through to the filename step.
+     - n: 2
+       name: serialize
+       input: enriched window-state form
+       output: eld text on disk
+       can_fail_with: [eld-write-error]
+       notes: |
+         The standard =workspace--write-state= pretty-prints the form
+         via =pp=. workspace-buffer structs serialize via
+         =cl-defstruct='s default reader/writer; the embedded bookmark
+         record is itself printable elisp data.
+     - n: 3
+       name: restore-walk
+       input: persisted window-state form
+       output: window-state form with each leaf's buffer replaced by
+         a live reincarnated buffer
+       can_fail_with: [help-mode-subr-read-error, bookmark-handler-error]
+       short_circuit_policy: deliberate
+       notes: |
+         Walks the form (same recursive descent as stage 1). For each
+         leaf, calls =workspace--reincarnate-leaf= (see register/
+         vocabulary/buffer-reincarnation-fallback-chain) and replaces
+         the leaf's buffer reference with the returned live buffer.
+         Per-leaf =condition-case-unless-debug= traps so one
+         unreadable bookmark (Emacs bug#56643) does not abort the
+         tree. The fallback chain itself short-circuits on non-nil
+         buffer.
+     - n: 4
+       name: defer-apply
+       input: reincarnated window-state form
+       output: applied frame layout (=window-state-put= side effect)
+       can_fail_with: [window-state-put-error]
+       short_circuit_policy: none
+       notes: |
+         Calls =(run-at-time nil nil (lambda () (window-state-put ...)
+         frame)))= so the apply happens after the current command
+         loop tick. Necessary because =bookmark--jump-via= calls a
+         buffer-display function synchronously; running
+         window-state-put in the same tick races for the selected
+         window. The form passed to the timer is =copy-tree='d so the
+         in-memory registry is not mutated by
+         =--bufferize-window-state='s side effects. A generation
+         counter (=workspace--restore-generation=, module-level
+         defvar) guards against concurrent restores: the deferred
+         lambda checks =(= gen workspace--restore-generation)= and
+         no-ops on stale runs.
+
+   cross_stage_invariants:
+     - register/invariant/restore-deferred-via-run-at-time
+
+   producers:
+     - file: config/workspaces/layouts.org
+       function: workspace--capture-frameset
+       enters_at_stage: 1
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state
+       enters_at_stage: 2
+
+   consumers:
+     - file: config/workspaces/persistence.org
+       function: workspace--apply-saved-layout
+       reads_output_of_stage: 4
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/boundaries/buffer-reincarnation-pipeline.el
+   #+end_src
+
+** autosave-guard-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-autosave-guard-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/autosave-guard-pipeline
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Autosave guard pipeline (predicates → capture → slot route → flush)
+   purpose: |
+     The pipeline that every autosave trigger funnels through. The
+     boundary makes anti-save short-circuit a structural feature
+     (stage 1 returns non-nil → halt) rather than a per-trigger check
+     repeated at three call sites. All three autosave triggers
+     (tab-switch advice, idle timer, kill-emacs-hook) call into stage
+     1; explicit =workspace-save= bypasses stage 1 entirely and
+     enters at stage 2 with slot=:saved-state. The slot-routing stage
+     reads from register/vocabulary/workspace-state-slot's canonical
+     mapping function.
+
+   stages:
+     - n: 1
+       name: anti-save-check
+       input: trigger symbol (one of: tab-switch, idle, kill-emacs)
+       output: continue | halt
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         =(run-hook-with-args-until-success 'workspace-anti-save-
+         predicates)=. If any predicate returns non-nil, return halt
+         and the autosave is silent. Explicit =workspace-save= does
+         NOT enter this stage; that path enters at stage 2 directly.
+         The stage is the safety guard re-introducing tab-switch
+         advice required (gap D8 in v1).
+     - n: 2
+       name: capture
+       input: live frame (window-state-get on the outgoing workspace
+         or current frame)
+       output: enriched window-state form (per the capture stage of
+         register/boundary/buffer-reincarnation-pipeline)
+       can_fail_with: [capture-error]
+       notes: |
+         Identical capture path to explicit =workspace-save=; the
+         output is structurally indistinguishable between the two
+         entry points. This is what makes "trigger → slot" the only
+         per-trigger decision; the captured form is one shape.
+     - n: 3
+       name: slot-route
+       input: (captured-state, trigger | :explicit)
+       output: layout plist with the captured state in the correct
+         slot (per register/vocabulary/workspace-state-slot)
+       can_fail_with: []
+       notes: |
+         Calls =workspace--slot-for-trigger= (vocabulary entry's
+         canonical mapping function). =:explicit= → :saved-state and
+         additionally clears :working-state. Any other trigger →
+         :working-state and leaves :saved-state untouched. The
+         "leaves :saved-state untouched" half is the structural
+         enforcement of register/invariant/autosave-never-writes-
+         saved-state.
+     - n: 4
+       name: flush
+       input: layout plist
+       output: bytes on disk
+       can_fail_with: [disk-write-error]
+       notes: |
+         Synchronous for explicit save and kill-emacs flush;
+         debounced for tab-switch and idle-timer triggers (existing
+         debounce in =workspace-save-state=).
+
+   cross_stage_invariants:
+     - register/invariant/explicit-save-bypasses-anti-save
+     - register/invariant/autosave-never-writes-saved-state
+     - register/invariant/explicit-save-clears-working-state
+
+   producers:
+     - file: config/workspaces/persistence.org
+       function: tab-bar-select-tab advice
+       enters_at_stage: 1
+     - file: config/workspaces/workspaces-mode.org   # NEW file
+       function: workspaces-mode idle timer callback
+       enters_at_stage: 1
+     - file: config/workspaces/persistence.org
+       function: workspace--kill-emacs-flush
+       enters_at_stage: 1
+     - file: config/workspaces/persistence.org
+       function: workspace-save (explicit)
+       enters_at_stage: 2
+
+   consumers:
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state
+       reads_output_of_stage: 4
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/boundaries/autosave-guard-pipeline.el
    #+end_src
 
 * Invariant
@@ -3303,6 +3924,224 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-chat-heading-scoping
    discovered_by: architect
+   #+end_src
+
+** restore-precedence-working-over-saved
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-restore-precedence-working-over-saved
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/restore-precedence-working-over-saved
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Restore prefers :working-state when non-nil; falls back to :saved-state
+
+   statement: |
+     For every layout =L= in the registry, the buffer applied on restore
+     by =workspace--apply-saved-layout= MUST be derived from
+     =workspace--layout-effective-state(L)=, defined as: =L:working-state=
+     when non-nil, else =L:saved-state=. There is no code path that
+     restores from =:saved-state= when =:working-state= is non-nil; that
+     would re-introduce the v1 MVP's "explicit save never wins on
+     restart" behavior in inverse.
+
+   why_it_matters: |
+     The two-state layout's user-facing promise is "restart lands you
+     back where you left off, not at your last explicit save". The
+     promise is the precedence rule; violating it (e.g. an =or=
+     reversed in the accessor, or =workspace--apply-saved-layout=
+     bypassing the helper) silently breaks the autosave-on-tab-switch
+     feature even when the slots themselves are correct. No
+     per-action test catches a reversed precedence because both
+     slots contain valid window-state forms; only a test that
+     populates both slots and asserts the chosen one catches this.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/restore-precedence-working-over-saved.test.el —
+       failing-stub spec that constructs a layout with distinct
+       :saved-state and :working-state forms (each carrying a
+       distinguishable marker) and asserts the restored frame matches
+       :working-state. A second case sets :working-state to nil and
+       asserts the restored frame matches :saved-state.
+     notes: |
+       The same precedence is asserted indirectly by
+       =workspace-revert='s scenarios (revert clears :working-state
+       then re-applies effective-state); the direct test is the
+       definitive one because it isolates the precedence from the
+       revert flow.
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/vocabulary/workspace-state-slot
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/restore-precedence-working-over-saved.test.el
+   #+end_src
+
+** explicit-save-clears-working-state
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-explicit-save-clears-working-state
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/explicit-save-clears-working-state
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Every explicit workspace-save clears the matching :working-state
+
+   statement: |
+     After =workspace-save= (and its variants =workspace-save-layout=,
+     =workspace-switch-layout='s save-on-switch, =workspace-new='s home
+     stamp) completes, the affected layout's =:working-state= slot MUST
+     be nil. The clear is part of the explicit-save semantics, not an
+     optimisation; it makes the user's deliberate gesture the new
+     clean baseline so restore precedence falls through to
+     =:saved-state= rather than resurrecting stale =:working-state=.
+
+   why_it_matters: |
+     Without the clear, a subsequent restart prefers the stale
+     :working-state (which is older than the just-written
+     :saved-state). The explicit save would feel "ignored". A
+     reviewer can read the code and think "set :saved-state, done"
+     without seeing the missing clear; only a test that performs
+     [autosave → workspace-save → restart-simulation] catches it.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/explicit-save-clears-working-state.test.el —
+       failing-stub spec that (1) populates :working-state, (2) calls
+       workspace-save, (3) asserts :working-state is nil. A second
+       scenario exercises the same flow via workspace-save-layout on a
+       named non-recent layout-group.
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/vocabulary/workspace-state-slot
+     - register/boundary/autosave-guard-pipeline
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/explicit-save-clears-working-state.test.el
+   #+end_src
+
+** autosave-never-writes-saved-state
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-autosave-never-writes-saved-state
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/autosave-never-writes-saved-state
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: No autosave path writes :saved-state; clobber-impossible
+
+   statement: |
+     No code path entered from any of the autosave triggers
+     (=tab-bar-select-tab= advice, =tab-bar-switch-to-tab= advice,
+     =workspaces-mode= idle timer, =workspace--kill-emacs-flush=)
+     writes to any layout's =:saved-state= slot. The slot-routing
+     stage of =workspace--autosave-current-layout= (stage 3 of
+     register/boundary/autosave-guard-pipeline) MUST direct every
+     non-explicit-save trigger to =:working-state=.
+
+   why_it_matters: |
+     This is the structural fix for v1 MVP gap D8. The v1 code had
+     a single state slot; the tab-switch advice wrote to it; an
+     explicit save and a tab switch both modified the same slot,
+     producing race-y user-visible clobbering of the explicit save.
+     v2 makes the clobber impossible: distinct slots + the autosave
+     code path has no syntactic ability to address :saved-state. A
+     bug here would be subtle: the slot name is one symbol; a typo
+     in a future contributor's let-binding could silently send
+     autosaves to :saved-state on one trigger but not others.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/autosave-never-writes-saved-state.test.el —
+       property test: for each autosave trigger (mocked at its
+       entry-point boundary), pre-populate :saved-state with a
+       distinguishable marker, fire the trigger, assert :saved-state
+       equals the marker post-trigger. Repeat per trigger.
+     notes: |
+       A complementary lint check (=grep -n ':saved-state'
+       config/workspaces/=) is cheap and catches the "wrong slot
+       referenced from an autosave site" form of the bug at review
+       time; the test catches the runtime-routing form.
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/vocabulary/workspace-state-slot
+     - register/boundary/autosave-guard-pipeline
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/autosave-never-writes-saved-state.test.el
+   #+end_src
+
+** explicit-save-bypasses-anti-save
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-explicit-save-bypasses-anti-save
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/explicit-save-bypasses-anti-save
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Explicit workspace-save never consults workspace-anti-save-predicates
+
+   statement: |
+     The =workspace-save= command (and its variants =workspace-save-
+     layout=, =workspace-switch-layout='s save-on-switch, =workspace-
+     new='s home stamp) MUST NOT call =run-hook-with-args-until-
+     success= on =workspace-anti-save-predicates=. The user's
+     deliberate gesture is unconditional; only the autosave triggers
+     are guarded. Structurally, explicit-save paths enter the
+     autosave-guard pipeline at stage 2 (capture), not stage 1
+     (anti-save-check).
+
+   why_it_matters: |
+     Anti-save predicates exist so a debug session or open minibuffer
+     does not have its transient state captured into the workspace.
+     But a user invoking =M-x workspace-save= explicitly has decided
+     "save now"; respecting a predicate at that point traps the user
+     (they cannot escape a misconfigured predicate by saving
+     manually). The bug is also subtle if the same helper function
+     is reused for both code paths without a flag distinguishing
+     them — a future refactor consolidating the two paths is exactly
+     the change most likely to introduce the regression.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/explicit-save-bypasses-anti-save.test.el —
+       failing-stub spec that adds a predicate that always returns
+       non-nil to workspace-anti-save-predicates, then calls
+       workspace-save, then asserts the save completed (state file
+       updated, :saved-state populated). A second scenario asserts
+       that with the same always-non-nil predicate, a tab-switch
+       autosave is suppressed.
+
+   related_entries:
+     - register/boundary/autosave-guard-pipeline
+     - register/vocabulary/workspace-state-slot
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/explicit-save-bypasses-anti-save.test.el
    #+end_src
 
 * Status legend
