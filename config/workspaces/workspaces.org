@@ -1,0 +1,110 @@
+#+title: Workspaces
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle workspaces.el
+#+auto_tangle: y
+
+Named tab-based workspaces with per-workspace named layouts, configurable
+home, recent-layout pointer, per-workspace buffer membership, and
+per-machine persistence.
+
+This file is the top-level loader for the =workspaces= module. Behavior
+is implemented incrementally in submodules under =config/workspaces/=;
+they are loaded from the [[#submodules][Submodules]] section as they
+land.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;;; workspaces.el --- Named tab-based workspaces -*- lexical-binding: t; -*-
+#+end_src
+
+* Custom Group
+
+#+begin_src emacs-lisp
+(defgroup workspaces nil
+  "Named tab-based workspaces with per-workspace layouts and buffer scoping."
+  :group 'convenience
+  :prefix "workspace-")
+#+end_src
+
+* Defcustoms
+
+The home-builder default is provided by =tabs.el= (declared below to
+avoid a load-order dependency in the byte-compiler).
+
+#+begin_src emacs-lisp
+(declare-function workspace-default-home-builder "workspace-tabs" (workspace-name))
+
+(defcustom workspace-home-builder #'workspace-default-home-builder
+  "Function called to build the `home' layout for a newly-created workspace.
+Called with one argument WORKSPACE-NAME, in the context of the freshly
+activated workspace.  Any buffers it displays become members of the
+new workspace."
+  :type 'function
+  :group 'workspaces)
+#+end_src
+
+* Submodules
+:PROPERTIES:
+:CUSTOM_ID: submodules
+:END:
+
+Submodules are loaded in dependency order.  Pure data layer first;
+UI-facing layers (tabs, layouts, buffer membership, persistence) land
+in subsequent tasks.
+
+#+begin_src emacs-lisp
+(jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/tabs.el"              jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/buffer-membership.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/layouts.el"           jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
+#+end_src
+
+* Keybindings
+
+User-facing commands hang off the =C-x w= prefix (design.md Open
+Questions §1; resolved here).  =C-x w= itself is unbound in the stock
+configuration; =C-x n w= (=widen=) is the only =C-x w...= binding, and
+it is a sibling not a parent.
+
+| Binding   | Command                              |
+|-----------+--------------------------------------|
+| =C-x w n= | =workspace-new=                      |
+| =C-x w s= | =workspace-switch=                   |
+| =C-x w l= | =workspace-switch-layout=            |
+| =C-x w L= | =workspace-save-layout=              |
+| =C-x w D= | =workspace-delete-layout=            |
+| =C-x w R= | =workspace-switch-to-recent-layout=  |
+| =C-x w r= | =workspace-remove-buffer=            |
+| =C-x w S= | =workspace-save-state=               |
+
+#+begin_src emacs-lisp
+(global-set-key (kbd "C-x w n") #'workspace-new)
+(global-set-key (kbd "C-x w s") #'workspace-switch)
+(global-set-key (kbd "C-x w l") #'workspace-switch-layout)
+(global-set-key (kbd "C-x w L") #'workspace-save-layout)
+(global-set-key (kbd "C-x w D") #'workspace-delete-layout)
+(global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
+(global-set-key (kbd "C-x w r") #'workspace-remove-buffer)
+(global-set-key (kbd "C-x w S") #'workspace-save-state)
+#+end_src
+
+* Startup restoration
+
+After all submodules have loaded, restore any persisted workspaces.
+Tabs are created eagerly so they show up in the tab bar; per-workspace
+frameset and buffer restoration is lazy, triggered on the user's first
+selection of each restored tab.
+
+#+begin_src emacs-lisp
+(when (fboundp 'workspace--restore)
+  (workspace--restore))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'workspaces)
+;;; workspaces.el ends here
+#+end_src

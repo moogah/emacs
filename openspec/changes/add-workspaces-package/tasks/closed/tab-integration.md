@@ -2,7 +2,7 @@
 name: tab-integration
 description: Wire workspaces to tab-bar-mode. Implement workspace-new / workspace-switch commands and the home builder defcustom. Each workspace ↔ one tab, tagged with a :workspace-name tab parameter.
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:workspace-data-model"
 ---

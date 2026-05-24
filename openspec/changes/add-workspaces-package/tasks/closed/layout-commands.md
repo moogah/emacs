@@ -2,7 +2,7 @@
 name: layout-commands
 description: Implement layout save/switch/delete commands, recent-layout pointer maintenance, and auto-save on layout/workspace context switch. Buttercup-tested behaviorally against spec scenarios.
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:tab-integration"
 ---

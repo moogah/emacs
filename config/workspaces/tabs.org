@@ -1,0 +1,194 @@
+#+title: Workspaces — Tab Integration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle tabs.el
+#+auto_tangle: y
+
+Tab-bar integration for the =workspaces= module.  Each workspace is
+paired 1:1 with a tab carrying a =:workspace-name= tab parameter
+(design.md §D1).  The parameter is the discriminator the rest of the
+package uses to recognize "this tab belongs to a workspace" — tabs
+without it are owned by other systems (e.g. =activities-tabs-mode=
+during the side-by-side period, design.md §D8) and our advice is a
+no-op for them.
+
+This module owns:
+
+- the in-memory workspace registry,
+- =workspace-new=, =workspace-switch=, =workspace--current-name=,
+- the =tab-bar-switch-to-tab= advice (currently a no-op for workspace
+  tabs; subsequent tasks attach layout-restore and membership hooks to
+  the same site).
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;;; tabs.el --- Workspaces tab-bar integration -*- lexical-binding: t; -*-
+
+(require 'tab-bar)
+(require 'workspace-data-model)
+#+end_src
+
+* Registry
+
+#+begin_src emacs-lisp
+(defvar workspace--registry (make-hash-table :test 'equal)
+  "WORKSPACE-NAME → workspace plist.
+Mutated by all `workspace-*' commands.  The registry is the in-memory
+source of truth; persistence (later task) walks it to produce the
+on-disk form.")
+
+(defun workspace--registered-names ()
+  "Return the list of workspace names currently in the registry."
+  (let (names)
+    (maphash (lambda (k _v) (push k names)) workspace--registry)
+    (nreverse names)))
+#+end_src
+
+* Tab parameter helpers
+
+We attach a =workspace-name= entry to the tab's parameter alist.
+
+=tab-bar--current-tab= returns a /freshly constructed/ tab alist, so
+mutating through it would not persist.  We mutate the actual entry
+stored in the frame's =tabs= parameter via =assq= + =nconc=.
+
+#+begin_src emacs-lisp
+(defun workspace--frame-current-tab ()
+  "Return the live current-tab alist from the selected frame's `tabs' parameter.
+Distinct from `tab-bar--current-tab', which returns a fresh copy.  This
+is the object to mutate when we want changes to persist."
+  (assq 'current-tab (frame-parameter nil 'tabs)))
+
+(defun workspace--tab-workspace-name (tab)
+  "Return the workspace name associated with TAB, or nil."
+  (cdr (assq 'workspace-name tab)))
+
+(defun workspace--set-tab-workspace-name (tab name)
+  "Attach NAME to TAB as its `workspace-name' parameter, in place.
+TAB must be a live tab alist obtained from the frame's `tabs'
+parameter (use `workspace--frame-current-tab' or iterate
+`(frame-parameter nil \\='tabs)' directly)."
+  (let ((existing (assq 'workspace-name tab)))
+    (if existing
+        (setcdr existing name)
+      (nconc tab (list (cons 'workspace-name name)))))
+  tab)
+
+(defun workspace--current-name ()
+  "Return the workspace name of the currently selected tab, or nil."
+  (workspace--tab-workspace-name (workspace--frame-current-tab)))
+
+(defun workspace--tab-for (name)
+  "Return the live tab alist whose `workspace-name' parameter is NAME, or nil."
+  (seq-find (lambda (tab) (equal (workspace--tab-workspace-name tab) name))
+            (frame-parameter nil 'tabs)))
+
+(defun workspace--tab-index-for (name)
+  "Return the 1-based index of the tab whose `workspace-name' parameter is NAME.
+Returns nil if no such tab exists."
+  (let ((tabs (frame-parameter nil 'tabs))
+        (i 1)
+        result)
+    (while (and tabs (not result))
+      (when (equal (workspace--tab-workspace-name (car tabs)) name)
+        (setq result i))
+      (setq tabs (cdr tabs)
+            i (1+ i)))
+    result))
+#+end_src
+
+* Home builder
+
+The defcustom is defined in the top-level =workspaces.org= so that
+=defgroup workspaces= and its first defcustom land in the same
+literate root; that file simply forward-declares the builder symbol.
+Here we provide the default implementation.
+
+#+begin_src emacs-lisp
+(defun workspace-default-home-builder (_workspace-name)
+  "Default `workspace-home-builder': show a single window on *scratch*."
+  (delete-other-windows)
+  (switch-to-buffer (get-buffer-create "*scratch*")))
+#+end_src
+
+* Commands
+
+#+begin_src emacs-lisp
+(defun workspace--ensure-current-tab-tagged (name)
+  "Tag the currently selected tab with NAME as its `workspace-name'."
+  (workspace--set-tab-workspace-name (workspace--frame-current-tab) name))
+
+(defun workspace-new (name)
+  "Create a new workspace named NAME (or select it if it already exists).
+
+A new tab is created and tagged with NAME as its :workspace-name
+parameter.  The workspace's `home' layout is initialized by calling
+`workspace-home-builder' in the context of the new tab; the resulting
+window configuration is captured later by the layout-commands task.
+For now the home builder runs but its window config is not yet
+serialized into the workspace plist."
+  (interactive "sWorkspace name: ")
+  (let ((existing-tab (workspace--tab-for name)))
+    (if existing-tab
+        (progn
+          (tab-bar-select-tab (workspace--tab-index-for name))
+          (gethash name workspace--registry))
+      (tab-bar-new-tab)
+      (tab-bar-rename-tab name)
+      (workspace--ensure-current-tab-tagged name)
+      (let ((ws (workspace--make name)))
+        (puthash name ws workspace--registry))
+      ;; Run the home builder in the context of the new tab; buffers
+      ;; it displays will become workspace members via the buffer-
+      ;; membership integration in a later task.
+      (when (and (boundp 'workspace-home-builder)
+                 (functionp workspace-home-builder))
+        (funcall workspace-home-builder name))
+      (gethash name workspace--registry))))
+
+(defun workspace-switch (name)
+  "Select the tab for workspace NAME.
+
+Interactively completes over workspaces currently backed by a tab."
+  (interactive
+   (list (completing-read
+          "Switch to workspace: "
+          (seq-filter #'workspace--tab-for (workspace--registered-names))
+          nil t)))
+  (let ((idx (workspace--tab-index-for name)))
+    (unless idx
+      (user-error "No tab found for workspace %s" name))
+    (tab-bar-select-tab idx)))
+#+end_src
+
+* Switch advice
+
+The advice currently no-ops for workspace tabs; subsequent tasks
+(layout-commands, buffer-membership, persistence) attach behavior
+here.  The critical invariant is the early return for non-workspace
+tabs so we do not interfere with =activities-tabs-mode= during
+side-by-side development (design.md §D8).
+
+#+begin_src emacs-lisp
+(defun workspace--after-tab-switch (&rest _)
+  "Hook point after `tab-bar-switch-to-tab' selects a tab.
+No-op for tabs not tagged with :workspace-name.  Subsequent tasks
+extend this function with layout-restore and membership-activation
+logic; the early return for non-workspace tabs is the load-bearing
+guarantee."
+  (let ((name (workspace--current-name)))
+    (when name
+      ;; Placeholder: layout-commands and buffer-membership will
+      ;; attach behavior here.
+      nil)))
+
+(advice-add 'tab-bar-switch-to-tab :after #'workspace--after-tab-switch)
+(advice-add 'tab-bar-select-tab    :after #'workspace--after-tab-switch)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspace-tabs)
+;;; tabs.el ends here
+#+end_src

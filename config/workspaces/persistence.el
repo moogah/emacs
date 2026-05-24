@@ -1,0 +1,181 @@
+;;; persistence.el --- Workspaces persistence -*- lexical-binding: t; -*-
+
+(require 'workspace-data-model)
+(require 'workspace-tabs)
+(require 'workspace-buffer-membership)
+(require 'workspace-layouts)
+(require 'tab-bar)
+(require 'frameset)
+
+(defun workspace--state-directory ()
+  "Return the per-machine directory where workspace state is persisted.
+Keyed by `jf/machine-role' to match the existing convention used by
+activities.el; falls back to a `default' subdirectory when the role is
+unset."
+  (let ((subdir (if (and (boundp 'jf/machine-role) jf/machine-role)
+                    (concat "state/workspaces/" jf/machine-role "/")
+                  "state/workspaces/default/")))
+    (expand-file-name subdir (or (and (boundp 'jf/emacs-dir) jf/emacs-dir)
+                                 user-emacs-directory))))
+
+(defun workspace--state-file ()
+  "Return the absolute path of the persistence file."
+  (expand-file-name "workspaces.eld" (workspace--state-directory)))
+
+(defconst workspace--state-version 1
+  "Schema version for the workspaces persistence file.")
+
+(defun workspace--serialize-registry ()
+  "Walk `workspace--registry' and produce its on-disk plist form."
+  (let (workspaces)
+    (maphash
+     (lambda (_name ws) (push ws workspaces))
+     workspace--registry)
+    (list :version workspace--state-version
+          :workspaces (nreverse workspaces))))
+
+(defun workspace--deserialize-state (state)
+  "Read STATE (the form read from disk) into `workspace--registry'.
+Returns the list of restored workspace plists.  Does NOT create tabs;
+`workspace--restore-tabs' does that.  Tolerant of older schemas: an
+unknown :version is accepted and treated as best-effort."
+  (clrhash workspace--registry)
+  (let ((ws-list (plist-get state :workspaces)))
+    (dolist (ws ws-list)
+      ;; Mark each restored workspace as needing lazy activation.
+      (let ((tagged (let ((copy (copy-sequence ws)))
+                      (plist-put copy :restore-pending t))))
+        (puthash (workspace--name ws) tagged workspace--registry)))
+    ws-list))
+
+(defun workspace--write-state (form)
+  "Write FORM to the persistence file.
+Creates the parent directory if missing."
+  (make-directory (workspace--state-directory) t)
+  (with-temp-file (workspace--state-file)
+    (let ((print-length nil)
+          (print-level nil))
+      (prin1 form (current-buffer)))))
+
+(defun workspace--read-state ()
+  "Read and return the persisted state form, or nil if missing/unreadable."
+  (let ((file (workspace--state-file)))
+    (when (file-exists-p file)
+      (condition-case err
+          (with-temp-buffer
+            (insert-file-contents file)
+            (read (current-buffer)))
+        (error
+         (message "Workspaces: failed to read state file %s: %s"
+                  file (error-message-string err))
+         nil)))))
+
+(defcustom workspace-save-idle-delay 2
+  "Idle delay (seconds) before the auto-save trigger writes to disk.
+Coalesces bursts of context switches into a single disk write."
+  :type 'number
+  :group 'workspaces)
+
+(defvar workspace--save-timer nil
+  "Pending idle timer for debounced disk save.")
+
+(defun workspace--flush-state ()
+  "Write the registry to disk now (cancelling any pending debounce)."
+  (when workspace--save-timer
+    (cancel-timer workspace--save-timer)
+    (setq workspace--save-timer nil))
+  (workspace--write-state (workspace--serialize-registry)))
+
+(defun workspace-save-state ()
+  "Schedule a debounced save of the workspaces registry to disk.
+Cancels any pending timer and re-arms it; the actual disk write
+happens after `workspace-save-idle-delay' seconds of idle time."
+  (interactive)
+  (when workspace--save-timer
+    (cancel-timer workspace--save-timer)
+    (setq workspace--save-timer nil))
+  (setq workspace--save-timer
+        (run-with-idle-timer workspace-save-idle-delay nil
+                             #'workspace--flush-state)))
+
+(defun workspace--persistence-after-autosave (&rest _args)
+  "Schedule a debounced disk save after an autosave snapshot."
+  (workspace-save-state))
+
+(advice-add 'workspace--autosave-current-layout :after
+            #'workspace--persistence-after-autosave)
+
+(defun workspace--restore-tabs ()
+  "Create a tab per restored workspace; do not change the active tab.
+Each new tab is tagged with its `workspace-name' parameter; layout
+restore is deferred until the user first selects that tab."
+  (let ((preserved (workspace--current-name)))
+    (maphash
+     (lambda (name _ws)
+       (unless (workspace--tab-for name)
+         (tab-bar-new-tab)
+         (tab-bar-rename-tab name)
+         (workspace--set-tab-workspace-name
+          (workspace--frame-current-tab) name)))
+     workspace--registry)
+    ;; If we just changed the current tab while creating new tabs,
+    ;; navigate back to where we were (or to tab 1 if nothing).
+    (when preserved
+      (let ((idx (workspace--tab-index-for preserved)))
+        (when idx (tab-bar-select-tab idx))))))
+
+(defun workspace--activate-pending-workspace (name)
+  "Restore NAME's recent-layout frameset and re-acquire its file buffers.
+Clears the :restore-pending flag.  Called from the tab-switch hook on
+first selection of a restored workspace."
+  (let ((ws (gethash name workspace--registry)))
+    (when (and ws (plist-get ws :restore-pending))
+      (let* ((recent (workspace--recent-group ws))
+             (group (and recent (workspace--find-group ws recent)))
+             (layout (and group (workspace--group-recent-layout group)))
+             (frameset (and layout (workspace--layout-frameset layout)))
+             (files (workspace--buffer-files ws)))
+        (when frameset
+          (condition-case err
+              (workspace--restore-frameset frameset)
+            (error (message "Workspaces: frameset restore failed: %s"
+                            (error-message-string err)))))
+        ;; Quietly re-acquire file buffers; bufferlo's display hooks
+        ;; will pick them up as the user navigates.
+        (dolist (path files)
+          (when (file-exists-p path)
+            (ignore-errors (find-file-noselect path)))))
+      (let ((updated (let ((copy (copy-sequence ws)))
+                       (plist-put copy :restore-pending nil))))
+        (puthash name updated workspace--registry)))))
+
+(defun workspace--persistence-after-tab-switch (&rest _args)
+  "Hook installed after `tab-bar-switch-to-tab' for lazy activation."
+  (let ((name (workspace--current-name)))
+    (when name
+      (workspace--activate-pending-workspace name))))
+
+(advice-add 'tab-bar-switch-to-tab :after
+            #'workspace--persistence-after-tab-switch)
+(advice-add 'tab-bar-select-tab    :after
+            #'workspace--persistence-after-tab-switch)
+
+(defun workspace--kill-emacs-flush ()
+  "Cancel any pending debounce and write the registry to disk synchronously."
+  (when workspace--save-timer
+    (cancel-timer workspace--save-timer)
+    (setq workspace--save-timer nil))
+  (ignore-errors (workspace--write-state (workspace--serialize-registry))))
+
+(add-hook 'kill-emacs-hook #'workspace--kill-emacs-flush)
+
+(defun workspace--restore ()
+  "Read the persistence file and restore tabs (lazy frameset activation).
+Safe to call at startup; no-ops cleanly when the file is absent."
+  (let ((state (workspace--read-state)))
+    (when state
+      (workspace--deserialize-state state)
+      (workspace--restore-tabs))))
+
+(provide 'workspace-persistence)
+;;; persistence.el ends here

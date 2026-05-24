@@ -2,7 +2,7 @@
 name: buffer-membership
 description: Add the bufferlo dependency, wire its per-tab buffer scope to workspaces, and implement workspace-remove-buffer. Verify kill-buffer semantics remain globally destructive (Story A).
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:tab-integration"
 ---

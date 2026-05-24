@@ -2,7 +2,7 @@
 name: scaffold-workspaces-package
 description: Create the empty workspaces module (literate org skeleton + loader registration) so subsequent tasks have a home to land code in. No commands or behavior yet.
 change: add-workspaces-package
-status: ready
+status: done
 relations: []
 ---
 

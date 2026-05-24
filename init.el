@@ -108,6 +108,7 @@ resolve to a real file."
     ("core/evil"          "Evil mode configuration")
     ("core/completion"    "Modern completion framework")
     ("core/window-management"    "Save and restore window configs")
+    ("workspaces/workspaces" "Named tab-based workspaces with per-workspace layouts and buffer scoping")
     ("core/yasnippet"     "Snippet system for templates")
     ("core/testing"       "ERT test infrastructure")
     ("core/buttercup"     "Buttercup BDD testing framework")

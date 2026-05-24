@@ -2,7 +2,7 @@
 name: workspace-data-model
 description: Implement the pure, side-effect-free data layer (workspace, layout-group, layout plists) with constructor / accessor / mutator helpers. Buttercup-tested. No Emacs UI yet.
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:scaffold-workspaces-package"
 ---

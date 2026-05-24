@@ -2,7 +2,7 @@
 name: keybindings-and-prefix
 description: Bind workspaces commands under a single user-facing prefix (proposed C-x w) and document them. Resolves design.md Open Question 1.
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:persistence"
 ---

@@ -1,0 +1,147 @@
+#+title: Workspaces — Buffer Membership
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle buffer-membership.el
+#+auto_tangle: y
+
+Buffer-list scoping for the =workspaces= module via [[https://github.com/florommel/bufferlo][bufferlo]].
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;;; buffer-membership.el --- Per-workspace buffer scoping -*- lexical-binding: t; -*-
+
+(require 'workspace-data-model)
+(require 'workspace-tabs)
+#+end_src
+
+* bufferlo dependency
+
+Bufferlo provides a per-tab buffer scope and integrates with the
+standard buffer-displaying primitives and completion frameworks
+(=consult-buffer=, =ido-buffer=, =ivy-read-buffer=).  Since each
+workspace is paired 1:1 with a tab (design.md §D2), bufferlo's per-tab
+scope is exactly our per-workspace scope.
+
+The surfaces we depend on are intentionally narrow:
+
+- =bufferlo-mode= — the global minor mode that installs per-tab
+  buffer-list filtering.
+- =bufferlo-buffer-list= — the current-tab buffer list (filter source
+  for completion frameworks).
+- =bufferlo-remove= — remove a buffer from the current tab's local
+  list without killing it.  Engine for =workspace-remove-buffer=.
+- Automatic membership-on-display: when a buffer is displayed in a
+  tab, bufferlo adds it to that tab's local list.
+
+The dependency is declared with =use-package= so straight.el picks it
+up consistently with the rest of the configuration.
+
+#+begin_src emacs-lisp
+(use-package bufferlo
+  :straight t
+  :init
+  (bufferlo-mode 1))
+#+end_src
+
+* Sync workspace plist with bufferlo state
+
+We keep the workspace plist's =:buffer-files= list synchronized with
+bufferlo's per-tab state so that the persistence task (next) has a
+consistent source of truth for what file buffers to save and restore.
+
+#+begin_src emacs-lisp
+(defun workspace--current-file-buffers ()
+  "Return the file-backed buffers in the current tab's bufferlo list.
+Buffers without an associated file (e.g. *Messages*, magit-status)
+are omitted: they cannot be persisted across restarts (design.md §D4).
+They remain live members for the duration of the session — bufferlo
+tracks them in its in-memory list; only on-disk persistence is lossy
+for non-file buffers."
+  (let (files)
+    (dolist (buf (and (fboundp 'bufferlo-buffer-list) (bufferlo-buffer-list)))
+      (let ((path (buffer-file-name buf)))
+        (when path (push path files))))
+    (nreverse files)))
+
+(defun workspace--sync-registry-from-bufferlo (&optional name)
+  "Update workspace NAME's :buffer-files from bufferlo's current view.
+NAME defaults to the current workspace.  No-op when not on a workspace
+tab."
+  (let ((name (or name (workspace--current-name))))
+    (when (and name (gethash name workspace--registry))
+      (let* ((ws (gethash name workspace--registry))
+             (files (workspace--current-file-buffers))
+             (updated (let ((copy (copy-sequence ws)))
+                        (plist-put copy :buffer-files files))))
+        (puthash name updated workspace--registry)))))
+#+end_src
+
+* kill-buffer hook
+
+Story A (design.md §D3): =kill-buffer= is not advised, shadowed, or
+wrapped.  When a file buffer is killed, bufferlo removes it from all
+tabs' local lists automatically.  We mirror the change into the
+registry's =:buffer-files= so the persistence file does not try to
+re-open a killed buffer on restart.
+
+#+begin_src emacs-lisp
+(defun workspace--on-buffer-killed ()
+  "Sync the registry to reflect that the buffer being killed is gone.
+
+Runs in `kill-buffer-hook' (which fires *before* the buffer is killed,
+so the buffer's file name is still available)."
+  (let ((path (buffer-file-name)))
+    (when path
+      (maphash
+       (lambda (name ws)
+         (when (member path (workspace--buffer-files ws))
+           (puthash name (workspace--remove-buffer-file ws path)
+                    workspace--registry)))
+       workspace--registry))))
+
+(add-hook 'kill-buffer-hook #'workspace--on-buffer-killed)
+#+end_src
+
+* workspace-remove-buffer
+
+The additive "I'm done here" command (design.md §D3).  Removes the
+buffer from the current workspace's membership; does not kill it; does
+not affect other workspaces' membership.
+
+#+begin_src emacs-lisp
+(defun workspace-remove-buffer (buffer)
+  "Remove BUFFER from the current workspace's membership without killing it.
+
+Interactively, prompts for a buffer (default: current buffer).  The
+prompt is scoped to the current workspace's membership.  The
+underlying buffer remains live; if it is a member of other
+workspaces it remains a member there."
+  (interactive
+   (list
+    (let* ((default (buffer-name))
+           (cands (mapcar #'buffer-name
+                          (and (fboundp 'bufferlo-buffer-list)
+                               (bufferlo-buffer-list)))))
+      (get-buffer
+       (completing-read
+        (format "Remove buffer from workspace (default %s): " default)
+        cands nil nil nil nil default)))))
+  (let ((name (workspace--current-name)))
+    (unless name
+      (user-error "Not on a workspaces-managed tab"))
+    (when (and (fboundp 'bufferlo-remove) (buffer-live-p buffer))
+      (bufferlo-remove buffer))
+    (let* ((ws (gethash name workspace--registry))
+           (path (and (buffer-live-p buffer) (buffer-file-name buffer))))
+      (when (and ws path)
+        (puthash name (workspace--remove-buffer-file ws path)
+                 workspace--registry)))
+    buffer))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspace-buffer-membership)
+;;; buffer-membership.el ends here
+#+end_src

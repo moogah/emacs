@@ -1,0 +1,132 @@
+#+title: Workspaces
+
+Named tab-based workspaces with per-workspace named layouts,
+configurable home, recent-layout pointer, per-workspace buffer
+membership scoping (via [[https://github.com/florommel/bufferlo][bufferlo]]), and per-machine persistence.
+
+* Concepts
+
+| Term          | What it is                                                  |
+|---------------+-------------------------------------------------------------|
+| /workspace/   | A named user-facing context; one tab in =tab-bar-mode=      |
+| /layout/      | A named, restorable window configuration inside a workspace |
+| /home/        | A reserved layout-group name; every workspace has one       |
+| /membership/  | The set of buffers visible to the current workspace's tab   |
+
+A workspace is bound 1:1 to a tab, tagged via the =workspace-name=
+tab parameter.  Layouts are window configurations stored under the
+workspace; they are named, with no upper bound.  =home= is reserved
+and built once per workspace via the =workspace-home-builder= function.
+
+* Command reference
+
+| Binding   | Command                             | What it does                                                |
+|-----------+-------------------------------------+-------------------------------------------------------------|
+| =C-x w n= | =workspace-new=                     | Create a new workspace (or select an existing one by name)  |
+| =C-x w s= | =workspace-switch=                  | Select an existing workspace's tab                          |
+| =C-x w l= | =workspace-switch-layout=           | Switch to a named layout in the current workspace           |
+| =C-x w L= | =workspace-save-layout=             | Save current window config as a named layout                |
+| =C-x w D= | =workspace-delete-layout=           | Delete a named layout (refuses =home=)                      |
+| =C-x w R= | =workspace-switch-to-recent-layout= | Jump to the workspace's most recently activated layout      |
+| =C-x w r= | =workspace-remove-buffer=           | Remove a buffer from the current workspace's membership     |
+| =C-x w S= | =workspace-save-state=              | Schedule a debounced disk save of the workspace registry    |
+
+* Customization
+
+=workspace-home-builder= — the function called to build a freshly
+created workspace's =home= layout.  Called with one argument
+(WORKSPACE-NAME) in the context of the new workspace.  The default
+opens a single window on =*scratch*=.  Example override:
+
+#+begin_src emacs-lisp
+(setq workspace-home-builder
+      (lambda (_name)
+        (delete-other-windows)
+        (find-file "~/notes/index.org")))
+#+end_src
+
+=workspace-save-idle-delay= — seconds of idle time before the debounced
+disk save fires.  Default: 2.
+
+* Persistence
+
+Workspaces persist to a per-machine path keyed by =jf/machine-role=:
+
+#+begin_src
+state/workspaces/<machine-role>/workspaces.eld
+#+end_src
+
+The file is plain elisp (readable with =read=), forward-compatible
+with the deferred history feature (multiple timestamped revisions per
+layout-group, optional per-group git observations).
+
+What persists:
+
+- Workspace names and recent-layout pointers.
+- Each workspace's layouts (window configurations, restorable via
+  =frameset.el=).
+- Each workspace's /file-buffer/ membership.  Non-file buffers
+  (=*Messages*=, =magit-status=, =*scratch*=) participate in
+  membership in-session but are not persisted; they re-acquire
+  membership when displayed again after restart.
+
+When the persistence file is missing or unreadable, the package
+starts cleanly with no workspaces and emits a =*Messages*= notice
+(no error visible to the user).
+
+Saves happen automatically on every layout/workspace context switch
+(debounced via =workspace-save-idle-delay=), on =kill-emacs= (flushed
+synchronously), and on demand via =workspace-save-state= (=C-x w S=).
+
+Restore on startup is /lazy/: tabs are recreated immediately so the
+tab bar reflects the saved set, but each tab's frameset and file
+buffers are restored only when the user first selects that tab.
+
+* Buffer membership
+
+Buffer membership is per-workspace.  When a buffer is displayed in
+any window of a workspace, it becomes a member of that workspace via
+=bufferlo='s per-tab buffer-list scope.  Completion-based buffer
+commands (=switch-to-buffer=, =consult-buffer=, …) are filtered to
+the current workspace's membership.
+
+A buffer may be a member of multiple workspaces simultaneously.
+
+** =kill-buffer= vs =workspace-remove-buffer= (Story A)
+
+=kill-buffer= (=C-x k=) is /not/ shadowed, advised, or rebound.  It
+ends the buffer's life globally, removing it from every workspace's
+membership as a side effect.  This preserves universal Emacs
+convention: =C-x k= always means "end this buffer."
+
+=workspace-remove-buffer= (=C-x w r=) is the additive "I'm done with
+this here" command.  It removes the buffer from the /current/
+workspace's membership without killing it.  Other workspaces that
+hold the same buffer remain unaffected.
+
+* Deferred features
+
+These are designed-for but not implemented in MVP.  The persistence
+schema reserves the slots, so they can land later without migration.
+
+- Multiple timestamped layout revisions per layout-group (a single
+  =layout-group= can hold a list of layouts; today it always holds
+  exactly one).  Commands to browse and restore prior revisions are
+  not implemented.
+- Per-layout-group git observations (real or shadow commits).  The
+  =:git-state= slot is present on every layout but always =nil=.
+- A transient UI for layout / workspace operations.  Today's surface
+  is a single =C-x w= prefix.
+- Restoring an explicit "selected tab at save time" — restoration
+  preserves the user's current tab rather than jumping to the
+  previously-selected workspace.
+
+* Implementation notes
+
+- Built on =tab-bar-mode= directly; does not use =activities-tabs-mode=.
+- Buffer scoping via =bufferlo= (per-tab buffer list).
+- Persistence via =frameset.el= with a sanitization pass that drops
+  frame parameters whose values reference live objects (e.g.
+  =perspective.el='s =persp--hash=).  This keeps the persistence file
+  =read=-able even during the side-by-side period with the legacy
+  packages still loaded.

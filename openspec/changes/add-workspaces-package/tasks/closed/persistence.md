@@ -2,7 +2,7 @@
 name: persistence
 description: Save/restore workspaces to a per-machine elisp form via frameset. Auto-save on layout switch, save on kill-emacs, restore on startup. Missing file is non-fatal.
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:layout-commands"
   - "blocked-by:buffer-membership"

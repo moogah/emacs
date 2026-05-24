@@ -1,0 +1,135 @@
+;;; data-model.el --- Workspaces pure data layer -*- lexical-binding: t; -*-
+
+(defun workspace--layout-make (frameset &optional timestamp)
+  "Build a layout plist wrapping FRAMESET.
+TIMESTAMP defaults to current time as an integer.  The `:git-state'
+slot is always present and always nil in MVP."
+  (list :timestamp (or timestamp (time-convert nil 'integer))
+        :frameset frameset
+        :git-state nil))
+
+(defun workspace--layout-frameset (layout)
+  "Return the frameset blob stored in LAYOUT."
+  (plist-get layout :frameset))
+
+(defun workspace--layout-timestamp (layout)
+  "Return the integer timestamp stored in LAYOUT."
+  (plist-get layout :timestamp))
+
+(defconst workspace--reserved-group-names '("home")
+  "Layout-group names that cannot be deleted by user commands.")
+
+(defun workspace--group-name-reserved-p (name)
+  "Return non-nil if NAME is a reserved layout-group name."
+  (and (stringp name)
+       (member name workspace--reserved-group-names)
+       t))
+
+(defun workspace--group-make (name layout)
+  "Build a layout-group plist named NAME containing LAYOUT as its sole entry."
+  (list :name name
+        :layouts (list layout)))
+
+(defun workspace--group-name (group)
+  "Return the name of GROUP."
+  (plist-get group :name))
+
+(defun workspace--group-layouts (group)
+  "Return the list of layouts in GROUP."
+  (plist-get group :layouts))
+
+(defun workspace--group-recent-layout (group)
+  "Return the most recent layout in GROUP.
+MVP keeps a single layout per group; this returns the head of the
+:layouts list, which is also the most recently saved one."
+  (car (workspace--group-layouts group)))
+
+(defun workspace--group-add-layout (group layout)
+  "Return a new group like GROUP with LAYOUT prepended to its :layouts.
+Non-destructive: GROUP is not modified.  In MVP this replaces rather
+than appends; the deferred history feature can change this without
+disturbing callers."
+  (list :name (workspace--group-name group)
+        :layouts (list layout)))
+
+(defun workspace--make (name)
+  "Build an empty workspace plist named NAME."
+  (list :name name
+        :recent-layout-group nil
+        :buffer-files nil
+        :layout-groups nil))
+
+(defun workspace--name (ws)
+  "Return the name of workspace WS."
+  (plist-get ws :name))
+
+(defun workspace--layout-groups (ws)
+  "Return the layout-groups of workspace WS."
+  (plist-get ws :layout-groups))
+
+(defun workspace--recent-group (ws)
+  "Return the name of WS's most recently activated layout-group, or nil."
+  (plist-get ws :recent-layout-group))
+
+(defun workspace--set-recent-group (ws name)
+  "Return a new workspace like WS with its recent-layout-group set to NAME.
+Non-destructive: WS is not modified."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :recent-layout-group name)))
+
+(defun workspace--find-group (ws name)
+  "Return the layout-group named NAME in WS, or nil if none."
+  (seq-find (lambda (g) (equal (workspace--group-name g) name))
+            (workspace--layout-groups ws)))
+
+(defun workspace--upsert-group (ws name layout)
+  "Return a new workspace like WS with a group named NAME holding LAYOUT.
+If a group with NAME already exists, it is replaced; otherwise the new
+group is appended.  Non-destructive."
+  (let* ((existing (workspace--layout-groups ws))
+         (filtered (seq-remove (lambda (g) (equal (workspace--group-name g) name))
+                               existing))
+         (replaced? (not (equal (length filtered) (length existing))))
+         (new-group (workspace--group-make name layout))
+         (next (if replaced?
+                   ;; Preserve original position: walk existing, swap matching slot.
+                   (mapcar (lambda (g)
+                             (if (equal (workspace--group-name g) name)
+                                 new-group
+                               g))
+                           existing)
+                 (append existing (list new-group))))
+         (copy (copy-sequence ws)))
+    (plist-put copy :layout-groups next)))
+
+(defun workspace--remove-group (ws name)
+  "Return a new workspace like WS with the layout-group named NAME removed.
+Non-destructive.  Reserved names are not specially handled here; callers
+in the command layer must consult `workspace--group-name-reserved-p'
+before invoking this on a user-supplied name."
+  (let* ((next (seq-remove (lambda (g) (equal (workspace--group-name g) name))
+                           (workspace--layout-groups ws)))
+         (copy (copy-sequence ws)))
+    (plist-put copy :layout-groups next)))
+
+(defun workspace--buffer-files (ws)
+  "Return the buffer-file membership list of WS."
+  (plist-get ws :buffer-files))
+
+(defun workspace--add-buffer-file (ws path)
+  "Return a new workspace like WS with PATH added to its buffer-files.
+Dedupes: adding the same PATH twice yields one entry.  Non-destructive."
+  (let* ((files (workspace--buffer-files ws))
+         (next (if (member path files) files (append files (list path))))
+         (copy (copy-sequence ws)))
+    (plist-put copy :buffer-files next)))
+
+(defun workspace--remove-buffer-file (ws path)
+  "Return a new workspace like WS with PATH removed from its buffer-files.
+Non-destructive."
+  (let* ((next (remove path (workspace--buffer-files ws)))
+         (copy (copy-sequence ws)))
+    (plist-put copy :buffer-files next)))
+
+(provide 'workspace-data-model)
+;;; data-model.el ends here
