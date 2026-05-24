@@ -103,24 +103,28 @@ The recent-layout pointer SHALL update whenever a layout becomes active, includi
 
 ---
 
-### Requirement: Auto-save layout on context switch
+### Requirement: Auto-save layout on context switch (MVP: partial; full coverage deferred to v2 schema)
 
-The active layout's window configuration SHALL be auto-saved to its layout slot whenever the user switches workspaces or switches layouts within a workspace. No explicit save command SHALL be required for routine work.
+**MVP scope (as implemented):** Auto-save on intra-workspace **layout** switch is in scope and behaves as specified below. Auto-save on **workspace** switch (changing tabs) is **deferred** until the layout schema supports separate `:saved-state` and `:working-state` slots (see design.md §D7). The v1 schema holds exactly one window-state per layout-group, so a tab-switch autosave would overwrite the user's explicit `workspace-save` snapshot with whatever transient state happened to be in the frame at switch time. This was the source of an MVP-blocking restore bug (see closed task `fix-restoration-roundtrip`).
 
-`workspace-save-layout` SHALL remain available for naming a new layout or for explicit snapshotting.
+Until the two-state schema lands, persistence-across-workspace-switch is the user's deliberate call via `workspace-save` (Requirement: Explicit save command).
 
-#### Scenario: Switching workspaces snapshots the outgoing layout
-- **WHEN** the current workspace `code` has the `magit` layout active with a particular window configuration
-- **AND** the user rearranges windows in `magit`
-- **AND** the user switches to workspace `notes`
-- **THEN** the rearranged window configuration is persisted to `code`'s `magit` layout
-- **AND** returning to `code` later restores the rearranged configuration
+`workspace-save-layout` remains available for naming a new layout or for explicit snapshotting (orthogonal to the workspace-vs-layout distinction).
 
 #### Scenario: Switching layouts within a workspace snapshots the outgoing layout
 - **WHEN** the user is on layout `home` in workspace `code`
 - **AND** the user rearranges windows on `home`
 - **AND** the user invokes `workspace-switch-layout` to `magit`
 - **THEN** the rearranged configuration is persisted to `code`'s `home` layout
+
+#### Scenario: Switching workspaces does NOT auto-save (MVP gap)
+- **WHEN** the user has workspace `code` selected and rearranges its windows
+- **AND** the user switches to workspace `notes` via `workspace-switch` or by clicking the `notes` tab
+- **THEN** the rearranged configuration is NOT persisted to `code`'s recent layout
+- **AND** returning to `code` shows whatever in-session state `tab-bar` preserved (which may differ from the persisted layout)
+- **AND** to capture the rearrangement to disk the user must invoke `workspace-save` while on `code`
+
+> **Note:** This scenario documents the current MVP gap, not the steady-state design. The intended behavior is for `code`'s working state to be auto-captured so that restart restores it; that requires the two-state schema and is tracked as a follow-up before beta.
 
 ---
 
@@ -176,17 +180,38 @@ This command SHALL be the preferred user-facing means of saying "I am done with 
 
 ---
 
-### Requirement: kill-buffer remains globally destructive
+### Requirement: kill-buffer remains globally destructive (live membership only)
 
-The `workspaces` package SHALL NOT shadow, advise, or rebind `kill-buffer`. Invoking `kill-buffer` SHALL continue to kill the buffer for all of Emacs, removing it from every workspace's membership as a side effect of buffer death.
+The `workspaces` package SHALL NOT shadow, advise, or rebind `kill-buffer`. Invoking `kill-buffer` SHALL continue to kill the buffer for all of Emacs.
 
 This preserves the universal Emacs convention that `C-x k` ends a buffer's life. (Story A in the design.)
 
-#### Scenario: kill-buffer kills globally
+**Membership semantics (revised):** there are two distinct senses of "membership":
+
+1. **Live in-session membership** — the per-tab bufferlo list that filters `consult-buffer` and friends. When a buffer is killed, it is gone from this list across all workspaces by virtue of no longer existing.
+2. **Persisted file list (`:buffer-files`)** — the saved set of file paths the workspace should reopen on restore. This is mutated only by `workspace-save` (additive sync from bufferlo at save time) and `workspace-remove-buffer` (explicit removal). It is **not** mutated by `kill-buffer`.
+
+The split exists because the user may kill a buffer for transient reasons (free memory, clear an error, etc.) without intending to drop the file from the workspace's saved file list. The earlier implementation that wiped `:buffer-files` on every `kill-buffer-hook` made the close-tab-then-restore flow lose buffers; the hook has been removed (see design.md §D3).
+
+#### Scenario: kill-buffer ends the buffer's life
 - **WHEN** `foo.el` is a member of workspaces `code` and `notes`
 - **AND** the user invokes `kill-buffer` on `foo.el` from any workspace
 - **THEN** the buffer is killed
-- **AND** `foo.el` is no longer a member of `code` or `notes`
+- **AND** `foo.el` is no longer in either workspace's *live* membership (because no buffer object exists)
+
+#### Scenario: kill-buffer alone does NOT alter the saved file list
+- **WHEN** `foo.el` is in `code`'s saved `:buffer-files`
+- **AND** the user kills the `foo.el` buffer (no `workspace-save` follows)
+- **THEN** `code`'s saved `:buffer-files` still contains `foo.el`'s path
+- **AND** a subsequent `workspace-restore code` re-opens `foo.el` from disk
+
+#### Scenario: workspace-save replaces the saved file list from the current bufferlo set
+- **WHEN** the user kills `foo.el`
+- **AND** invokes `workspace-save` on `code`
+- **THEN** `:buffer-files` is replaced with bufferlo's current per-tab file list, which no longer includes `foo.el`
+- **AND** a subsequent `workspace-restore code` does not re-open `foo.el`
+
+> **Note:** The replace-on-save semantics mean that the explicit save is also the explicit "clean up the file list" gesture. A user who wants to keep a file in `:buffer-files` despite having closed its buffer should re-open it before invoking `workspace-save`. A finer-grained model (embed buffer info in the saved window-state, à la activities.el's per-leaf `activities-buffer` struct) is recommended as a follow-up enhancement.
 
 ---
 
@@ -196,15 +221,17 @@ Workspaces and their layouts SHALL persist to disk under a per-machine path keye
 
 - The set of workspaces and their names
 - The recent-layout pointer for each workspace
-- The named layouts for each workspace (window configurations, restorable across restarts)
-- The buffer membership for each workspace (by file path; non-file buffers that cannot be restored are omitted)
+- The named layouts for each workspace (window configurations as `window-state-get` forms, stored in the legacy-named `:frameset` slot; restorable across restarts)
+- The buffer file list (`:buffer-files`) for each workspace — by absolute file path; non-file buffers cannot be persisted
 
-Persistence SHALL be triggered:
-- On every layout context switch (auto-save; Requirement: Auto-save layout on context switch)
-- On Emacs shutdown via `kill-emacs-hook`
-- Explicitly via `workspace-save-state`
+Persistence to disk SHALL be triggered:
+- Explicitly via `workspace-save` (captures current frame + syncs `:buffer-files` + writes synchronously)
+- Implicitly via `workspace-save-layout`, `workspace-switch-layout`, and `workspace-new`'s home stamp (each calls `workspace--autosave-current-layout` which schedules a debounced write via the internal `workspace-save-state` flush primitive)
+- On Emacs shutdown via `kill-emacs-hook` (flushes the in-memory registry without re-capturing)
 
-On Emacs startup the package SHALL restore the persisted workspaces and re-establish each workspace's most recent layout (without forcing the user to a particular tab).
+Auto-save on **workspace** context switch is intentionally NOT a trigger in MVP — see Requirement: Auto-save layout on context switch for the rationale and the deferred two-state-model follow-up.
+
+On Emacs startup the package SHALL restore the persisted workspaces by recreating their tabs. Per-workspace layout application (window-state-put on the saved configuration, plus file-buffer pre-load) is lazy: it happens on the first tab-switch into each restored workspace.
 
 When the persistence file is missing or unreadable the package SHALL start with no workspaces and SHALL NOT raise an error visible to the user beyond an `*Messages*` notice.
 
@@ -213,14 +240,74 @@ When the persistence file is missing or unreadable the package SHALL start with 
 - **THEN** the persistence file lives under `state/workspaces/personal-mac/` relative to `jf/emacs-dir`
 
 #### Scenario: Workspaces survive restart
-- **WHEN** the user has workspaces `code` and `notes` with multiple layouts each
+- **WHEN** the user has workspaces `code` and `notes`, with `code`'s `:buffer-files` containing `~/p/foo.el`
 - **AND** Emacs is restarted
 - **THEN** both workspaces are restored as tabs
-- **AND** each workspace's most recent layout is the active layout for that workspace
-- **AND** file buffers from each workspace's membership are reopened as members on first activation
+- **AND** on first selection of the `code` tab, `~/p/foo.el` is `find-file-noselect`'d before `window-state-put` is applied
+- **AND** the saved window-state's references to `foo.el` resolve to the live buffer (rather than falling back to `*scratch*`)
 
 #### Scenario: Missing persistence file is non-fatal
 - **WHEN** no persistence file exists for the current machine role
 - **AND** Emacs starts up with the `workspaces` package loaded
 - **THEN** no workspaces are created and no error is signalled
 - **AND** the user can invoke `workspace-new` normally
+
+---
+
+### Requirement: Explicit save command
+
+The package SHALL provide `workspace-save` as the user-facing explicit save command. Invoking `workspace-save` SHALL:
+
+1. Snapshot the current frame into the current workspace's recent layout-group (`workspace--autosave-current-layout`).
+2. Sync `:buffer-files` from bufferlo's current per-tab file list (replace, not merge).
+3. Flush the registry to disk synchronously (no debounce).
+
+`workspace-save` SHALL error when not on a workspace-managed tab.
+
+The `workspace-save` binding is `C-x w S`. (The internal `workspace-save-state` flush primitive is retained for use by other code paths but is no longer bound by default — its name historically suggested a capturing save but its body only flushes the in-memory registry.)
+
+#### Scenario: workspace-save captures, syncs, and flushes
+- **WHEN** the user is on workspace `code` with a multi-window layout open
+- **AND** `code`'s `:buffer-files` is `("~/p/foo.el")` and bufferlo's current list also has `~/p/bar.el`
+- **AND** the user invokes `workspace-save`
+- **THEN** `code`'s recent layout reflects the current multi-window configuration
+- **AND** `code`'s `:buffer-files` is `("~/p/foo.el" "~/p/bar.el")` (in bufferlo's order)
+- **AND** the state file on disk contains the new content immediately (no debounce wait)
+
+#### Scenario: workspace-save errors off-workspace
+- **WHEN** the current tab is not registered as a workspace
+- **AND** the user invokes `workspace-save`
+- **THEN** a `user-error` is signalled
+- **AND** no disk write occurs
+
+---
+
+### Requirement: Explicit restore command
+
+The package SHALL provide `workspace-restore` as the user-facing command to materialize a saved workspace into a tab. Interactively it SHALL `completing-read` over every workspace name currently in the in-memory registry (which includes saved-but-not-materialized workspaces loaded from disk at startup).
+
+For the chosen workspace:
+- If a live tab for that workspace already exists, `workspace-restore` SHALL switch to it (equivalent to `workspace-switch` for that case).
+- Otherwise it SHALL create a new tab, name it after the workspace, pre-load `:buffer-files` via `find-file-noselect`, and then `window-state-put` the saved layout onto the current frame's root window.
+
+The `workspace-restore` binding is `C-x w o`. It complements (does not replace) `workspace-switch`, which is scoped to live tabs only.
+
+#### Scenario: Restore an unmaterialized workspace
+- **WHEN** workspace `code` is in the registry but has no live tab (e.g. its tab was closed mid-session, or it was loaded from disk and never selected)
+- **AND** the user invokes `workspace-restore` and chooses `code`
+- **THEN** a new tab named `code` is created and selected
+- **AND** the files in `:buffer-files` are loaded as buffers before the window-state is applied
+- **AND** the saved window-state is applied to the new tab's window tree
+- **AND** the displayed buffers match the saved configuration
+
+#### Scenario: Restore a live workspace
+- **WHEN** workspace `notes` already has a live tab in the current Emacs session
+- **AND** the user invokes `workspace-restore` and chooses `notes`
+- **THEN** the existing `notes` tab is selected
+- **AND** no new tab is created
+- **AND** the existing in-session window state is preserved (no re-application of the saved layout)
+
+#### Scenario: Restore errors on unknown name
+- **WHEN** the user passes a workspace name that is not in the registry
+- **THEN** a `user-error` is signalled
+- **AND** no tab is created

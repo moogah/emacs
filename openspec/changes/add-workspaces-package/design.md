@@ -92,15 +92,39 @@ In MVP, every layout-group holds exactly one layout, and the user-facing word fo
 
 **Consequence:** `workspace-remove-buffer` will be the binding under the `C-x w` (or similar) prefix; `C-x k` remains canonical kill.
 
-### D4. Persist via `frameset.el` for window configs; reference buffers by file path.
+**Implementation revision (2026-05-24):** Earlier iterations also installed a `kill-buffer-hook` that mirrored kill events into the registry — when any file buffer was killed, the file path was removed from every workspace's `:buffer-files`. The hook has been **removed**. It conflated two distinct events:
 
-**Why:** `frameset.el` is the standard Emacs serializer for window configurations and is already battle-tested by `desktop.el` and `activities.el`. It handles window parameters, splits, sizes, and buffer references reasonably. Storing buffer membership by absolute file path (rather than buffer object) is the only restoration path that survives an Emacs restart, and matches what bufferlo and `desktop.el` already assume.
+1. The user explicitly removes a buffer from a workspace (use `workspace-remove-buffer`).
+2. The user kills a buffer for transient reasons — declutter, free memory, error recovery — and reasonably expects the workspace's *saved* file list to be unchanged.
+
+The eager removal in case (2) broke the close-tab-then-restore flow: killing a buffer would drop the file from `:buffer-files`, and a subsequent `workspace-restore` would have nothing to pre-load, falling back to `*scratch*`.
+
+`:buffer-files` is now only mutated by:
+- `workspace-save` (the explicit user-facing save; syncs from bufferlo's current per-tab list)
+- `workspace-remove-buffer` (the explicit "I'm done here" command)
+
+Live-buffer membership for completion-filtering (`consult-buffer`, etc.) is still handled by bufferlo's own per-tab tracking, which naturally drops killed buffers from its list — but only in memory, never in the persisted `:buffer-files` slot.
+
+### D4. Persist via `window-state-get/put` for window configs; reference buffers by file path.
+
+**Original choice:** `frameset.el` for window configs (reasoning preserved below).
+
+**Revised choice (2026-05-24):** `window-state-get` / `window-state-put`, applied to the selected frame's root window. This is what `tab-bar.el` itself uses internally to manage per-tab window state (see `tab-bar--tab`, which stores `(ws . ,(window-state-get ...))` per tab), and what `activities.el` uses for the same purpose.
+
+**Why the revision:** `frameset.el` is designed to round-trip *entire Emacs sessions* (its primary client is `desktop.el`). On restore it matches frames by `frameset--id` and creates/reuses/deletes whole frames. In a per-tab restore context, the saved frame id never matches the live frame id (it's per-session), so `frameset-restore` does nothing useful for the current tab's window configuration. `window-state-put`, by contrast, operates on the selected frame's root window without frame-level side effects — exactly the granularity we need.
+
+The legacy `:frameset` slot name in the persistence schema is retained (D5) for backward-compatibility with the existing format; the value stored in it is now a `window-state` form, not a `frameset` struct. A future schema version (`:version 2`) can rename it to `:window-state`.
+
+**Buffer reference contract unchanged:** buffer membership is still tracked by absolute file path. Non-file buffers (e.g. `*Messages*`, magit buffers) cannot be restored across restarts — they will not be members on first activation post-restart; the user can re-add them by displaying them.
+
+**Buffer reincarnation gap:** the current implementation pre-loads file buffers by path via `find-file-noselect` before `window-state-put` runs, so the saved window-state's buffer references resolve. Point position, narrowing, and major-mode-specific state are *not* preserved — buffers come back at point 1. activities.el solves this by embedding `activities-buffer` structs (bookmark + filename + name + buffer-local state) directly into each window-state `leaf`'s `parameters` slot, allowing reincarnation with full state inside `window-state-put`. Recommended as a follow-up enhancement for beta.
 
 **Alternatives considered:**
+- *`frameset.el`* — see "Original choice" above; wrong granularity for per-tab restore.
 - *`current-window-configuration` + `set-window-configuration`* — opaque (not serializable to disk).
-- *Custom serializer* — yak-shaving; frameset handles the cases we care about.
+- *Custom serializer* — yak-shaving; `window-state-get/put` handles the cases we care about and is exactly what tab-bar uses.
 
-**Consequence:** Non-file buffers in a workspace's membership (e.g. `*Messages*`, magit buffers) cannot be restored across restarts. They will simply not be members on first activation post-restart; the user can re-add them by displaying them. The spec (Requirement: Per-machine persistence and restoration) calls this out — file paths are the persistence unit.
+**Consequence:** function names `workspace--capture-frameset` / `workspace--restore-frameset` are retained as internal names (now misnomers) to minimize churn; the underlying primitive is `window-state-get/put`.
 
 ### D5. Persistence schema is forward-compatible by design.
 
@@ -128,6 +152,8 @@ The on-disk layout (illustrative; not the user-facing API):
 
 Every layout-group is always a list of layouts (length 1 in MVP). Every layout always carries `:timestamp` and a `:git-state` slot (nil in MVP). The future history feature is additive: it adds entries to `:layouts` and may populate `:git-state`; no schema rewrite, no migration.
 
+**Note on the `:frameset` slot name:** per D4, the value stored in `:frameset` is a `window-state` form (the output of `window-state-get`), not a `frameset` struct. The slot name is retained for back-compat at `:version 1`. A future `:version 2` (planned alongside the two-state-model work; see D7) will rename it to `:window-state` and add a `:working-state` / `:saved-state` distinction to the layout shape.
+
 **Why this shape:** Plists at every level for cheap pattern-matching; deeply nested but flat enough to navigate by hand if persistence ever needs forensic editing. A version field is included so a future v2 has a clean break path if it ever becomes necessary.
 
 ### D6. Reserve `home` as a layout-group name; configurable builder.
@@ -142,17 +168,50 @@ Runs with the new workspace active so any buffers it opens become members.
 
 **Default builder:** opens a single `*scratch*` window. Users override with `(setq workspace-home-builder #'my/workspace-home-builder)`.
 
-### D7. Auto-save on context switch; explicit save still available.
+### D7. Explicit save in MVP; auto-save deferred to two-state model. **Known gap before beta.**
 
-**Why:** Routine work should not require explicit "save layout" commands — that was a friction point with `activities.el`. Snapshot the outgoing layout's window config into its slot whenever the user switches workspaces or layouts. `workspace-save-layout` remains for naming a new layout or for snapshotting outside of a switch.
+**Original intent:** Routine work should not require explicit "save layout" commands — that was a friction point with `activities.el`. Snapshot the outgoing layout's window config into its slot whenever the user switches workspaces or layouts.
 
-**Implementation hook:** `tab-bar-switch-to-tab` advice (or `tab-bar-tab-pre-select-functions` if exposed in the running Emacs version) for workspace switches; `workspace-switch-layout` does its own snapshot before restoring the target layout.
+**MVP behavior (revised 2026-05-24):** Auto-save on **workspace** context switch has been **removed**. Auto-save on **layout** context switch (`workspace-switch-layout`) is retained. The user-facing save commands are:
+
+- `workspace-save` (`C-x w S`): captures the current frame into the current workspace's recent layout-group; syncs `:buffer-files` from bufferlo; writes the registry to disk synchronously.
+- `workspace-restore` (`C-x w o`): materializes a saved workspace as a tab — switching to its live tab if one exists, otherwise creating a tab and applying the saved window-state and pre-loading buffer files.
+
+**Why the revision was forced:** the layout schema (D5) holds exactly one layout per layout-group in MVP. With tab-switch autosave in place, the autosave would faithfully capture the *current* frame state — including any post-kill or transient state — and overwrite the user's explicit `workspace-save` snapshot. The trigger condition was easy to hit: `tab-bar-close-tab` internally calls `tab-bar-select-tab`, which fired the autosave on the outgoing tab, capturing whatever was left after killing buffers, and obliterating the prior save.
+
+**Known gap (must close before beta):** Without auto-save on workspace switch, the persisted state can lag behind the user's working state. To restore auto-save semantics without re-creating the clobber bug, the layout shape needs a *two-state* split (activities.el-style):
+
+- `:saved-state` — written by explicit `workspace-save` only. Authoritative across restarts.
+- `:working-state` — written by autosaves (workspace-switch, idle-timer, kill-emacs). Tracks the current frame's drift.
+- `workspace-restore` prefers `:working-state` if present, otherwise `:saved-state`.
+- A new `workspace-revert` command resets `:working-state` from `:saved-state`.
+
+This is a schema change (`:version 2`) and is tracked as a follow-up. The current MVP behavior — explicit save only — is *intentionally minimal* to ship a correct round-trip and is **not the steady-state design**.
+
+**Implementation hook (current):** `workspace-switch-layout` calls `workspace--autosave-current-layout` before restoring the target layout (intra-workspace, still safe because the source and destination are sibling slots in the same workspace). `workspace-save` does the same plus a synchronous flush. There is no advice on `tab-bar-select-tab`.
 
 ### D8. Side-by-side development; single hard-cutover commit.
 
 **Why:** The user accepted plan (b) from the discovery conversation: ship the `workspaces` package while `activities` and `perspective` remain loaded. The new package is exercised on its own keybindings (`C-x w` prefix is reserved here); legacy commands (`C-x C-a ...`, `C-c M-p ...`) remain functional. When the new package is stable, a single cutover commit removes legacy modules, dependencies, and the `gptel/sessions/activities-integration.org` loader. This avoids a "limbo" period where the user has neither a working old system nor a working new one.
 
-**Tab-bar coexistence note:** `activities-tabs-mode` and our `workspaces` package both want to create tabs. During side-by-side development each tab is "owned" by either workspaces (carries a `:workspace-name` tab parameter we set) or by activities. Workspace commands ignore non-workspace tabs and vice versa. The cutover commit removes `activities-tabs-mode` from the picture entirely.
+**Tab discriminator (revised 2026-05-24):** Originally, workspace-owned tabs were tagged with a custom `workspace-name` tab parameter. Tab-bar's internal `tab-bar--current-tab-make` / `tab-bar-select-tab` (Emacs 30, `tab-bar.el` lines ~1352–1424) rebuild the current-tab alist from scratch on every switch and copy only the `name`, `explicit-name`, and optionally `group` keys — **any custom tab parameter is dropped on every tab switch.** That made the discriminator nil immediately after any selection.
+
+The discriminator is now the tab's `name` slot itself. A tab is owned by workspaces iff its `name` matches a key in `workspace--registry`. `workspace--tab-workspace-name` does the registry lookup; `workspace--current-name` returns it for the selected tab. No custom tab parameter is involved, so the tab-bar drop-on-switch behavior is harmless to us.
+
+Coexistence with activities-tabs-mode still works for the same reason: activities-owned tabs have their own names (prefixed `α:`), don't appear in `workspace--registry`, and are no-ops for workspace commands.
+
+**Branch-local note:** On the `add-workspaces-package` branch, `persp-mode`, `activities-mode`, and `activities-tabs-mode` are explicitly disabled (`config/core/window-management.org`) to remove interference during MVP testing. The packages remain installed and their commands remain available via `M-x`; only the auto-activated modes are off. This is a temporary measure for diagnosis — the hard cutover commit (Migration Plan, Phase 2) is the permanent removal.
+
+### D10. Explicit save and restore commands.
+
+User-facing commands for persistence-as-deliberate-action:
+
+- `workspace-save` (`C-x w S`) — capture current frame into the recent layout-group, sync `:buffer-files` from bufferlo, write the registry to disk synchronously. Errors when not on a workspace tab.
+- `workspace-restore` (`C-x w o`) — completing-read over every workspace name in the registry (including saved-but-not-materialized ones). If a live tab exists for the chosen name, switch to it; otherwise create a tab, pre-load its `:buffer-files`, and apply its saved window-state.
+
+These complement (do not replace) `workspace-switch`, which remains scoped to live tabs only.
+
+The internal `workspace-save-state` function is retained as a debounced-flush primitive (still useful for the `:after workspace--autosave-current-layout` advice that schedules persistence after intra-workspace layout switches), but is no longer bound by default. The previous `C-x w S` → `workspace-save-state` binding was a usability trap because `workspace-save-state` flushes the in-memory registry without capturing the live frame — users hit "save" and silently persisted whatever stale snapshot was last captured.
 
 ### D9. Testing approach: Buttercup, co-located, behavioral-spec mapping.
 

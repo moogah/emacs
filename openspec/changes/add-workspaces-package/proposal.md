@@ -21,7 +21,11 @@ both, and replaces them.
   - Per-workspace buffer membership scoping (via `bufferlo`)
   - `workspace-remove-buffer` command (preferred for "I'm done with
     this here"); `kill-buffer` semantics left intact (Story A)
-  - Auto-save current layout on workspace/layout context switch
+  - Explicit `workspace-save` (C-x w S) and `workspace-restore`
+    (C-x w o) commands. Auto-save on workspace context switch is
+    **deferred for MVP** pending a two-state (saved/working) data-model
+    revision — see design.md §D7. Auto-save on intra-workspace
+    layout switch (`workspace-switch-layout`) is retained.
   - Per-machine persistence (matches the existing `jf/machine-role`
     convention used by activities)
   - Data model forward-compatible with timestamped layout revisions
