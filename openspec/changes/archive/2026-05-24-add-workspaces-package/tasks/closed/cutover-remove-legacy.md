@@ -2,7 +2,7 @@
 name: cutover-remove-legacy
 description: Hard-cutover commit that removes activities, activities-extensions, perspective, and the activities-integration gptel module. Run only after the user judges the workspaces package stable.
 change: add-workspaces-package
-status: blocked
+status: done
 relations:
   - "blocked-by:keybindings-and-prefix"
 ---

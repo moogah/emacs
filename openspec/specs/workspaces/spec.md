@@ -1,4 +1,38 @@
-## ADDED Requirements
+# Workspaces
+
+## Purpose
+
+Provides a purpose-built window/workspace management system layered
+directly on `tab-bar-mode`. A *workspace* is a uniquely-named
+user-facing context surfaced as a single tab; each workspace owns an
+arbitrary number of named *layouts* (window configurations), a
+*home* layout produced by a configurable builder, a *recent-layout
+pointer*, a per-workspace *buffer membership* set scoped via
+`bufferlo`, and a per-machine persistence file keyed by
+`jf/machine-role`.
+
+This capability supersedes the legacy combination of `activities.el`
++ `activities-extensions` (workflow shell + tabs + persistence but
+only one default+last window-state per activity) and `perspective.el`
+(buffer scoping but no tab-bar, no named layouts, no persistence in
+this configuration). Both legacy modules were removed in the
+`add-workspaces-package` cutover.
+
+Implementation: `config/workspaces/` (literate, multi-file:
+`data-model`, `tabs`, `layouts`, `buffer-membership`, `persistence`,
+`workspaces`). User-facing prefix: `C-x w`.
+
+The on-disk persistence schema is `:version 1` (one window-state per
+layout-group; explicit `workspace-save` only). Two follow-up
+refinements are in flight: a `:version 2` schema bump that splits
+layouts into `:saved-state` and `:working-state` slots and restores
+autosave-on-context-switch (see
+`openspec/changes/refine-workspaces-two-state-layout/`), and a
+bookmark-based buffer reincarnation port from activities.el that
+preserves point, narrowing, major-mode state, and non-file buffers
+across restart.
+
+## Requirements
 
 ### Requirement: Workspace identity and tab visibility
 
@@ -104,6 +138,8 @@ The recent-layout pointer SHALL update whenever a layout becomes active, includi
 ---
 
 ### Requirement: Auto-save layout on context switch (MVP: partial; full coverage deferred to v2 schema)
+
+The package SHALL auto-save the outgoing layout's window configuration on intra-workspace layout switch, capturing it into the layout-group slot before restoring the destination layout. The package SHALL NOT auto-save on workspace context switch (tab change) under the v1 schema; the rationale and the deferred follow-up are described below.
 
 **MVP scope (as implemented):** Auto-save on intra-workspace **layout** switch is in scope and behaves as specified below. Auto-save on **workspace** switch (changing tabs) is **deferred** until the layout schema supports separate `:saved-state` and `:working-state` slots (see design.md §D7). The v1 schema holds exactly one window-state per layout-group, so a tab-switch autosave would overwrite the user's explicit `workspace-save` snapshot with whatever transient state happened to be in the frame at switch time. This was the source of an MVP-blocking restore bug (see closed task `fix-restoration-roundtrip`).
 
