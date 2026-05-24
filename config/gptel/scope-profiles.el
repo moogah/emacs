@@ -646,7 +646,7 @@ future additions to scope configuration."
       result)))
 
 (defun jf/gptel-scope-profile--create-for-session
-    (preset-name target-dir &optional project-root worktree-paths parent-session-id preset-spec)
+    (preset-name &optional project-root worktree-paths parent-session-id preset-spec)
   "Resolve the scope profile for PRESET-NAME and return drawer text.
 
 Returns a `register/shape/drawer-text-block' string ready to be
@@ -667,20 +667,7 @@ upstream-compatible chat-mode keys in the rendered drawer.  When
 PRESET-SPEC is omitted, the legacy preset-name-only drawer shape is
 rendered (no chat-mode snapshot keys, only `:GPTEL_PRESET:' and the
 scope keys).  Callers that want the full snapshot must pass
-PRESET-SPEC explicitly — Layer 2 of gptel-drawer-as-source-of-truth
-(task `wire-snapshot-into-session-creation') threads it from session-
-creation entrypoints.
-
-TARGET-DIR is currently unused (the renderer returns a string; callers
-write it to disk themselves).  The argument is retained so existing
-call sites continue to compile against the public signature.
-
-The previous side effect (writing `scope.yml' to TARGET-DIR) has been
-removed.  Callers that have not yet been rewired to handle the returned
-drawer text will silently drop it; see the change
-`gptel-scope-in-org-properties' (tasks `rewire-session-creation' and
-`rewire-persistent-agent') for the integration work."
-  (ignore target-dir)
+PRESET-SPEC explicitly."
   (let* ((resolved (jf/gptel-scope-profile--resolve preset-name))
          (expanded (when resolved
                      (jf/gptel-scope-profile--expand-variables resolved project-root)))

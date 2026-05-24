@@ -22,8 +22,8 @@ Branches SHALL be first-class session objects with independent evolution.
 #### Scenario: Branch as first-class session object
 - **WHEN** a branch is created from a parent branch
 - **THEN** the new branch SHALL have its own directory under `branches/`
-- **AND** contain a complete session.org file (not a reference or delta)
-- **AND** contain its own scope-plan.yml, scope.yml, and branch-metadata.yml
+- **AND** contain a complete session.org file (not a reference or delta) whose file-level `:PROPERTIES:` drawer carries the inherited preset, scope keys, and (when applicable) parent-session-id
+- **AND** contain its own branch-metadata.yml recording parent branch and branch point
 - **AND** be registered independently in the session registry
 - **AND** support further branching (branches can have child branches)
 
@@ -224,34 +224,31 @@ Agent replication SHALL:
 - **AND** reduce unnecessary state replication
 - **AND** maintain agent isolation guarantees
 
-### Requirement: Configuration inheritance
+### Requirement: Configuration inheritance via drawer
 
-The system SHALL copy configuration files from the parent branch to the new branch.
+The system SHALL inherit the parent branch's preset, scope, and session-level configuration into the new branch via the file-level `:PROPERTIES:` drawer carried at `point-min` of the parent's `session.org`.
 
-Configuration inheritance SHALL copy:
-- `scope-plan.yml` - Session metadata (session_id, created, type, preset)
-- `scope.yml` - Mutable scope configuration
+Configuration inheritance SHALL:
+- Copy the parent's `session.org` content (drawer + conversation history) verbatim up to the branch point — see "Requirement: Context truncation"
+- Preserve all drawer keys (`:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:` when present, the upstream-compatible chat-mode snapshot keys, and the `:GPTEL_SCOPE_*:` keys) in the new branch's `session.org`
+- NOT write any session-level sidecar (`scope.yml`, `metadata.yml`, `scope-plan.yml` are dead — see sessions-persistence.md)
 
-Configuration files SHALL be copied as-is, preserving content exactly.
+Subsequent changes to the drawer in either branch SHALL NOT affect the other, since each branch owns its own `session.org`.
 
-The new branch's scope-plan.yml SHALL maintain the same `session_id`, ensuring all branches share a common session identifier.
+The branch lineage (parent branch name, branch point position) is the only data the new branch records SEPARATELY from the drawer — it lives in `branch-metadata.yml` and is documented in "Requirement: Branch metadata" below.
 
-#### Scenario: Copying scope-plan.yml
-- **WHEN** creating a new branch from a parent
-- **THEN** the parent's scope-plan.yml SHALL be copied to the new branch directory
-- **AND** the session_id field SHALL remain unchanged
-- **AND** the created and updated timestamps SHALL be inherited
+**Session identity** lives in the directory path (`<session-dir>/branches/<branch-name>/`), not in a sidecar field. All branches of one session share the same `<session-dir>` and therefore the same session-id by construction.
 
-#### Scenario: Copying scope.yml
-- **WHEN** creating a new branch from a parent
-- **THEN** the parent's scope.yml SHALL be copied to the new branch directory
-- **AND** the scope configuration SHALL be identical
-- **AND** subsequent changes to scope in either branch SHALL NOT affect the other
+#### Scenario: Drawer is preserved verbatim across branch creation
+- **WHEN** creating a new branch from a parent whose `session.org` carries `:GPTEL_PRESET: executor`, `:GPTEL_SCOPE_READ:` patterns, and chat-mode snapshot keys
+- **THEN** the new branch's `session.org` SHALL contain the same `:PROPERTIES:` drawer at `point-min` with all those keys intact
+- **AND** no separate sidecar file SHALL be written for preset or scope state
+- **AND** subsequent drawer edits in either branch SHALL NOT propagate to the other
 
-#### Scenario: Session ID consistency
+#### Scenario: Session ID consistency via directory path
 - **WHEN** a session has multiple branches (main, feature-1, feature-2)
-- **THEN** all branches SHALL have the same session_id in their scope-plan.yml
-- **AND** enable identification of branches belonging to the same logical session
+- **THEN** all branches SHALL share the same parent `<session-dir>` and therefore the same session-id (extracted from the path at auto-init time)
+- **AND** the registry key `"<session-id>/<branch-name>"` identifies each branch as belonging to the logical session
 
 ### Requirement: Symlink management
 
@@ -318,9 +315,9 @@ The system SHALL auto-initialize new branch buffers when opened via find-file-ho
 Auto-initialization for branches SHALL:
 1. Detect files matching pattern `*/branches/*/session.org`
 2. Extract session-id and branch-name from the file path
-3. Set buffer-local variables (session-id, session-dir, branch-name, branch-dir)
-4. Load preset configuration from scope.yml
-5. Enable gptel-chat-mode and auto-save
+3. Enable `gptel-chat-mode`; its mode-hook reads the file-level `:PROPERTIES:` drawer and applies the inherited preset, scope keys, and parent-session-id buffer-locally
+4. Set buffer-local session-identification variables (session-id, session-dir, branch-name, branch-dir)
+5. Register the buffer in the session registry
 
 This behavior is inherited from the persistence system's find-file-hook.
 
@@ -370,7 +367,7 @@ The system SHALL validate branch creation preconditions and handle errors gracef
 Validation SHALL ensure:
 - Source buffer is session-initialized
 - Branch point selection succeeds
-- Parent branch has required metadata files (scope-plan.yml, scope.yml)
+- Parent branch has a valid `session.org` with a `:PROPERTIES:` drawer at `point-min`
 - Filesystem operations succeed (directory creation, file copying)
 
 Errors SHALL be logged at ERROR level and reported to the user.
@@ -380,10 +377,10 @@ Errors SHALL be logged at ERROR level and reported to the user.
 - **THEN** the system SHALL abort branch creation
 - **AND** display an error message: "Not a gptel session buffer"
 
-#### Scenario: Missing parent metadata
-- **WHEN** the parent branch is missing scope-plan.yml or scope.yml
+#### Scenario: Missing parent session.org
+- **WHEN** the parent branch directory lacks a `session.org`, or its `session.org` lacks the file-level `:PROPERTIES:` drawer at `point-min`
 - **THEN** the system SHALL abort branch creation
-- **AND** log an ERROR with details of missing files
+- **AND** log an ERROR identifying the missing file or malformed drawer
 - **AND** report failure to the user
 
 #### Scenario: Filesystem error handling
@@ -438,8 +435,8 @@ Logs SHALL include session-id and branch-name for traceability.
 The system SHALL build on session persistence fundamentals, reusing core infrastructure.
 
 Branching SHALL depend on:
-- Directory structure (branches/ subdirectory, session.org, metadata files)
-- Metadata formats (scope-plan.yml, scope.yml, branch-metadata.yml)
+- Directory structure (`branches/` subdirectory, `session.org` with file-level `:PROPERTIES:` drawer)
+- Lineage format (`branch-metadata.yml` — the only sidecar; preset and scope live in the drawer)
 - Path resolution functions (branch-dir-path, context-file-path)
 - Registry for session/branch tracking
 - Auto-initialization via find-file-hook
@@ -451,10 +448,10 @@ Branching SHALL NOT duplicate persistence logic; it orchestrates existing infras
 - **THEN** the system SHALL use path resolution functions from filesystem.el
 - **AND** NOT hardcode file paths or names
 
-#### Scenario: Reusing metadata functions
-- **WHEN** copying configuration to a new branch
-- **THEN** the system SHALL use metadata reading/writing functions from metadata.el
-- **AND** NOT reimplement YAML parsing
+#### Scenario: Inheriting preset and scope via session.org copy
+- **WHEN** propagating configuration to a new branch
+- **THEN** the system SHALL copy the parent's `session.org` content (drawer + body) via the context-truncation step
+- **AND** NOT read or write any preset/scope sidecar file (none exist post-drawer-as-source-of-truth)
 
 #### Scenario: Reusing registry for branch tracking
 - **WHEN** registering a new branch

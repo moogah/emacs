@@ -480,7 +480,6 @@ Returns plist with:
          ;; a side effect (cycle-1 removed that path).
          (drawer-text (jf/gptel-scope-profile--create-for-session
                        preset-name
-                       main-branch-dir   ; target-dir (currently unused)
                        project-root
                        worktree-paths
                        parent-session-id

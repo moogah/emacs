@@ -2,10 +2,14 @@
 name: fix-stale-metadata-yml-assertion-in-filesystem-test
 description: The ERT test test-directory-creation-org-session-structure in config/gptel/sessions/filesystem-test.el asserts (file-exists-p "metadata.yml"), but session creation stopped writing metadata.yml sidecars before this point (Decision 6 — "no metadata.yml is written"). The test has been stale since commit be6b80c and is one of the pre-existing baseline ERT failures. Remove the obsolete assertion and rename the test to reflect what it actually verifies.
 source: gptel-drawer-as-source-of-truth
-status: ready
+status: done
 relations:
   - discovered-from:emit-system-prompt-and-chat-headings-at-creation
 ---
+
+## Resolution (2026-05-24)
+
+Closed by commit `3449b2b` ("Fix test-directory-creation-org-session-structure mock arity and drop stale metadata.yml assertion"). The metadata.yml assertion was removed; the test was not renamed because the session.org existence assertion that remains is still the canonical "directory hierarchy created" check that the test's name reflects. A second related fix landed in the same commit: the `cl-letf` stub for `jf/gptel-scope-profile--create-for-session` was switched from a 5-arg lambda returning nil to `(&rest _)` returning the minimum-valid drawer text `":PROPERTIES:\n:END:\n"` (required because the production caller now threads the return value through `jf/gptel--append-drawer-property`, which asserts on the `:END:` marker). Author-blind review (`.orchestrator/cycles/post-hoc-2026-05-24/reviews/ws-c-filesystem-test-mock-arity.md`) returned 0 findings.
 
 ## Files to modify
 

@@ -16,16 +16,17 @@ Provides file-based persistence for gptel conversations across Emacs sessions. E
 ```
 ~/.gptel/sessions/<session-id>/
 ├── branches/<branch-name>/
-│   ├── session.org         # Conversation history (chat-mode block format) + scope drawer
-│   ├── metadata.yml        # Session metadata
-│   ├── branch-metadata.yml # Branch info (non-main only)
+│   ├── session.org         # Conversation history (chat-mode block format) +
+│   │                       # file-level :PROPERTIES: drawer (preset snapshot,
+│   │                       # parent-session-id, scope keys)
+│   ├── branch-metadata.yml # Branch lineage (non-main only)
 │   ├── tools.org           # Tool log (optional)
 │   ├── system-prompts.org  # Prompt log (optional)
 │   └── agents/             # Sub-agents (optional)
 └── current -> branches/<branch-name>  # Active branch symlink
 ```
 
-Scope is embedded in `session.org`'s file-level `:PROPERTIES:` drawer at `point-min`; there is no `scope.yml` sidecar.
+`session.org` is the single authoritative file for session content AND session-level configuration. All preset, parent-session-id, and scope state lives in its file-level `:PROPERTIES:` drawer at `point-min`. The sessions subsystem does NOT write `metadata.yml`, `scope.yml`, `scope-plan.yml`, or any other session-level sidecar. (`branch-metadata.yml` is the lone exception — it carries branch lineage information and is documented in sessions-branching.md.)
 
 ### File Formats
 
@@ -42,15 +43,13 @@ Scope is embedded in `session.org`'s file-level `:PROPERTIES:` drawer at `point-
 - Mutable scope configuration lives in the drawer and is updated in place
   by the expansion UI
 
-**metadata.yml**:
-- Format: YAML
-- Keys: `session_id`, `created`, `updated`, `preset`, `type` (optional), `parent_session_id` (optional)
-- Contains session-level metadata
-
 **branch-metadata.yml**:
 - Format: YAML
 - Location: Non-main branches only
 - Keys: `parent_branch`, `created`, `branch_point_position` (optional)
+- Purpose: branch lineage (parent-child links). Session-level metadata
+  (preset, parent-session-id) does NOT live here — see `session.org`'s
+  `:PROPERTIES:` drawer below.
 
 ### Session Identification
 
@@ -65,8 +64,11 @@ Scope is embedded in `session.org`'s file-level `:PROPERTIES:` drawer at `point-
 **Data structure**: Hash table `jf/gptel--session-registry`
 - **Key**: `"session-id/branch-name"` (string)
 - **Value**: `(:session-id :session-dir :branch-name :branch-dir :buffer)` (plist)
-- **Important**: Metadata NOT cached - read from disk on-demand
-- **Source of truth**: Filesystem, not registry
+- **Important**: Session-level configuration (preset, parent-session-id,
+  scope) is NOT cached in the registry — it lives in `session.org`'s
+  `:PROPERTIES:` drawer and is read on-demand at mode activation by
+  `gptel-chat--apply-declared-preset`.
+- **Source of truth**: Filesystem (`session.org`'s drawer), not registry
 
 ### Buffer-Local Variables
 
@@ -75,7 +77,8 @@ Session buffers have these buffer-local vars:
 - `jf/gptel--session-dir`
 - `jf/gptel--branch-name`
 - `jf/gptel--branch-dir`
-- `jf/gptel--parent-session-id` (for agents)
+- `jf/gptel--parent-session-id` (for agents — read from the drawer's
+  `:GPTEL_PARENT_SESSION_ID:` at mode activation)
 - `jf/gptel-autosave-enabled`
 - `gptel-activity-worktrees` (for activities)
 
@@ -89,7 +92,6 @@ The system SHALL create this hierarchy for each session:
 <session-dir>/
 ├── branches/<branch-name>/
 │   ├── session.org
-│   ├── metadata.yml
 │   └── branch-metadata.yml (if not main)
 └── current -> branches/<branch-name>
 ```
@@ -101,44 +103,24 @@ The system SHALL create this hierarchy for each session:
 - **THEN** creates `branches/main/` directory
 - **AND** `current` symlink points to `branches/main`
 - **AND** no `branch-metadata.yml` in main branch
-- **AND** no `scope.yml` is created (scope lives in `session.org`'s drawer)
+- **AND** no `scope.yml`, `metadata.yml`, or other sidecar is created (preset and scope live in `session.org`'s `:PROPERTIES:` drawer)
 
 #### Scenario: Branch creation
 - **WHEN** running `M-x jf/gptel-branch-session`
 - **THEN** creates `branches/<timestamp>-<name>/` directory
 - **AND** includes `branch-metadata.yml` with parent reference
 - **AND** updates `current` symlink to new branch
-- **AND** the branch's `session.org` carries its own `:PROPERTIES:` drawer with scope copied from the parent branch's drawer
+- **AND** the branch's `session.org` carries its own `:PROPERTIES:` drawer (preset, scope keys, parent-session-id when applicable) inherited verbatim from the parent branch's `session.org` (the drawer travels with the org file when context is copied — see sessions-branching.md)
 
 #### Scenario: Agent session creation
 - **WHEN** PersistentAgent tool creates sub-agent
 - **THEN** creates `branches/<branch-name>/agents/<preset>-<timestamp>-<desc>/`
-- **AND** agent directory has `session.org` and `metadata.yml`
-- **AND** the agent's `session.org` includes a `:PROPERTIES:` drawer with the agent's scope keys
-- **AND** metadata.yml includes `type: "agent"` and `parent_session_id`
+- **AND** the agent directory contains `session.org` with a `:PROPERTIES:` drawer carrying `:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:`, the agent's scope keys, and the upstream-compatible chat-mode snapshot
+- **AND** no `metadata.yml` sidecar is written (agent-type and parent-session-id live in the drawer, not in a sidecar)
 
 ### Requirement: Session file formats
 
-#### metadata.yml format
-
-SHALL contain:
-- `session_id`: Session identifier
-- `created`: ISO8601 timestamp
-- `updated`: ISO8601 timestamp
-- `preset`: Preset name (e.g., "executor")
-- `type`: Optional ("agent" for sub-agents, "branch" for branches)
-- `parent_session_id`: Optional (parent session for agents/branches)
-
-**Implementation**: `config/gptel/sessions/metadata.org`
-
-##### Scenario: New session metadata
-- **WHEN** creating session
-- **THEN** writes metadata.yml with session_id, created, updated, preset
-- **AND** reads back as plist with kebab-case keys (`:session-id`, `:created`, etc.)
-
-##### Scenario: Agent session metadata
-- **WHEN** creating agent session
-- **THEN** metadata.yml includes `type: "agent"` and `parent_session_id`
+Session-level metadata (preset name, parent-session-id, scope keys, chat-mode snapshot) lives in `session.org`'s file-level `:PROPERTIES:` drawer at `point-min`. The sessions subsystem does NOT emit `metadata.yml`, `scope.yml`, or any other session-level sidecar — see "Requirement: session.org as authoritative session file" below for the drawer-key contract. (`branch-metadata.yml` carries branch lineage only and is documented in sessions-branching.md.)
 
 #### session.org format
 
@@ -156,7 +138,7 @@ Legacy `session.md` branches from before the chat-mode cutover remain on disk in
 - **WHEN** user makes requests and saves (`C-x C-s`)
 - **THEN** `save-buffer` writes the chat-mode block structure to session.org
 - **AND** no `gptel--bounds` Local Variables block is appended
-- **AND** `metadata.yml`'s `:updated` field is refreshed via a separate sessions before-save-hook that writes metadata only
+- **AND** no separate metadata sidecar is touched — `session.org` (drawer + conversation body) is the only file the save path writes for session-level state
 
 ##### Scenario: Legacy `session.md` branches are not enumerated
 - **WHEN** the sessions subsystem scans for session files (e.g., in `jf/gptel--init-registry` or `jf/gptel--find-all-branches-with-agents`)
@@ -191,10 +173,10 @@ The system SHALL maintain global in-memory registry for active sessions.
 - **THEN** registry stores buffer reference
 - **AND** `jf/gptel--update-session-buffer` updates registry
 
-#### Scenario: Metadata read on-demand
-- **WHEN** need session metadata
-- **THEN** call `jf/gptel--read-session-metadata` to read from disk
-- **AND** metadata NOT cached in registry
+#### Scenario: Session-level configuration read on-demand
+- **WHEN** code needs the active preset, parent-session-id, or scope for a session
+- **THEN** the value is read from the session buffer's `:PROPERTIES:` drawer (or, when no buffer is open, from `session.org`'s drawer on disk)
+- **AND** the registry holds NO cached copy — `gptel-chat--apply-declared-preset` re-reads the drawer at mode activation
 
 ### Requirement: Buffer-local session state
 
@@ -207,11 +189,11 @@ The system SHALL track session metadata in buffer-local variables for runtime ac
   - `jf/gptel--session-dir` (absolute path to session)
   - `jf/gptel--branch-name` (extracted from file path)
   - `jf/gptel--branch-dir` (absolute path to branch)
-  - `jf/gptel--parent-session-id` (from metadata.yml if agent)
+- **AND** `gptel-chat-mode-hook` runs `gptel-chat--apply-declared-preset`, which reads the file-level `:PROPERTIES:` drawer and sets `jf/gptel--parent-session-id` from `:GPTEL_PARENT_SESSION_ID:` when present (agent sessions)
 
 #### Scenario: Agent session vars
 - **WHEN** opening agent session
-- **THEN** `jf/gptel--parent-session-id` set from metadata.yml
+- **THEN** `jf/gptel--parent-session-id` is set from the drawer's `:GPTEL_PARENT_SESSION_ID:` value
 - **AND** `jf/gptel--branch-name` set to "main" (agents don't branch)
 
 ### Requirement: Auto-initialization enables `gptel-chat-mode`
@@ -219,14 +201,12 @@ The system SHALL track session metadata in buffer-local variables for runtime ac
 The auto-init hook (`jf/gptel--auto-init-session-buffer`) SHALL detect session files by matching the path pattern `*/branches/<branch-name>/session.org` (or the nested agent shape `*/<session-id>/branches/<branch>/agents/<agent>/session.org` and the flat legacy agent shape `*/<session-id>/agents/<agent>/session.org`). On match, it SHALL:
 
 1. Extract `session-id` and `branch-name` from the path (branch-name defaults to `"main"` for the flat legacy agent shape that has no `branches/` segment).
-2. Set the five buffer-local session variables (including `jf/gptel--parent-session-id`, populated from `metadata.yml`'s `parent_session_id` when present).
-3. Register the buffer in `jf/gptel--session-registry`.
-4. Read `metadata.yml` from the branch directory.
-5. Ensure the major mode is `gptel-chat-mode` (switching if necessary).
-6. Apply the preset named in `metadata.yml` via `gptel--apply-preset` with a buffer-local setter.
-7. Update the `current` symlink to point at this branch (suppressed for the flat legacy agent shape, which has no `branches/` directory).
+2. Ensure the major mode is `gptel-chat-mode` (switching if necessary). The mode hook then runs `gptel-chat--apply-declared-preset`, which reads the file-level `:PROPERTIES:` drawer at `point-min` and applies its `:GPTEL_PRESET:` buffer-locally, sets `jf/gptel--parent-session-id` from `:GPTEL_PARENT_SESSION_ID:` (when present), and installs the scope keys.
+3. Set the four buffer-local session-identification variables (`jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`). These run AFTER mode activation because mode-switch wipes buffer-locals via `kill-all-local-variables`.
+4. Register the buffer in `jf/gptel--session-registry`.
+5. Update the `current` symlink to point at this branch (suppressed for the flat legacy agent shape, which has no `branches/` directory).
 
-**Ordering is load-bearing.** `gptel-chat-mode` activation (step 5) runs before `metadata.yml` preset application (step 6) so that any `:GPTEL_PRESET:` drawer in the buffer is re-applied by the chat-mode hook first, letting the authoritative `metadata.yml` preset be applied last and win.
+**Ordering is load-bearing.** Mode activation runs before session-var setup so that `gptel-chat-mode-hook`'s drawer-driven preset application sees a clean buffer; the session-identification vars are then re-set on top of the mode-cleared buffer-local table.
 
 The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--save-state`, and SHALL NOT invoke `gptel--restore-state`.
 
@@ -253,25 +233,26 @@ The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--sa
 - **AND** enables `gptel-chat-mode` as the major mode
 - **AND** suppresses the `jf/gptel--update-current-symlink` side-effect
 
-#### Scenario: Parent session id is populated from metadata.yml
-- **WHEN** auto-init reads `metadata.yml` for any agent or branch session
-- **AND** the file contains a `parent_session_id` field
+#### Scenario: Parent session id is populated from the drawer
+- **WHEN** mode-activation runs `gptel-chat--apply-declared-preset` on an agent or branch `session.org`
+- **AND** the file-level `:PROPERTIES:` drawer contains a `:GPTEL_PARENT_SESSION_ID:` line
 - **THEN** the buffer-local `jf/gptel--parent-session-id` is set to that value
-- **WHEN** `metadata.yml` does not contain a `parent_session_id` field
+- **WHEN** the drawer does NOT contain `:GPTEL_PARENT_SESSION_ID:`
 - **THEN** `jf/gptel--parent-session-id` remains nil (its `defvar-local` default)
 
-#### Scenario: New session (preset from metadata.yml)
+#### Scenario: New session (preset from drawer)
 - **WHEN** a freshly created `session.org` is opened for the first time
-- **THEN** auto-init reads `preset` from `metadata.yml`
-- **AND** applies it via `gptel--apply-preset` with a buffer-local setter
+- **THEN** `gptel-chat-mode-hook` reads the file-level drawer's `:GPTEL_PRESET:` value
+- **AND** `gptel-chat--apply-declared-preset` applies that preset via `gptel--apply-preset` with a buffer-local setter
 - **AND** `gptel-chat-mode` is active
 - **AND** `gptel-mode` minor mode is NOT enabled
 
 #### Scenario: Existing session (no Local Variables round-trip)
 - **WHEN** a previously-saved `session.org` is reopened
-- **THEN** auto-init reads `preset` from `metadata.yml` (the authoritative source)
+- **THEN** mode-activation reads `:GPTEL_PRESET:` from the file-level drawer (the authoritative source)
 - **AND** applies it buffer-locally
 - **AND** does NOT call `gptel--restore-state` or parse any Local Variables block
+- **AND** does NOT read any `metadata.yml` sidecar (none exists)
 
 ### Requirement: session.org as authoritative session file
 
@@ -454,8 +435,9 @@ The system SHALL support creating sessions tied to activities with project isola
   `gptel-mode` is NOT enabled on session buffers
 - `gptel--save-state` / `gptel--restore-state` are NOT invoked on session
   buffers — the chat-mode block format is self-describing
-- Plain `save-buffer` persists conversation; a separate before-save-hook
-  refreshes `metadata.yml`'s `:updated` timestamp (metadata only)
+- Plain `save-buffer` persists conversation AND the drawer (via the
+  chat-mode save path's drawer materialiser); no metadata sidecar is
+  refreshed because none exists
 
 ### With Scope Subsystem
 - Scope created via `jf/gptel-scope-profile--create-for-session`
