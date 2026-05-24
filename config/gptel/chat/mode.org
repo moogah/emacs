@@ -331,6 +331,76 @@ matcher's invariant."
         (> font-lock-end orig-end))))
 #+end_src
 
+* Tool-block rendering
+
+Assistant turns wrap their tool calls in nested =#+begin_tool= /
+=#+end_tool= special blocks. Org's font-lock matcher
+(=org-fontify-meta-lines-and-blocks-1=) walks blocks top-down and
+treats the outer =#+begin_assistant= ... =#+end_assistant= as one
+span — the nested tool delimiter lines inside it are seen as plain
+content and never receive =org-block-begin-line= /
+=org-block-end-line= face. Verified in vanilla =org-mode -Q= with the
+same nesting, so this is upstream org behavior we work around rather
+than a regression in =gptel-chat-mode=. (Top-level tool blocks — the
+shape upstream =gptel-mode= used to write before sessions adopted
+=gptel-chat-mode= — were styled by org natively and required no
+override.)
+
+=gptel-chat--tool-block-font-lock-keywords= restores the visual cue
+by anchoring its own column-0 matchers for =^#\+begin_tool\b= and
+=^#\+end_tool\b= and re-stamping the whole line with org's standard
+block-delimiter faces. Registered in the mode body via
+=font-lock-add-keywords ... 'append= so org's own keywords still run
+first; the OVERRIDE flag (=t=) wins on the rare top-level tool block
+where org already painted the line.
+
+=gptel-chat--fold-tool-blocks= folds every nested tool block at
+mode-activation time. =org-fold-hide-block-all= would also fold the
+outer =#+begin_user= and =#+begin_assistant= blocks — that's not what
+we want; turn bodies must stay visible. So we walk the buffer with a
+column-0 =^#\+begin_tool\b= regex and call =org-fold-hide-block-toggle=
+with =FORCE= = =\='hide= and =NO-ERROR= = =\='t= on each match.
+=org-element-at-point= on the begin line correctly returns the inner
+=tool= special-block (the parser does recurse for element lookup,
+just not for font-lock), so the fold targets exactly the tool block
+even when nested inside an assistant turn. The =NO-ERROR= guard keeps
+a malformed buffer (unclosed tool block) from breaking mode activation;
+the fold simply skips that block.
+
+A toggle command is intentionally omitted. =org-cycle= /
+=org-fold-hide-block-toggle= on the begin line already toggles the
+fold (the inner block is a fully-formed org element), so the standard
+=TAB= and =C-c C-c= keybindings work without any new entry point.
+
+#+begin_src emacs-lisp
+(defconst gptel-chat--tool-block-font-lock-keywords
+  '(("^#\\+begin_tool\\b.*$" (0 'org-block-begin-line t))
+    ("^#\\+end_tool\\b.*$"   (0 'org-block-end-line   t)))
+  "Font-lock keywords styling nested `#+begin_tool' / `#+end_tool' delimiters.
+Org's own block fontifier does not recurse into nested special
+blocks, so the inner tool delimiter lines never receive
+`org-block-begin-line' / `org-block-end-line' face without this
+override.  Installed buffer-locally by `gptel-chat-mode' via
+`font-lock-add-keywords' with the OVERRIDE flag so a top-level tool
+block (already painted by org) is re-stamped with the same face — a
+no-op visually.")
+
+(defun gptel-chat--fold-tool-blocks ()
+  "Fold every nested `#+begin_tool' block in the current buffer.
+Walks column-0 `^#\\+begin_tool\\b' matches and calls
+`org-fold-hide-block-toggle' with FORCE = `hide' on each.  Targets
+only tool blocks; the outer `#+begin_user' / `#+begin_assistant'
+turn blocks are left expanded.  Malformed blocks (no matching
+`#+end_tool') are silently skipped via the NO-ERROR argument so
+the fold pass cannot break mode activation."
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward "^#\\+begin_tool\\b" nil t)
+      (goto-char (line-beginning-position))
+      (org-fold-hide-block-toggle 'hide 'no-error)
+      (forward-line 1))))
+#+end_src
+
 * Config-drawer folding
 
 A persisted =session.org= opens with a file-level =:PROPERTIES:=
@@ -383,11 +453,17 @@ was dead code.
 (defun gptel-chat--apply-startup-visibility ()
   "Apply session.org startup visibility on `gptel-chat-mode' activation.
 
-Runs from `gptel-chat-mode-hook'.  Folds every drawer via
-`org-fold-hide-drawer-all' — a buffer-wide fold, not a targeted
-one.  Covers the pre-first-heading file-level configuration
-drawer that org-mode's startup visibility does not reliably
-reach in this derived mode.
+Runs from `gptel-chat-mode-hook'.  Two passes:
+
+1. `org-fold-hide-drawer-all' — a buffer-wide drawer fold, not a
+   targeted one.  Covers the pre-first-heading file-level
+   configuration drawer that org-mode's startup visibility does not
+   reliably reach in this derived mode.
+
+2. `gptel-chat--fold-tool-blocks' — folds every nested
+   `#+begin_tool' block so a multi-tool assistant turn opens with
+   its raw tool output collapsed.  Outer `#+begin_user' and
+   `#+begin_assistant' turn bodies are left expanded.
 
 Attached to the hook rather than called from the `define-derived-mode'
 body: the body runs before `run-mode-hooks', while org-mode's
@@ -396,10 +472,11 @@ that early is silently dropped by a later activation step.  Running
 from the hook — after the body and after fold-core setup — folds
 reliably.
 
-A no-op for buffers without a drawer: a `gptel-chat-new' scratch
-buffer (no drawer, no headings) raises no error.  See design.md
+A no-op for buffers without drawers or tool blocks: a
+`gptel-chat-new' scratch buffer raises no error.  See design.md
 §Addendum (Finding C / Decision C)."
-  (org-fold-hide-drawer-all))
+  (org-fold-hide-drawer-all)
+  (gptel-chat--fold-tool-blocks))
 #+end_src
 
 The =add-hook= that wires this onto =gptel-chat-mode-hook= lives just
@@ -940,6 +1017,13 @@ file-level config drawer's wall-of-properties so a persisted
    '((gptel-chat--drawer-span-matcher
       (0 '(face org-property-value invisible nil) t)))
    'append)
+  ;; Nested-tool-block delimiter fontification — org's own block
+  ;; matcher does not recurse into nested special blocks, so the
+  ;; inner `#+begin_tool' / `#+end_tool' lines need an explicit
+  ;; OVERRIDE to receive `org-block-begin-line' / `org-block-end-line'
+  ;; face.  See §Tool-block rendering for the rationale.
+  (font-lock-add-keywords
+   nil gptel-chat--tool-block-font-lock-keywords 'append)
   ;; Migration on read (design.md §Decision 7).
   (gptel-chat--migrate-buffer))
 
