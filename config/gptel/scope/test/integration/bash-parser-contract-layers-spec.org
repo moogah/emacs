@@ -205,22 +205,16 @@ tests.
 (defun contract-layers-spec--permissive-config ()
   "Build scope config that allows all path patterns.
 Every operation type should be allowed for any path."
-  (let ((scope-yml (helpers-spec-make-scope-yml
-                    (helpers-spec--scope-with-paths
-                     '("/**") '("/**") '("/**") '("/**") nil))))
-    (unwind-protect
-        (helpers-spec-load-scope-config scope-yml)
-      (delete-file scope-yml))))
+  (helpers-spec-make-scope-config
+   :read '("/**") :write '("/**") :execute '("/**") :modify '("/**")
+   :deny '() :auth-detection "warn"))
 
 (defun contract-layers-spec--restrictive-config ()
   "Build scope config with empty path patterns.
 Every operation type should be denied for any path."
-  (let ((scope-yml (helpers-spec-make-scope-yml
-                    (helpers-spec--scope-with-paths
-                     nil nil nil nil nil))))
-    (unwind-protect
-        (helpers-spec-load-scope-config scope-yml)
-      (delete-file scope-yml))))
+  (helpers-spec-make-scope-config
+   :read '() :write '() :execute '() :modify '() :deny '()
+   :auth-detection "warn"))
 #+end_src
 
 * Test Layers
@@ -271,12 +265,10 @@ to the correct scope keys.
             (expect (memq op classified-ops) :to-be-truthy))))
 
       (it ":read-like operations are allowed with read patterns"
-        (let* ((read-yml (helpers-spec-make-scope-yml
-                          (helpers-spec--scope-with-paths
-                           '("/**") nil nil nil nil)))
-               (read-config (unwind-protect
-                                (helpers-spec-load-scope-config read-yml)
-                              (delete-file read-yml)))
+        (let* ((read-config (helpers-spec-make-scope-config
+                             :read '("/**") :write '() :execute '()
+                             :modify '() :deny '()
+                             :auth-detection "warn"))
                (read-like-ops (mapcar #'car
                                       (cl-remove-if-not
                                        (lambda (entry) (eq (cdr entry) :read-like))
@@ -288,12 +280,10 @@ to the correct scope keys.
                     :to-be t))))
 
       (it ":write-like operations are allowed with write patterns"
-        (let* ((write-yml (helpers-spec-make-scope-yml
-                           (helpers-spec--scope-with-paths
-                            nil '("/**") nil nil nil)))
-               (write-config (unwind-protect
-                                 (helpers-spec-load-scope-config write-yml)
-                               (delete-file write-yml)))
+        (let* ((write-config (helpers-spec-make-scope-config
+                              :read '() :write '("/**") :execute '()
+                              :modify '() :deny '()
+                              :auth-detection "warn"))
                (write-like-ops (mapcar #'car
                                        (cl-remove-if-not
                                         (lambda (entry) (eq (cdr entry) :write-like))
@@ -305,12 +295,10 @@ to the correct scope keys.
                     :to-be t))))
 
       (it ":modify-like operations are allowed with modify patterns"
-        (let* ((modify-yml (helpers-spec-make-scope-yml
-                            (helpers-spec--scope-with-paths
-                             nil nil nil '("/**") nil)))
-               (modify-config (unwind-protect
-                                  (helpers-spec-load-scope-config modify-yml)
-                                (delete-file modify-yml)))
+        (let* ((modify-config (helpers-spec-make-scope-config
+                               :read '() :write '() :execute '()
+                               :modify '("/**") :deny '()
+                               :auth-detection "warn"))
                (modify-like-ops (mapcar #'car
                                         (cl-remove-if-not
                                          (lambda (entry) (eq (cdr entry) :modify-like))
@@ -322,12 +310,10 @@ to the correct scope keys.
                     :to-be t))))
 
       (it ":execute-like operations are allowed with execute patterns"
-        (let* ((exec-yml (helpers-spec-make-scope-yml
-                          (helpers-spec--scope-with-paths
-                           nil nil '("/**") nil nil)))
-               (exec-config (unwind-protect
-                                (helpers-spec-load-scope-config exec-yml)
-                              (delete-file exec-yml)))
+        (let* ((exec-config (helpers-spec-make-scope-config
+                             :read '() :write '() :execute '("/**")
+                             :modify '() :deny '()
+                             :auth-detection "warn"))
                (exec-like-ops (mapcar #'car
                                       (cl-remove-if-not
                                        (lambda (entry) (eq (cdr entry) :execute-like))

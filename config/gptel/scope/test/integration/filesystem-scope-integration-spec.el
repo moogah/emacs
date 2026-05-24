@@ -86,41 +86,33 @@ RESULT-JSON is the JSON string the scoped tool passes to its callback."
           (cl-return (cdr tool-entry)))))))
 
 (defun fs-integ--make-scope-yaml (read-paths write-paths deny-paths)
-  "Build scope YAML string with given path lists.
-READ-PATHS, WRITE-PATHS, DENY-PATHS are lists of glob pattern strings."
-  (let ((format-paths (lambda (paths)
-                        (if paths
-                            (mapconcat (lambda (p) (format "    - \"%s\"" p))
-                                       paths "\n")
-                          "    []"))))
-    (format "paths:
-  read:
-%s
-  write:
-%s
-  execute:
-    []
-  modify:
-    []
-  deny:
-%s
+  "Build a scope-config plist with READ-PATHS, WRITE-PATHS, DENY-PATHS.
 
-cloud:
-  auth_detection: \"warn\"
+Despite the legacy name (`*-yaml'), this returns the canonical
+scope-config plist directly via `helpers-spec-make-scope-config' —
+the YAML loader and YAML test fixtures were retired in cycle-3 of
+`gptel-scope-in-org-properties' (see
+`openspec/changes/archive/2026-04-30-gptel-scope-in-org-properties/').
+The function name is preserved to avoid a 30-call-site churn; a
+follow-up rename is welcome but orthogonal to the migration."
+  (helpers-spec-make-scope-config
+   :read read-paths
+   :write write-paths
+   :execute '()
+   :modify '()
+   :deny deny-paths
+   :auth-detection "warn"))
 
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"
-            (funcall format-paths read-paths)
-            (funcall format-paths write-paths)
-            (funcall format-paths deny-paths))))
+(defun fs-integ--load-config-from-yaml (config-plist)
+  "Identity wrapper preserving legacy call-site shape.
 
-(defun fs-integ--load-config-from-yaml (yaml-string)
-  "Parse YAML-STRING through the real scope config pipeline.
-Returns a scope config plist identical to what jf/gptel-scope--load-config returns."
-  (jf/gptel-scope-yaml--merge-schema-defaults
-   (jf/gptel-scope-yaml--parse-string yaml-string)))
+CONFIG-PLIST is the scope-config plist returned by
+`fs-integ--make-scope-yaml' (no longer a YAML string).  Returned
+unchanged so existing `(yaml (fs-integ--make-scope-yaml ...))
+(config (fs-integ--load-config-from-yaml yaml))' let-bindings keep
+working without modification.  See the rename note on
+`fs-integ--make-scope-yaml'."
+  config-plist)
 
 (defun fs-integ--create-temp-file (content &optional suffix)
   "Create a temp file with CONTENT in fs-integ--temp-dir.

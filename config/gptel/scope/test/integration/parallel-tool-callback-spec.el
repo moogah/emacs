@@ -104,28 +104,9 @@ Increments the shared counter and records the result."
 
 (defun parallel--make-empty-scope-config ()
   "Build scope config with empty read paths (causes denial for all commands)."
-  (jf/gptel-scope-yaml--merge-schema-defaults
-   (jf/gptel-scope-yaml--parse-string
-    "paths:
-  read:
-    []
-  write:
-    []
-  execute:
-    []
-  modify:
-    []
-  deny:
-    []
-bash_tools:
-  deny:
-    - \"sudo\"
-cloud:
-  auth_detection: \"deny\"
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 1
-")))
+  (helpers-spec-make-scope-config
+   :read '() :write '() :execute '() :modify '() :deny '()
+   :auth-detection "deny"))
 
 
 ;;; Test Suites
@@ -399,21 +380,10 @@ security:
     (let* ((tool (parallel--find-tool "run_bash_command"))
            (ntools 2)
            ;; Config that allows /workspace but not /etc
-           (config (jf/gptel-scope-yaml--merge-schema-defaults
-                    (jf/gptel-scope-yaml--parse-string
-                     "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    []
-  deny:
-    []
-cloud:
-  auth_detection: \"warn\"
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))))
+           (config (helpers-spec-make-scope-config
+                    :read '("/workspace/**")
+                    :write '() :execute '() :modify '() :deny '()
+                    :auth-detection "warn")))
 
       (spy-on 'jf/gptel-scope--load-config :and-return-value config)
       ;; Mock command execution for the tool that passes

@@ -88,41 +88,18 @@ Captures both the raw JSON string and parsed plist."
 
 (defun bash-integ--make-scope-config (read-paths write-paths deny-paths
                                        &optional _bash-deny cloud-auth)
-  "Build a scope config from YAML through the real parse pipeline.
+  "Build a scope-config plist for bash-scope-expansion specs.
 READ-PATHS, WRITE-PATHS, DENY-PATHS are lists of glob pattern strings.
 CLOUD-AUTH is the auth detection mode string (default \"warn\").
 The fourth positional is retained for backward compatibility with existing
 callers but is ignored — there is no longer a command-name deny list."
-  (let* ((format-paths (lambda (paths)
-                         (if paths
-                             (mapconcat (lambda (p) (format "    - \"%s\"" p))
-                                        paths "\n")
-                           "    []")))
-         (yaml (format "paths:
-  read:
-%s
-  write:
-%s
-  execute:
-    []
-  modify:
-    []
-  deny:
-%s
-
-cloud:
-  auth_detection: \"%s\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"
-                       (funcall format-paths read-paths)
-                       (funcall format-paths write-paths)
-                       (funcall format-paths deny-paths)
-                       (or cloud-auth "warn"))))
-    (jf/gptel-scope-yaml--merge-schema-defaults
-     (jf/gptel-scope-yaml--parse-string yaml))))
+  (helpers-spec-make-scope-config
+   :read read-paths
+   :write write-paths
+   :execute '()
+   :modify '()
+   :deny deny-paths
+   :auth-detection (or cloud-auth "warn")))
 
 ;;; Test Suites
 
