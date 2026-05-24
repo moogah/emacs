@@ -219,6 +219,18 @@ Examples:
 
 ;; LLM uses this tool to explicitly request user approval for expanding scope.
 
+;; The primary argument is =operation= (a closed enum) rather than a tool
+;; name. =:validation-type= is derived directly from =operation= — the same
+;; derivation the validation pipeline applies at =scope-validation.el:779-785=
+;; — so this tool aligns with every other consumer of =:validation-type=
+;; in the codebase rather than recovering it from a name string.
+
+;; Operations outside the closed enum (=read=, =write=, =modify=, =execute=,
+;; =bash=) short-circuit the callback with =:success false :error
+;; "unknown_operation"= before reaching =jf/gptel-scope-prompt-expansion=.
+;; This serves as a safety net for stale system prompts that may still pass
+;; a tool-name string.
+
 
 ;; [[file:scope-shell-tools.org::*request_scope_expansion Tool][request_scope_expansion Tool:1]]
 (gptel-make-tool
@@ -228,17 +240,24 @@ Examples:
 
 Displays interactive menu with 3 options:
 1. Deny - Reject the expansion request
-2. Add to scope - Permanently add patterns to the session's `:PROPERTIES:` drawer in `session.org`
+2. Add to scope - Permanently add patterns to the session's `:PROPERTIES:' drawer in `session.org'
 3. Allow once - Temporarily allow for current turn only
+
+Primary argument is `operation', identifying the kind of access being
+requested. Valid values: \"read\", \"write\", \"modify\", \"execute\", \"bash\".
+Pass the operation matching the tool you intend to invoke next (e.g.
+\"read\" when about to call read_file_in_scope, \"bash\" when about to
+call run_bash_command). Unknown values return :success false with
+:error \"unknown_operation\".
 
 Returns:
 - success: true if approved (add-to-scope or allow-once)
-- success: false if denied
+- success: false if denied or operation is out of enum
 - allowed_once: true if temporary permission granted
 - patterns_added: list of patterns if permanently added"
- :args (list '(:name "tool_name"
+ :args (list '(:name "operation"
                :type string
-               :description "Tool name (e.g., 'read_file_in_scope', 'write_file_in_scope')")
+               :description "Kind of access being requested. One of: \"read\", \"write\", \"modify\", \"execute\", \"bash\". Filesystem operations resolve to path-shaped scope; \"bash\" resolves to bash-shaped scope.")
              '(:name "patterns"
                :type array
                :items (:type string)
@@ -248,16 +267,29 @@ Returns:
                :description "Explain why this access is needed."))
  :category "scope"
  :function
- (lambda (callback tool_name patterns justification)
+ (lambda (callback operation patterns justification)
    (when (vectorp patterns)
      (setq patterns (append patterns nil)))
-   (let* ((violation-info
-           (list :tool tool_name
-                 :resource (car patterns)
-                 :reason justification
-                 :validation-type 'path
-                 :patterns patterns)))
-     (jf/gptel-scope-prompt-expansion violation-info callback patterns tool_name))))
+   (let ((op-sym (and (stringp operation) (intern operation))))
+     (cond
+      ;; Out-of-enum: short-circuit. This includes stale tool_name
+      ;; strings from pre-migration prompts (e.g. "read_file_in_scope").
+      ((not (memq op-sym '(read write modify execute bash)))
+       (funcall callback
+                (json-serialize
+                 `(:success :false
+                   :error "unknown_operation"
+                   :message ,(format "Unknown operation %S. Valid values: read, write, modify, execute, bash."
+                                     operation)))))
+      (t
+       (let* ((vtype (if (eq op-sym 'bash) 'bash 'path))
+              (violation-info
+               (list :resource (car patterns)
+                     :reason justification
+                     :validation-type vtype
+                     :operation op-sym
+                     :patterns patterns)))
+         (jf/gptel-scope-prompt-expansion violation-info callback patterns nil)))))))
 ;; request_scope_expansion Tool:1 ends here
 
 ;; Provide Feature
