@@ -7,65 +7,20 @@
 
 User-facing commands for creating and managing gptel persistent sessions.
 
-** Primary Workflow: Activities Integration
+** Usage
 
-The *recommended workflow* for creating persistent gptel sessions is through the
-=activities-extensions= package. When you create a new activity using the transient
-UI (=M-x activities-ext-create=), you can optionally create a persistent gptel session
-that is automatically integrated with the activity.
-
-*** Creating an Activity with gptel Session
-
-1. Run =M-x activities-ext-create= (or =C-x C-a C-e=)
-2. Enter an activity name when prompted
-3. In the transient menu:
-   - Select projectile projects (optional)
-   - Choose a gptel preset from =gptel--known-presets= (defaults to =executor=)
-   - Ensure "Skip gptel session" (=-G=) is *not* toggled (gptel session created by default)
-   - Press =RET= to create the activity
-
-The gptel session will be:
-- Created at =~/emacs-activities/<activity-slug-date>/session/=
-- Configured with branch-based structure (=branches/main/= by default)
-- Scope defined by preset's scope profile (embedded in =session.org='s
-  =:PROPERTIES:= drawer as =:GPTEL_SCOPE_*:= keys)
-- Automatically opened in a split window alongside your org-roam document
-- Stored in activity metadata for automatic resume
-
-*** Resuming Activities with gptel Sessions
-
-When you resume an activity (=M-x activities-resume=), the gptel session buffer is
-automatically opened if one exists. The session state is restored from disk with
-all conversation history preserved.
-
-*** Session Directory Structure (Activities)
-
-#+begin_example
-~/emacs-activities/
-└── my-feature-20260130/
-    ├── session/
-    │   ├── branches/
-    │   │   └── main/
-    │   │       └── session.org       # Conversation history (chat-mode)
-    │   │                             # :PROPERTIES: drawer carries preset
-    │   │                             # name and :GPTEL_SCOPE_*: keys
-    │   ├── current -> branches/main
-    │   └── gptel-logs.txt
-    └── worktrees/
-        └── project-name/             # Git worktrees (if using projectile)
-#+end_example
-
-** Alternative: Standalone Sessions
-
-For sessions *outside* of activities, use =M-x jf/gptel-persistent-session=.
-This is useful when you:
-- Want a quick session without activity overhead
-- Need a session not tied to a specific activity context
-- Are working on ad-hoc tasks or experiments
-
-Standalone sessions are stored in =~/.gptel/sessions/= by default.
+Create a persistent gptel session with =M-x jf/gptel-persistent-session=.
+Sessions are stored in =~/.gptel/sessions/= by default, configured
+with branch-based structure (=branches/main/= by default) and scope
+defined by the chosen preset's scope profile (embedded in
+=session.org='s =:PROPERTIES:= drawer as =:GPTEL_SCOPE_*:= keys).
 
 See [[*Create Persistent Session][Create Persistent Session]] section below for details.
+
+(An earlier integration auto-created sessions for each =activities.el=
+activity under =~/emacs-activities/<slug>/session/=; that integration
+was removed when the =workspaces= package replaced =activities-extensions=.
+A workspace-scoped equivalent may land later.)
 
 * Lexical Binding
 
@@ -546,7 +501,7 @@ state (design.md §Decision 3)."
 * Core Session Creation
 
 Core helper function for creating session directory structure.
-Shared by both jf/gptel-persistent-session and activities integration.
+Used by jf/gptel-persistent-session.
 
 ** Initial Session Body Helper
 
@@ -715,15 +670,10 @@ Returns plist with:
           :session-file session-file)))
 #+end_src
 
-* Create Persistent Session (Standalone)
+* Create Persistent Session
 
-Interactive command to create a new *standalone* persistent programming session with scoped tools
-and projectile integration. This is an alternative to the activities-based workflow described above.
-
-Use this command when:
-- You need a quick session without activity overhead
-- The session is not tied to a specific activity context
-- You're working on ad-hoc tasks or experiments
+Interactive command to create a new persistent programming session
+with scoped tools and projectile integration.
 
 Uses a registered preset from =gptel--known-presets= (default: =executor=) which defines:
 - Model/backend configuration

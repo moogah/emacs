@@ -201,11 +201,6 @@ Run this after preset registration to inject skill content into presets."
 ;; Load scope-aware filesystem tools (read_file_in_scope, write_file_in_scope, edit_file_in_scope)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
 
-;; Load activities integration (optional - only if activities package is loaded)
-;; Enables creating persistent gptel sessions as part of activity creation
-(when (featurep 'activities)
-  (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
-
 ;; Drawer corruption trace — standalone diagnostic for the property
 ;; drawer stacking bug. Commented out to rule out trace hooks as a
 ;; contributor to the corruption. Re-enable to capture a fresh run.

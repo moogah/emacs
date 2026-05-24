@@ -119,9 +119,6 @@ resolve to a real file."
     ;; Transient - must load before magit and docker (overrides built-in version)
     ("transient" "Transient menu system (newer than built-in)")
 
-    ;; Activities extensions - requires new transient, so loads after it
-    ("activities/activities" "Extended activity management with projects and docs")
-
     ;; Language mode modules (docker.el requires transient, so load transient first)
     ("language-modes/language-modes" "Programming language modes")
 
