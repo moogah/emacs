@@ -596,7 +596,26 @@ the header always starts at column 0 of a fresh line."
 On =tool-result=, insert the stringified result at the result-target
 marker. The =#+end_tool= closer is already in the buffer (inserted
 by =gptel-chat--stream-open-tool-block=); this helper only fills in
-the body.
+the body and folds the now-complete block.
+
+Auto-fold timing: the fold must happen /after/ the result body is in
+place. =org-fold-region= sets invisibility on a fixed character
+range; text inserted into a folded range does not inherit the
+invisibility property (verified empirically). So folding the empty
+block at open-time would leave the streamed-in result text visible.
+This matches upstream =gptel-mode='s behavior at =gptel.el:1919-1924=,
+which folds via =org-cycle= on the =#+end_tool= line after each
+tool-result insertion. We call =org-fold-hide-block-toggle= with
+=FORCE= = =\='hide= (unconditional, not a toggle) so a manually-folded
+block stays folded and a re-emitted result still ends folded.
+
+The fold helper walks back from =tool-marker= to the enclosing
+=^#\+begin_tool= line. =tool-marker= has insertion-type =t= and
+advances past the result text, ending on or near the =#+end_tool=
+line; the backward search finds the matching opener regardless. When
+the opener is somehow missing (a malformed buffer the migration did
+not normalize), the search returns nil and the fold is a no-op —
+the result stays visible rather than the close path raising.
 
 #+begin_src emacs-lisp
 (defun gptel-chat--stream-close-tool-block (tool-marker result)
@@ -609,12 +628,34 @@ non-string sexp is rendered via `prin1-to-string' so the block is
 well-formed regardless.  Each line of the rendered form is
 sanitized via `gptel-chat--sanitize-chunk' so a result that itself
 contains `#+end_tool' or `#+end_assistant' cannot prematurely close
-a containing block."
+a containing block.
+
+After the result is inserted, the now-complete tool block is folded
+via `org-fold-hide-block-toggle' with FORCE = `hide' so streamed-in
+tool blocks render collapsed — matching upstream `gptel-mode' (see
+`gptel.el:1919-1924') and the auto-fold-on-open behavior of
+`gptel-chat--apply-startup-visibility'.  Fold timing is post-insert
+because invisibility set on an empty range does not extend to text
+inserted into it later."
   (let ((text (cond
                ((null result) "")
                ((stringp result) result)
                (t (prin1-to-string result)))))
-    (gptel-chat--stream-insert-sanitized-block tool-marker text)))
+    (gptel-chat--stream-insert-sanitized-block tool-marker text)
+    (when (marker-buffer tool-marker)
+      (with-current-buffer (marker-buffer tool-marker)
+        ;; Fold only in an org-derived buffer; `org-fold-hide-block-toggle'
+        ;; calls `org-element-at-point' which warns and bails on
+        ;; non-Org buffers.  Production callers are always inside
+        ;; `gptel-chat-mode' (which derives from `org-mode'); isolated
+        ;; unit tests sometimes drive this helper from a
+        ;; fundamental-mode scratch buffer to compare raw text shape,
+        ;; and they should not be forced to activate org-mode.
+        (when (derived-mode-p 'org-mode)
+          (save-excursion
+            (goto-char tool-marker)
+            (when (re-search-backward "^#\\+begin_tool\\b" nil t)
+              (org-fold-hide-block-toggle 'hide 'no-error))))))))
 #+end_src
 
 ** Helper: close the assistant block and append a fresh user block

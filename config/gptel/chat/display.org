@@ -268,6 +268,81 @@ with the role overlays by `gptel-chat--display-remove-all'."
             (overlay-put ov 'line-prefix prefix)))))))
 #+end_src
 
+* Tool-header truncation
+
+A =#+begin_tool (...)= header carries the full model-supplied
+argument plist as its buffer text — that is the parser's source of
+truth on the send path (=gptel-chat--parse-tool-header= reads the
+sexp directly off the line). Long arguments — typically a
+=run_bash_command= with a verbose command string — push the line
+well past window width and wrap raggedly, even when the block is
+folded (folding hides the body and =#+end_tool=, not the begin
+line).
+
+Upstream =gptel-mode= avoids the wrap by writing a *truncated*
+header text and stashing the full call sexp in the block body
+(=gptel.el:1879-1895=). That shape is incompatible with our
+header-as-source-of-truth contract — moving args to the body would
+require parser, format, and migration changes. So we close the gap
+visually instead: an overlay with a =display= property replaces the
+overrun portion of the header with =" ...)"= at render time. Buffer
+text, parser input, and the on-disk file are unaffected.
+
+Width budget is a defcustom (=gptel-chat-display-tool-header-max-width=,
+default 80 columns) rather than a window-reactive computation; a
+window-resize-driven refresh would require =window-configuration-change-hook=
+plumbing for marginal benefit. Setting the custom to nil disables
+truncation buffer-wide. The display string inherits the buffer text's
+face at the cut position, so the trailing =" ...)"= picks up the
+=org-block-begin-line= face the font-lock keyword stamps on the
+underlying line — visually continuous with the un-truncated prefix.
+
+#+begin_src emacs-lisp
+(defcustom gptel-chat-display-tool-header-max-width 80
+  "Maximum displayed column width of a `#+begin_tool' header line.
+Lines whose displayed width exceeds this are visually truncated by
+the display layer via a `display' overlay ending in ` ...)' so long
+argument plists do not wrap and look ragged.  Buffer text is
+unchanged; the truncation is visual-only and the on-disk file, the
+parser, and the send path are unaffected.
+
+Set to nil to disable truncation buffer-wide (the full header line
+will display, wrapping as needed)."
+  :type '(choice (const :tag "Disable truncation" nil)
+                 (integer :tag "Max columns"))
+  :group 'gptel-chat)
+
+(defun gptel-chat--display-truncate-tool-headers (body-start body-end)
+  "Install `display'-overlay truncation on long `#+begin_tool' headers.
+Walks [BODY-START, BODY-END) for column-0 `#+begin_tool' lines whose
+displayed width exceeds `gptel-chat-display-tool-header-max-width'.
+For each such line, installs a `gptel-chat-display'-tagged overlay
+covering the trailing portion of the line with a `display' property
+of ` ...)'.  Shorter lines and a nil customization are no-ops.
+
+Width is measured via `current-column' on the line's `line-end-position'
+so any existing `line-prefix' overlay (the Path C indent) is not
+counted toward the budget — only buffer text contributes."
+  (when gptel-chat-display-tool-header-max-width
+    (let ((budget gptel-chat-display-tool-header-max-width)
+          (ellipsis " ...)"))
+      (save-excursion
+        (save-match-data
+          (goto-char body-start)
+          (while (re-search-forward "^#\\+begin_tool\\b" body-end t)
+            (let ((eol (line-end-position)))
+              (goto-char eol)
+              (when (> (current-column) budget)
+                ;; Cut so the visible portion (kept prefix + ellipsis)
+                ;; lands at the budget.  `move-to-column' clamps to
+                ;; the line, so a budget shorter than the ellipsis
+                ;; itself simply truncates everything past column 0.
+                (move-to-column (max 0 (- budget (length ellipsis))))
+                (let ((ov (make-overlay (point) eol nil t nil)))
+                  (overlay-put ov 'gptel-chat-display t)
+                  (overlay-put ov 'display ellipsis))))))))))
+#+end_src
+
 * Refresh — the main entry point
 
 Walk the turn list and re-install role overlays. The refresh is
@@ -286,10 +361,12 @@ buffer becomes parseable again.
   "Refresh role overlays in BUFFER (default current).
 Removes existing `gptel-chat-display' overlays and installs fresh ones
 spanning the body of each user / assistant turn, plus `line-prefix'
-overlays aligning the nested tool-block delimiters (Path C).  A
-`user-error' from the parser (mid-edit buffer with an unclosed block)
-is caught and treated as a no-op — the next refresh will reinstall
-overlays once the buffer reaches a parseable state."
+overlays aligning the nested tool-block delimiters (Path C) and
+`display' overlays truncating long `#+begin_tool' headers
+(§Tool-header truncation).  A `user-error' from the parser (mid-edit
+buffer with an unclosed block) is caught and treated as a no-op —
+the next refresh will reinstall overlays once the buffer reaches a
+parseable state."
   (with-current-buffer (or buffer (current-buffer))
     (when gptel-chat--display-enabled
       (gptel-chat--display-remove-all)
@@ -306,6 +383,8 @@ overlays once the buffer reaches a parseable state."
                 ;; aligned with the indented assistant body.
                 (when (eq (plist-get turn :role) 'assistant)
                   (gptel-chat--display-prefix-tool-delimiters
+                   (car range) (cdr range))
+                  (gptel-chat--display-truncate-tool-headers
                    (car range) (cdr range))))))
         (user-error nil)))))
 #+end_src

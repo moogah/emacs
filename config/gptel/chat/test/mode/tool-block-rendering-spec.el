@@ -37,6 +37,7 @@
   (add-to-list 'load-path chat-dir))
 
 (require 'gptel-chat-mode)
+(require 'gptel-chat-stream)
 
 
 ;;; Helpers ------------------------------------------------------------------
@@ -191,6 +192,62 @@ Used to assert the fold pass folds every tool block, not just the first.")
        (with-temp-buffer
          (insert "#+begin_user\n  \n#+end_user\n")
          (gptel-chat-mode))
+       :not :to-throw)))
+
+  (describe "streaming auto-fold — tool blocks fold as the result arrives"
+
+    ;; The startup-visibility pass folds tool blocks that exist when
+    ;; the mode activates.  Blocks streamed in later (during a live
+    ;; assistant turn) must also end folded — otherwise the user
+    ;; watches each tool result balloon to full size before any
+    ;; later cleanup hides it.  `gptel-chat--stream-close-tool-block'
+    ;; runs the fold right after inserting the result text (fold
+    ;; timing must be post-insert — invisibility set on an empty
+    ;; range does not extend to text inserted into it later).  Mirrors
+    ;; upstream `gptel-mode' behavior at `gptel.el:1919-1924'.
+
+    (it "folds a tool block whose body is filled in via `gptel-chat--stream-close-tool-block' (post-streaming fold)"
+      (with-temp-buffer
+        ;; Set up an empty tool block — matching the shape
+        ;; `gptel-chat--stream-open-tool-block' leaves behind: header,
+        ;; empty body line, closer.
+        (insert "#+begin_assistant\n")
+        (insert "#+begin_tool (foo :arg 1)\n")
+        (let ((body-marker (copy-marker (point) t)))
+          (insert "#+end_tool\n")
+          (insert "#+end_assistant\n")
+          ;; Activate the mode AFTER the open shape is in place so
+          ;; the startup-visibility pass sees this block and folds
+          ;; it — then unfold so the streaming fold is what we are
+          ;; verifying.
+          (gptel-chat-mode)
+          (save-excursion
+            (goto-char body-marker)
+            (re-search-backward "^#\\+begin_tool")
+            (org-fold-hide-block-toggle 'off 'no-error))
+          ;; Sanity: body line is now visible before the close call.
+          (expect (get-char-property body-marker 'invisible) :to-be nil)
+          ;; Run the close — this inserts the result AND folds.
+          (gptel-chat--stream-close-tool-block body-marker "  ok\n")
+          ;; The inserted body line must end up folded.
+          (save-excursion
+            (goto-char (point-min))
+            (re-search-forward "^#\\+begin_tool")
+            (forward-line 1)
+            (expect (get-char-property (point) 'invisible)
+                    :to-be 'org-hide-block)))))
+
+    (it "does not signal in a non-Org buffer — the fold is guarded for isolated-test callers"
+      (expect
+       (with-temp-buffer
+         (insert "#+begin_tool (foo)\n")
+         (let ((body-marker (copy-marker (point) t)))
+           (insert "#+end_tool\n")
+           ;; Fundamental-mode buffer: `org-element-at-point' would
+           ;; warn-and-bail.  The guard must short-circuit the fold
+           ;; without raising so existing stream tests that use raw
+           ;; scratch buffers continue to work.
+           (gptel-chat--stream-close-tool-block body-marker "ok")))
        :not :to-throw))))
 
 ;;; tool-block-rendering-spec.el ends here
