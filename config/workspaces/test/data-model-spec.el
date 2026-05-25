@@ -8,7 +8,7 @@
 
 (describe "workspace--make"
   (it "returns a workspace with the given name and empty groups"
-    (let ((ws (workspace--make "code")))
+    (let ((ws (workspace--make "code" "/tmp/ws-test/code/")))
       (expect (workspace--name ws) :to-equal "code")
       (expect (workspace--layout-groups ws) :to-equal nil)
       (expect (workspace--recent-group ws) :to-equal nil)
@@ -16,7 +16,7 @@
 
 (describe "workspace--upsert-group"
   (it "adds a group when none exists with that name"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (layout (workspace--layout-make 'fs1 100))
            (ws (workspace--upsert-group ws "home" layout)))
       (expect (length (workspace--layout-groups ws)) :to-equal 1)
@@ -25,7 +25,7 @@
               :to-equal "home")))
 
   (it "replaces an existing group on second call with the same name"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (l1 (workspace--layout-make 'fs1 100))
            (l2 (workspace--layout-make 'fs2 200))
            (ws (workspace--upsert-group ws "home" l1))
@@ -36,7 +36,7 @@
         (expect (workspace--layout-saved-state current) :to-equal 'fs2))))
 
   (it "preserves the original position of a replaced group"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (la (workspace--layout-make 'a 100))
            (lb (workspace--layout-make 'b 200))
            (lc (workspace--layout-make 'c 300))
@@ -51,22 +51,22 @@
 
 (describe "workspace--set-recent-group"
   (it "is non-destructive on the input workspace"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (_ (workspace--set-recent-group ws "home")))
       (expect (workspace--recent-group ws) :to-equal nil)))
 
   (it "sets the recent-layout-group on the returned workspace"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws2 (workspace--set-recent-group ws "home")))
       (expect (workspace--recent-group ws2) :to-equal "home"))))
 
 (describe "workspace--find-group"
   (it "returns nil for an unknown name"
-    (let ((ws (workspace--make "code")))
+    (let ((ws (workspace--make "code" "/tmp/ws-test/code/")))
       (expect (workspace--find-group ws "missing") :to-equal nil)))
 
   (it "returns the matching group when present"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (layout (workspace--layout-make 'fs 100))
            (ws (workspace--upsert-group ws "home" layout))
            (g (workspace--find-group ws "home")))
@@ -74,7 +74,7 @@
 
 (describe "workspace--remove-group"
   (it "removes the named group; group count drops by one"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws (workspace--upsert-group ws "home"  (workspace--layout-make 'a 100)))
            (ws (workspace--upsert-group ws "magit" (workspace--layout-make 'b 200))))
       (expect (length (workspace--layout-groups ws)) :to-equal 2)
@@ -98,18 +98,18 @@
 
 (describe "workspace--add-buffer-file"
   (it "appends a new path"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws (workspace--add-buffer-file ws "~/a.el")))
       (expect (workspace--buffer-files ws) :to-equal '("~/a.el"))))
 
   (it "deduplicates the same path"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws (workspace--add-buffer-file ws "~/a.el"))
            (ws (workspace--add-buffer-file ws "~/a.el")))
       (expect (workspace--buffer-files ws) :to-equal '("~/a.el"))))
 
   (it "preserves order across multiple distinct paths"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws (workspace--add-buffer-file ws "~/a.el"))
            (ws (workspace--add-buffer-file ws "~/b.el"))
            (ws (workspace--add-buffer-file ws "~/c.el")))
@@ -118,14 +118,14 @@
 
 (describe "workspace--remove-buffer-file"
   (it "removes the named path"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws (workspace--add-buffer-file ws "~/a.el"))
            (ws (workspace--add-buffer-file ws "~/b.el"))
            (ws (workspace--remove-buffer-file ws "~/a.el")))
       (expect (workspace--buffer-files ws) :to-equal '("~/b.el"))))
 
   (it "is a no-op when the path is absent"
-    (let* ((ws (workspace--make "code"))
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/"))
            (ws (workspace--add-buffer-file ws "~/a.el"))
            (ws (workspace--remove-buffer-file ws "~/missing.el")))
       (expect (workspace--buffer-files ws) :to-equal '("~/a.el")))))

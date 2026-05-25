@@ -192,3 +192,125 @@ grep -rn 'workspace--make[[:space:]]\+"[^"]*"[[:space:]]*)' config/workspaces/
 # Confirm placeholder comment is present so cycle 3 can find and replace:
 grep -n 'wire-home-into-callsites\|CYCLE-1 PLACEHOLDER' config/workspaces/tabs.org config/workspaces/tabs.el
 ```
+
+## Observations
+
+- The task body anticipated ~11 test files containing direct
+  `workspace--make` calls. In reality, only **two** test files invoke
+  `workspace--make` directly: `data-model-spec.el` (14 calls, all using
+  the workspace name `"code"`) and `data-model-home-spec.el` (the new
+  cycle-1 test, already passing HOME). All other test files
+  (`tabs-spec.el`, `persistence-spec.el`, `layouts-spec.el`,
+  `buffer-membership-spec.el`, `buffer-reincarnation-spec.el`,
+  `anti-save-spec.el`, `save-restore-spec.el`, `revert-spec.el`,
+  `home-spec.el`) construct workspaces exclusively via
+  `workspace-new`, so they were fixed transitively by the single
+  edit in `tabs.org`. The cascade was substantially narrower than
+  the task brief's "~76 failing specs spread across ~11 fixture
+  files" framing implied — most failures came from one production
+  callsite multiplied by tab-creating tests.
+- `workspaces-mode-spec.el` was listed in the expected file set but
+  contains no calls to `workspace--make` or `workspace-new`. It was
+  passing before and after with no edits required. The original
+  `grep -rln` from the task body may have matched a different
+  pattern, or the list was speculative.
+- `data-model-home-spec.el` line 43 contains an intentional
+  `(workspace--make "alpha")` (one-arg) inside an
+  `:to-throw 'wrong-number-of-arguments` assertion. The verification
+  grep `workspace--make[[:space:]]+"[^"]*"[[:space:]]*)` flags this
+  as a remaining unfixed callsite, but it is the *intended*
+  structural-enforcement test for
+  `register/invariant/home-required-no-floating-workspaces`. Leaving
+  this as-is; future readers of the verification grep should ignore
+  matches inside `:to-throw` forms.
+- The placeholder synthesis in `workspace-new` uses
+  `(file-name-as-directory (expand-file-name name (expand-file-name
+  "emacs-workspaces" (or (getenv "HOME") "~"))))`. This yields a
+  trailing-slash absolute path like
+  `/Users/<user>/emacs-workspaces/<name>/`, satisfying both the
+  v3-shape validator's `file-name-absolute-p` and basename equality
+  checks. No directory is created on disk — cycle-2's
+  `scaffold-module` task owns that.
+- Fixture HOMEs in `data-model-spec.el` use `/tmp/ws-test/code/` (a
+  static, non-temp path). None of these data-model unit tests touch
+  the filesystem; they exercise the in-memory plist shape only. If
+  cycle-2 work adds shape validation that requires the directory to
+  exist, these fixtures will need to migrate to `make-temp-file`.
+  Flagged as deferred — not in this task's scope.
+
+## Discoveries
+
+- discovery_id: disc-wire-home-1
+  class: spec-signal
+  description: |
+    The task body's expected file list overstated the cascade
+    footprint. Of the 11 test files named, only `data-model-spec.el`
+    required direct fixture edits — every other test file constructs
+    workspaces via `workspace-new`, so a single production-callsite
+    fix in `tabs.org` resolved them transitively. The actual
+    "fixtures touched" count was 1 production org + 1 test file =
+    2 files, not 12. This is useful pacing data for any future
+    "wire-X-into-callsites" follow-up tasks: cascade scope is best
+    estimated by grepping for the canonical constructor's *direct*
+    callers, not by counting affected specs.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    No register change. This is a process observation, not an
+    interface drift. The shape entry's `producers` field already
+    correctly names `workspace--make` and
+    `workspace--persistence-deserialize-workspace` as the only two
+    canonical producers; `workspace-new` is correctly listed under
+    `consumers` as a wrapper. Cycle 3's `workspace-new-default-path`
+    will modify the wrapper (replace placeholder with real
+    `defcustom` + scaffold call) without affecting the producer set.
+
+- discovery_id: disc-wire-home-2
+  class: invariant-gap
+  description: |
+    The placeholder synthesis in `workspace-new` produces a HOME
+    path satisfying the `workspace-plist-v3` validator's structural
+    checks (absolute path, basename = name), but it does NOT
+    guarantee the directory exists on disk. Cycle 2's
+    `scaffold-module` task will create the directory at
+    `workspace-new` call time, but until that lands, calling
+    `workspace-new` from an interactive session yields a workspace
+    whose `:home` points to a non-existent path. The persistence
+    deserializer will mark such workspaces `:broken t` on next
+    Emacs restart per `register/invariant/broken-home-no-auto-recreate`.
+    This is the intended cycle-1 → cycle-2 transition state, but
+    worth flagging so the integrate phase doesn't read it as a
+    defect.
+  affected_register_entry: register/invariant/broken-home-no-auto-recreate
+  recommendation: |
+    No register change. The broken-home invariant correctly captures
+    this transient state: "log and tag, never recreate". The
+    placeholder synthesis is short-lived (cycle 3 replaces it with
+    a real scaffold pipeline that creates the directory). If
+    cycle-2's `scaffold-module` task slips beyond cycle 3, revisit
+    whether the placeholder should also `make-directory` the path
+    as a stop-gap — but not in this task.
+
+- discovery_id: disc-wire-home-3
+  class: vocabulary-mismatch
+  description: |
+    The helper function is named
+    `wire-home-into-callsites--synthesize-home` — a name that
+    encodes the task identifier directly. This is unusual for the
+    codebase's naming conventions (helpers normally live under the
+    module's `workspace--` prefix). The name was chosen
+    intentionally to make cycle 3's find-and-replace mechanical:
+    grep for `wire-home-into-callsites` and you find every line
+    cycle 3 needs to remove or rewrite. The trade-off is a
+    short-lived violation of the module's naming convention.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    No register change. This is a deliberate cycle-1 deviation
+    that cycle 3's `workspace-new-default-path` task is responsible
+    for cleaning up. The integrate phase should NOT flag the
+    `wire-home-into-callsites--` prefix as a vocabulary leak —
+    it's a load-bearing marker. Cycle 3's task body should
+    explicitly call out: "delete
+    `wire-home-into-callsites--synthesize-home` and its callsite;
+    replace with `(workspace-scaffold name)` or equivalent
+    scaffold-pipeline call."
+

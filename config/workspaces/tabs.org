@@ -124,6 +124,24 @@ Here we provide the default implementation.
 * Commands
 
 #+begin_src emacs-lisp
+;; CYCLE-1 PLACEHOLDER: this helper synthesizes a HOME path so that
+;; `workspace--make' (whose signature now requires HOME) has something
+;; to anchor to.  Cycle 3's `workspace-new-default-path' task replaces
+;; this with the proper `workspaces-default-parent-directory'
+;; defcustom + scaffold pipeline (which also creates the directory on
+;; disk).  Until then, hardcode a sensible default so workspace-new
+;; produces a valid :home and the branch stays buildable.  See task
+;; `wire-home-into-callsites'.
+(defun wire-home-into-callsites--synthesize-home (name)
+  "Synthesize a placeholder home path for NAME.
+This is a CYCLE-1 PLACEHOLDER replaced by cycle-3's
+`workspace-new-default-path' task (which introduces the
+`workspaces-default-parent-directory' defcustom + scaffold pipeline)."
+  (file-name-as-directory
+   (expand-file-name
+    name
+    (expand-file-name "emacs-workspaces" (or (getenv "HOME") "~")))))
+
 (defun workspace-new (name)
   "Create a new workspace named NAME (or select it if it already exists).
 
@@ -142,7 +160,9 @@ displays become workspace members via the buffer-membership module."
       (tab-bar-rename-tab name)
       ;; Register BEFORE running the home builder so the new tab is
       ;; recognized as owned by workspaces from this point on.
-      (let ((ws (workspace--make name)))
+      (let ((ws (workspace--make
+                 name
+                 (wire-home-into-callsites--synthesize-home name))))
         (puthash name ws workspace--registry))
       (when (and (boundp 'workspace-home-builder)
                  (functionp workspace-home-builder))
