@@ -143,11 +143,19 @@ Workspaces module defines `workspace-sessions-dir` (function):
       gptel-sessions-default-directory))
 ```
 
-The session-creation command accepts a prefix arg to bind
-`force-global`. The dependency direction is one-way: `gptel/sessions/`
-optionally consults `workspaces`; `workspaces` never references
-`gptel/sessions/`. Soft via `featurep` so the gptel module continues to
-load and function in configurations where `workspaces` is disabled.
+The `force-global` escape hatch is exposed as a SEPARATE
+`-global`-suffixed command (e.g. `jf/gptel-persistent-session-global`)
+alongside the workspace-aware command (`jf/gptel-persistent-session`),
+NOT as a prefix-arg overload on the workspace-aware command. The
+existing workspace-aware command already binds `current-prefix-arg`
+to an orthogonal concern (preset selection); overloading the prefix
+slot would break that pre-existing affordance. Both commands surface
+in `M-x` completion, making the escape hatch discoverable.
+
+The dependency direction is one-way: `gptel/sessions/` optionally
+consults `workspaces`; `workspaces` never references
+`gptel/sessions/`. Soft via `featurep` so the gptel module continues
+to load and function in configurations where `workspaces` is disabled.
 
 **Alternatives considered:**
 - A defcustom `gptel-sessions-dir-function` that workspaces overrides on
@@ -174,8 +182,9 @@ from a full parser.
 
 ### D5. Persistence schema v3 — slot addition, same file path
 
-Schema constant `workspace--persistence-schema-version` bumps from `2`
-to `3`. The on-disk filename is unchanged
+Schema constant `workspace--state-version` (the generic version
+constant carried from the v1→v2 cutover) bumps from `2` to `3`.
+The on-disk filename is unchanged
 (`~/.emacs.d/state/workspaces-<role>.eld`) — the schema integer
 discriminates. v1 and v2 readers were already a single `(unless (= ver
 EXPECTED) (notice-and-return-nil))` gate; v3 reuses the gate with the
@@ -357,7 +366,7 @@ time.
 
 This is a pre-alpha package; no production users; no migration code.
 
-1. Bump `workspace--persistence-schema-version` from 2 to 3.
+1. Bump `workspace--state-version` from 2 to 3.
 2. Reader rejects v2 files with a `*Messages*` notice (same code path
    that v1→v2 used).
 3. Users with v2 persistence files on disk: delete the file before

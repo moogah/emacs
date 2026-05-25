@@ -2,7 +2,7 @@
 name: disposition-ask-prefix-arg-vs-separate-command
 description: User disposition for gptel-sessions force-global UX divergence — specs/workspaces/spec.md promises prefix-arg, impl ships separate command `jf/gptel-persistent-session-global`
 change: add-workspace-home-directory
-status: blocked
+status: done
 relations: []
 discovered_by: reviewer-and-architect
 discovered_class: spec-signal

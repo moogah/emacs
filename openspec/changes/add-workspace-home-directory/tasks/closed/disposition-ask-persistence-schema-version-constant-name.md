@@ -2,7 +2,7 @@
 name: disposition-ask-persistence-schema-version-constant-name
 description: User disposition for design.md/task-body naming drift — `workspace--persistence-schema-version` vs actual constant `workspace--state-version`
 change: add-workspace-home-directory
-status: blocked
+status: done
 relations: []
 discovered_by: reviewer
 discovered_class: spec-signal

@@ -248,23 +248,31 @@ SHALL guard the workspaces consult with a `(featurep 'workspaces)` check
 (or equivalent) so that the gptel sessions module continues to work in
 configurations where workspaces is not loaded.
 
-The package SHALL provide an escape hatch (a prefix argument to the
-gptel session-creation command) that forces the global default location
-even when a workspace is active.
+The package SHALL provide an escape hatch — a SEPARATE
+`-global`-suffixed command (e.g. `jf/gptel-persistent-session-global`)
+alongside the workspace-aware session-creation command (e.g.
+`jf/gptel-persistent-session`) — that forces the global default
+location even when a workspace is active. The escape hatch is a
+distinct command rather than a prefix-arg overload because the
+existing workspace-aware command already consumes
+`current-prefix-arg` for an orthogonal concern (preset selection);
+overloading the prefix slot would break that pre-existing
+affordance. Both commands surface in `M-x` completion, making the
+escape hatch discoverable.
 
 #### Scenario: New session is filed under the active workspace
 - **WHEN** the user is on workspace `myproj` (`:home
   ~/emacs-workspaces/myproj/`)
-- **AND** the user invokes the gptel session-creation command without a
-  prefix arg
+- **AND** the user invokes the workspace-aware session-creation
+  command (e.g. `M-x jf/gptel-persistent-session`)
 - **THEN** the resulting session file is created under
   `~/emacs-workspaces/myproj/sessions/`
 - **AND** the global gptel session directory is not written to
 
-#### Scenario: Prefix arg forces global save
+#### Scenario: -global command forces global save
 - **WHEN** the user is on workspace `myproj`
-- **AND** the user invokes the gptel session-creation command with a
-  prefix arg
+- **AND** the user invokes the `-global`-suffixed session-creation
+  command (e.g. `M-x jf/gptel-persistent-session-global`)
 - **THEN** the resulting session file is created in the global gptel
   session directory
 - **AND** `~/emacs-workspaces/myproj/sessions/` is not written to
