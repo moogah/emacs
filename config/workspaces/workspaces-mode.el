@@ -20,9 +20,12 @@ not bind directly; toggle the mode instead.")
 Captures the current workspace's :working-state, no-op when no
 workspace is current (e.g. transient state between
 `workspace-close' and `workspace-switch', or a frame that has never
-been on a workspaces-managed tab)."
+been on a workspaces-managed tab).  Also no-op when any predicate
+in `workspace-anti-save-predicates' returns non-nil — e.g. during
+minibuffer activity or when a *Backtrace* window is visible."
   (when (workspace--current-name)
-    (workspace--autosave-current-layout :working-state)))
+    (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+      (workspace--autosave-current-layout :working-state))))
 
 (define-minor-mode workspaces-mode
   "Global minor mode for periodic background save of workspace working state.

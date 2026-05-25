@@ -163,21 +163,29 @@ calling real `cancel-timer' (the sentinel is not a real timerp)."
 
   ;; --- Task-body scenario 5: anti-save predicates regression -------
 
-  (it "respects anti-save predicates (regression — guard lives inside autosave-current-layout)"
-    ;; Cycle 2 sibling task `anti-save-predicates' wraps the autosave
-    ;; entry points with a `workspace-anti-save-predicates' check.
-    ;; This task ships the unwrapped call site; the wrap will be
-    ;; reconciled at merge.  Until that lands, we exercise the
-    ;; downstream observable: when the predicate-stub returns non-nil
-    ;; the idle tick still routes to `workspace--autosave-current-
-    ;; layout', and the actual guarding is verified in that sibling's
-    ;; specs.  Here we pin the structural property: the idle tick is
-    ;; the SINGLE entry point the wrap will need to cover.
+  (it "skips autosave when an anti-save predicate returns non-nil"
+    ;; Stage-1 entry-point #4 of register/boundary/autosave-guard-
+    ;; pipeline.  The (unless run-hook-with-args-until-success ...)
+    ;; wrap nests inside the current-name guard.  If any predicate in
+    ;; `workspace-anti-save-predicates' returns non-nil, the idle tick
+    ;; MUST NOT call `workspace--autosave-current-layout'.
     (let ((calls 0))
       (cl-letf (((symbol-function 'workspace--current-name)
                  (lambda () "alpha"))
                 ((symbol-function 'workspace--autosave-current-layout)
-                 (lambda (_slot) (cl-incf calls))))
+                 (lambda (_slot) (cl-incf calls)))
+                (workspace-anti-save-predicates (list (lambda () t))))
+        (workspaces-mode--idle-tick)
+        (expect calls :to-equal 0)))
+    ;; Negative-path companion: when every predicate returns nil, the
+    ;; idle tick proceeds to call the autosave.  Pins the wrap shape
+    ;; from both directions.
+    (let ((calls 0))
+      (cl-letf (((symbol-function 'workspace--current-name)
+                 (lambda () "alpha"))
+                ((symbol-function 'workspace--autosave-current-layout)
+                 (lambda (_slot) (cl-incf calls)))
+                (workspace-anti-save-predicates (list (lambda () nil))))
         (workspaces-mode--idle-tick)
         (expect calls :to-equal 1)))))
 

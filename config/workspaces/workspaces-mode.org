@@ -83,15 +83,27 @@ explicitly: =workspace--autosave-current-layout= takes a REQUIRED-SLOT
 signature (cycle-1 inline-fix b70a5b4) and an omitted slot raises
 =wrong-number-of-arguments=.
 
+The idle tick is stage-1 entry-point #4 of
+=register/boundary/autosave-guard-pipeline=: it MUST consult
+=workspace-anti-save-predicates= before invoking the autosave.  The
+=unless= wrap nests inside the =when= so the FIRST form of the body
+remains the current-name guard (preserves the invariant test's
+structural shape).  The three persistence.org entry points have the
+same wrap shape; see =config/workspaces/persistence.org= "Hook into
+tab switch advice" and "Kill-emacs flush" sections.
+
 #+begin_src emacs-lisp
 (defun workspaces-mode--idle-tick ()
   "Idle-timer body for `workspaces-mode'.
 Captures the current workspace's :working-state, no-op when no
 workspace is current (e.g. transient state between
 `workspace-close' and `workspace-switch', or a frame that has never
-been on a workspaces-managed tab)."
+been on a workspaces-managed tab).  Also no-op when any predicate
+in `workspace-anti-save-predicates' returns non-nil — e.g. during
+minibuffer activity or when a *Backtrace* window is visible."
   (when (workspace--current-name)
-    (workspace--autosave-current-layout :working-state)))
+    (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+      (workspace--autosave-current-layout :working-state))))
 #+end_src
 
 * The mode
