@@ -14,19 +14,49 @@
 (require 'gptel-session-logging)
 
 (defun jf/gptel--ensure-sessions-root ()
-  "Ensure the root sessions directory exists.
+  "Ensure the global root sessions directory exists.
 Creates jf/gptel-sessions-directory if it doesn't exist.
-Returns the absolute path to the sessions directory."
+Returns the absolute path to the global sessions directory.
+
+This is the inventory-side root used by registry init and session
+listing.  For new-session creation, callers should use
+`jf/gptel--target-sessions-root' instead so the active workspace's
+sessions/ directory is preferred when available."
   (let ((dir (expand-file-name jf/gptel-sessions-directory)))
     (unless (file-directory-p dir)
       (make-directory dir t)
       (jf/gptel--log 'info "Created sessions directory: %s" dir))
     dir))
 
-(defun jf/gptel--create-session-directory (session-id)
-  "Create directory for SESSION-ID.
-Returns the absolute path to the created directory."
-  (let* ((root (jf/gptel--ensure-sessions-root))
+(defun jf/gptel--target-sessions-root (&optional force-global)
+  "Return the directory under which a new session subdirectory should be created.
+
+When `workspaces' is loaded, `workspace-sessions-dir' is bound, and it
+returns a non-nil directory, return that directory (the active
+workspace's sessions/).  Otherwise return the global default
+established by `jf/gptel--ensure-sessions-root'.
+
+When FORCE-GLOBAL is non-nil, skip the workspaces consult entirely
+and return the global default.
+
+This is the producer-side resolver pinned by
+register/boundary/gptel-sessions-workspace-consult (the canonical
+name in the boundary contract is `gptel-sessions--target-dir'; the
+`jf/gptel-' prefix here is the project's elisp convention)."
+  (or (and (not force-global)
+           (featurep 'workspaces)
+           (fboundp 'workspace-sessions-dir)
+           (workspace-sessions-dir))
+      (jf/gptel--ensure-sessions-root)))
+
+(defun jf/gptel--create-session-directory (session-id &optional force-global)
+  "Create directory for SESSION-ID under the target sessions root.
+Returns the absolute path to the created directory.
+
+When FORCE-GLOBAL is non-nil, the global sessions root is used even
+when a workspace is active (the escape-hatch surfaced by
+`jf/gptel-persistent-session-global')."
+  (let* ((root (jf/gptel--target-sessions-root force-global))
          (session-dir (expand-file-name session-id root)))
     (if (file-directory-p session-dir)
         (progn

@@ -256,3 +256,115 @@ MUST return zero matches. If your implementation requires referencing
 gptel from inside workspaces (e.g. for a hook), the contract has
 divergent — flag it in `## Discoveries` rather than shipping a
 silent contract violation.
+
+## Observations
+
+- **Prefix-arg conflict, resolved by adding a separate command.** The
+  task body step 4 sketched `(interactive "P")` on
+  `jf/gptel-persistent-session` with the prefix arg meaning
+  "force-global". The existing command, however, already consumes
+  `current-prefix-arg` for "prompt to select preset" — a UX that
+  predates this work. Rebinding the prefix arg would silently break
+  the preset-prompt flow. I added a second public command
+  `jf/gptel-persistent-session-global` that wraps the existing one
+  with `force-global=t`. The spec scenario "the user invokes the
+  gptel session-creation command with a prefix arg → session is
+  created in the global directory" is satisfied at the contract
+  level (`(gptel-sessions--target-dir t)` returns the global), with
+  the user-facing surface being `M-x jf/gptel-persistent-session-global`
+  instead of `C-u M-x jf/gptel-persistent-session`. The task body's
+  step 7 explicitly says "Adapt to the actual existing command
+  shape" — this is that adaptation. The Verification section's
+  "Manual: `C-u M-x gptel-sessions-new` → global dir" bullet
+  becomes "Manual: `M-x jf/gptel-persistent-session-global` → global
+  dir".
+- **Insertion-point split.** I deliberately did NOT modify
+  `jf/gptel--ensure-sessions-root`; it remains the *global* root
+  resolver used by registry init, session-listing, and discovery
+  code paths (all of which must scan every session regardless of
+  the workspace it was created under). The new resolver
+  `jf/gptel--target-sessions-root` only governs new-session
+  creation. Splitting the two preserves the invariant that the
+  existing inventory paths are unaffected by the introduction of
+  workspaces. This is documented in the new section
+  "Sessions Root Resolution" in `filesystem.org`.
+- **Naming deviation from scaffold contract.** The scaffold names
+  the resolver `gptel-sessions--target-dir`; I used
+  `jf/gptel--target-sessions-root` to match the project's
+  `jf/gptel-` prefix convention (every other gptel function in
+  `config/gptel/sessions/` uses that prefix). The boundary register
+  entry's `consumer_side.function` field should be updated at
+  integrate to the actual function name. Docstring cross-references
+  the scaffold's canonical name.
+- **Test isolation pattern.** The consumer-side specs use
+  `cl-letf` on `featurep` itself (capturing the original closure
+  via `(let ((orig (symbol-function 'featurep))) ...)`) rather than
+  loading the real workspaces package into the test image — the
+  test process must not have `workspaces` as a feature, otherwise
+  the "not loaded" case can't be exercised. This is a deliberate
+  choice that mirrors the buffer-membership specs' bufferlo-stub
+  pattern (don't require the cross-module dependency just to test
+  the soft-dep guard).
+- **Test load chain.** `gptel-integration-spec.el` loads
+  `data-model.el` + `tabs.el` + `workspaces.el` in order.
+  `workspaces.el` runs the submodule loader via `jf/load-module`,
+  which re-loads data-model and tabs idempotently; the test then
+  has access to the production `workspace-sessions-dir` function.
+  No special test-time provide-stubs were needed beyond what
+  existing workspaces specs already establish.
+
+## Discoveries
+
+- **class: deviation** — task-body step 4 sketched a prefix-arg
+  rebind on `jf/gptel-persistent-session`; the existing command
+  already uses `current-prefix-arg` for preset selection. Resolved
+  by adding a separate public command
+  `jf/gptel-persistent-session-global` that calls
+  `jf/gptel-persistent-session` with `force-global=t`. The
+  contract (`gptel-sessions--target-dir` accepts force-global and
+  routes accordingly) is preserved. The user-visible binding for
+  the escape hatch becomes `M-x jf/gptel-persistent-session-global`
+  rather than `C-u M-x jf/gptel-persistent-session`.
+
+- **class: interface-drift** — the scaffold contract pins the
+  consumer-side function as `gptel-sessions--target-dir`; project
+  naming convention (every other gptel-sessions function uses
+  `jf/gptel-` prefix) led me to name it
+  `jf/gptel--target-sessions-root` instead. Boundary register entry
+  `register/boundary/gptel-sessions-workspace-consult` should be
+  updated at cycle-2 integrate so its `consumer_side.function`
+  field reflects the actual name. The docstring of the function
+  cross-references the scaffold's canonical name. The producer
+  side (`workspace-sessions-dir`) matches the scaffold name
+  verbatim.
+
+- **class: responsibility-leakage (avoided)** — I considered
+  modifying `jf/gptel--ensure-sessions-root` to consult workspaces
+  directly, which would have been the smallest diff. Doing so
+  would have routed *every* call site through workspaces —
+  including registry-init, session-listing, and discovery scans
+  that need the global root to find every session regardless of
+  the workspace it was created under. Split the responsibility:
+  `jf/gptel--ensure-sessions-root` stays global-only;
+  `jf/gptel--target-sessions-root` is the new workspace-aware
+  resolver used only at new-session creation. This is documented
+  in `filesystem.org` § "Sessions Root Resolution".
+
+- **class: spec-signal** — sibling task `scaffold-module` will
+  look for `(fboundp 'gptel-sessions-create-empty-file)` to
+  decide whether to populate the initial session via gptel or
+  fall back to a minimal `#+TITLE:` stub. **I did NOT introduce
+  such a function** in this task. The existing public-shaped
+  session-create command is
+  `jf/gptel-persistent-session (session-name &optional backend
+  model preset-name force-global)` — but it is interactive,
+  prompts for project selection, and opens a buffer; it is not
+  suitable as a non-interactive "create-empty-file" primitive
+  callable from a scaffold pipeline. If scaffold-module wants to
+  reach into gptel, the lowest-cost addition would be a new
+  non-interactive helper like `jf/gptel-create-empty-session-file
+  (dir basename)` that writes a minimal session.org skeleton; it
+  could live in `commands.org` § "Core Session Creation" right
+  next to `jf/gptel--create-session-core`. That is out of scope
+  for *this* task — flagging here so the scaffold reviewer can
+  pick it up if they want the preferred branch lit up.

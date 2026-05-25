@@ -53,6 +53,23 @@ The explicit `workspace-save' command never consults this list."
 (global-set-key (kbd "C-x w r") #'workspace-revert)
 (global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 
+(defun workspace-sessions-dir ()
+  "Return the sessions/ directory of the current workspace, or nil.
+
+Returns nil when no workspace owns the current tab, when the workspace
+is broken, or when its :home/sessions/ directory is missing on disk.
+
+This function is the soft-dependency entry point used by other
+subsystems (notably gptel/sessions) to route new artifacts under the
+active workspace's home.  It MUST NOT signal and has no side effects."
+  (when-let* ((name (workspace--current-name))
+              (ws   (gethash name workspace--registry))
+              ((not (workspace--broken-p ws)))
+              (home (workspace--home ws)))
+    (let ((dir (expand-file-name "sessions" home)))
+      (when (file-directory-p dir)
+        dir))))
+
 (when (fboundp 'workspace--restore)
   (workspace--restore))
 

@@ -517,12 +517,17 @@ Returns plist with:
           :branch-name "main"
           :session-file session-file)))
 
-(defun jf/gptel-persistent-session (session-name &optional backend model preset-name)
+(defun jf/gptel-persistent-session (session-name &optional backend model preset-name force-global)
   "Create a new persistent gptel session named SESSION-NAME.
 
 Optional BACKEND and MODEL default to Claude Opus 4.5.
 Optional PRESET-NAME specifies registered preset (default: 'executor).
 With prefix argument (C-u), prompts to select preset interactively.
+
+When FORCE-GLOBAL is non-nil, write the session under the global
+gptel sessions directory even when a workspace is active.  The
+user-facing escape-hatch command is
+`jf/gptel-persistent-session-global'.
 
 Prompts user to select projectile projects (0 or more).
 If projects selected, first project is used as project-root for scope expansion.
@@ -546,9 +551,9 @@ No special resume command needed - sessions auto-initialize when opened."
                                                  (mapcar #'symbol-name presets)
                                                  nil t)))
                     'executor)))
-     (list name nil nil preset)))
+     (list name nil nil preset nil)))
   (let* ((session-id (jf/gptel--generate-session-id session-name))
-         (session-dir (jf/gptel--create-session-directory session-id))
+         (session-dir (jf/gptel--create-session-directory session-id force-global))
          (preset-name (or preset-name 'executor))
          ;; Project selection
          (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
@@ -589,6 +594,32 @@ No special resume command needed - sessions auto-initialize when opened."
                      (format "\nProjects: %s" (string-join project-names ", "))
                    ""))
         buffer))))
+
+(defun jf/gptel-persistent-session-global (session-name &optional backend model preset-name)
+  "Create a new persistent gptel session in the global sessions directory.
+Like `jf/gptel-persistent-session', but forces the global
+`jf/gptel-sessions-directory' as the target root even when a workspace
+is active.  Use this when you explicitly want a session outside any
+workspace.
+
+This is the user-facing escape-hatch for the workspaces consult
+established by `jf/gptel--target-sessions-root'."
+  (interactive
+   (let* ((name (read-string "Session name (global): "))
+          (preset (if current-prefix-arg
+                      (let* ((presets (mapcar #'car gptel--known-presets))
+                             (annotator (lambda (name)
+                                          (let* ((preset (gptel-get-preset (intern name)))
+                                                 (desc (plist-get preset :description)))
+                                            (when desc (format "  -- %s" desc)))))
+                             (completion-extra-properties
+                              (list :annotation-function annotator)))
+                        (intern (completing-read "Select preset: "
+                                                 (mapcar #'symbol-name presets)
+                                                 nil t)))
+                    'executor)))
+     (list name nil nil preset)))
+  (jf/gptel-persistent-session session-name backend model preset-name t))
 
 (defun jf/gptel-refresh-sessions ()
   "Refresh the session registry by scanning session directories.
