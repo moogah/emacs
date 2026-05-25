@@ -1,0 +1,225 @@
+#+title: Workspaces — Directory Scaffolding
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle scaffold.el
+#+auto_tangle: y
+
+Scaffolds a workspace's on-disk home directory: =mkdir= the home
+directory, =git init=, write the =home.org= skeleton, =mkdir
+sessions/=, create the initial gptel session file, and (optionally)
+=git add . && git commit=.
+
+This module is a pure filesystem operation; it does NOT register
+workspaces or create tabs.  That is =tabs.el='s responsibility — the
+caller (=workspace-new=) composes the scaffold pipeline with workspace
+registration.
+
+Three contractual properties are pinned by the cycle 2 register
+entries:
+
+1. =register/boundary/workspace-scaffold-pipeline= — the six-stage
+   ordered pipeline with =INIT-AND-COMMIT?= gating stages 2 and 6.
+2. =register/invariant/scaffold-leave-partial-on-failure= — on any
+   stage failure, partial filesystem state is LEFT IN PLACE.  No
+   =delete-directory=, no =delete-file=, no rollback.
+3. =register/invariant/home-org-user-authored-after-creation= —
+   =workspace--scaffold-write-home-org= is the SOLE writer of
+   =home.org=.  Its guarded =(unless (file-exists-p path) ...)= body
+   ensures the file is written exactly once.
+
+The =home.org= skeleton begins with =#+TITLE:= on line 1 (no leading
+comments, no leading blank line) so the
+=register/boundary/home-org-read-pipeline= reader's stage-4 regex
+finds it on first call.
+
+* Lexical Binding
+
+The =:comments no= header keeps =org-babel-tangle= from inserting
+structure comments above the mode-line — without it, =lexical-binding:
+t= would not land on line 1 of the tangled file and Emacs would
+silently fall back to dynamic binding.
+
+#+begin_src emacs-lisp :comments no
+;;; scaffold.el --- Workspaces directory scaffolder -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Git subprocess helper
+
+Runs =git= with =default-directory= bound to =HOME=.  Captures stderr
++ stdout into a scratch buffer and signals =user-error= with the
+captured text on non-zero exit.  =unwind-protect= guarantees buffer
+cleanup.
+
+The error message includes the git argv and the HOME path so the user
+has enough information to inspect/remediate manually (the package
+never auto-rolls-back; see the file header).
+
+#+begin_src emacs-lisp
+(defun workspace--scaffold-git (home &rest args)
+  "Run `git ARGS' with `default-directory' bound to HOME.
+Signal `user-error' with stderr on non-zero exit."
+  (let* ((default-directory (file-name-as-directory home))
+         (out-buf (generate-new-buffer " *workspace-scaffold-git*"))
+         (status (apply #'call-process "git" nil out-buf nil args)))
+    (unwind-protect
+        (unless (zerop status)
+          (user-error "git %s failed in %s: %s"
+                      (mapconcat #'identity args " ")
+                      home
+                      (with-current-buffer out-buf
+                        (string-trim (buffer-string)))))
+      (kill-buffer out-buf))))
+#+end_src
+
+* home.org skeleton writer
+
+Writes the initial =home.org= skeleton to =HOME=.  The skeleton is
+three lines of frontmatter (=#+TITLE: <name>=) plus two top-level
+headings (=Description=, =Notes=).
+
+Two contractual properties:
+
+1. *Single-writer invariant.*  This function is the SOLE permitted
+   writer of =home.org= in the package.  Cycle 1's cross-module lint
+   treats this exact symbol name as the allow-listed writer — any
+   rename requires updating the lint's allow-list in lockstep.
+2. *Idempotent.*  The =(unless (file-exists-p path) ...)= guard
+   protects the user's authored content if =home.org= already exists.
+   This is the contract that makes the "anchor existing repo with
+   user-written home.org" sub-case safe.
+
+The skeleton intentionally does NOT include a =* Sessions= heading.
+The spec is explicit that the package never auto-renders or syncs
+session lists into =home.org= (design.md §D6 / spec
+"home.org is user-authored after creation").
+
+#+begin_src emacs-lisp
+(defun workspace--scaffold-write-home-org (home name)
+  "Write the initial `home.org' skeleton into HOME, using NAME for #+TITLE:.
+Does nothing if `home.org' already exists.
+
+This function is the SOLE writer of `home.org' in the workspaces
+package — see `register/invariant/home-org-user-authored-after-creation'."
+  (let ((path (expand-file-name "home.org" home)))
+    (unless (file-exists-p path)
+      (with-temp-file path
+        (insert (format "#+TITLE: %s\n\n" name))
+        (insert "* Description\n\n")
+        (insert "* Notes\n")))))
+#+end_src
+
+* Initial gptel session creator
+
+Creates a single empty session file under =<HOME>/sessions/=.  The
+filename uses today's date (=YYYY-MM-DD-initial.org=) so the user's
+first session is immediately visible.
+
+Two implementation paths:
+
+1. *Preferred.*  Call into the gptel-sessions module's stable
+   creator (=gptel-sessions-create-empty-file=) so the file's
+   contents stay in sync with whatever schema gptel-sessions
+   expects.  Guarded behind both =featurep= AND =fboundp= so that
+   the call is safe whether or not the gptel module is loaded.
+2. *Fallback.*  Write a minimal =#+TITLE: <date> initial session=
+   stub.  This is sufficient for cycle 2 — the sibling task
+   =gptel-sessions-workspace-consult= owns deeper integration.
+
+The =cycle 2 plan stanza= for this task expects the fallback path
+to be the active path at cycle 2 merge time (the sibling task does
+not introduce =gptel-sessions-create-empty-file= in cycle 2).
+Either branch is correct; cycle 3's =verify-end-to-end= task
+records which branch is live.
+
+#+begin_src emacs-lisp
+(defun workspace--scaffold-initial-session (home)
+  "Create the initial gptel session file under HOME/sessions/.
+Returns the absolute path of the session file."
+  (let* ((sessions-dir (expand-file-name "sessions" home))
+         (filename (format "%s-initial.org" (format-time-string "%Y-%m-%d")))
+         (path (expand-file-name filename sessions-dir)))
+    (make-directory sessions-dir t)
+    (cond
+     ((and (featurep 'gptel-sessions)
+           (fboundp 'gptel-sessions-create-empty-file))
+      (gptel-sessions-create-empty-file path))
+     (t
+      (with-temp-file path
+        (insert (format "#+TITLE: %s initial session\n"
+                        (format-time-string "%Y-%m-%d"))))))
+    path))
+#+end_src
+
+* Pipeline (workspace-scaffold)
+
+The six-stage pipeline.  =INIT-AND-COMMIT?= gates stages 2 (=git
+init=) and 6 (=git add . && git commit=); the file-touching stages
+(1, 3, 4, 5) run unconditionally.
+
+Stages:
+
+1. =make-directory HOME=
+2. =git init HOME=                                 (gated)
+3. write =HOME/home.org= skeleton                  (idempotent)
+4. =make-directory HOME/sessions/=
+5. create =HOME/sessions/<date>-initial.org=
+6. =git add . && git commit=                       (gated)
+
+On any failure: =user-error= is signalled with the HOME path and the
+failing operation in the message.  Partial filesystem state is LEFT
+IN PLACE — design.md §D2 explicitly rejected the auto-cleanup
+alternative as too risky (a typo'd HOME path that we silently
+=rm -rf= would be catastrophic).  The cost is awkward manual cleanup
+when scaffold fails mid-pipeline; the user has the path in the
+error message.
+
+Returns =HOME= on success.
+
+The function does NOT register the workspace, create a tab, or
+mutate any registry.  Those are the caller's responsibility in
+=tabs.el='s =workspace-new=.
+
+#+begin_src emacs-lisp
+(cl-defun workspace-scaffold (home name &key init-and-commit?)
+  "Scaffold a workspace directory at HOME with display NAME.
+
+When INIT-AND-COMMIT? is non-nil, run `git init' (stage 2) and an
+initial `git commit' (stage 6).  When nil, skip those stages —
+caller is anchoring an existing git repo without home.org and we
+never touch the user's git state.
+
+Stages (always | INIT-AND-COMMIT?):
+  1. make-directory HOME                       (always)
+  2. git init HOME                             (INIT-AND-COMMIT?)
+  3. write HOME/home.org skeleton              (always — idempotent)
+  4. make-directory HOME/sessions/             (always)
+  5. create HOME/sessions/<date>-initial.org   (always)
+  6. git add . && git commit                   (INIT-AND-COMMIT?)
+
+On any failure, signal `user-error'.  Partially-created files are
+LEFT IN PLACE (design.md §D2) — the error message names the path
+so the user can inspect/remediate manually.
+
+Returns HOME on success.
+
+This function does NOT register the workspace or create a tab —
+that is the caller's responsibility (tabs.el's workspace-new)."
+  (make-directory home t)
+  (when init-and-commit?
+    (workspace--scaffold-git home "init"))
+  (workspace--scaffold-write-home-org home name)
+  (make-directory (expand-file-name "sessions" home) t)
+  (workspace--scaffold-initial-session home)
+  (when init-and-commit?
+    (workspace--scaffold-git home "add" ".")
+    (workspace--scaffold-git home "commit" "-m" "Initial workspace"))
+  home)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspace-scaffold)
+;;; scaffold.el ends here
+#+end_src

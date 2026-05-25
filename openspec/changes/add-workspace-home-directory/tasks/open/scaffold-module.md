@@ -322,3 +322,125 @@ equivalent) function, your scaffold's `featurep` branch will
 exercise the preferred path automatically; if not, the fallback
 covers it. Either way, document the resolution in `## Discoveries`
 so cycle-3's verify-end-to-end task knows which branch is live.
+
+## Observations
+
+- **Module-registration site deviation (step 7).** The task body
+  and the implementor prompt both say to add `"workspaces/scaffold"`
+  to `jf/enabled-modules` in `init.org`. In the actual codebase the
+  workspaces package follows an **umbrella-loader** pattern:
+  `init.org`'s `jf/enabled-modules` only registers
+  `"workspaces/workspaces"`, and the umbrella `workspaces.org` then
+  loads each submodule (`data-model`, `home-org`, `tabs`,
+  `buffer-membership`, `layouts`, `persistence`, `workspaces-mode`)
+  internally via `jf/load-module`. Adding `"workspaces/scaffold"`
+  to `jf/enabled-modules` *and* to the umbrella's load list would
+  double-load. I followed the existing pattern and added
+  `scaffold.el` to the umbrella loader in
+  `config/workspaces/workspaces.org`, placed AFTER `home-org.el`
+  and BEFORE `tabs.el`. The placement satisfies the ordering
+  intent (after `home-org`, before any caller of
+  `workspace-scaffold` in `tabs.el`).
+- **`workspace--scaffold-git` signature unchanged from sketch.**
+  I kept the exact signature from step 2. The "user-error names
+  the HOME path" assertion in the failure-path spec works
+  because the real helper formats the path into its own message;
+  cycle-2 implementors of cycle-3 caller-side code (`tabs.el`'s
+  `workspace-new`) should NOT re-wrap the signal with
+  `condition-case`-and-re-`signal` patterns that would strip the
+  path, lest they break the remedy-hint contract pinned by
+  `register/invariant/scaffold-leave-partial-on-failure`.
+- **gptel-sessions fallback branch is live.** No
+  `gptel-sessions-create-empty-file` exists in
+  `config/gptel/sessions/` on this branch (the gptel sessions
+  module uses the `jf/gptel-` prefix for all its defuns). The
+  `featurep + fboundp` guard correctly falls through to the
+  minimal `#+TITLE:` writer. Documented in `## Discoveries` as
+  `spec-signal` so the cycle-3 verify-end-to-end task can pick a
+  side.
+- **Spec design choices.**
+  - Used `cl-defun` (not `defun + &rest`) for `workspace-scaffold`
+    so `:init-and-commit?` is a real keyword argument as
+    speculated in
+    `register/boundary/workspace-scaffold-pipeline`. The
+    scaffold's `&rest plist` shape was a placeholder; `cl-defun
+    &key` is the canonical Emacs Lisp form.
+  - "no commits on anchor branch" sub-assertion uses
+    `call-process "git" ... "log" "--oneline"` and asserts a
+    non-zero exit (an empty repo has no HEAD and `git log` exits
+    128 with "fatal: your current branch does not have any
+    commits yet"). This is more portable than scraping the error
+    text.
+  - The "user-error message names the HOME path" assertion is
+    asserted against `error-message-string err` (not `(cadr err)`
+    as the scaffold sketched) because `user-error` carries the
+    formatted string in the second slot but `error-message-string`
+    is the canonical accessor.
+
+## Discoveries
+
+```yaml
+- discovery_id: scaffold-module-D1
+  class: spec-signal
+  description: |
+    `gptel-sessions-create-empty-file' does not exist in
+    config/gptel/sessions/ on this cycle-2 branch. All public
+    gptel-sessions defuns use the `jf/gptel-' prefix. The scaffold
+    module's `featurep 'gptel-sessions' + fboundp ...' guard falls
+    through to the minimal `#+TITLE:' fallback writer. This is the
+    LIVE branch as of this implementor merge. If the sibling
+    cycle-2 task `gptel-sessions-workspace-consult' introduces
+    `gptel-sessions-create-empty-file' (or `featurep' for the
+    `gptel-sessions' feature symbol) later, the preferred branch
+    will activate automatically with no scaffold changes.
+  affected_register_entry: register/boundary/workspace-scaffold-pipeline
+  recommendation: |
+    Cycle-3 verify-end-to-end task should explicitly assert which
+    branch is live and record it in its own observations. If
+    cycle 2's gptel-sessions-workspace-consult merges first, that
+    task's implementor should call this out so this scaffold's
+    `featurep' guard is exercised on cycle-2 integration.
+
+- discovery_id: scaffold-module-D2
+  class: deviation
+  description: |
+    Step 7 of the task body and the implementor prompt both ask
+    for `"workspaces/scaffold"` to be added to `jf/enabled-modules`
+    in init.org. The codebase's workspaces package uses an
+    umbrella-loader pattern where init.org only registers
+    `"workspaces/workspaces"`, and the umbrella (workspaces.org)
+    loads submodules internally. Following the prompt verbatim
+    would have double-loaded scaffold.el. I added the load line
+    to the umbrella's submodules block (between home-org.el and
+    tabs.el) and left init.org unchanged.
+  affected_register_entry: null
+  recommendation: |
+    Future task templates for this workspaces package should
+    specify "add to the umbrella loader in workspaces.org" rather
+    than "add to jf/enabled-modules in init.org". The latter
+    phrasing matches the project convention for top-level modules
+    (e.g. `core/defaults`) but not for submodules of a package
+    that already has its own umbrella.
+
+- discovery_id: scaffold-module-D3
+  class: interface-drift
+  description: |
+    The scaffold file at
+    openspec/changes/add-workspace-home-directory/scaffolding/boundaries/workspace-scaffold-pipeline.el
+    declares `workspace-scaffold' with signature
+    `(home name &rest plist)' — a placeholder for what is
+    intentionally a keyword-arg interface. The real
+    implementation uses `cl-defun ... &key init-and-commit?',
+    which is the canonical Emacs Lisp shape for the speculated
+    contract. This is not divergent; it is the canonical
+    realisation of the speculated shape. The four `it' cases in
+    the scaffold all pass against the real signature.
+  affected_register_entry: register/boundary/workspace-scaffold-pipeline
+  recommendation: |
+    At cycle-2 integrate, the on-touch architect should flip
+    `register/boundary/workspace-scaffold-pipeline' from
+    `speculated' to `confirmed' and note the canonical signature
+    is `(cl-defun workspace-scaffold (home name &key
+    init-and-commit?) ...)' — not the `&rest plist' shape that
+    appeared in the scaffold file.
+```
