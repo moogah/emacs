@@ -265,16 +265,29 @@ explicit-save reaches disk.  The capture targets =:working-state= only
 (never =:saved-state=) per register/invariant/autosave-never-writes-
 saved-state.
 
+The working-state capture is gated on =workspace-anti-save-predicates=
+(register/boundary/autosave-guard-pipeline stage 1): if any predicate
+returns non-nil, the autosave is silently skipped, but the on-disk
+flush of the registry still runs.  Suppressing the capture but NOT
+the flush is deliberate — kill-emacs is the last chance to write any
+in-memory updates that arrived via other paths (explicit save,
+workspace-revert) to disk before shutdown.
+
 #+begin_src emacs-lisp
 (defun workspace--kill-emacs-flush ()
   "Capture working-state then write the registry to disk synchronously.
 Cancels any pending debounce.  The working-state capture is wrapped in
 `ignore-errors' so a capture failure (e.g. unusual frame state during
-shutdown) does not prevent the flush itself."
+shutdown) does not prevent the flush itself.
+
+Consults `workspace-anti-save-predicates' before the working-state
+capture; the registry flush itself is unconditional (the user has
+explicitly initiated shutdown)."
   (when workspace--save-timer
     (cancel-timer workspace--save-timer)
     (setq workspace--save-timer nil))
-  (ignore-errors (workspace--autosave-current-layout :working-state))
+  (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+    (ignore-errors (workspace--autosave-current-layout :working-state)))
   (ignore-errors (workspace--write-state (workspace--serialize-registry))))
 
 (add-hook 'kill-emacs-hook #'workspace--kill-emacs-flush)
@@ -296,8 +309,16 @@ non-workspace tabs.
 
 The advice writes ONLY to =:working-state=; no syntactic path exists
 from this code to =:saved-state= (register/invariant/autosave-never-
-writes-saved-state).  Anti-save predicates (sibling task
-=anti-save-predicates=) layer on top of this site once landed.
+writes-saved-state).  The autosave is gated on
+=workspace-anti-save-predicates= (register/boundary/autosave-guard-
+pipeline stage 1): if any predicate returns non-nil (e.g. the
+minibuffer is active or a =*Backtrace*= window is visible), the
+snapshot is silently skipped.  This is the wrap-the-caller
+attachment-point pinned by cycle-1 on-touch Finding 6 — placing the
+guard here rather than inside =workspace--autosave-current-layout=
+preserves the structural bypass of the predicates for
+=workspace-save= (register/invariant/explicit-save-bypasses-anti-
+save), which enters the pipeline at stage 2 directly.
 
 History: v1 introduced the same advice writing to the single
 =:frameset= slot, which clobbered explicit saves on every tab close
@@ -307,9 +328,12 @@ shape makes the clobber structurally impossible.
 #+begin_src emacs-lisp
 (defun workspace--persistence-before-tab-switch (&rest _args)
   "Snapshot the outgoing workspace's :working-state before the tab switch.
-No-op when the current tab is not a workspace-managed tab."
+No-op when the current tab is not a workspace-managed tab.  Consults
+`workspace-anti-save-predicates'; if any predicate returns non-nil,
+the autosave is silently skipped."
   (when (workspace--current-name)
-    (workspace--autosave-current-layout :working-state)))
+    (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+      (workspace--autosave-current-layout :working-state))))
 
 (advice-add 'tab-bar-select-tab :before
             #'workspace--persistence-before-tab-switch)
