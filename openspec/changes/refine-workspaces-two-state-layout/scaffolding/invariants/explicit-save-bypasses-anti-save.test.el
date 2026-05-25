@@ -112,7 +112,11 @@
       (with-temp-buffer
         (insert-file-contents file)
         (goto-char (point-min))
-        (re-search-forward "^(defun workspace-save\\b")
+        ;; Anchor on the open paren after the name so `\b` does not
+        ;; silently match `workspace-save-state' (which sits earlier
+        ;; in the file).  Without this anchor the structural
+        ;; assertion ran against the wrong defun and was a no-op.
+        (re-search-forward "^(defun workspace-save +(")
         (let ((body-start (point))
               (body-end (save-excursion
                           (goto-char (match-beginning 0))

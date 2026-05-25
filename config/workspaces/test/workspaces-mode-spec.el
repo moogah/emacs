@@ -140,14 +140,18 @@ calling real `cancel-timer' (the sentinel is not a real timerp)."
             (with-temp-buffer
               (insert-file-contents src)
               (goto-char (point-min))
-              (let (result)
+              ;; Use distinct names (`f' as the scratch read, `result'
+              ;; as the accumulator) so we do not `setq' through a
+              ;; lexical binding under construction in the outer
+              ;; `let*'.
+              (let (result f)
                 (while (and (not result)
-                            (setq form (ignore-errors
-                                         (read (current-buffer)))))
-                  (when (and (consp form)
-                             (eq (car form) 'defun)
-                             (eq (cadr form) 'workspaces-mode--idle-tick))
-                    (setq result form)))
+                            (setq f (ignore-errors
+                                      (read (current-buffer)))))
+                  (when (and (consp f)
+                             (eq (car f) 'defun)
+                             (eq (cadr f) 'workspaces-mode--idle-tick))
+                    (setq result f)))
                 result)))
            ;; defun shape: (defun NAME ARGS [DOCSTRING] [DECL] BODY...)
            (body (cdddr form))
