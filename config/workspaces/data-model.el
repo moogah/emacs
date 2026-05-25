@@ -99,9 +99,19 @@ disturbing callers."
   (list :name (workspace--group-name group)
         :layouts (list layout)))
 
-(defun workspace--make (name)
-  "Build an empty workspace plist named NAME."
+(defun workspace--make (name home)
+  "Build an empty workspace plist named NAME anchored at HOME.
+
+NAME is the workspace name (and the registry key under which it is
+stored).  HOME is the workspace's filesystem anchor — an absolute
+path string.  By convention, =basename(HOME)= equals NAME; the data
+layer does not enforce this here, but callers in the command layer
+do (the canonical construction site derives NAME from HOME).
+
+Both arguments are required: floating workspaces (without a home
+directory) are structurally unrepresentable."
   (list :name name
+        :home home
         :recent-layout-group nil
         :buffer-files nil
         :layout-groups nil))
@@ -109,6 +119,19 @@ disturbing callers."
 (defun workspace--name (ws)
   "Return the name of workspace WS."
   (plist-get ws :name))
+
+(defun workspace--home (ws)
+  "Return the absolute home directory path of workspace WS.
+
+Returns nil if WS has no =:home= slot (defensive: handles
+hand-constructed or stale plists from a corrupted persistence file)."
+  (plist-get ws :home))
+
+(defun workspace--set-home (ws home)
+  "Return a new workspace like WS with its =:home= slot set to HOME.
+Non-destructive: WS is not modified."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :home home)))
 
 (defun workspace--layout-groups (ws)
   "Return the layout-groups of workspace WS."
@@ -177,6 +200,26 @@ Non-destructive."
   (let* ((next (remove path (workspace--buffer-files ws)))
          (copy (copy-sequence ws)))
     (plist-put copy :buffer-files next)))
+
+(defun workspace--broken-p (ws)
+  "Return non-nil if WS is in a broken state.
+
+A workspace is broken when its =:home= directory was missing at
+persistence-load time.  The flag is runtime-only (never serialized);
+on next save it is implicitly dropped."
+  (plist-get ws :broken))
+
+(defun workspace--mark-broken (ws)
+  "Return a new workspace like WS marked broken.
+Non-destructive: WS is not modified.  Sets =:broken t= on the copy."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :broken t)))
+
+(defun workspace--clear-broken (ws)
+  "Return a new workspace like WS with the broken tag cleared.
+Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :broken nil)))
 
 (provide 'workspace-data-model)
 ;;; data-model.el ends here
