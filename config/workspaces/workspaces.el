@@ -37,6 +37,8 @@ The explicit `workspace-save' command never consults this list."
 (jf/load-module (expand-file-name "config/workspaces/buffer-membership.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/layouts.el"           jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
+(require 'workspaces-mode)
 
 (global-set-key (kbd "C-x w n") #'workspace-new)
 (global-set-key (kbd "C-x w s") #'workspace-switch)

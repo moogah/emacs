@@ -82,6 +82,55 @@ Restore on startup is /lazy/: tabs are recreated immediately so the
 tab bar reflects the saved set, but each tab's frameset and file
 buffers are restored only when the user first selects that tab.
 
+* Idle save (opt-in)
+
+=workspaces-mode= is a global minor mode that adds a third
+persistence path: a periodic idle-timer capture of the current
+workspace's =:working-state=.  It is a crash-safety net atop the
+explicit save and tab-switch autosave; both of those run
+unconditionally and are unaffected by this mode.
+
+The mode is /off by default/.  Enable it explicitly:
+
+#+begin_src emacs-lisp
+;; in init.org (or anywhere user-level config runs after the
+;; workspaces package has loaded)
+(workspaces-mode 1)
+#+end_src
+
+…or interactively via =M-x workspaces-mode=.
+
+** What it captures
+
+When the timer fires, the callback short-circuits if the user is not
+on a workspaces-managed tab.  Otherwise it writes the current
+window-state into the recent layout-group's =:working-state= slot —
+the same slot the tab-switch autosave uses.  The idle save /never/
+touches =:saved-state=; the explicit =C-x w S= remains the only way
+to update the explicit baseline.
+
+** Customization
+
+=workspaces-mode-idle-frequency= — seconds of idle time before the
+timer fires.  Default: =60=.
+
+The default is deliberately conservative: tab-switch autosave already
+covers most intra-session state, so idle save is purely the crash-
+safety net.  Sixty seconds of work is a tolerable loss window;
+shorter intervals trade disk churn for marginal recovery.
+
+Set to =nil= to disable the idle trigger while keeping the mode
+"on" (rare; the explicit save and tab-switch autosave remain active
+either way).
+
+** Interaction with anti-save predicates
+
+The idle save passes through =workspace--autosave-current-layout=,
+which (per the sibling =anti-save-predicates= task) consults
+=workspace-anti-save-predicates= before mutating.  No save fires
+during debugger activity, minibuffer interaction, or other states a
+user has declared off-limits.
+
 * Buffer membership
 
 Buffer membership is per-workspace.  When a buffer is displayed in
