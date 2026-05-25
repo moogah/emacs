@@ -2,7 +2,7 @@
 name: home-org-reader-module
 description: New home-org.org module with regex-based #+TITLE: reader (no org-mode parser)
 change: add-workspace-home-directory
-status: ready
+status: done
 relations: []
 ---
 

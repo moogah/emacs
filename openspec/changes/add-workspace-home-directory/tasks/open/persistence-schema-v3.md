@@ -151,3 +151,58 @@ in tests via `cl-letf` scoped to the `describe`/`it` block. Pattern:
 design.md § Decisions / D5 — Persistence schema v3: slot addition, same file path
 specs/workspaces/spec.md § MODIFIED "Per-machine persistence and restoration" (v2 rejection, `:home` skip, broken tagging)
 specs/workspaces/spec.md § ADDED "Broken home directory tolerated on restore"
+
+## Cycle 1 updates (cycle-20260525-200459)
+
+### Cited register entries
+
+- `register/shape/workspace-plist-v3`: speculated → **confirmed**. The
+  data-model task introduced the `workspace--make(name home)`
+  signature, `:home` slot, and `:broken` runtime tag. The serializer
+  this task adds MUST filter out `:broken` before writing — the
+  shape entry's contract names `:broken` as runtime-only,
+  never-serialized. See
+  `.orchestrator/cycles/cycle-20260525-200459/reconciliations/shape-workspace-plist-v3.md`.
+- `register/invariant/home-required-no-floating-workspaces`:
+  speculated → **confirmed**. The deserializer's "skip entries
+  lacking `:home`" path you implement here is the persistence-side
+  enforcement of this invariant (the constructor-side enforcement
+  landed cycle 1). See
+  `.orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-home-required-no-floating-workspaces.md`.
+- `register/invariant/registry-name-equals-basename`: speculated →
+  **confirmed**. When loading a workspace whose serialized `:name`
+  disagrees with `basename(:home)`, the deserializer SHOULD prefer
+  `basename(:home)` (or flag a corruption); current load path is
+  silent on this case — worth a `## Observations` note if you encounter
+  the edge.
+
+### Already-shipped infrastructure (use, don't re-implement)
+
+- `workspace--mark-broken` and `workspace--clear-broken` are defined
+  in `config/workspaces/data-model.el` (cycle 1) and exported. Use
+  `workspace--mark-broken` from the deserializer's broken-home path
+  (step 4 above) rather than inlining `(plist-put ws :broken t)`.
+  The architect's cycle-1 dead-branch finding
+  (`arch-cycle-20260525-200459-2`) explicitly tracks whether this
+  task's implementor uses the helper — if you bypass it, the finding
+  promotes from informational to advisory in cycle 3's integrate.
+
+### Meta-discovery: cascade risk
+
+Cycle 1's data-model task changed a shared signature
+(`workspace--make`) and cascaded into 76 failing specs across the
+codebase. A mid-cycle `wire-home-into-callsites` fix closed it.
+Your task is structurally similar: changing the persistence schema
+version from 2 → 3 is a shared contract change. **Self-audit**
+before merging: does any code path read the persistence file with
+hardcoded `:version 2` expectations? If yes, fix in this same task
+(or flag a `wire-v3-into-callers` follow-up at execute close so
+the cycle doesn't ship a red baseline).
+
+### Open ask carried from cycle 1
+
+- `ask-cycle-20260525-200459-1`: design.md §D5/§D6 names the
+  predicate `workspace--home-broken-p`, but the register +
+  implementation use `workspace--broken-p`. If still open when you
+  start this task, treat the register/implementation as authoritative.
+  The user disposition lands in the cycle-2 plan handshake.

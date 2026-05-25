@@ -2,7 +2,7 @@
 name: add-home-slot-to-data-model
 description: Add :home slot, accessor, and broken-state runtime tag to data-model.org
 change: add-workspace-home-directory
-status: ready
+status: done
 relations: []
 ---
 

@@ -2,7 +2,7 @@
 name: wire-home-into-callsites
 description: Update tabs.org's workspace-new and all test fixtures to pass HOME to workspace--make; close the 76-failure cascade from add-home-slot-to-data-model
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - blocked-by:add-home-slot-to-data-model
   - discovered-from:add-home-slot-to-data-model

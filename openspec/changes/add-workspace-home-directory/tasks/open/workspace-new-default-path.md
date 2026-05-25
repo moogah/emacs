@@ -187,3 +187,67 @@ design.md § Decisions / D2 — pipeline error handling (scaffold-then-register 
 design.md § Goals — default path produces a fully scaffolded, git-tracked workspace
 specs/workspaces/spec.md § ADDED "workspace-new default scaffolding"
 specs/workspaces/spec.md § MODIFIED "Per-workspace home layout" (default builder opens home.org)
+
+## Cycle 1 updates (cycle-20260525-200459)
+
+### Cited register entries
+
+- `register/shape/workspace-plist-v3`: speculated → **confirmed**.
+  The data-model task introduced `workspace--make(name home)`. Your
+  task's call to `workspace--make` MUST pass HOME (this task replaces
+  the cycle-1 placeholder synthesis with proper defcustom-driven
+  HOME — see "Already-shipped placeholder" below).
+- `register/boundary/home-org-read-pipeline`: speculated →
+  **reconciled**. Producers list now records that the new
+  `home-org.org` module is wired via `config/workspaces/workspaces.org`'s
+  submodule loader (not `init.org`'s `jf/enabled-modules`); apply the
+  same wiring convention when the cycle-2 `scaffold-module` task lands
+  (which you depend on).
+
+### Already-shipped placeholder (REPLACE, don't preserve)
+
+Cycle 1's mid-cycle `wire-home-into-callsites` task added a
+**placeholder** HOME synthesis in `config/workspaces/tabs.org`:
+
+```elisp
+;; CYCLE-1 PLACEHOLDER replaced by cycle-3's
+;; workspace-new-default-path task ...
+(defun wire-home-into-callsites--synthesize-home (name)
+  (expand-file-name
+   name
+   (expand-file-name "emacs-workspaces" (or (getenv "HOME") "~"))))
+```
+
+…and threaded it into `workspace-new`'s sole `workspace--make` call.
+**Your task's job includes removing this helper** and replacing it
+with the proper defcustom-driven synthesis. Search for the literal
+`wire-home-into-callsites--synthesize-home` (the deliberately-verbose
+name was chosen so you can grep for it).
+
+The placeholder's synthesis logic is correct in shape (basename ==
+name, absolute path); your task replaces it with one that honours
+the new `workspaces-default-parent-directory` defcustom AND dispatches
+to the cycle-2 scaffold pipeline for the actual directory creation.
+Don't preserve the helper as a fallback — the scaffold pipeline is
+the canonical path post-cycle-2.
+
+Self-audit before deleting: grep for any other callers of
+`wire-home-into-callsites--synthesize-home`. Cycle 1 introduced exactly
+one (in `workspace-new`); if cycle 2 added more, address each.
+
+### Already-shipped infrastructure
+
+- `config/workspaces/data-model.el`: `workspace--home`,
+  `workspace--set-home`, `workspace--broken-p` accessors are
+  available (cycle 1).
+- `config/workspaces/home-org.el`: `workspace-home-org-path`,
+  `workspace-home-org-exists-p`, `workspace-home-org-title`
+  available for your `workspace-default-home-builder` to use directly
+  (cycle 1).
+
+### Open ask carried from cycle 1
+
+- `ask-cycle-20260525-200459-1`: design.md §D5/§D6 names the predicate
+  `workspace--home-broken-p`, but the register + implementation use
+  `workspace--broken-p`. Not directly in your scope (you don't touch
+  the broken-state guards), but worth knowing if you read design.md.

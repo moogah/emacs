@@ -1034,7 +1034,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/workspace-plist-v3
    tier: shape
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): speculation matched
+     implementation. Cycle-1 add-home-slot-to-data-model task introduced
+     workspace--make(name home), accessors workspace--home /
+     workspace--set-home, and the :broken runtime tag with three helpers
+     (workspace--broken-p / workspace--mark-broken / workspace--clear-broken).
+     The wire-home-into-callsites mid-cycle follow-up closed the 76-failure
+     cascade so the contract is bearable across the full test suite.
+     Validator's name-not-basename-of-home check holds at the canonical
+     caller (synthesizes name from basename(home)). Cycle-3 sharp-edge
+     captured: workspace--set-home alone is insufficient for re-anchor's
+     rekey dance; absorbed into cycle-3 broken-home-tolerance refinement.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/shape-workspace-plist-v3.md.
    load_bearing: true
    title: Top-level workspace plist (post-:home extension)
    purpose: |
@@ -1775,7 +1788,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/workspace-broken-disposition
    tier: vocabulary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): closed-set vocabulary
+     (switch/restore/re-anchor/purge/delete × :refused/:allowed) holds
+     as speculated. Cycle 1 implemented the runtime predicate
+     workspace--broken-p (the structural anchor at the data layer);
+     the user-facing commands and their inline guards land in cycle 3
+     via broken-home-tolerance and workspace-delete-and-purge. The
+     canonical pcase mapping is reference material for the end-of-cycle
+     architect audit (signal-class 2: vocabulary-mismatch), not runtime
+     authority — each command's inline guard is the runtime enforcement.
+     Implementor noted (disc-add-home-slot-3): vocabulary covers
+     user-facing dispositions only, NOT internal helpers
+     (workspace--mark-broken / clear-broken); the scaffolding documents
+     the boundary clearly. Scaffold archived; remains as audit reference.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/vocabulary-workspace-broken-disposition.md.
    load_bearing: true
    title: Per-command disposition for broken-state workspaces
    purpose: |
@@ -3206,7 +3234,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/home-org-read-pipeline
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): 5-stage pipeline
+     implemented cleanly in config/workspaces/home-org.el. Two metadata
+     refinements absorbed from the implementor's push-back:
+     (1) producers list now notes loaded_via=workspaces.org submodule
+     loader (not init.org/jf/enabled-modules — workspaces subsystem
+     convention); (2) stage-5 trim-and-emptiness-filter gains explicit
+     examples distinguishing #+TITLE:    \n (stage-5 reject) from bare
+     #+TITLE: (stage-4 short-circuit — regex requires [ \t]+ after colon).
+     Core contracts (5 stages; NO caching; NO org-mode load) hold as
+     speculated. Reviewer (R1-F1) flagged the cross-module writer-allow-list
+     lint from the related invariant scaffold was not ported in cycle 1;
+     follow-up task port-cross-module-home-org-writer-lint filed
+     (blocked-on scaffold-module). Scaffold archived; canonical mapping
+     implemented in config/workspaces/home-org.el and tested in
+     config/workspaces/test/home-org-spec.el (14 specs).
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/boundary-home-org-read-pipeline.md.
    load_bearing: false
    title: home.org read-on-demand pipeline (no caching, no org-mode)
    purpose: |
@@ -4829,7 +4874,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/home-required-no-floating-workspaces
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): structural enforcement
+     landed at workspace--make's required (name home) signature — single-arg
+     calls signal wrong-number-of-arguments at every caller. Cycle-1
+     data-model task added the constructor signature; mid-cycle
+     wire-home-into-callsites closed the 76-failure cascade so the
+     contract is bearable across the full test suite (165 → 164 specs
+     after orchestrator inline-deleted one non-informative test).
+     Test-tier enforcement landed in config/workspaces/test/data-model-home-spec.el
+     (:home accessor describe block, 5 specs). Persistence-side enforcement
+     (deserializer's skip-with-notice for malformed entries) forward-pinned
+     to cycle-2 persistence-schema-v3. Scaffold archived; cycle-1 5 it
+     clauses' equivalents implemented in spirit in data-model-home-spec.el.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-home-required-no-floating-workspaces.md.
    load_bearing: true
    title: Every workspace in the registry has :home set to an absolute path
 
@@ -4899,7 +4958,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/registry-name-equals-basename
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): cycle-1 enforcement is
+     the canonical-pattern test in data-model-home-spec.el (constructed
+     workspace's :name equals basename(directory-file-name(:home))).
+     wire-home-into-callsites synthesized HOME values where basename(:home)
+     == :name by construction in both the production callsite (tabs.org
+     workspace-new placeholder) and the 14 fixture calls in
+     data-model-spec.el. The data layer correctly does NOT enforce
+     equality (spec delegates to the canonical caller). Property-test-over-
+     registry and rename-on-re-anchor enforcement forward-pinned to cycle-3
+     broken-home-tolerance (where workspace-re-anchor does the
+     remhash/puthash/:home/:name choreography). disc-add-home-slot-1
+     captures the cycle-3 sharp edge (workspace--set-home alone is
+     insufficient); absorbed into cycle-3 task refinement this cycle.
+     Scaffold archived; 4 of 5 it clauses landed in data-model-home-spec.el
+     (orchestrator inline-deleted the trailing-slash test that asserted
+     on Emacs primitives only); 5th clause forward-pinned.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-registry-name-equals-basename.md.
    load_bearing: true
    title: Workspace registry-name equals basename of :home
 
@@ -4966,7 +5043,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/home-org-user-authored-after-creation
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): cycle-1 narrow enforcement
+     landed — config/workspaces/home-org.el has zero file-write primitives,
+     verified by both inspection and the in-spec lint in home-org-spec.el's
+     "Invariant: reader module is read-only" case. The BROADER cross-module
+     lint (walking every .el under config/workspaces/ for write primitives
+     against a permitted-writers allow-list) is deferred to follow-up task
+     port-cross-module-home-org-writer-lint (blocked on cycle-2 scaffold-module
+     so the permitted writer workspace--scaffold-write-home-org exists when
+     the lint lands). Cycle-1's narrower coverage is functionally equivalent
+     today (no other workspaces module currently writes home.org); cycle-2+
+     work makes the invariant DURABLE. Reviewer R1-F1 flagged the omission
+     as advisory (not blocking); follow-up task filed. Scaffold archived;
+     it #2 landed in home-org-spec.el, it #1 in the follow-up task, it #3
+     (byte-for-byte snapshot) naturally lands with scaffold-module.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-home-org-user-authored-after-creation.md.
    load_bearing: true
    title: The package writes home.org exactly once (at scaffold time)
 
