@@ -75,7 +75,7 @@ want to preserve that property.
 
 Existing modules absorb the rest:
 - `data-model.org` — add `:home` to `workspace--make`, `workspace--home`
-  accessor, `workspace--home-broken-p` predicate (runtime tag).
+  accessor, `workspace--broken-p` predicate (runtime tag).
 - `tabs.org` — `workspace-new` dispatches to `scaffold` for the default
   path and the prefix-arg branches; default `workspace-home-builder` is
   rewritten to `find-file <home>/home.org`.
@@ -194,7 +194,7 @@ deserializer:
 ### D6. Broken-state semantics in commands
 
 `workspace-switch` and `workspace-restore` consult
-`workspace--home-broken-p` before doing anything else and signal
+`workspace--broken-p` before doing anything else and signal
 `user-error` if true. `workspace-purge` is permitted on broken
 workspaces (registry-only cleanup; no filesystem deletion to perform).
 `workspace-re-anchor NAME PATH` clears the broken tag, updates `:home`,
