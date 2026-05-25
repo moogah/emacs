@@ -166,3 +166,139 @@ preference about archiving with vs. without them).
 > cycle's full output. The spec-signal asks routed to the user during
 > integrate may also influence the docs (record the user's decisions
 > in this task's README updates).
+
+## Cycle 2 updates (2026-05-25, cycle-20260525-082618)
+
+Cycle 2 landed the remaining two feature tasks and four cycle-1
+follow-ups. **All `blocked-by` dependencies are now resolved**: the
+task is structurally unblocked and ready for cycle 3 (or sooner). The
+frontmatter's `blocked-by` list is left as historical record.
+
+### Additional surface to document
+
+Beyond the cycle-1 stanza's coverage of keybindings, schema v2, and
+buffer reincarnation, the README + spec sync now need to absorb:
+
+**Anti-save predicates** (cycle-2 `anti-save-predicates`, merge `93e833e`):
+
+- New defcustom `workspace-anti-save-predicates`. Default value
+  contains `active-minibuffer-window` (built-in) and
+  `workspace--backtrace-visible-p` (new helper). If any predicate
+  returns non-nil, the autosave is silently skipped.
+- Explicit `workspace-save` **structurally bypasses** the predicate
+  consultation (enters the autosave-guard pipeline at stage 2). This
+  is the load-bearing invariant: a user invoking `M-x workspace-save`
+  cannot be trapped by a misconfigured predicate.
+- Three autosave call sites carry the wrap: tab-switch advice
+  (`workspace--persistence-before-tab-switch`), kill-emacs hook
+  (`workspace--kill-emacs-flush`), and idle-tick callback
+  (`workspaces-mode--idle-tick`). The fourth listed entry in the
+  cycle-1 boundary register entry (`workspace--persistence-after-tab-
+  switch`) was determined NOT to be an autosave path during execute;
+  the register entry was corrected at integrate.
+
+**Idle save mode** (cycle-2 `idle-save-mode`, merge `53a7557` +
+inline-fix `7f14276`):
+
+- New module `config/workspaces/workspaces-mode.org` introducing
+  `workspaces-mode` global minor mode (OFF by default). Loaded by
+  the package but not enabled at startup; users opt in via
+  `(workspaces-mode 1)` in `init.org` or `M-x workspaces-mode`.
+- New defcustom `workspaces-mode-idle-frequency` (default 60 seconds;
+  set to nil to disable the timer while keeping the mode loaded).
+- The idle-tick callback is guarded by `(workspace--current-name)`
+  AND by the anti-save predicate consultation. Crash-safety net only;
+  explicit save + tab-switch autosave remain the primary persistence
+  triggers.
+- README needs a new "Idle save (opt-in)" section. The cycle-2
+  implementor already drafted one in `config/workspaces/docs/
+  README.org`; this task should integrate that draft with the cycle-1
+  schema-v2 narrative.
+
+**Closed-set discipline (reincarnation chain)** (cycle-2
+`add-reincarnation-step-predicate`, merge `abffa09`):
+
+- New `workspace--valid-reincarnation-steps` defconst and
+  `workspace--reincarnation-step-p` predicate (mirrors the cycle-1
+  `workspace--state-slot-p` pair).
+- The reincarnation chain `(bookmark filename name error-buffer)` is
+  now closed-set-enforced at the code level. Documentation should
+  note this symmetry — adding a fifth fallback step is now a
+  register-level change AND a defconst update (both must move
+  together).
+
+**Layout-construction funnel** (cycle-2
+`unify-layout-construction-paths`, merge `df89ce2`):
+
+- `workspace-save-layout` and `workspace--capture-home-layout` now
+  funnel through `workspace--autosave-current-layout :saved-state`.
+  `workspace--layout-make` is called only from inside the canonical
+  helper.
+- README's persistence-model section should note that all three
+  explicit-save variants share one construction path — relevant if
+  the design.md §D5 deferred `:etc` git-observation feature ever
+  lands.
+
+**Dead placeholder removed** (cycle-2
+`remove-dead-after-tab-switch-placeholder`, merge `71281ab`):
+
+- The `workspace--after-tab-switch` placeholder defun is gone.
+  The live `workspace--persistence-after-tab-switch` advice (the
+  lazy-restore path) is now the sole `:after` on
+  `tab-bar-(select|switch-to)-tab`. No documentation impact for
+  users (the placeholder was internal).
+
+### Cycle-2 register status
+
+All eight register entries this change has touched are now in a
+stable disposition (5 reconciled, 3 confirmed). Reconciliation notes
+live at `.orchestrator/cycles/cycle-20260525-082618/reconciliations/
+*.md`. The docs/spec do NOT need to reference register entry IDs by
+name — the register is internal architectural plumbing — but the
+behavioral content the entries pin (anti-save bypass, idle-tick guard,
+closed-set predicate symmetry, canonical layout producer) should all
+be discoverable in README + spec prose.
+
+### Two `.tasks/` follow-ups (not blockers)
+
+Both arose from cycle-2 review findings and are independent of this
+task's outcome:
+
+- `.tasks/extract-workspace-explicit-save-into-group.md` — extract a
+  named helper that `workspace-save` and `workspace-save-layout`
+  share (post-funnel duplication).
+- `.tasks/pin-explicit-save-clears-working-state-on-resave.md` —
+  strengthen the cycle-2 cross-producer test to pin
+  `:working-state` clear on re-save.
+
+Neither blocks the docs-and-sync or the change archive; both are
+parked for a future maintainer.
+
+### Sync step adjustments
+
+- The delta spec at `openspec/changes/refine-workspaces-two-state-
+  layout/specs/workspaces/spec.md` should already have the cycle-2
+  additions documented (anti-save-predicates, idle-save-mode requirements). If
+  not, generate them from the cycle-2 implementor reports under
+  `.orchestrator/cycles/cycle-20260525-082618/implementor-reports/`.
+- The "ADDED Requirements" list in step 1 should now include four
+  items (Buffer reincarnation across restart, Working-state revert,
+  Anti-save predicates, Idle save mode) — confirm all four are
+  present in both the delta and after-sync.
+
+### Verification additions
+
+```bash
+# Cycle-2 surface checks
+grep -n "workspace-anti-save-predicates\|workspaces-mode-idle-frequency" config/workspaces/docs/README.org   # both defcustoms documented
+grep -n "workspaces-mode" config/workspaces/docs/README.org                                                  # opt-in story explained
+grep -n "workspace--reincarnation-step-p" openspec/specs/workspaces/spec.md                                  # closed-set symmetry mention (optional but recommended)
+```
+
+> Cycle 2: anti-save + idle-save + funnel + closed-set predicate +
+> dead-placeholder removal all landed and need documentation. See
+> pm-digest at `.orchestrator/cycles/cycle-20260525-082618/pm-digest.md`
+> for the cycle's full output. No new user-decision asks from cycle 2;
+> the cycle's findings either inline-fixed, externalised to `.tasks/`,
+> or queued as task-body / register documentation updates (this
+> stanza absorbs them).

@@ -902,6 +902,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      today (:etc universally nil per design.md §D7); follow-up task at
      integrate. See
      .orchestrator/cycles/cycle-20260524-200631/reconciliations/shape-layout-v2-plist.md.
+
+     cycle-20260525-082618 integrate (2026-05-25): producer fragmentation
+     RESOLVED. Cycle-2 unify-layout-construction-paths (commit 4d1afee →
+     merged in df89ce2) funnels workspace-save-layout and workspace--
+     capture-home-layout through workspace--autosave-current-layout
+     :saved-state. workspace--layout-make is now called only from within
+     the canonical helper; the three explicit-save variants share one
+     construction path and :etc preservation is uniform. Two follow-up
+     items captured in .tasks/: a re-save :working-state regression
+     test and a workspace--explicit-save-into-group helper extraction.
+     See
+     .orchestrator/cycles/cycle-20260525-082618/reconciliations/shape-layout-v2-plist.md.
    load_bearing: true
    title: Two-state layout plist (schema v2)
    purpose: |
@@ -955,10 +967,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    producers:
      - file: config/workspaces/data-model.org
        function: workspace--layout-make (constructs the plist)
+       note: |
+         Post-cycle-2 unify-layout-construction-paths: called ONLY from
+         workspace--autosave-current-layout's cond `t` arm. Not called
+         from any user-facing save command directly.
      - file: config/workspaces/layouts.org
-       function: workspace-save (writes :saved-state, clears :working-state)
-     - file: config/workspaces/layouts.org
-       function: workspace--autosave-current-layout (writes :working-state)
+       function: workspace--autosave-current-layout
+       note: |
+         The canonical construction point. Three call sites flow into
+         it as :saved-state producers (workspace-save, workspace-save-
+         layout, workspace--capture-home-layout); four as :working-
+         state producers (the four stage-1 autosave entry points of
+         register/boundary/autosave-guard-pipeline).
+   canonical_producer: workspace--autosave-current-layout
 
    consumers:
      - file: config/workspaces/data-model.org
@@ -1451,6 +1472,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      remain standalone helpers. closed_set: true is documentary; no runtime
      pcase predicate ships. Scaffolding archived. See
      .orchestrator/cycles/cycle-20260524-200631/reconciliations/vocabulary-buffer-reincarnation-fallback-chain.md.
+
+     cycle-20260525-082618 integrate (2026-05-25): closed-set discipline
+     is now code-level. workspace--valid-reincarnation-steps defconst +
+     workspace--reincarnation-step-p predicate ship in layouts.org (cycle-
+     2 task add-reincarnation-step-predicate, commit a374f87 → merged in
+     abffa09). The validator below is no longer documentary; it points
+     at the new predicate. closed_set_enforcement is now symmetric with
+     register/vocabulary/workspace-state-slot. See
+     .orchestrator/cycles/cycle-20260525-082618/reconciliations/vocabulary-buffer-reincarnation-fallback-chain.md.
    load_bearing: true
    title: Buffer-reincarnation fallback steps (closed, ordered)
    purpose: |
@@ -1528,10 +1558,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
            (workspace--reincarnation-error-buffer wb)))
 
    validator: |
-     (defun vocabulary/validate-reincarnation-step (s)
-       (memq s '(bookmark filename name error-buffer)))
+     ;; cycle-20260525-082618: code-level predicate now ships in
+     ;; config/workspaces/layouts.org. The defconst is the closed set;
+     ;; the predicate is the membership check. Mirrors workspace--state-
+     ;; slot-p / workspace--valid-state-slots from cycle 1.
+     (defconst workspace--valid-reincarnation-steps
+       '(bookmark filename name error-buffer))
+     (defun workspace--reincarnation-step-p (step)
+       (memq step workspace--valid-reincarnation-steps))
 
    closed_set: true
+   closed_set_enforcement: code-level predicate (workspace--reincarnation-step-p)
 
    related_entries:
      - register/shape/workspace-buffer-struct
@@ -2722,6 +2759,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      explicit-save-bypasses-anti-save structurally). Stage 4 reuses
      pre-cycle debounce machinery. Scaffolding archived. See
      .orchestrator/cycles/cycle-20260524-200631/reconciliations/boundary-autosave-guard-pipeline.md.
+
+     cycle-20260525-082618 integrate (2026-05-25): stage-1 attachment
+     surface filled. The pre-cycle producer list named four stage-1
+     entries; cycle-2 anti-save-predicates implementor surfaced that
+     workspace--persistence-after-tab-switch (originally listed) is
+     actually the lazy-restore path, not an autosave. The actual stage-1
+     wrap surface is THREE persistence entries collapsed to two distinct
+     functions (workspace--persistence-before-tab-switch — :before
+     advice on both tab-bar-select-tab AND tab-bar-switch-to-tab —
+     plus workspace--kill-emacs-flush) and one workspaces-mode entry
+     (workspaces-mode--idle-tick). All four wrap call sites carry
+     (unless (run-hook-with-args-until-success 'workspace-anti-save-
+     predicates) ...). workspace-save still enters at stage 2 by
+     design. See
+     .orchestrator/cycles/cycle-20260525-082618/reconciliations/boundary-autosave-guard-pipeline.md.
    load_bearing: true
    title: Autosave guard pipeline (predicates → capture → slot route → flush)
    purpose: |
@@ -2792,17 +2844,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    producers:
      - file: config/workspaces/persistence.org
-       function: tab-bar-select-tab advice
-       enters_at_stage: 1
-     - file: config/workspaces/workspaces-mode.org   # NEW file
-       function: workspaces-mode idle timer callback
+       function: workspace--persistence-before-tab-switch
+       advised_primitive: tab-bar-select-tab, tab-bar-switch-to-tab (:before)
        enters_at_stage: 1
      - file: config/workspaces/persistence.org
        function: workspace--kill-emacs-flush
        enters_at_stage: 1
+     - file: config/workspaces/workspaces-mode.org
+       function: workspaces-mode--idle-tick
+       enters_at_stage: 1
      - file: config/workspaces/persistence.org
        function: workspace-save (explicit)
        enters_at_stage: 2
+       note: |
+         Bypasses stage 1 structurally — calls
+         workspace--autosave-current-layout :saved-state directly. The
+         absence of a stage-1 wrap on this call site is itself the
+         enforcement of register/invariant/explicit-save-bypasses-anti-
+         save. A future refactor that introduced a shared "guarded
+         helper" feeding both autosave and explicit-save would break
+         that invariant.
 
    consumers:
      - file: config/workspaces/persistence.org
@@ -4176,7 +4237,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/explicit-save-bypasses-anti-save
    tier: invariant
-   status: speculated
+   status: reconciled
+   reconciled_in_cycle: cycle-20260525-082618
+   reconciled_at: 2026-05-25T09:30:00Z
    load_bearing: true
    title: Explicit workspace-save never consults workspace-anti-save-predicates
 
@@ -4230,7 +4293,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/idle-tick-no-op-off-workspace
    tier: invariant
-   status: speculated
+   status: reconciled
+   reconciled_in_cycle: cycle-20260525-082618
+   reconciled_at: 2026-05-25T09:30:00Z
    load_bearing: true
    title: workspaces-mode idle-tick must short-circuit when no workspace is current
 
