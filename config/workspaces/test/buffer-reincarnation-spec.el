@@ -216,6 +216,62 @@
           (funcall newer)
           (expect put-count :to-be-weakly-greater-than 0))))))
 
+(describe "restore generation guard via workspace-switch-layout"
+  ;; Sibling to the `restore generation guard' suite above: pins the
+  ;; same invariant from the SECOND entry path into
+  ;; `workspace--restore-frameset'.  The race-guard cl-incf lives at
+  ;; the single restore choke point so every entry path participates
+  ;; (register/boundary/buffer-reincarnation-pipeline stage 4).
+  (before-each
+    (clrhash workspace--registry)
+    (setq workspace--restore-generation 0)
+    (let ((tabs (frame-parameter nil 'tabs)))
+      (when (> (length tabs) 1)
+        (dotimes (_ (1- (length tabs)))
+          (tab-bar-close-tab 2)))))
+
+  (it "stale deferred restore no-ops when triggered by a later workspace-switch-layout"
+    ;; Two `workspace-switch-layout' calls back-to-back across two
+    ;; layouts (home → beta → home).  Capture both deferred closures;
+    ;; fire the older first and assert it noops; then fire the newer
+    ;; and assert it runs `window-state-put'.
+    (let ((closures nil)
+          (put-count 0))
+      ;; Seed a second layout `beta' on the alpha workspace before
+      ;; installing the run-at-time / window-state-put mocks, so that
+      ;; `workspace-save-layout' can do its real frameset capture
+      ;; without our counters firing.
+      (workspace-new "alpha")
+      (workspace-save-layout "beta")
+      (cl-letf (((symbol-function 'run-at-time)
+                 (lambda (_secs _repeat fn &rest _args)
+                   (push fn closures)))
+                ((symbol-function 'window-state-put)
+                 (lambda (&rest _) (cl-incf put-count)))
+                ;; `workspace-switch-layout' calls
+                ;; `workspace--autosave-current-layout', which has an
+                ;; :after advice that triggers `workspace-save-state'
+                ;; (disk write).  Stub it out for the duration of the
+                ;; test.
+                ((symbol-function 'workspace-save-state)
+                 (lambda (&rest _) nil)))
+        ;; Two switches in rapid succession.  Each one calls
+        ;; `workspace--restore-frameset' once, which `cl-incf's the
+        ;; generation and pushes a closure onto our `closures' list.
+        (workspace-switch-layout "home")
+        (workspace-switch-layout "beta")
+        ;; At least two closures queued; both came through
+        ;; `workspace-switch-layout', not the
+        ;; `workspace--apply-saved-layout' entry path.
+        (expect (length closures) :to-be-weakly-greater-than 2)
+        (let* ((ordered (nreverse closures))   ; oldest first
+               (older  (car ordered))
+               (newer  (car (last ordered))))
+          (funcall older)
+          (expect put-count :to-equal 0)
+          (funcall newer)
+          (expect put-count :to-be-weakly-greater-than 0))))))
+
 (describe "non-file buffer reincarnation (magit-status shape)"
   (it "uses the bookmark handler to materialize a magit-status buffer"
     ;; Mock at the bookmark handler boundary so we do not require
