@@ -1026,6 +1026,194 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** workspace-plist-v3
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-workspace-plist-v3
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/workspace-plist-v3
+   tier: shape
+   status: speculated
+   load_bearing: true
+   title: Top-level workspace plist (post-:home extension)
+   purpose: |
+     The plist held in =workspace--registry= under each workspace's
+     registry-name key. v2 (pre-change) carries =:name=,
+     =:recent-layout-group=, =:buffer-files=, =:layout-groups=. v3
+     adds a required =:home= (absolute filesystem path) and a
+     runtime-only =:broken= tag (set by the deserializer when
+     =:home= no longer exists on disk; NEVER serialized back to
+     disk). The =:home= addition is structural — it carries the new
+     filesystem-anchoring identity that every downstream module
+     (scaffold, persistence, tabs, gptel-sessions consult, delete/
+     purge, broken-state handling) reads. The basename of =:home=
+     is the workspace's registry-name; pinning this in the validator
+     prevents the registry from drifting out of sync with the
+     filesystem anchor.
+
+   required_keys:
+     - name: ":name"
+       type: string
+       description: |
+         The workspace's registry-name. MUST equal
+         =(file-name-nondirectory (directory-file-name :home))=.
+         Used as the =workspace--registry= hash key, the
+         =tab-bar-tab-name= for the workspace's tab, and the key in
+         the persistence file. Display name (mode-line, prompts) MAY
+         differ — see =workspace-home-org-title= override and the
+         =home-org-user-authored-after-creation= invariant.
+     - name: ":home"
+       type: string (absolute filesystem path)
+       description: |
+         The workspace's home directory. Absolute path. Required —
+         a workspace without =:home= cannot be constructed
+         (=workspace--make= signature requires it) and is rejected
+         by the deserializer with a =*Messages*= notice. The
+         directory's contents are the cross-machine portable
+         carrier for the workspace (=home.org=, =sessions/=, =.git=);
+         see =register/shape/home-directory-layout= (cycle-2
+         candidate). NOT optional: pre-alpha floating-workspace
+         support is removed in this change.
+     - name: ":recent-layout-group"
+       type: string | nil
+       description: |
+         Unchanged from v2. The name of the layout-group most
+         recently activated for this workspace; nil if none.
+     - name: ":buffer-files"
+       type: list of strings | nil
+       description: |
+         Unchanged from v2. The workspace's buffer membership
+         (filenames). Reincarnation handled separately per
+         =register/shape/workspace-buffer-struct=.
+     - name: ":layout-groups"
+       type: alist (name . layout-group) | nil
+       description: |
+         Unchanged from v2. The workspace's layout-groups, each
+         carrying v2 two-state layouts per
+         =register/shape/layout-v2-plist=.
+
+   optional_keys:
+     - name: ":broken"
+       type: t | nil
+       description: |
+         Runtime-only tag set by =persistence.org=
+         (=workspace--persistence-deserialize-workspace=) when the
+         workspace's =:home= is not a directory at load time.
+         Activation paths (=workspace-switch=, =workspace-restore=)
+         consult =workspace--broken-p= and signal =user-error= when
+         set. NEVER written to disk — the serializer filters this
+         key. The =broken-home-no-auto-recreate= invariant pins the
+         "log and tag, never recreate" semantics.
+
+   forbidden_keys: []
+
+   producers:
+     - file: config/workspaces/data-model.org
+       function: workspace--make
+       note: |
+         The canonical constructor. Signature changes from
+         =(workspace--make name)= to =(workspace--make name home)=
+         in task =add-home-slot-to-data-model=. Speculation: this
+         is the SINGLE producer of new (non-deserialized) workspace
+         plists. If a sibling constructor turns up during execute,
+         that is a duplication signal — surface in =## Discoveries=.
+     - file: config/workspaces/persistence.org
+       function: workspace--persistence-deserialize-workspace
+       note: |
+         Reconstructs from disk. Skips entries lacking =:home=
+         (notice + continue). Tags entries whose =:home= is missing
+         with =:broken t=. Speculation: the deserializer is the
+         SECOND producer; no third producer exists.
+   canonical_producer: workspace--make
+
+   consumers:
+     - file: config/workspaces/data-model.org
+       function: workspace--name (accessor)
+       reads_keys: [":name"]
+     - file: config/workspaces/data-model.org
+       function: workspace--home (NEW accessor — this change)
+       reads_keys: [":home"]
+     - file: config/workspaces/data-model.org
+       function: workspace--broken-p (NEW predicate — this change)
+       reads_keys: [":broken"]
+     - file: config/workspaces/data-model.org
+       function: workspace--recent-group (accessor)
+       reads_keys: [":recent-layout-group"]
+     - file: config/workspaces/data-model.org
+       function: workspace--buffer-files (accessor)
+       reads_keys: [":buffer-files"]
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-groups (accessor)
+       reads_keys: [":layout-groups"]
+     - file: config/workspaces/persistence.org
+       function: workspace--persistence-serialize-workspace
+       note: |
+         Writes the plist to disk MINUS the =:broken= tag. See the
+         =broken-home-no-auto-recreate= invariant for the
+         filter-on-write contract.
+     - file: config/workspaces/tabs.org
+       function: workspace-new (default scaffold branch + anchor branch)
+       note: |
+         Wraps =workspace--make= with the scaffolded =HOME=. Cycle-2
+         tasks =workspace-new-default-path= and
+         =workspace-new-anchor-existing=.
+     - file: config/workspaces/scaffold.org (NEW module — cycle-2)
+       function: workspace-scaffold
+       note: |
+         Produces the HOME directory; calls =workspace--make= to
+         register the resulting workspace. Cycle-2 task
+         =scaffold-module=.
+     - file: config/workspaces/workspaces.org
+       function: workspace-sessions-dir (NEW — cycle-2)
+       reads_keys: [":home"]
+       note: |
+         Reads =:home= to compute =<HOME>/sessions/= for the gptel
+         consult. Cycle-2 task =gptel-sessions-workspace-consult=.
+
+   validator: |
+     ;; Shape-tier opted out of scaffolding per overlay
+     ;; (scaffolding.tiers defaults to [invariant, vocabulary,
+     ;; boundary]); the validator lives here as YAML rather than as
+     ;; a scaffolded file. Promote to a scaffold if a second
+     ;; producer turns up during execute.
+     (defun shape/validate-workspace-plist-v3 (ws)
+       "Returns nil on success; error symbol otherwise."
+       (cond ((not (plistp ws)) 'not-a-plist)
+             ((not (stringp (plist-get ws :name))) 'missing-name)
+             ((not (stringp (plist-get ws :home))) 'missing-home)
+             ((not (file-name-absolute-p (plist-get ws :home)))
+              'home-not-absolute)
+             ((not (equal (plist-get ws :name)
+                          (file-name-nondirectory
+                           (directory-file-name (plist-get ws :home)))))
+              'name-not-basename-of-home)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { :name: "myproj", :home: "/Users/jefffarr/emacs-workspaces/myproj/",
+           :recent-layout-group: nil, :buffer-files: nil, :layout-groups: nil }
+       - { :name: "myproj", :home: "/Users/jefffarr/emacs-workspaces/myproj/",
+           :broken: t, :recent-layout-group: nil, :buffer-files: nil,
+           :layout-groups: nil }
+     invalid:
+       - { :name: "myproj" }                        # missing :home (floating)
+       - { :name: "myproj", :home: "relative/path" } # :home not absolute
+       - { :name: "alpha", :home: "/Users/jefffarr/emacs-workspaces/beta/" }
+                                                    # name ≠ basename(:home)
+
+   related_entries:
+     - register/invariant/home-required-no-floating-workspaces
+     - register/invariant/registry-name-equals-basename
+     - register/invariant/broken-home-no-auto-recreate  # cycle-2+ entry
+     - register/vocabulary/workspace-broken-disposition
+     - register/shape/layout-v2-plist
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -1577,6 +1765,141 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_from: refine-workspaces-two-state-layout
    discovered_by: architect
    scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/vocabularies/buffer-reincarnation-fallback-chain.el
+   #+end_src
+
+** workspace-broken-disposition
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-workspace-broken-disposition
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/workspace-broken-disposition
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   title: Per-command disposition for broken-state workspaces
+   purpose: |
+     The closed set of user-facing workspace operations, each tagged
+     with how it MUST behave when invoked on a workspace whose =:home=
+     no longer exists on disk (=workspace--broken-p= returns t). The
+     motivating failure mode this vocabulary closes: a new command
+     added later that forgets the broken-state guard silently
+     activates a broken workspace and triggers downstream errors
+     (find-file on a missing path, git invocation in a non-existent
+     dir, etc.). With the vocabulary pinned and a canonical
+     dispatcher, every command that touches a workspace by name is
+     audit-able against this table.
+
+     Two dispositions:
+     - =:refused= — command signals =user-error= naming the missing
+       =:home= and directs the user to =workspace-re-anchor= or
+       =workspace-purge=. NO side effects.
+     - =:allowed= — command operates; for purge/delete this means
+       registry-only cleanup (no filesystem deletion to perform).
+       For re-anchor this means the broken tag is cleared by
+       operation success.
+
+   members:
+     - value: switch
+       description: |
+         =workspace-switch NAME= activates a workspace's tab. On
+         broken: refused. Activation MUST NOT happen on a workspace
+         whose :home is missing — downstream code (=workspace-home-
+         builder= default = =find-file <home>/home.org=) would fail
+         on the missing path.
+       producer:
+         file: config/workspaces/tabs.org
+         function: workspace-switch
+     - value: restore
+       description: |
+         =workspace-restore NAME= reactivates a persisted workspace
+         after restart. On broken: refused. Same reasoning as switch;
+         additionally, layout reincarnation would attempt to open
+         buffer files relative to the missing :home.
+       producer:
+         file: config/workspaces/persistence.org
+         function: workspace-restore
+     - value: re-anchor
+       description: |
+         =workspace-re-anchor NAME PATH= points a broken workspace at
+         a new :home. On broken: allowed (this is the recovery
+         command). Success clears the broken tag and updates :home;
+         if =(file-name-nondirectory (directory-file-name PATH))=
+         differs from NAME, the registry entry is renamed per the
+         =registry-name-equals-basename= invariant.
+       producer:
+         file: config/workspaces/workspaces.org
+         function: workspace-re-anchor
+     - value: purge
+       description: |
+         =workspace-purge NAME= removes a workspace destructively. On
+         broken: allowed (registry-only cleanup — no filesystem
+         deletion to perform; the path is already absent). The
+         default-parent safeguard still applies (refuses to delete
+         dirs outside =workspaces-default-parent-directory= without
+         a prefix-arg opt-in) but is moot when the path is missing.
+       producer:
+         file: config/workspaces/workspaces.org
+         function: workspace-purge
+     - value: delete
+       description: |
+         =workspace-delete NAME= removes a workspace non-destructively
+         (registry-only). On broken: allowed. No filesystem impact in
+         either broken or healthy state — see =workspace-delete-is-
+         non-destructive= invariant (cycle-2+ entry).
+       producer:
+         file: config/workspaces/workspaces.org
+         function: workspace-delete
+
+   consumer_mapping:
+     - consumer: workspace-switch
+       broken_disposition: :refused
+       guard_location: top of function body, after registry-lookup
+     - consumer: workspace-restore
+       broken_disposition: :refused
+       guard_location: top of function body, after registry-lookup
+     - consumer: workspace-re-anchor
+       broken_disposition: :allowed
+       guard_location: N/A (operates ON broken-state by design)
+     - consumer: workspace-purge
+       broken_disposition: :allowed
+       guard_location: skip filesystem-deletion step if broken
+     - consumer: workspace-delete
+       broken_disposition: :allowed
+       guard_location: N/A (no filesystem-touching code path)
+
+   canonical_mapping_function: |
+     ;; The single source of truth for "is this command allowed on a
+     ;; broken workspace?". Used by audit (architect signal-class:
+     ;; vocabulary-mismatch); not necessarily invoked at runtime
+     ;; (each command's guard is inline). If runtime guards drift,
+     ;; this table catches the divergence.
+     (defun vocabulary/workspace-broken-disposition (op)
+       (pcase op
+         ((or 'switch 'restore) :refused)
+         ((or 're-anchor 'purge 'delete) :allowed)))
+
+   validator: |
+     (defun vocabulary/validate-workspace-broken-op (op)
+       (memq op '(switch restore re-anchor purge delete)))
+
+   closed_set: true
+   closed_set_enforcement: |
+     Audit-only at first. Cycle-1 scaffolding generates the
+     pcase-with-error-arms shell; any command added in a later cycle
+     without a corresponding pcase arm will fall through to the
+     generated =(error "vocabulary: unhandled broken-op %s" op)=
+     fallback. If the project later adds enough workspace commands
+     that runtime dispatch is worth the indirection, the canonical
+     mapping function above becomes the runtime authority.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/invariant/broken-home-no-auto-recreate  # cycle-2+
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/vocabularies/workspace-broken-disposition.el
    #+end_src
 
 * Boundary
@@ -2873,6 +3196,132 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_from: refine-workspaces-two-state-layout
    discovered_by: architect
    scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/boundaries/autosave-guard-pipeline.el
+   #+end_src
+
+** home-org-read-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-home-org-read-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/home-org-read-pipeline
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: home.org read-on-demand pipeline (no caching, no org-mode)
+   purpose: |
+     The on-demand read pipeline that resolves =<HOME>/home.org='s
+     =#+TITLE:= keyword for use as a workspace's display name. The
+     pipeline is structured deliberately to keep the per-call cost
+     low enough that no caching layer is required — the spec
+     promises "live read on every call" and that promise must remain
+     cheap. Design D4 explicitly rejected =org-collect-keywords=
+     because it would load =org-mode= for each read; the regex chain
+     here is ~10× faster and adds no module load. The =no caching=
+     and =no org-mode load= properties are themselves contractual:
+     adding a cache or switching to a real parser is a divergence
+     this entry catches.
+
+     Single function: =workspace-home-org-title HOME= (in the new
+     =home-org.org= module). The boundary entry exists to pin the
+     stage contract; the implementation is one =with-temp-buffer=
+     form. Cited from =home-org-reader-module= task.
+
+   stages:
+     - n: 1
+       name: path-resolve
+       input: HOME (absolute directory path)
+       output: absolute path to "<HOME>/home.org"
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         =(expand-file-name "home.org" HOME)=. Pure; cannot fail.
+     - n: 2
+       name: readability-check
+       input: absolute path to home.org
+       output: t (continue) | nil (short-circuit to overall nil)
+       can_fail_with: [file-missing, permission-denied]
+       short_circuit_policy: deliberate
+       notes: |
+         =(file-readable-p path)=. If nil, the overall function
+         returns nil (no title). This is NOT an error condition —
+         a workspace whose home.org has been deleted should still
+         be usable (display name falls back to registry-name per
+         =registry-name-equals-basename=). Bypassing this stage
+         and reading anyway would propagate an error from
+         =insert-file-contents=.
+     - n: 3
+       name: load-to-temp-buffer
+       input: readable home.org path
+       output: temp buffer with file contents
+       can_fail_with: [io-error]
+       short_circuit_policy: none
+       notes: |
+         =(with-temp-buffer (insert-file-contents path) ...)=. NO
+         =org-mode= activation; NO file-handlers that would invoke
+         major-mode. Just =insert-file-contents= and a temp buffer.
+     - n: 4
+       name: regex-scan-title
+       input: temp buffer with file contents
+       output: match-string (raw, possibly with trailing whitespace) | nil
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         =(re-search-forward "^#\\+TITLE:[ \\t]+\\(.*\\)$" nil t)=.
+         Returns nil if no match (no title present); the overall
+         function returns nil. Regex is case-insensitive via
+         =case-fold-search= context inherited from =with-temp-buffer=
+         (defaults to t in Emacs); spec scenario explicitly tests
+         lowercase =#+title:= acceptance. If a future implementor
+         tightens to case-sensitive, the spec scenario catches the
+         regression.
+     - n: 5
+       name: trim-and-emptiness-filter
+       input: raw match-string
+       output: trimmed non-empty string | nil
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         =(let ((title (string-trim (match-string 1)))) (and (not
+         (string-empty-p title)) title))=. A =#+TITLE:= keyword
+         with only whitespace returns nil — equivalent to no title
+         at all per spec intent (the user wrote the keyword but
+         supplied no value).
+
+   cross_stage_invariants:
+     - register/invariant/home-org-user-authored-after-creation
+
+   producers:
+     - file: config/workspaces/home-org.org
+       function: workspace-home-org-title
+       enters_at_stage: 1
+     - file: config/workspaces/home-org.org
+       function: workspace-home-org-exists-p
+       enters_at_stage: 2
+       note: |
+         Sibling helper that runs only stage 2 (readability check)
+         and returns the readability boolean directly. Shares stage
+         1/2 contract; does not run stages 3-5.
+
+   consumers:
+     - file: config/workspaces/tabs.org
+       function: workspace-display-name (per cycle-2+ tasks)
+       reads_output_of_stage: 5
+       note: |
+         Falls back to =(workspace--name ws)= when stage 5 returns
+         nil. The fallback is the =registry-name-equals-basename=
+         path.
+     - file: config/workspaces/scaffold.org (cycle-2)
+       function: scaffold-module checks via =workspace-home-org-exists-p=
+       reads_output_of_stage: 2
+       note: |
+         The anchor-existing flow's case-1 branch (repo + home.org)
+         uses stage-2 output to distinguish from case-2 (repo + no
+         home.org).
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/home-org-read-pipeline.el
    #+end_src
 
 * Invariant
@@ -4370,6 +4819,211 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_from: refine-workspaces-two-state-layout
    discovered_by: architect
    scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/idle-tick-no-op-off-workspace.test.el
+   #+end_src
+
+** home-required-no-floating-workspaces
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-home-required-no-floating-workspaces
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/home-required-no-floating-workspaces
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Every workspace in the registry has :home set to an absolute path
+
+   statement: |
+     For every workspace =ws= present in =workspace--registry= at
+     any time after package initialization completes:
+     =(stringp (workspace--home ws))= AND =(file-name-absolute-p
+     (workspace--home ws))= MUST hold. The package does not
+     represent floating workspaces. No code path SHALL produce or
+     accept a registry entry whose =:home= is nil, missing,
+     non-string, or non-absolute. Constructors that would produce
+     such a workspace MUST signal =user-error=; deserializers that
+     encounter such a serialized entry MUST skip it with a
+     =*Messages*= notice and continue.
+
+   why_it_matters: |
+     The pre-change v2 model permitted floating workspaces — a
+     workspace was a pure in-Emacs construct. Anchoring is the
+     whole point of this change. Without an enforced invariant, a
+     future refactor (or a hand-written persistence file) could
+     reintroduce a floating workspace, and the downstream code that
+     now assumes =:home= is always callable (the scaffold pipeline,
+     the gptel-sessions consult, =workspace-purge='s default-parent
+     check, the broken-state machinery) would either crash on the
+     missing accessor or silently fall through to default behaviour
+     in a way that masks the data corruption. Pinning this
+     invariant at the data-model boundary (=workspace--make='s
+     signature) and at the persistence boundary (=workspace--
+     persistence-deserialize-workspace='s skip-and-notice for
+     malformed entries) gives the system two structural-audit
+     enforcement points; the cycle-1 scaffold also adds a
+     test-tier enforcement that runs against the live registry.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       Primary: =workspace--make='s required =name= and =home=
+       parameters (cannot be invoked with =:home= nil). Secondary:
+       =workspace--persistence-deserialize-workspace='s skip-with-
+       notice path for entries lacking =:home= (cycle-2 task
+       =persistence-schema-v3=). Architect-audit signal-class:
+       shape-fragmentation — flags any future code path that
+       inserts into =workspace--registry= without going through
+       =workspace--make=.
+     notes: |
+       The =test= enforcement (scaffolded for cycle 1) is a property
+       check that maps over =workspace--registry= and asserts the
+       invariant; the structural-audit catches new code paths the
+       property check would only catch retroactively (after a bug
+       has landed in the registry). Both layers together.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/invariant/registry-name-equals-basename
+     - register/invariant/broken-home-no-auto-recreate  # cycle-2+
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/home-required-no-floating-workspaces.el
+   #+end_src
+
+** registry-name-equals-basename
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-registry-name-equals-basename
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/registry-name-equals-basename
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Workspace registry-name equals basename of :home
+
+   statement: |
+     For every workspace =ws= present in =workspace--registry= at
+     any time after package initialization completes:
+     =(equal (workspace--name ws) (file-name-nondirectory
+     (directory-file-name (workspace--home ws))))= MUST hold. The
+     registry-name is mechanically derived from the filesystem
+     anchor; the two cannot diverge. Display name (via
+     =workspace-home-org-title=) MAY differ and overrides the
+     registry-name only where the workspace is shown as prose to
+     the user. Out-of-band directory renames (=mv= and restart)
+     SHALL produce a new registry entry under the new basename;
+     the package does not provide in-process rename.
+
+   why_it_matters: |
+     The registry-name is the persistence key, the =tab-bar= tab
+     name, and the =completing-read= prompt key. Allowing it to
+     diverge from =basename(:home)= creates ambiguity at restart:
+     after =mv ~/emacs-workspaces/foo ~/emacs-workspaces/bar=, the
+     workspace's =:home= ends in =bar= but its serialized
+     =:name= would still be =foo=. The persistence-read path would
+     either honour =:name= (registry has =foo=, filesystem says
+     =bar= — confusing) or honour =basename(:home)= (registry
+     gets =bar= silently — what the spec promises). Pinning the
+     invariant forces every code path that mutates either =:name=
+     or =:home= to update the other in lockstep, and the property
+     check catches drift retroactively. The =workspace-re-anchor=
+     command in particular MUST rename the registry key when the
+     new path's basename differs from the old NAME (per task
+     =broken-home-tolerance='s step 3).
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Property test (Buttercup) over =workspace--registry= run
+       after each of: =workspace--make=, =workspace-restore=
+       (deserialization), =workspace-re-anchor=. Scaffolded at
+       cycle 1; cycle-2+ tasks that touch any of these paths must
+       keep the property test green or revise the scaffold (and
+       explain in =## Discoveries=).
+     notes: |
+       The =structural-audit= enforcement (architect on-touch
+       signal-class: vocabulary-mismatch) is a secondary layer.
+       The primary layer is the test because the invariant is
+       cheap to assert as a property; structural-audit catches
+       new code paths that the test would miss between cycles.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/invariant/home-required-no-floating-workspaces
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/registry-name-equals-basename.el
+   #+end_src
+
+** home-org-user-authored-after-creation
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-home-org-user-authored-after-creation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/home-org-user-authored-after-creation
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: The package writes home.org exactly once (at scaffold time)
+
+   statement: |
+     The workspaces package SHALL write =<HOME>/home.org= exactly
+     one time per workspace: during the scaffolding pipeline (the
+     skeleton write in =workspace--scaffold-write-home-org=). After
+     that single write, NO code path in =config/workspaces/*= SHALL
+     write to, modify, or delete =home.org=. The package MAY read
+     =home.org= at any time (live re-read, no caching). The user
+     owns the file's content after creation; package operations
+     (session create/delete, workspace activation, idle autosave,
+     shutdown, any "refresh" command) MUST leave =home.org=
+     byte-identical.
+
+   why_it_matters: |
+     =home.org= is the user's dashboard / metadata file. Auto-
+     rendering session inventories, syncing display names back from
+     the registry, or "refreshing" the skeleton would destroy
+     user-authored content silently — a class of data-loss bug
+     that is impossible to recover from once the autosave runs.
+     The spec is explicit that the filesystem (=sessions/=)
+     authoritative for session inventory and =home.org= is
+     decorative for any user-curated session listing; the
+     invariant pins that asymmetry at the code boundary. The
+     home-org reader module (cycle 1) is the ONLY module that
+     touches =home.org= post-creation, and it only reads. The
+     scaffold module (cycle 2) is the ONLY producer, and it
+     writes once with an =unless (file-exists-p path)= guard.
+
+   enforcement_mechanism:
+     kind: lint
+     location: |
+       Primary: grep-based lint over =config/workspaces/*.el= for
+       write operations targeting =home.org= (=write-region=,
+       =with-temp-file=, =append-to-file=, =delete-file=, etc.).
+       Permitted writer: =workspace--scaffold-write-home-org= in
+       =scaffold.el= (cycle-2 module). Any other writer is a
+       defect. Scaffolded at cycle 1 as a Buttercup spec that
+       reads the workspaces module sources and asserts the writer
+       allow-list.
+     notes: |
+       The =test= enforcement (a byte-for-byte snapshot of
+       =home.org= across operations) is a secondary layer added
+       at cycle 2+ when the scaffold and command modules are wired.
+       The cycle-1 scaffold focuses on the lint: it does not need
+       the scaffold module to exist (the read module exists and
+       must NOT write; the lint asserts both modules' present and
+       future writer count).
+
+   related_entries:
+     - register/boundary/home-org-read-pipeline
+     - register/shape/workspace-plist-v3
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/home-org-user-authored-after-creation.el
    #+end_src
 
 * Status legend
