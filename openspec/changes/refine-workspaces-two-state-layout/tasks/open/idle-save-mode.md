@@ -7,6 +7,25 @@ relations:
   - "blocked-by:two-state-layout"
 ---
 
+## Register entries cited by this task
+
+- `register/invariant/idle-tick-no-op-off-workspace` (speculated, NEW
+  cycle 2). The idle-tick callback must `(when (workspace--current-name)
+  ...)`-guard before calling `workspace--autosave-current-layout`.
+  Scaffolded failing spec at
+  `openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+  invariants/idle-tick-no-op-off-workspace.test.el`. The implementor
+  may revise the scaffold; satisfying its four scenarios is the
+  expected disposition.
+- `register/invariant/autosave-never-writes-saved-state` (reconciled).
+  Scenario "workspaces-mode idle timer does not modify :saved-state"
+  in the scaffolded spec must remain passable.
+- `register/boundary/autosave-guard-pipeline` (reconciled). The idle-
+  tick is stage 1 entry-point #4 (alongside the three persistence
+  advice / hook wraps the `anti-save-predicates` sibling task
+  installs). Coordinate as the task body's Cycle 1 updates stanza
+  describes.
+
 ## Files to modify
 
 - `config/workspaces/workspaces-mode.org` (NEW) — defines `workspaces-mode`, the idle timer, and `workspaces-mode-idle-frequency` defcustom. Auto-tangles to `workspaces-mode.el`.

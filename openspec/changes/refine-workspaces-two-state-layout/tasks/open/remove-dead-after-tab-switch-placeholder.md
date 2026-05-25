@@ -9,6 +9,16 @@ discovered_by: architect
 discovered_class: dead-branch
 ---
 
+## Register entries cited by this task
+
+- `register/boundary/autosave-guard-pipeline` (reconciled). Stage-1
+  attachment surface is the `tab-bar-select-tab` / `tab-bar-switch-to-
+  tab` advice list. Removing the dead `:after` advice simplifies that
+  surface to one `:after` (the live `workspace--persistence-after-tab-
+  switch`), eliminating advice load-order ambiguity. No structural
+  contract change; the entry's stage-1 entry-point count drops from
+  "placeholder + targeted" to "targeted only" on tab-switch.
+
 ## Files to modify
 
 - `config/workspaces/tabs.org` (modify) — delete the `workspace--after-tab-switch` defun and its two `advice-add` lines.

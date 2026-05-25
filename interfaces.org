@@ -4222,6 +4222,91 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/explicit-save-bypasses-anti-save.test.el
    #+end_src
 
+** idle-tick-no-op-off-workspace
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-idle-tick-no-op-off-workspace
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/idle-tick-no-op-off-workspace
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: workspaces-mode idle-tick must short-circuit when no workspace is current
+
+   statement: |
+     The =workspaces-mode= idle-timer callback (the function passed to
+     =run-with-idle-timer=) MUST consult =(workspace--current-name)=
+     and return without side effect when the result is nil. The
+     callback MAY NOT call =workspace--autosave-current-layout= unless
+     a current-workspace name exists. This holds for every entry path
+     into the idle-tick (timer fire, manual =funcall= via M-:, future
+     re-entry from an enhanced =workspaces-mode= toggle).
+
+   why_it_matters: |
+     The idle timer fires globally — it does not know whether the
+     user is in any workspace at all (e.g. transient state after
+     =workspace-close= but before =workspace-switch=, or in a frame
+     that never had any workspace activity). =workspace--autosave-
+     current-layout= consults the workspace registry and the recent
+     layout-group; if it runs against a missing workspace it either
+     errors (best case: noisy *Messages* spew on every idle tick) or
+     writes a degenerate layout under a sentinel key (worst case:
+     corrupts the registry shape and breaks the next restore).
+
+     This is the canonical "silent-fail-on-default-path" shape from
+     cycle 1's highest-confidence meta-discovery (invariant-at-wrong-
+     layer-fix): the enforcement must live inside the callback that
+     fires, not in the timer-registration discipline.
+
+   enforcement_mechanism:
+     kind: test + structural
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/idle-tick-no-op-off-workspace.test.el — failing-stub
+       buttercup spec.
+
+     enforcement_locus_check: |
+       Where in the call graph is this enforced? Inside
+       =workspaces-mode--idle-tick= as the FIRST form of its body,
+       structurally a =(when (workspace--current-name) ...)= guard.
+
+       Does that location cover ALL entry paths? Yes if and only if
+       =workspaces-mode--idle-tick= is the single function passed to
+       =run-with-idle-timer= and no other code path calls
+       =workspace--autosave-current-layout= without first checking
+       current-workspace existence. The tab-switch advice and kill-
+       emacs hook are scoped to events that imply workspace context
+       (tab-switch fires on tabs; kill-emacs flushes the registry
+       that was already populated) so the guard is locally redundant
+       on those paths.
+
+       Does the enforcement prevent silent-fail (default values,
+       optional arguments, fallthrough)? Risk vector: if
+       =workspace--autosave-current-layout='s slot argument acquired
+       a default in a future refactor (already explicitly rejected
+       in cycle 1 inline-fix b70a5b4), an off-workspace tick could
+       still call it with a degenerate slot. Mitigated by the
+       required-slot signature being itself an invariant (=register/
+       invariant/autosave-never-writes-saved-state= pins the four
+       autosave entry points; this entry pins the prior guard).
+
+   design_anchor:
+     section: design.md §D6
+     quote: |
+       "Idle save is specifically the 'crash safety' net, not the
+       primary persistence trigger."
+
+   related_entries:
+     - register/boundary/autosave-guard-pipeline
+     - register/invariant/autosave-never-writes-saved-state
+     - register/vocabulary/workspace-state-slot
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/idle-tick-no-op-off-workspace.test.el
+   #+end_src
+
 * Status legend
 
 | Status      | Meaning                                                                                  |
