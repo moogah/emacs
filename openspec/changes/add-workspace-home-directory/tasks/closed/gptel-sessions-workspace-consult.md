@@ -2,7 +2,7 @@
 name: gptel-sessions-workspace-consult
 description: Add workspace-sessions-dir function; modify gptel sessions to consult via featurep; add prefix-arg force-global escape hatch
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - blocked-by:add-home-slot-to-data-model
 ---

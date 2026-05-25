@@ -2,9 +2,8 @@
 name: broken-home-tolerance
 description: Activation guards in workspace-switch/workspace-restore; add workspace-re-anchor; bind C-x w R
 change: add-workspace-home-directory
-status: blocked
-relations:
-  - blocked-by:persistence-schema-v3
+status: ready
+relations: []
 ---
 
 ## Files to modify
@@ -193,3 +192,65 @@ design.md § Decisions / D6 — broken-state semantics in commands
 design.md § Decisions / D10 — Key bindings (C-x w R)
 specs/workspaces/spec.md § ADDED "Broken home directory tolerated on restore"
 specs/workspaces/spec.md § ADDED "Required home directory and identity coupling" (basename invariant for re-anchor renames)
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Status
+
+- `status: blocked` → `status: ready`. Blocker `persistence-schema-v3`
+  closed at merge `f21f592`. The persistence-side broken-tag work is
+  live: `workspace--persistence-deserialize-state` now sets `:broken`
+  when `(file-directory-p :home)` is nil and logs to `*Messages*`. Your
+  task's job is the COMMAND-LAYER guards (workspace-switch /
+  workspace-restore refuse; workspace-re-anchor / workspace-purge /
+  workspace-delete permit) plus the user-facing `workspace-re-anchor`
+  command — the persistence half is done.
+
+### Cycle-2 register-diff hits relevant to this task
+
+- `register/invariant/broken-tag-runtime-only`: speculated →
+  **reconciled**. Mutations of `:broken` now ALWAYS route through
+  `workspace--mark-broken` / `workspace--clear-broken` (cycle 1) and
+  the parallel `workspace--mark-restore-pending` /
+  `workspace--clear-restore-pending` (cycle 2). Your
+  `workspace-re-anchor` implementation MUST use
+  `workspace--clear-broken` on success — never inline `(plist-put ws
+  :broken nil)`. Cycle-2 architect finding
+  `arch-cycle-20260525-213500-03` formalises this contract for ALL
+  runtime-only tags. See
+  `.orchestrator/cycles/cycle-20260525-213500/reconciliations/invariant-broken-tag-runtime-only.md`.
+
+- `register/invariant/home-required-no-floating-workspaces`:
+  re-confirmed cycle 2. **NEW WORK ABSORBED HERE**: architect finding
+  `arch-cycle-20260525-213500-04` (advisory, invariant-gap) flagged
+  that the invariant requires `:home` be absolute, but no code path
+  currently enforces `(file-name-absolute-p home)`. Add an `it`
+  clause to your activation-guard spec asserting that a workspace
+  whose `:home` is a relative path is treated as broken (or rejected
+  at workspace--make / deserializer with a notice). Extend the
+  deserializer filter at `persistence.el:83-87` with a
+  `(not (file-name-absolute-p home))` arm emitting:
+  ```
+  "Workspaces: skipping persisted entry %S — :home %S is not absolute"
+  ```
+  Optionally add a defensive `cl-check-type` or `error` in
+  `workspace--make` so the constructor enforces it at every entry
+  point. See finding file at
+  `.orchestrator/cycles/cycle-20260525-213500/findings/arch-cycle-20260525-213500-04.md`.
+
+- `register/shape/workspace-plist-v3`: re-confirmed cycle 2 (now
+  enumerates `:restore-pending` alongside `:broken` per finding 01).
+  Your guards consult `workspace--broken-p`; the new
+  `workspace--restore-pending-p` predicate is also available but is
+  consumed by the activation-restore hook, not by your re-anchor
+  command.
+
+### Cycle-2 inline-fix hits
+
+The persistence-side deserializer was inline-fixed at commit
+`cd1d721` to route `:restore-pending` through helpers. Your task
+does not touch the deserializer directly, but if you read it for
+reference your inspiration patterns now show `(workspace--mark-broken ws)`
+and `(workspace--mark-restore-pending ws)` instead of inline
+`plist-put`.

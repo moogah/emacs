@@ -8,7 +8,6 @@ relations:
   - blocked-by:workspace-new-anchor-existing
   - blocked-by:workspace-delete-and-purge
   - blocked-by:broken-home-tolerance
-  - blocked-by:gptel-sessions-workspace-consult
   - blocked-by:update-docs-readme
 ---
 
@@ -154,3 +153,55 @@ the spec has at least one automated test.
 design.md § Decisions / D9 — testing approach (full suite + snapshot)
 specs/workspaces/spec.md (all scenarios — verify coverage)
 proposal.md (verify the proposal's "What Changes" list is fully delivered)
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Status
+
+- One of 6 blockers (`gptel-sessions-workspace-consult`) closed at
+  merge `8ce82df`. Still blocked by 5 cycle-3+ tasks.
+
+### Cycle-2 register-diff hits relevant to this task
+
+The verify suite will need to exercise:
+
+- The scaffold pipeline (default-path; anchor sub-cases) per
+  `register/boundary/workspace-scaffold-pipeline` (reconciled).
+  Manual sanity check: invoke `workspace-new` (no prefix) and
+  `C-u workspace-new` against existing + non-existing directories.
+
+- The gptel routing per
+  `register/boundary/gptel-sessions-workspace-consult` (reconciled).
+  Manual sanity check: on a workspace tab, `M-x
+  jf/gptel-persistent-session` files under `<HOME>/sessions/`;
+  `M-x jf/gptel-persistent-session-global` files in
+  `jf/gptel-sessions-directory`.
+
+- Persistence v3 round-trip per
+  `register/invariant/home-required-no-floating-workspaces` (re-
+  confirmed) and `register/invariant/broken-tag-runtime-only`
+  (reconciled). Manual sanity check: save with at least one broken
+  workspace; load; assert `:broken` is set freshly (not from disk)
+  and `:restore-pending` is set fresh on every loaded entry.
+
+- The new spec files added this cycle that the verify run picks
+  up automatically: `persistence-v3-spec.el`, `broken-home-load-spec.el`,
+  `scaffold-spec.el`, `gptel-integration-spec.el`,
+  `workspace-routing-spec.el`.
+
+### Cycle-2 inline-fix hits
+
+The orchestrator inline-fix commits (`63d60ec` cross-contract
+collision; `cd1d721` architect findings) both shipped with green
+test runs (195/0 workspaces + 98/0 gptel/sessions). Your full
+verify should reproduce these numbers.
+
+### Cycle-2 user-ask resolution dependency
+
+The verify of the gptel UX (prefix-arg vs separate command) cannot
+proceed until `ask-cycle-20260525-213500-2` is dispositioned. If
+the user picks "revise spec" → verify against the separate-command
+UX. If "re-implement to rebind" → verify against prefix-arg
+behaviour. If "defer" → verify against the current separate-
+command UX with the spec marked tentative.

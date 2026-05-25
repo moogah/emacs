@@ -202,3 +202,31 @@ design.md § Decisions / D8 — workspace-purge safeguard implementation
 design.md § Decisions / D10 — Key bindings (C-x w D, P)
 specs/workspaces/spec.md § ADDED "workspace-delete is unregister-only by default"
 specs/workspaces/spec.md § ADDED "workspace-purge as the destructive deletion command"
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Cycle-2 register-diff hits relevant to this task
+
+- `register/shape/workspace-plist-v3`: re-confirmed cycle 2; now
+  enumerates both `:broken` and `:restore-pending` runtime-only tags.
+  Your task's purge path needs to handle both flag combinations
+  correctly — a broken workspace may also be restore-pending if the
+  user never activated it after a load with missing :home.
+
+- `register/invariant/broken-tag-runtime-only`: speculated →
+  reconciled cycle 2. `workspace-purge` on a broken workspace is
+  per-spec permitted (vocabulary-workspace-broken-disposition
+  `:permitted`). Your implementation should NOT call
+  `workspace--clear-broken` before the purge — the entry is being
+  removed entirely, so the tag's life ends with it. Use
+  `workspace--broken-p` only for the user-facing confirmation prompt
+  if you want to surface "this workspace's home is missing — purge
+  removes only the registry entry, since the dir is already gone".
+
+### Cycle-2 inline-fix hits
+
+The new `workspace--sessions-dir` helper (introduced at commit
+`cd1d721` per architect finding 05) is irrelevant to delete/purge
+directly, but if your purge UI lists what would be removed, prefer
+the helper for the sessions/ path.

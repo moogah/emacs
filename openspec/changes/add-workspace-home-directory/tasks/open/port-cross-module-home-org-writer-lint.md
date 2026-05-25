@@ -2,9 +2,8 @@
 name: port-cross-module-home-org-writer-lint
 description: Port the cross-module writer-allow-list lint from the home-org-user-authored-after-creation scaffold into a real test spec
 change: add-workspace-home-directory
-status: blocked
+status: ready
 relations:
-  - blocked-by:scaffold-module
   - discovered-from:home-org-reader-module
 ---
 
@@ -142,3 +141,45 @@ grep -n 'directory-files-recursively' config/workspaces/test/home-org-cross-modu
   `it #3` (byte-for-byte snapshot) is forward-pinned to a later
   cycle when workspace operations (autosave, switch, idle tick,
   kill-emacs) can be exercised against a real scaffolded workspace.
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Status
+
+- `status: blocked` → `status: ready`. Blocker `scaffold-module`
+  closed at merge `5be66c7`. The canonical writer is now live as
+  `workspace--scaffold-write-home-org` in `config/workspaces/scaffold.el`.
+
+### Cycle-2 register-diff hits relevant to this task
+
+- `register/invariant/home-org-user-authored-after-creation`:
+  re-confirmed cycle 2. The scaffold's writer is named exactly per
+  the invariant's allow-list (`workspace--scaffold-write-home-org`)
+  with the `(unless (file-exists-p path) ...)` idempotency guard.
+  This task becomes mechanical: lift the scaffolded structural-lint
+  assertion (the cycle-1 `scaffolding/invariants/home-org-user-authored-after-creation.el`
+  file) into a real spec file (suggested location:
+  `config/workspaces/test/home-org-writer-lint-spec.el`), with the
+  allow-list of permitted writers initially set to
+  `'(workspace--scaffold-write-home-org)`.
+
+### Implementation hint (lifted from the scaffold)
+
+The scaffold file at
+`openspec/changes/add-workspace-home-directory/scaffolding/invariants/home-org-user-authored-after-creation.el`
+already holds the assertion shape (walk every `.el` under
+`config/workspaces/` excluding `test/`, grep for any file-write
+primitive whose body within ~200 chars references `home.org`,
+collect hits, expect the set equals the allow-list). Lift verbatim;
+mark `scaffolding_status_at_integrate: archived` for the cycle-1
+scaffold once your spec lands. (Note: the cycle-2 integrate
+disposition already marked the scaffold as `archived` against
+`workspace-scaffold-pipeline` and friends; the home-org one was
+already marked archived at cycle-1 integrate.)
+
+### Cycle-2 inline-fix hits
+
+None directly. The cycle-2 cross-contract collision (orchestrator
+fix `63d60ec` removing the dead featurep branch from scaffold.el)
+does not affect the writer's identity or signature.

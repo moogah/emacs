@@ -154,3 +154,51 @@ for path comparison in Emacs. Do it on both sides of `file-equal-p`.
 
 design.md § Decisions / D1 — module layout
 specs/workspaces/spec.md § ADDED "Anchoring an existing directory via prefix arg" (all three sub-cases + double-registration guard)
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Cycle-2 register-diff hits relevant to this task
+
+- `register/boundary/workspace-scaffold-pipeline`: speculated →
+  **reconciled** cycle 2. The canonical signature is now
+  `(cl-defun workspace-scaffold (home name &key init-and-commit?) ...)`.
+  **For the prefix-arg anchor branch, invoke with
+  `:init-and-commit? nil`** — this skips stages 2 (git init) and 6
+  (git add + commit), which is the contract that lets you safely
+  scaffold over an existing user-owned git repo without touching its
+  git state. The two non-default-path sub-cases of `workspace-new
+  NAME C-u`:
+  - **Already a git repo with `home.org`**: register only; no
+    scaffold call at all.
+  - **Already a git repo without `home.org`**: call
+    `(workspace-scaffold home name :init-and-commit? nil)` — only
+    stages 1, 3, 4, 5 run (mkdir HOME is idempotent on an existing
+    dir; home.org write is guarded by `file-exists-p`; sessions/
+    + initial session land safely).
+  - **Not a git repo**: call
+    `(workspace-scaffold home name :init-and-commit? t)` — same as
+    default-path branch (gates 2 + 6 run).
+
+- `register/shape/workspace-plist-v3`: re-confirmed cycle 2. Same
+  caller-side contract as the default-path task — construct the
+  plist with `:home HOME` (where HOME is what the user picked, not
+  what scaffold returns).
+
+### Cycle-2 inline-fix hits
+
+The orchestrator's inline fix at `63d60ec` removed scaffold-module's
+speculative `(featurep 'gptel-sessions)` branch from
+`workspace--scaffold-initial-session`. The scaffold's initial-
+session creator now ALWAYS writes a minimal `#+TITLE:` stub. For the
+"already a git repo with `home.org`" branch you don't trigger this
+code path at all. For the other two branches the stub file lands;
+the user may delete it if they have their own session-management
+preferences.
+
+### Cross-task interaction with broken-home-tolerance
+
+The "double-registration guard" requirement of this task — refuse
+to register a workspace whose `:home` matches an already-registered
+entry — should also work against broken entries (the broken status
+doesn't change the registry-key uniqueness invariant).

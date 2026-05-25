@@ -2,7 +2,7 @@
 name: scaffold-module
 description: New scaffold.org — directory, git init, home.org skeleton, sessions/, initial gptel session, initial commit
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - blocked-by:add-home-slot-to-data-model
   - blocked-by:home-org-reader-module

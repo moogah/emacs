@@ -2,11 +2,8 @@
 name: workspace-new-default-path
 description: Wire scaffold into workspace-new (no prefix arg); add workspaces-default-parent-directory defcustom; rewrite default workspace-home-builder to find-file home.org
 change: add-workspace-home-directory
-status: blocked
-relations:
-  - blocked-by:add-home-slot-to-data-model
-  - blocked-by:persistence-schema-v3
-  - blocked-by:scaffold-module
+status: ready
+relations: []
 ---
 
 ## Files to modify
@@ -251,3 +248,58 @@ one (in `workspace-new`); if cycle 2 added more, address each.
   `workspace--home-broken-p`, but the register + implementation use
   `workspace--broken-p`. Not directly in your scope (you don't touch
   the broken-state guards), but worth knowing if you read design.md.
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Status
+
+- `status: blocked` → `status: ready`. All three blockers closed:
+  - `add-home-slot-to-data-model` (cycle 1, merge `7026d37`)
+  - `persistence-schema-v3` (cycle 2, merge `f21f592`)
+  - `scaffold-module` (cycle 2, merge `5be66c7`)
+
+### Cycle-2 register-diff hits relevant to this task
+
+- `register/boundary/workspace-scaffold-pipeline`: speculated →
+  **reconciled**. The canonical signature for the function this task
+  calls is `(cl-defun workspace-scaffold (home name &key
+  init-and-commit?) ...)`. **For the default-path branch (no prefix
+  arg), invoke with `:init-and-commit? t`.** The scaffold returns
+  HOME on success; signals `user-error` with the path on failure.
+  Per invariant `scaffold-leave-partial-on-failure` (cycle-2
+  confirmed), DO NOT auto-cleanup on scaffold failure — surface the
+  error to the user verbatim, and DO NOT register the workspace.
+  See
+  `.orchestrator/cycles/cycle-20260525-213500/reconciliations/boundary-workspace-scaffold-pipeline.md`.
+
+- `register/shape/workspace-plist-v3`: re-confirmed cycle 2. Your
+  call sequence (scaffold returns HOME; you construct the plist with
+  `:home HOME`; persist; register) matches the shape's required-keys
+  contract. Persistence-side `:home` round-trip is now live and
+  tested (12 specs at `persistence-v3-spec.el` + `broken-home-load-spec.el`).
+
+### Initial-session producer (per design D7)
+
+The scaffold pipeline's stage 5 currently writes a minimal
+`#+TITLE: <date> initial session` file (no gptel-sessions
+integration this cycle — the orchestrator removed scaffold-module's
+speculative `(featurep 'gptel-sessions)` branch at inline-fix
+commit `63d60ec` because no non-interactive
+`gptel-sessions-create-empty-file` exists and the branch was dead
+AND would have failed gptel-sessions's directionality lint). Your
+caller code does NOT need to do anything additional with the
+initial session file; it lives at `<HOME>/sessions/<date>-initial.org`
+and is committed by the scaffold pipeline's stage 6.
+
+A future cycle may add a gptel-sessions hook for richer initial-
+session content; the integration belongs on the gptel side, not
+here.
+
+### Cross-cycle dependency: anchor flows
+
+Tasks `workspace-new-anchor-existing` (prefix-arg branch) and
+`workspace-delete-and-purge` are blocked on THIS task. Your
+implementation establishes the call-site shape both consume — keep
+the workspace-construction logic factored such that the prefix-arg
+branch (cycle 3+) can call it with the same HOME but
+`:init-and-commit? nil`.

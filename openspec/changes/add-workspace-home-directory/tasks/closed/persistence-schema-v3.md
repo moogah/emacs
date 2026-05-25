@@ -2,7 +2,7 @@
 name: persistence-schema-v3
 description: Bump schema constant to 3; reject v2 with notice; serialize/deserialize :home; tag missing-dir entries broken
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - blocked-by:add-home-slot-to-data-model
 ---

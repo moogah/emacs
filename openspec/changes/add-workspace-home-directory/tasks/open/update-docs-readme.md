@@ -8,7 +8,6 @@ relations:
   - blocked-by:workspace-new-anchor-existing
   - blocked-by:workspace-delete-and-purge
   - blocked-by:broken-home-tolerance
-  - blocked-by:gptel-sessions-workspace-consult
 ---
 
 ## Files to modify
@@ -117,3 +116,58 @@ not in `openspec/specs/`.
 design.md § Risks / R1 — README note about sessions / home.org drift
 specs/workspaces/spec.md § ADDED (all six new requirements)
 specs/workspaces/spec.md § MODIFIED "Per-workspace home layout", "Per-machine persistence and restoration"
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Status
+
+- One of 5 blockers (`gptel-sessions-workspace-consult`) closed at
+  merge `8ce82df`. Still blocked by 4 cycle-3+ tasks.
+
+### Cycle-2 register-diff hits relevant to this task
+
+When you ship the README update, these cycle-2 outcomes will need
+to be documented:
+
+- **Scaffold pipeline shape**: `workspace-scaffold HOME NAME &key
+  INIT-AND-COMMIT?`. Document the six stages and the
+  `INIT-AND-COMMIT? nil` knob for the anchor-existing-repo branch.
+  Source: `register/boundary/workspace-scaffold-pipeline` (cycle-2
+  reconciled).
+
+- **Sessions directory helper**: `workspace--sessions-dir HOME` is
+  the canonical attachment point for the `<HOME>/sessions/` path.
+  README should not document this directly (it's a helper, not a
+  user-facing API) but the section on "Where do my gptel sessions
+  go?" should note that the path composition is uniform across the
+  scaffold and the gptel consult.
+
+- **gptel routing**: gptel-side function is
+  `jf/gptel--target-sessions-root` in
+  `config/gptel/sessions/filesystem.el`. Global default is
+  `jf/gptel-sessions-directory`. The user-facing escape hatch is
+  the separate command `jf/gptel-persistent-session-global` (NOT a
+  prefix arg on `jf/gptel-persistent-session` — the existing
+  command already binds `current-prefix-arg` to preset selection).
+  Document both commands. **Status note**: the UX divergence is
+  the subject of user ask `ask-cycle-20260525-213500-2`; pick up
+  the user's disposition before writing this section of the README.
+
+- **Broken-home behaviour**: the persistence v3 loader now tags
+  missing-home entries `:broken` and logs to `*Messages*`. README
+  should describe the user-visible recovery flow (re-anchor, purge,
+  ignore — broken workspaces appear in the registry but activation
+  is refused; cycle-3 task `broken-home-tolerance` ships the
+  user-facing `workspace-re-anchor`).
+
+- **Runtime-only tags**: `:broken` and `:restore-pending` exist on
+  registry plists but never on disk. README's "Persistence schema
+  v3" section should name both as runtime-only tags managed by
+  helpers.
+
+### Cycle-2 inline-fix hits
+
+The cross-contract collision finding (orchestrator fix at `63d60ec`)
+means scaffold does NOT call into gptel-sessions. README should not
+promise such integration; cycle 3+ may add it via a gptel-side hook.
