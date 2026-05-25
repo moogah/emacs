@@ -6,8 +6,12 @@ status: blocked
 relations:
   - blocked-by:scaffold-module
   - discovered-from:home-org-reader-module
-  - finding-source:reviewer
 ---
+
+<!-- finding-source: reviewer (review of home-org-reader-module,
+     advisory finding 1, cycle-20260525-200459). Captured here in
+     the body since the orchestrator's task-frontmatter schema only
+     permits blocked-by / discovered-from / enables on relations. -->
 
 ## Why this task exists
 
