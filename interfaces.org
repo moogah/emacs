@@ -772,7 +772,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/workspace-buffer-struct
    tier: shape
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): producer/consumer
+     function names updated to match shipped code
+     (workspace--serialize-buffer / workspace--deserialize-buffer /
+     workspace--bookmark-buffer / workspace--error-buffer /
+     workspace--window-state-{serialize,deserialize}); required_keys /
+     optional_keys / validator unchanged. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/shape-workspace-buffer-struct.md.
    load_bearing: true
    title: workspace-buffer cl-defstruct embedded in each window-state leaf's parameters
    purpose: |
@@ -884,7 +892,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/layout-v2-plist
    tier: shape
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): required_keys /
+     forbidden_keys exact-match shipped plist; added
+     producer_fragmentation_note for the latent :etc-divergence between
+     workspace-save (copy-and-mutate) and workspace-save-layout /
+     workspace--capture-home-layout (fresh layout-make + upsert). Latent
+     today (:etc universally nil per design.md §D7); follow-up task at
+     integrate. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/shape-layout-v2-plist.md.
    load_bearing: true
    title: Two-state layout plist (schema v2)
    purpose: |
@@ -1324,7 +1341,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/workspace-state-slot
    tier: vocabulary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24):
+     canonical_mapping_function workspace--slot-for-trigger NOT adopted;
+     routing is caller-side keyword (literal :saved-state / :working-state
+     at each of 5 call sites). Closed-set enforcement landed via
+     workspace--state-slot-p predicate at
+     workspace--autosave-current-layout entry (inline-fix commit b70a5b4).
+     Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/vocabulary-workspace-state-slot.md.
    load_bearing: true
    title: Workspace layout state-slot vocabulary and trigger → slot routing
    purpose: |
@@ -1415,7 +1441,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/buffer-reincarnation-fallback-chain
    tier: vocabulary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): closed ordered chain
+     (bookmark → filename → name → error-buffer) shipped via the `or'
+     inside workspace--deserialize-buffer. Per-step producer functions for
+     filename/name INLINED (not extracted); step 1
+     (workspace--bookmark-buffer) and step 4 (workspace--error-buffer)
+     remain standalone helpers. closed_set: true is documentary; no runtime
+     pcase predicate ships. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/vocabulary-buffer-reincarnation-fallback-chain.md.
    load_bearing: true
    title: Buffer-reincarnation fallback steps (closed, ordered)
    purpose: |
@@ -2562,7 +2597,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/buffer-reincarnation-pipeline
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): 4-stage pipeline ships
+     across existing helpers (capture-frameset → window-state-serialize →
+     window-state-deserialize → restore-frameset). Stage 4 race-guard
+     cl-incf moved INTO workspace--restore-frameset (inline-fix commit
+     bc64784) so workspace--apply-saved-layout AND workspace-switch-layout
+     entry paths uniformly participate. Follow-up task
+     test-switch-layout-race-guard adds the missing switch-layout race
+     test. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/boundary-buffer-reincarnation-pipeline.md.
    load_bearing: true
    title: Per-leaf buffer reincarnation pipeline (capture → walk → fallback chain → defer)
    purpose: |
@@ -2667,7 +2712,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/autosave-guard-pipeline
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): stages 2+3 (capture +
+     slot-route) collapsed into workspace--autosave-current-layout. Stage 1
+     (anti-save-check) deferred to sibling task anti-save-predicates;
+     attachment-point pinned (wrap the four autosave entry points, NOT
+     inside workspace--autosave-current-layout — preserves
+     explicit-save-bypasses-anti-save structurally). Stage 4 reuses
+     pre-cycle debounce machinery. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/boundary-autosave-guard-pipeline.md.
    load_bearing: true
    title: Autosave guard pipeline (predicates → capture → slot route → flush)
    purpose: |
@@ -3934,7 +3988,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/restore-precedence-working-over-saved
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): speculation matched.
+     workspace--layout-effective-state is the single dispatch point;
+     data-model-spec.el pins all three precedence cases (working-wins,
+     saved-fallback, both-nil). Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/invariant-restore-precedence-working-over-saved.md.
    load_bearing: true
    title: Restore prefers :working-state when non-nil; falls back to :saved-state
 
@@ -3992,7 +4052,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/explicit-save-clears-working-state
    tier: invariant
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): scope narrowed to three
+     variants (workspace-save, workspace-save-layout NAME, workspace-new
+     home stamp); workspace-switch-layout dropped (navigation, not
+     explicit-save, per design.md §D4). Three scenarios shipped as tests in
+     layouts-spec.el; scaffolding revised in-place to mark the
+     switch-layout scenario out-of-scope. Inline-fix commit b70a5b4.
+     Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/invariant-explicit-save-clears-working-state.md.
    load_bearing: true
    title: Every explicit workspace-save clears the matching :working-state
 
@@ -4041,7 +4110,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/autosave-never-writes-saved-state
    tier: invariant
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): enforcement strengthened
+     from review-discipline (`&optional slot` defaulted to :saved-state) to
+     structural (required SLOT arg + workspace--state-slot-p closed-set
+     predicate at function entry). Inline-fix commit b70a5b4. Meta-pattern:
+     same shape as bookmark-reincarnation's gen-counter fix
+     (boundary/buffer-reincarnation-pipeline) —
+     invariant-at-wrong-layer-fix. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/invariant-autosave-never-writes-saved-state.md.
    load_bearing: true
    title: No autosave path writes :saved-state; clobber-impossible
 

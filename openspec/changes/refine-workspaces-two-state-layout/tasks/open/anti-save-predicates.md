@@ -110,3 +110,78 @@ Specific assertions:
 - `openspec/changes/refine-workspaces-two-state-layout/design.md` §D5.
 - `openspec/changes/refine-workspaces-two-state-layout/notes/activities-patterns-catalog.md` pattern 5.
 - **Depends on**: `two-state-layout`, because the guard only matters once tab-switch autosave is on. Without that task, this task's predicates would have nothing to skip.
+
+## Cycle 1 updates (2026-05-24)
+
+This task's blocking dependency `two-state-layout` landed in cycle 1
+(merge `8a9cb29`). With it, the shape of this task changes in three
+small but load-bearing ways:
+
+### Implementation steps (revised)
+
+- **`workspace--autosave-current-layout` is now REQUIRED-SLOT** (cycle 1
+  inline-fix `b70a5b4` closed end-of-cycle Finding 1). The function
+  signature is `(workspace--autosave-current-layout slot)` — no
+  `&optional`, no default. Every call site MUST pass `:saved-state`
+  or `:working-state` explicitly.
+- **The `workspace--capture-into-slot` (raw) / `workspace--autosave-current-layout` (guarded)** split this task originally proposed is no
+  longer the right shape. The architect's on-touch Finding 6 (cycle 1)
+  recommends a different attachment point — see *Stage 1 attachment* below.
+- **`workspace--state-slot-p` exists** (cycle 1 inline-fix `b70a5b4`).
+  Use it; don't reinvent it.
+
+### Stage 1 attachment (architect Finding 6 recommendation)
+
+The autosave-guard-pipeline boundary entry (now `status: reconciled`)
+declares this task as the deliverable of stage 1 (anti-save-check).
+**Wrap the four autosave entry points** with the predicate
+consultation, NOT the inside of `workspace--autosave-current-layout`.
+
+Specifically:
+- `workspace--persistence-before-tab-switch` advice (persistence.org):
+  consult predicates BEFORE the existing `(workspace--autosave-current-
+  layout :working-state)` call.
+- `workspace--persistence-after-tab-switch` advice (persistence.org):
+  same wrap.
+- `workspace--kill-emacs-flush` (persistence.org): consult predicates
+  before its `(workspace--autosave-current-layout :working-state)` call.
+- `workspaces-mode` idle timer (workspaces-mode.org — landed by the
+  sibling `idle-save-mode` task): same wrap inside the timer callback.
+
+The wrap-the-callers approach preserves `register/invariant/explicit-
+save-bypasses-anti-save` STRUCTURALLY — `workspace-save` enters at
+stage 2 (calling `workspace--autosave-current-layout` directly), never
+crossing the predicate-check wrap. A typo at an autosave call site
+that passes `:saved-state` where `:working-state` was intended (the
+failure mode noted in cycle 1 Finding 1) does NOT also bypass anti-save,
+which would be a worse failure mode than slot routing alone.
+
+> Cycle 1: stage-1 attachment point pinned by `arch-cycle-20260524-
+> 200631-on-touch-two-state-layout-6` (advisory). See
+> `.orchestrator/cycles/cycle-20260524-200631/findings/on-touch-two-
+> state-layout.md` and `.orchestrator/cycles/cycle-20260524-200631/
+> reconciliations/boundary-autosave-guard-pipeline.md`.
+
+### Files to modify (revised)
+
+- `config/workspaces/workspaces.org` — add `workspace-anti-save-
+  predicates` defcustom + `workspace--backtrace-visible-p` helper (as
+  before).
+- `config/workspaces/persistence.org` — wrap the THREE autosave entry
+  points (`workspace--persistence-before-tab-switch`, `workspace--
+  persistence-after-tab-switch`, `workspace--kill-emacs-flush`) with
+  the predicate consultation. The wrap is a `(unless (run-hook-with-
+  args-until-success ...) (workspace--autosave-current-layout :working-
+  state))` form at each call site.
+- `config/workspaces/test/anti-save-spec.el` (NEW) — same three
+  scenarios as originally planned, plus a new scenario that asserts
+  `workspace-save` bypasses the predicates (this exercises register/
+  invariant/explicit-save-bypasses-anti-save, which has its scaffold
+  pending and remains `status: speculated` until this task lands).
+
+### Scaffolding to satisfy
+
+`openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+invariants/explicit-save-bypasses-anti-save.test.el` — the only
+scaffold still `status: speculated` after cycle 1. This task's
+shipped tests should make all three of its `it` blocks pass.

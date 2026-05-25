@@ -145,3 +145,29 @@ Manual smoke (optional):
 - `openspec/changes/refine-workspaces-two-state-layout/notes/activities-patterns-catalog.md` pattern 8, Q4.
 - **Depends on**: `two-state-layout`. The idle save writes `:working-state`, which only exists after that task lands.
 - Independent of `anti-save-predicates` in terms of *implementation* but pairs naturally with it: the idle-save scenario "respects anti-save predicates" is just a regression test, not new logic.
+
+## Cycle 1 updates (2026-05-24)
+
+This task's blocking dependency `two-state-layout` landed in cycle 1
+(merge `8a9cb29`). Two adjustments:
+
+- **`workspace--autosave-current-layout` is REQUIRED-SLOT** (cycle 1
+  inline-fix `b70a5b4`). The idle-timer callback MUST pass
+  `:working-state` explicitly: `(workspace--autosave-current-layout
+  :working-state)`. There is no default; an omitted slot raises
+  `wrong-number-of-arguments`.
+
+- **Sibling task `anti-save-predicates` adds the predicate-consultation
+  wrap** at the autosave entry points. The idle-timer callback in
+  `workspaces-mode.org` will be one of those wrap points. Coordinate
+  ordering: if `anti-save-predicates` lands first, write the callback
+  as `(unless (run-hook-with-args-until-success
+  'workspace-anti-save-predicates) (workspace--autosave-current-layout
+  :working-state))`. If this task lands first, write the plain
+  `(workspace--autosave-current-layout :working-state)` call and let
+  the sibling task wrap it in its own diff.
+
+> Cycle 1: required-slot signature pinned by `arch-cycle-20260524-
+> 200631-on-touch-two-state-layout-1`. See
+> `.orchestrator/cycles/cycle-20260524-200631/reconciliations/
+> invariant-autosave-never-writes-saved-state.md`.

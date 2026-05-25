@@ -94,3 +94,75 @@ Specific assertions:
 - `openspec/specs/workspaces/spec.md` — the target.
 - `openspec/changes/archive/2026-05-24-add-workspaces-package/` — historical; do not modify.
 - **Depends on** all four implementation tasks. This is the only task that touches the main spec; it should be the last thing on the branch before the change is archived.
+
+## Cycle 1 updates (2026-05-24)
+
+Major updates from cycle 1 (merges `32bbd36` + `8a9cb29` + inline fixes
+`bc64784`, `b70a5b4`, `46afc31`). The README + spec sync need to absorb:
+
+### Keybinding inventory correction (spec-signal from reviewer)
+
+- `design.md §D9` stated "C-x w r" was free. It was not — `workspace-
+  remove-buffer` was bound there in v1. The cycle's `two-state-layout`
+  task relocated `workspace-remove-buffer` to `C-x w b` to free `r`
+  for `workspace-revert`. Updated bindings:
+  - `C-x w S` → `workspace-save` (unchanged)
+  - `C-x w o` → `workspace-restore` (unchanged)
+  - `C-x w n` → `workspace-new` (unchanged)
+  - `C-x w s` → `workspace-switch` (unchanged)
+  - `C-x w r` → `workspace-revert` (NEW, cycle 1)
+  - `C-x w b` → `workspace-remove-buffer` (RELOCATED from `C-x w r`)
+- README's keybinding table must reflect both the new binding and the
+  relocation.
+- `design.md §D9` should be updated to acknowledge the relocation
+  (or sync should mention "the design's §D9 keybinding inventory was
+  factually incorrect about r being free; the cycle resolved this by
+  rebinding workspace-remove-buffer to b").
+
+### Schema v2 documentation
+
+- Persistence file format is now `:version 2`. v1 files are rejected
+  with an `*Messages*` notice; users delete the file by hand. Document
+  the no-migration policy (design.md §D3 — "the workspaces package is
+  pre-alpha; the user accepted that the state-file format may break
+  between refinement cycles").
+- Layout shape has changed from single `:frameset` to `:saved-state` +
+  `:working-state` + `:etc`. Document the two-state semantics and the
+  restore precedence (working wins; saved fallback).
+
+### Buffer reincarnation (D4 gap closed)
+
+- Document the four-step fallback chain (bookmark → filename → name
+  → error-buffer) and the bug#56643 workaround. Reference the
+  `bookmark-make-record` API as the primary restore primitive.
+- Note that non-file buffers (`magit-status`, `eshell`, `*Messages*`)
+  reincarnate via their major mode's registered bookmark handler.
+
+### v2 spec sync (the `/opsx-sync` step)
+
+The delta spec at `openspec/changes/refine-workspaces-two-state-layout/
+specs/workspaces/spec.md` should sync to the main spec at `openspec/
+specs/workspaces/spec.md`. Note: the delta's **MODIFIED Requirement:
+Auto-save layout on context switch** now correctly reflects the
+shipped clobber-impossible structure (the v1 MVP-gap scenario is
+inverted). The delta's **ADDED Requirement: Buffer reincarnation
+across restart** is fully realized in cycle 1.
+
+### Followup tasks now in the open queue
+
+This task's `relations.blocked-by` originally listed four tasks. Two
+landed in cycle 1; two remain (`anti-save-predicates`, `idle-save-
+mode`). Cycle 1 also added four new in-scope follow-up tasks:
+`test-switch-layout-race-guard`, `add-reincarnation-step-predicate`,
+`unify-layout-construction-paths`, `remove-dead-after-tab-switch-
+placeholder`. None of these block docs-and-sync; this task closes the
+change once `anti-save-predicates` and `idle-save-mode` complete (and
+optionally after the four cycle-1-followups land, depending on user
+preference about archiving with vs. without them).
+
+> Cycle 1: keybinding inventory + schema v2 + buffer reincarnation
+> all landed and need documentation. See pm-digest at `.orchestrator/
+> cycles/cycle-20260524-200631/pm-digest.md` (to be written) for the
+> cycle's full output. The spec-signal asks routed to the user during
+> integrate may also influence the docs (record the user's decisions
+> in this task's README updates).
