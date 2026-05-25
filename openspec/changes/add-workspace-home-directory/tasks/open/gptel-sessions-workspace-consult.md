@@ -2,7 +2,7 @@
 name: gptel-sessions-workspace-consult
 description: Add workspace-sessions-dir function; modify gptel sessions to consult via featurep; add prefix-arg force-global escape hatch
 change: add-workspace-home-directory
-status: blocked
+status: ready
 relations:
   - blocked-by:add-home-slot-to-data-model
 ---
@@ -168,3 +168,91 @@ design.md § Decisions / D3 — gptel integration: soft dependency via featurep 
 design.md § Open Questions Q1 — locate exact gptel session-dir resolution function during apply
 specs/workspaces/spec.md § ADDED "Workspace-aware gptel session creation"
 specs/workspaces/spec.md § ADDED "Filesystem-authoritative session inventory"
+
+## Cycle 2 plan stanza (cycle-20260525-213500)
+
+### Status
+
+- `status: blocked` → `status: ready`. The single blocker
+  (`add-home-slot-to-data-model`) closed in cycle 1 at merge
+  commit `7026d37`.
+
+### Cited register entries
+
+- `register/boundary/gptel-sessions-workspace-consult`: **speculated**
+  (net-new this plan). The cross-subsystem boundary pinning three
+  concerns: direction (gptel → workspaces; never reverse), softness
+  (`featurep` + `fboundp` guards), and nil-discipline (the producer
+  returns dir-or-nil and never signals). Your steps 2 and 3 ARE the
+  canonical producer and consumer functions. Scaffold at
+  `scaffolding/boundaries/gptel-sessions-workspace-consult.el` has
+  10 `it` cases across three describe blocks (producer-side
+  contract, consumer-side fallback chain, directionality lint).
+  Lift the assertion shapes into the two new spec files this task
+  produces; the directionality lint case is the one that catches a
+  future refactor breaking the one-way contract — keep that one
+  whether or not you migrate the other shapes.
+
+- `register/shape/workspace-plist-v3`: **confirmed** (cycle 1). The
+  producer (`workspace-sessions-dir`) reads `:home` and the broken
+  tag off the workspace plist. The shape is cited for the
+  `workspace--broken-p ws` and `workspace--home ws` accessor calls
+  in step 2's code.
+
+- `register/vocabulary/workspace-broken-disposition`: **confirmed**
+  (cycle 1). The producer-side nil-on-broken behaviour you implement
+  in step 2 IS the vocabulary's `:refused` disposition extended to
+  the gptel routing concern. A broken workspace MUST NOT route
+  session creation into a missing path — falling through to the
+  global default is the correct behaviour.
+
+- `register/invariant/registry-name-equals-basename`: **confirmed**
+  (cycle 1). Cited as supporting context: the producer's
+  `(workspace--current-name)` look-up assumes the current-tab
+  name matches a registry key, which holds because of this
+  invariant. If the invariant ever divergent's, the producer's
+  nil-discipline still keeps the consumer safe (no broken-tag
+  needed to fall through).
+
+### Open Question Q1 resolution path
+
+Design.md Q1 flags that the exact gptel function name being
+modified is forward-pinned. Your step 1's "Locate the gptel
+session-dir resolution" is the resolution step. The exact answer
+lands in your `## Discoveries` (or appended to step 1 inline) and
+the boundary entry's `consumer_side.file` field is updated at
+cycle-2 integrate.
+
+Suggested grep starting points (recorded in the register entry's
+`consumer_side.note`):
+```bash
+grep -rn "session.*directory\\|sessions-dir\\|sessions-default" config/gptel/sessions/
+grep -rn "defcustom" config/gptel/sessions/ | grep -iE "session.*dir|dir.*session"
+```
+
+### Cross-task interaction with scaffold-module
+
+Both tasks land cycle 2 in parallel. The interaction surface is
+the optional `gptel-sessions-create-empty-file` (or equivalent)
+function — `scaffold-module`'s `workspace--scaffold-initial-session`
+prefers calling it if `(featurep 'gptel-sessions)` and the function
+is bound. If this task introduces such a function, scaffold's
+preferred branch lights up automatically; if not, scaffold's
+fallback writes a minimal `#+TITLE:` file. The two tasks do NOT
+need to coordinate on naming — each can ship independently. If you
+notice during apply that the gptel sessions module already
+exports a public-shaped session-create function, name and
+signature it in `## Discoveries` so scaffold-module's
+implementor (or its reviewer) can wire it.
+
+### Directionality enforcement
+
+The directionality lint (scaffold's third `describe` block) is the
+strictest part of the contract. After your changes:
+```bash
+grep -rn "gptel-sessions-\\|gptel-sessions/\\|require.*gptel-sessions" config/workspaces/
+```
+MUST return zero matches. If your implementation requires referencing
+gptel from inside workspaces (e.g. for a hook), the contract has
+divergent — flag it in `## Discoveries` rather than shipping a
+silent contract violation.

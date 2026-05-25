@@ -3369,6 +3369,316 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/home-org-read-pipeline.el
    #+end_src
 
+** workspace-scaffold-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-workspace-scaffold-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/workspace-scaffold-pipeline
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-20260525-213500 plan: populated forward-mode. The six-stage
+     scaffold pipeline produced by =scaffold-module= (cycle-2 task).
+     Speculation: the pipeline is a single function =workspace-scaffold
+     HOME NAME &key INIT-AND-COMMIT?= with six stages, the git-bracketed
+     stages (2 and 6) controlled by =INIT-AND-COMMIT?=, and a fail-fast
+     contract that does not auto-cleanup partial filesystem effects.
+     Pressure-tested by =scaffold-module= and (next-cycle)
+     =workspace-new-anchor-existing=. The =INIT-AND-COMMIT? nil= shape
+     is the only knob the anchor-existing-repo branch needs; if the
+     anchor flow turns out to require finer per-stage control during
+     execute, this entry reconciles divergent.
+   load_bearing: true
+   title: workspace directory scaffolding pipeline (default-path and anchor-non-repo branches)
+   purpose: |
+     The fixed-order pipeline that scaffolds a workspace's filesystem
+     anchor. The pipeline is the SINGLE producer of a freshly-set-up
+     workspace directory; both =workspace-new= (default path) and
+     =workspace-new= with prefix-arg (anchor existing non-repo) reach
+     a working workspace by way of this function. The contract pins
+     three concerns together so they cannot drift:
+
+     1. =STAGE ORDER=: dirs and files are created in the order below.
+        Re-ordering risks subtle issues (e.g. =git add .= before
+        =sessions/<date>-initial.org= exists would silently miss the
+        file from the initial commit).
+     2. =INIT-AND-COMMIT? GATE=: the only knob the anchor-existing-repo
+        branch needs to suppress is the git bracketing. The same
+        function handles both branches.
+     3. =LEAVE-ON-FAILURE SEMANTICS=: partial-failure does not delete.
+        Coupled with =register/invariant/scaffold-leave-partial-on-failure=.
+
+   stages:
+     - n: 1
+       name: ensure-home-directory
+       input: HOME (absolute target path)
+       output: directory exists at HOME (=make-directory HOME t=)
+       can_fail_with: [permission-denied, parent-missing, eexist-as-file]
+       gated_by: always
+       notes: |
+         =(make-directory home t)=. The =t= recursive flag creates any
+         missing parents. Fails if HOME exists as a non-directory file
+         or the parent path is unwritable.
+     - n: 2
+       name: git-init
+       input: HOME (existing directory)
+       output: =HOME/.git/= initialized
+       can_fail_with: [git-not-on-path, git-init-failure]
+       gated_by: INIT-AND-COMMIT?
+       notes: |
+         =(workspace--scaffold-git HOME "init")=. Skipped entirely when
+         INIT-AND-COMMIT? is nil (the "anchor existing git repo without
+         home.org" branch — git state is the user's; we do not touch).
+     - n: 3
+       name: write-home-org-skeleton
+       input: HOME, NAME
+       output: =HOME/home.org= created if not pre-existing
+       can_fail_with: [io-error]
+       gated_by: always
+       notes: |
+         =(workspace--scaffold-write-home-org home name)=. The writer
+         is =(unless (file-exists-p path) ...)=-guarded — if the user
+         pre-created =home.org= (case-1 of the anchor flow), the
+         skeleton write is a no-op and the user's content is preserved.
+         This is the ONLY package code path that writes =home.org= —
+         see =register/invariant/home-org-user-authored-after-creation=.
+     - n: 4
+       name: ensure-sessions-directory
+       input: HOME
+       output: =HOME/sessions/= exists
+       can_fail_with: [permission-denied]
+       gated_by: always
+       notes: |
+         =(make-directory (expand-file-name "sessions" home) t)=. The
+         spec promises =directory-files= over =HOME/sessions/= is the
+         authoritative session inventory; this stage creates the
+         directory before stage 5 populates it.
+     - n: 5
+       name: create-initial-session
+       input: HOME, current date
+       output: =HOME/sessions/<ISO-date>-initial.org= file
+       can_fail_with: [io-error, gptel-session-fn-error]
+       gated_by: always
+       notes: |
+         =(workspace--scaffold-initial-session home)=. Prefers calling
+         into the gptel-sessions module if loaded (=featurep
+         'gptel-sessions=); falls back to writing a minimal
+         =#+TITLE: <date> initial session= file. The fallback is the
+         optional-dependency contract — see design D7.
+     - n: 6
+       name: git-add-and-commit
+       input: HOME (with .git/ from stage 2 and files from stages 3-5)
+       output: one initial git commit on HEAD
+       can_fail_with: [git-add-failure, git-commit-failure, no-files-to-commit]
+       gated_by: INIT-AND-COMMIT?
+       notes: |
+         =(workspace--scaffold-git HOME "add" ".")= then
+         =(workspace--scaffold-git HOME "commit" "-m" "Initial workspace")=.
+         Skipped entirely when INIT-AND-COMMIT? is nil. The commit
+         message is exact — the cycle-2+ end-to-end test asserts on it
+         via =git log --oneline=.
+
+   gated_by:
+     parameter: INIT-AND-COMMIT?
+     when_t: stages 1-6 (default-path; anchor-non-repo)
+     when_nil: stages 1, 3, 4, 5 only (anchor existing repo without home.org)
+     rationale: |
+       The same function handles three of the four workspace-new
+       branches; only the existing-repo-with-home.org case bypasses
+       =workspace-scaffold= entirely (because there's nothing to do).
+
+   on_failure_contract:
+     pipeline_aborts: true
+     subsequent_stages_run: false
+     filesystem_cleanup: |
+       PARTIAL FILES LEFT IN PLACE. The function does NOT delete the
+       partial scaffold on failure. See
+       =register/invariant/scaffold-leave-partial-on-failure= for the
+       full rationale.
+     registry_mutation: |
+       The function itself does NOT touch the registry; the caller
+       (=workspace-new=) handles registration only after this function
+       returns non-nil. A failed scaffold therefore never produces a
+       registry entry, even partially. (The caller MUST honor this —
+       any caller that registers BEFORE awaiting the scaffold's return
+       is a defect.)
+     signal_via: user-error
+     signal_message_includes: [HOME-path, failing-stage-or-git-arg, suggested-remedy]
+
+   producers:
+     - file: config/workspaces/scaffold.org
+       function: workspace-scaffold
+       enters_at_stage: 1
+       note: |
+         The single producer; all scaffold paths route through this
+         function.
+
+   consumers:
+     - file: config/workspaces/tabs.org
+       function: workspace-new (no prefix arg)
+       reads_output_of_stage: 6 (return value: HOME)
+       init_and_commit_value: t
+       note: |
+         Default-path branch. Passes =:init-and-commit? t=. Cycle-2+
+         task =workspace-new-default-path=.
+     - file: config/workspaces/tabs.org
+       function: workspace-new (with prefix arg — anchor existing non-repo)
+       reads_output_of_stage: 6 (return value: HOME)
+       init_and_commit_value: t
+       note: |
+         "Not a git repo" sub-case of the anchor flow. Same pipeline as
+         default-path. Cycle-3 task =workspace-new-anchor-existing=.
+     - file: config/workspaces/tabs.org
+       function: workspace-new (with prefix arg — anchor existing repo without home.org)
+       reads_output_of_stage: 5 (return value: HOME)
+       init_and_commit_value: nil
+       note: |
+         "Repo without home.org" sub-case. Skips git init/add/commit so
+         the user's git state is untouched (per design D2's "we never
+         touch repos we did not initialize"). Cycle-3 task
+         =workspace-new-anchor-existing=.
+
+   cross_stage_invariants:
+     - register/invariant/scaffold-leave-partial-on-failure
+     - register/invariant/home-org-user-authored-after-creation
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/boundary/home-org-read-pipeline
+     - register/invariant/home-required-no-floating-workspaces
+
+   cited_by_tasks:
+     - scaffold-module
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/workspace-scaffold-pipeline.el
+   #+end_src
+
+** gptel-sessions-workspace-consult
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-gptel-sessions-workspace-consult
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/gptel-sessions-workspace-consult
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-20260525-213500 plan: populated forward-mode. Cross-subsystem
+     boundary between =workspaces= (producer of =workspace-sessions-dir=)
+     and =gptel/sessions= (consumer via =gptel-sessions--target-dir=).
+     Speculation: the consult is one-way, soft (featurep + fboundp
+     guards), nil-returning when not applicable, and gated by an
+     interactive prefix arg on the user-facing session-creation
+     command. Pressure-tested by =gptel-sessions-workspace-consult=
+     (cycle-2 task). The exact gptel function name being modified is
+     forward-pinned to Q1 in design.md; the boundary contract holds
+     regardless of what that function turns out to be called.
+   load_bearing: true
+   title: gptel sessions ↔ workspaces one-way soft-dependency consult
+   purpose: |
+     The cross-subsystem boundary that lets the =gptel/sessions=
+     module file new session files under =<HOME>/sessions/= when a
+     workspace is active, without making =gptel/sessions= depend on
+     =workspaces= at load time. Three concerns pinned at the boundary:
+
+     1. =DIRECTION=: one-way (gptel → workspaces). Workspaces never
+        references gptel; if =workspaces= ever calls back into gptel,
+        that is a divergence this entry catches.
+     2. =SOFTNESS=: =featurep 'workspaces= + =fboundp
+        'workspace-sessions-dir= guards. Either guard returning nil
+        falls through to the global default cleanly.
+     3. =NIL-DISCIPLINE=: the producer (=workspace-sessions-dir=)
+        returns the directory OR nil; it does NOT signal. The consumer
+        composes with =or= to fall through to the global default. Any
+        future producer revision MUST preserve nil-on-not-applicable.
+
+   producer_side:
+     file: config/workspaces/workspaces.org
+     function: workspace-sessions-dir
+     signature: (workspace-sessions-dir) → string-or-nil
+     return_values:
+       - condition: no workspace is the current tab's owner
+         returns: nil
+         check: (workspace--current-name) returns nil
+       - condition: current workspace is broken
+         returns: nil
+         check: (workspace--broken-p ws) returns t
+       - condition: workspace exists but :home/sessions/ dir is missing
+         returns: nil
+         check: (file-directory-p dir) returns nil
+       - condition: workspace exists, healthy, sessions/ dir exists
+         returns: absolute path to sessions/
+         shape: =(expand-file-name "sessions" home)=
+     contract: |
+       MUST NOT signal. MUST NOT have side effects (no directory
+       creation, no notice). Pure inspection over the current-tab and
+       registry state.
+
+   consumer_side:
+     file: config/gptel/sessions/<file-tbd-during-apply>.org
+     function: gptel-sessions--target-dir (or equivalent name)
+     signature: (gptel-sessions--target-dir &optional force-global) → directory-string
+     fallback_chain:
+       - condition: not force-global AND featurep 'workspaces AND fboundp 'workspace-sessions-dir AND (workspace-sessions-dir) non-nil
+         resolves_to: (workspace-sessions-dir)
+       - condition: any of the above fails (including (workspace-sessions-dir) returning nil)
+         resolves_to: gptel-sessions-default-directory (or whatever the existing var is named)
+     guard_pattern: |
+       (or (and (not force-global)
+                (featurep 'workspaces)
+                (fboundp 'workspace-sessions-dir)
+                (workspace-sessions-dir))
+           gptel-sessions-default-directory)
+
+   user_facing_command:
+     function: gptel-sessions-new (or equivalent — locate during apply)
+     interactive_form: "P"
+     force_global_arg: |
+       Prefix-arg invocation (=C-u M-x gptel-sessions-new=) binds
+       FORCE-GLOBAL non-nil → skips workspace consult → falls through
+       to global default. The escape hatch is the user's "I know what
+       I am doing" override; the package does not second-guess it.
+
+   directionality:
+     forbidden: |
+       =config/workspaces/*.el= MUST NOT reference any =gptel-sessions-*=
+       symbol. If a future change needs workspaces to react to
+       session-creation events, the producer publishes a hook;
+       workspaces does not call gptel directly.
+     permitted: |
+       =config/gptel/sessions/*.el= MAY call =workspace-sessions-dir=
+       guarded by =fboundp=. No other workspaces-side symbol is
+       part of this contract.
+
+   producers:
+     - file: config/workspaces/workspaces.org
+       function: workspace-sessions-dir
+       enters_at_stage: producer-side (sole producer of the dir-or-nil value)
+   consumers:
+     - file: config/gptel/sessions/<TBD>.org
+       function: gptel-sessions--target-dir
+       reads_output_of_stage: consumer-side fallback head
+       note: |
+         The actual file and function name are forward-pinned to
+         Q1 in design.md; the cycle-2 Implementor of
+         gptel-sessions-workspace-consult locates it during apply and
+         records the resolution in =## Discoveries=.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/vocabulary/workspace-broken-disposition
+     - register/invariant/registry-name-equals-basename
+
+   cited_by_tasks:
+     - gptel-sessions-workspace-consult
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/gptel-sessions-workspace-consult.el
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -5117,6 +5427,201 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_from: add-workspace-home-directory
    discovered_by: architect
    scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/home-org-user-authored-after-creation.el
+   #+end_src
+
+** scaffold-leave-partial-on-failure
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scaffold-leave-partial-on-failure
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scaffold-leave-partial-on-failure
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-20260525-213500 plan: populated forward-mode. Pairs with the
+     =register/boundary/workspace-scaffold-pipeline= entry: the pipeline's
+     contract says it can fail; this invariant pins WHAT THE PACKAGE
+     DOES NOT DO when failure happens. Speculation: any pipeline stage's
+     failure leaves the partial filesystem state in place (no =rm -rf=,
+     no =delete-directory= on the partial scaffold), signals =user-error=
+     with the path named, and does not mutate the registry. Pressure-
+     tested by =scaffold-module= (mid-pipeline-failure spec case) and
+     downstream by =workspace-new-default-path= (caller-side: the failed
+     scaffold MUST NOT yield a registry entry).
+   load_bearing: true
+   title: Scaffold pipeline never deletes partial filesystem state on failure
+
+   statement: |
+     On any failure of any stage of =workspace-scaffold= (see
+     =register/boundary/workspace-scaffold-pipeline=), the package
+     SHALL:
+       1. Abort the pipeline (subsequent stages do not run).
+       2. Signal =user-error= naming the HOME path, the failing stage
+          or git invocation, and a remedy hint ("inspect and remove
+          manually if appropriate").
+       3. LEAVE PARTIAL FILESYSTEM STATE IN PLACE. No call to
+          =delete-directory=, =delete-file=, =rename-file=, or any
+          other deletion primitive against the HOME path or its
+          contents.
+       4. Not mutate =workspace--registry= (the function itself does
+          not touch the registry — but this clause is the contract:
+          callers MAY NOT register a workspace whose scaffold call
+          signalled).
+       5. Not create a tab (the caller's =tab-bar= invocation MUST be
+          gated on a non-signalling scaffold return).
+
+   why_it_matters: |
+     The default path (=~/emacs-workspaces/NAME/=) is safe to retry
+     after manual cleanup. But the anchor-existing branches let the
+     user point =workspace-new= at an arbitrary path via
+     =read-directory-name=. A typo'd anchor target (=/Users/jeff/code/=
+     instead of =/Users/jeff/code/myproj/=) followed by a silent
+     =rm -rf= would catastrophically delete the user's data — not
+     because we touched anything we created, but because we couldn't
+     distinguish "the dir we just made" from "the dir that was
+     already there". The conservative choice is: NEVER delete. The
+     cost is an awkward manual =rm -rf= after a rare mid-pipeline
+     failure; the alternative is unacceptable. Design D2 names this
+     explicitly: "silent rm -rf on partial failure is too risky".
+
+     The "no registry mutation" clause is the consumer-side
+     enforcement: even if a future refactor adds early registration
+     (e.g. to support resume-on-failure), it MUST roll back on any
+     scaffold signal. Otherwise a half-scaffolded workspace appears
+     in completion and the user activates it, with downstream code
+     find-file'ing into a missing =home.org= or running =git= in a
+     repo with no commits.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Primary: =config/workspaces/test/scaffold-spec.el=, mid-pipeline-
+       failure case. Stub =workspace--scaffold-git= via =cl-letf= to
+       signal on the =commit= arg; invoke =workspace-scaffold=; assert
+       =user-error= is raised, and assert =(file-exists-p HOME)=,
+       =(file-exists-p (expand-file-name "home.org" HOME))=, and
+       =(file-directory-p (expand-file-name "sessions" HOME))= ALL
+       still hold after the signal. Then assert there is NO registry
+       entry for the scaffold target (i.e. =(workspace--get name)=
+       returns nil).
+     notes: |
+       The test layer is the primary enforcement — there is no
+       cheap structural-audit for "did this function call
+       delete-directory in its error path?" without behavioural
+       inspection. The architect's signal-class 3 (responsibility-
+       leakage) catches the converse defect (a new delete-call added
+       to scaffold.el), and signal-class 8 (invariant-gap) catches
+       the absence of this test if the spec file is removed.
+
+   related_entries:
+     - register/boundary/workspace-scaffold-pipeline
+     - register/invariant/home-required-no-floating-workspaces
+
+   cited_by_tasks:
+     - scaffold-module
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/scaffold-leave-partial-on-failure.el
+   #+end_src
+
+** broken-tag-runtime-only
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-broken-tag-runtime-only
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/broken-tag-runtime-only
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-20260525-213500 plan: populated forward-mode. The =:broken=
+     plist tag introduced by cycle-1 data-model work is documented in
+     =register/shape/workspace-plist-v3= as runtime-only; this invariant
+     pins the PERSISTENCE-SIDE contract that enforces it. Speculation:
+     the cycle-2 persistence serializer filters =:broken= from each
+     workspace plist before writing to disk, and the deserializer
+     re-derives the tag freshly on each load by =(file-directory-p
+     :home)=. Pressure-tested by =persistence-schema-v3= (the round-trip
+     :broken case). If the implementor finds a cheaper way to enforce
+     (e.g. a single helper =workspace--persistence-serialize-workspace=
+     that omits =:broken= by construction), the entry reconciles
+     confirmed with a note on the implementation locus.
+   load_bearing: true
+   title: The :broken plist tag is runtime-only — never serialized to disk
+
+   statement: |
+     For every workspace =ws= written to the persistence file:
+     =(plist-member (workspace--serialize ws) :broken)= MUST return
+     nil. The =:broken= tag SHALL be set only at load time (by the
+     deserializer's =(file-directory-p :home)= check) or by the
+     explicit =workspace--mark-broken= helper, and SHALL be cleared
+     by =workspace--clear-broken= or by =workspace-re-anchor=. The
+     tag is an OBSERVATION about the current filesystem state, not a
+     persistent attribute of the workspace.
+
+     Equivalently: the on-disk representation of a workspace is the
+     same whether the workspace was marked broken at load time or
+     not. Reading a workspace as broken, serializing without change,
+     reading back: produces a non-broken workspace IF the directory
+     has reappeared, broken IF still missing.
+
+   why_it_matters: |
+     If =:broken= were serialized, the system would need a state
+     machine for clearing it — when does a workspace become "no
+     longer broken"? At the next successful activation? At the next
+     restart? On =workspace-re-anchor=? Each choice introduces a
+     drift point. Keeping the tag ephemeral means the answer is
+     trivial: "the next load checks =file-directory-p= afresh".
+
+     The persistence-write path is also the only path that turns
+     in-memory state durable; if it omits =:broken= by construction,
+     no future code path can accidentally persist the tag (e.g. by
+     marking a workspace broken in memory and then immediately
+     calling =workspace-save=). The invariant is therefore a
+     load-bearing property of the serializer's output, not just of
+     the runtime model.
+
+     Pairs with =register/vocabulary/workspace-broken-disposition=:
+     the vocabulary defines what commands DO when invoked on a
+     broken workspace; this invariant defines how the broken state
+     LIVES — at runtime only. The combination makes broken-state
+     handling auditable: every code path that reacts to broken is
+     in the vocabulary; every code path that produces broken state
+     is the deserializer's =file-directory-p= check or an explicit
+     =mark-broken= call.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Primary: =config/workspaces/test/persistence-v3-spec.el=, the
+       =:broken round-trip= case. Construct a workspace in memory,
+       mark broken via =workspace--mark-broken=, serialize to a tmp
+       file, read the file back as plain elisp (=read=), assert that
+       the workspace's plist does NOT contain a =:broken= key.
+       Secondary: =config/workspaces/test/broken-home-load-spec.el=,
+       the load-side: a v3 file whose serialized workspace has
+       =:home= pointing at a missing directory loads as broken
+       (=workspace--broken-p= returns t), demonstrating the
+       deserializer re-derives the tag from filesystem state, not
+       from any persisted bit.
+     notes: |
+       Architect signal-class 8 (invariant-gap) catches the absence
+       of either test if the spec files are removed. Architect
+       signal-class 7 (interface-drift) catches a serializer revision
+       that includes =:broken= in its output plist by inspecting the
+       function body against this entry's statement.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/vocabulary/workspace-broken-disposition
+     - register/invariant/home-required-no-floating-workspaces
+
+   cited_by_tasks:
+     - persistence-schema-v3
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/broken-tag-runtime-only.el
    #+end_src
 
 * Status legend

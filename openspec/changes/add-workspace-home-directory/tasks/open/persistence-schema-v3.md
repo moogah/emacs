@@ -2,7 +2,7 @@
 name: persistence-schema-v3
 description: Bump schema constant to 3; reject v2 with notice; serialize/deserialize :home; tag missing-dir entries broken
 change: add-workspace-home-directory
-status: blocked
+status: ready
 relations:
   - blocked-by:add-home-slot-to-data-model
 ---
@@ -206,3 +206,77 @@ the cycle doesn't ship a red baseline).
   implementation use `workspace--broken-p`. If still open when you
   start this task, treat the register/implementation as authoritative.
   The user disposition lands in the cycle-2 plan handshake.
+
+## Cycle 2 plan stanza (cycle-20260525-213500)
+
+### Status
+
+- `status: blocked` → `status: ready`. All blockers
+  (`add-home-slot-to-data-model`) are closed at commit `7026d37`.
+
+### Open ask resolution
+
+- `ask-cycle-20260525-200459-1` (design.md predicate naming drift):
+  **resolved** by the user with disposition `apply-now`. Design.md
+  lines 78 and 197 were renamed in cycle-1's integrate tail at
+  commit `36ae299` (`workspace--home-broken-p` →
+  `workspace--broken-p`). The register and implementation were
+  already authoritative; the design doc now matches. The
+  "treat-register-as-authoritative" guidance above is therefore a
+  no-op in cycle 2 — no naming discrepancy remains.
+
+### Net-new cited register entry
+
+In addition to the three cycle-1-confirmed entries already cited
+above (`workspace-plist-v3`, `home-required-no-floating-workspaces`,
+`registry-name-equals-basename`), cycle 2 adds:
+
+- `register/invariant/broken-tag-runtime-only`: **speculated**. The
+  contract that the persistence serializer filters `:broken` from
+  each workspace plist before writing to disk, and that the
+  deserializer re-derives the tag freshly via `(file-directory-p
+  :home)`. Your task's step 3 ("`:broken` runtime-only — filter
+  before writing") IS the implementation of this invariant.
+  Scaffold at
+  `openspec/changes/add-workspace-home-directory/scaffolding/invariants/broken-tag-runtime-only.el`
+  has 4 `it` cases — the round-trip omission case, the load-side
+  re-derivation case, the byte-equivalence round-trip case, and a
+  structural lint asserting `:broken` does not appear in any
+  serialize/save/write function body. Lift the assertion shapes
+  into `persistence-v3-spec.el` (and `broken-home-load-spec.el`
+  for the load-side case); the scaffold file is reference, not
+  authority — push back in `## Discoveries` if a shape doesn't fit
+  the actual serializer factoring.
+
+### Cascade self-audit (per cycle-1 meta-discovery)
+
+Cycle-1's `add-home-slot-to-data-model` cascaded into 76 failing
+specs because it changed the shared `workspace--make` signature.
+Schema-v3 is a structurally analogous contract change. Before
+opening a PR / declaring the task done:
+
+1. Grep the codebase for any code reading the persistence file
+   that hardcodes `:version 2` or otherwise assumes v2 layout.
+   Suggested commands:
+   ```bash
+   grep -rn "version" config/workspaces/ | grep -E ":version|persistence-schema|schema-version"
+   grep -rn "workspace--persistence-schema-version" config/
+   ```
+2. Run the full workspaces suite (`./bin/run-tests.sh -d
+   config/workspaces`); a v3-rejecting v2 fixture in an existing
+   spec is expected — update it as part of THIS task (see step 7
+   notes in your verification block).
+3. If you find a non-test code path that needs adaptation but
+   feels outside this task's scope, flag a follow-up named
+   `wire-v3-into-callers` in your `## Observations` instead of
+   shipping a red baseline.
+
+### Already-shipped infrastructure (re-stated, no change from cycle 1)
+
+`workspace--mark-broken` and `workspace--clear-broken` exist in
+`config/workspaces/data-model.el`. Use `workspace--mark-broken` in
+your deserializer's broken-home path (step 4 above) rather than
+inlining `(plist-put ws :broken t)`. The architect's
+`arch-cycle-20260525-200459-2` informational finding tracks whether
+this happens — using the helper closes the finding; bypassing it
+promotes the finding to advisory in cycle-2 integrate.

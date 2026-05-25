@@ -2,7 +2,7 @@
 name: scaffold-module
 description: New scaffold.org — directory, git init, home.org skeleton, sessions/, initial gptel session, initial commit
 change: add-workspace-home-directory
-status: blocked
+status: ready
 relations:
   - blocked-by:add-home-slot-to-data-model
   - blocked-by:home-org-reader-module
@@ -235,3 +235,90 @@ design.md § Decisions / D7 — initial-session file format (gptel module call +
 design.md § Decisions / D9 — testing approach (real git in tmpdirs)
 specs/workspaces/spec.md § ADDED "workspace-new default scaffolding" (pipeline contract)
 specs/workspaces/spec.md § ADDED "Anchoring an existing directory via prefix arg" (init-and-commit? guard)
+
+## Cycle 2 plan stanza (cycle-20260525-213500)
+
+### Status
+
+- `status: blocked` → `status: ready`. Blockers
+  (`add-home-slot-to-data-model`, `home-org-reader-module`) both
+  closed in cycle 1 at merge commits `7026d37` and `272a457`.
+
+### Cited register entries
+
+- `register/boundary/workspace-scaffold-pipeline`: **speculated**
+  (net-new this plan). The canonical six-stage pipeline
+  (ensure-home-directory → git-init → write-home-org-skeleton →
+  ensure-sessions-directory → create-initial-session →
+  git-add-and-commit) with the `INIT-AND-COMMIT?` keyword arg
+  controlling stages 2 and 6. Your step 5 IS the canonical mapping
+  function. Scaffold at `scaffolding/boundaries/workspace-scaffold-pipeline.el`
+  has 4 `it` cases — default-path acceptance, anchor-without-commit
+  acceptance, idempotent home.org write, and a structural assertion
+  that the initial-session file's path is produced by exactly one
+  call-site. Lift the assertion shapes into `scaffold-spec.el`; the
+  scaffold file is reference, not authority. Push back in
+  `## Discoveries` if the signature needs to evolve (e.g. if an
+  additional kwarg turns out to be needed) — the speculation
+  reconciles divergent in that case.
+
+- `register/invariant/scaffold-leave-partial-on-failure`: **speculated**
+  (net-new this plan). The fail-fast contract that pairs with the
+  pipeline entry: on any stage failure, partial filesystem state is
+  left in place (no `delete-directory`, no `delete-file`, no
+  `rename-file`), `user-error` is signalled with the path named, and
+  no registry mutation happens. Your step 8 "mid-pipeline failure"
+  spec case IS the test-tier enforcement. Scaffold at
+  `scaffolding/invariants/scaffold-leave-partial-on-failure.el` has
+  4 `it` cases — the standard mid-pipeline-failure assertion, a
+  no-registry-mutation assertion, a remedy-hint assertion on the
+  error message, and a structural lint that scaffold.el's body
+  contains no `delete-directory` or `delete-file` primitives.
+
+- `register/invariant/home-org-user-authored-after-creation`:
+  **confirmed** (cycle 1). The cross-module lint scaffolded cycle 1
+  treats `workspace--scaffold-write-home-org` in `scaffold.el` as
+  the SOLE permitted writer of `home.org`. By implementing the
+  helper with that exact name (per step 3), you make the
+  follow-up task `port-cross-module-home-org-writer-lint` (filed
+  cycle 1, blocked-on this task) trivial to satisfy. If you must
+  rename the writer, flag it in `## Discoveries` so that follow-up
+  task's allow-list can be updated in lockstep.
+
+- `register/shape/workspace-plist-v3`: **confirmed** (cycle 1). This
+  task does NOT construct workspaces directly (`workspace-scaffold`
+  is a pure filesystem operation; the caller in `tabs.org` builds
+  the plist). The shape is cited as context: the scaffold's
+  caller-side contract assumes the plist's `:home` will be set to
+  the same HOME path the scaffold returned.
+
+- `register/boundary/home-org-read-pipeline`: **reconciled** (cycle 1).
+  Cited because the home.org you write in step 3 becomes the input
+  to that pipeline once the workspace activates and `workspace-
+  home-org-title` runs. Your skeleton MUST start with `#+TITLE:
+  <name>` on line 1 (no leading blank lines, no leading comment) so
+  the reader's stage-4 regex hits it. If you change the skeleton
+  shape, the pipeline's stage-4 invariant catches it on first read.
+
+### Cross-task touch budget
+
+This task is the on-touch architect's primary attention budget for
+the two load-bearing speculated entries
+(`workspace-scaffold-pipeline`, `scaffold-leave-partial-on-failure`).
+Expect an on-touch architect run when your implementor branch
+merges — it audits whether the implementation's shape matches the
+speculated stage order and gating contract. A divergent shape is
+not a defect; it's a reconciliation signal that lands at integrate.
+
+### Initial-session-file producer (per design D7)
+
+Step 4's fallback (write a minimal `#+TITLE:` file) is sufficient
+for cycle 2 — gptel-sessions module integration is the other
+cycle-2 task (`gptel-sessions-workspace-consult`) but the two
+tasks run in parallel and do not depend on each other's
+implementation details. If the gptel-side task lands first and
+introduces a stable `gptel-sessions-create-empty-file` (or
+equivalent) function, your scaffold's `featurep` branch will
+exercise the preferred path automatically; if not, the fallback
+covers it. Either way, document the resolution in `## Discoveries`
+so cycle-3's verify-end-to-end task knows which branch is live.
