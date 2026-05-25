@@ -238,11 +238,14 @@ workspace.  No-op when the flag is not set."
 
 * Hook into tab switch advice
 
-The existing =workspace--after-tab-switch= in =tabs.el= is a
-placeholder that no-ops on workspace tabs.  We use it as the
-attachment point for lazy activation: when the user selects a tab
-that carries =:workspace-name= AND that workspace is flagged
-=:restore-pending=, the pending activation runs once.
+This is the canonical =:after= advice on =tab-bar-switch-to-tab=
+/ =tab-bar-select-tab= for the workspaces subsystem: when the
+user selects a tab that carries =:workspace-name= AND that
+workspace is flagged =:restore-pending=, the pending activation
+runs once.  Non-workspace tabs are early-returned via
+=(when name ...)= so the advice never interferes with
+=activities-tabs-mode= during side-by-side development
+(design.md §D8).
 
 #+begin_src emacs-lisp
 (defun workspace--persistence-after-tab-switch (&rest _args)
