@@ -1,6 +1,7 @@
 ;;; scaffold.el --- Workspaces directory scaffolder -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'workspace-data-model)
 
 (defun workspace--scaffold-git (home &rest args)
   "Run `git ARGS' with `default-directory' bound to HOME.
@@ -33,7 +34,7 @@ package — see `register/invariant/home-org-user-authored-after-creation'."
 (defun workspace--scaffold-initial-session (home)
   "Create the initial gptel session file under HOME/sessions/.
 Returns the absolute path of the session file."
-  (let* ((sessions-dir (expand-file-name "sessions" home))
+  (let* ((sessions-dir (workspace--sessions-dir home))
          (filename (format "%s-initial.org" (format-time-string "%Y-%m-%d")))
          (path (expand-file-name filename sessions-dir)))
     (make-directory sessions-dir t)
@@ -70,7 +71,7 @@ that is the caller's responsibility (tabs.el's workspace-new)."
   (when init-and-commit?
     (workspace--scaffold-git home "init"))
   (workspace--scaffold-write-home-org home name)
-  (make-directory (expand-file-name "sessions" home) t)
+  (make-directory (workspace--sessions-dir home) t)
   (workspace--scaffold-initial-session home)
   (when init-and-commit?
     (workspace--scaffold-git home "add" ".")

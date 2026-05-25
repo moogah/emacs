@@ -66,7 +66,7 @@ active workspace's home.  It MUST NOT signal and has no side effects."
               (ws   (gethash name workspace--registry))
               ((not (workspace--broken-p ws)))
               (home (workspace--home ws)))
-    (let ((dir (expand-file-name "sessions" home)))
+    (let ((dir (workspace--sessions-dir home)))
       (when (file-directory-p dir)
         dir))))
 

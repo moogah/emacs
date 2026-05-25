@@ -1116,8 +1116,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          Activation paths (=workspace-switch=, =workspace-restore=)
          consult =workspace--broken-p= and signal =user-error= when
          set. NEVER written to disk — the serializer filters this
-         key. The =broken-home-no-auto-recreate= invariant pins the
-         "log and tag, never recreate" semantics.
+         key. Mutations route through =workspace--mark-broken= and
+         =workspace--clear-broken= per cycle-1's
+         =arch-cycle-20260525-200459-2= finding (no inline
+         =plist-put=). The =broken-home-no-auto-recreate= invariant
+         pins the "log and tag, never recreate" semantics.
+     - name: ":restore-pending"
+       type: t | nil
+       description: |
+         Runtime-only tag set by =workspace--deserialize-state= on
+         every successfully-loaded registry entry; cleared by
+         =workspace--apply-saved-layout= after first activation.
+         Drives lazy frameset restoration via the tab-bar-switch
+         hook (=workspace--persistence-after-tab-switch= →
+         =workspace--activate-pending-workspace=). NEVER written to
+         disk — the serializer filters this key by construction.
+         Mutations route through =workspace--mark-restore-pending=
+         and =workspace--clear-restore-pending= per cycle-2's
+         =arch-cycle-20260525-213500-03= finding (no inline
+         =plist-put=). Enumerated here as of cycle-2 integrate
+         (=arch-cycle-20260525-213500-01=).
 
    forbidden_keys: []
 
@@ -3377,19 +3395,33 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/workspace-scaffold-pipeline
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
-     cycle-20260525-213500 plan: populated forward-mode. The six-stage
-     scaffold pipeline produced by =scaffold-module= (cycle-2 task).
-     Speculation: the pipeline is a single function =workspace-scaffold
-     HOME NAME &key INIT-AND-COMMIT?= with six stages, the git-bracketed
-     stages (2 and 6) controlled by =INIT-AND-COMMIT?=, and a fail-fast
-     contract that does not auto-cleanup partial filesystem effects.
-     Pressure-tested by =scaffold-module= and (next-cycle)
-     =workspace-new-anchor-existing=. The =INIT-AND-COMMIT? nil= shape
-     is the only knob the anchor-existing-repo branch needs; if the
-     anchor flow turns out to require finer per-stage control during
-     execute, this entry reconciles divergent.
+     cycle-20260525-213500 integrate: speculated → reconciled.
+     scaffold-module landed with the canonical signature
+     =(cl-defun workspace-scaffold (home name &key init-and-commit?) ...)=
+     — a realisation of the speculated keyword-arg shape (the
+     scaffold's =&rest plist= form was an intentional placeholder).
+     Six-stage pipeline holds verbatim; INIT-AND-COMMIT? gating
+     unchanged. Behavioural assertions lifted into
+     =config/workspaces/test/scaffold-spec.el= (14 spec cases). The
+     anchor-existing-repo branch (cycle 3+) consumes the same
+     function with INIT-AND-COMMIT? nil. Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/boundary-workspace-scaffold-pipeline.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. The
+     six-stage scaffold pipeline produced by =scaffold-module=
+     (cycle-2 task). Speculation: the pipeline is a single function
+     =workspace-scaffold HOME NAME &key INIT-AND-COMMIT?= with six
+     stages, the git-bracketed stages (2 and 6) controlled by
+     =INIT-AND-COMMIT?=, and a fail-fast contract that does not
+     auto-cleanup partial filesystem effects. Pressure-tested by
+     =scaffold-module= and (next-cycle) =workspace-new-anchor-existing=.
+     The =INIT-AND-COMMIT? nil= shape is the only knob the
+     anchor-existing-repo branch needs; if the anchor flow turns out
+     to require finer per-stage control during execute, this entry
+     reconciles divergent."
    load_bearing: true
    title: workspace directory scaffolding pipeline (default-path and anchor-non-repo branches)
    purpose: |
@@ -3451,10 +3483,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        can_fail_with: [permission-denied]
        gated_by: always
        notes: |
-         =(make-directory (expand-file-name "sessions" home) t)=. The
+         =(make-directory (workspace--sessions-dir home) t)=. The
          spec promises =directory-files= over =HOME/sessions/= is the
          authoritative session inventory; this stage creates the
-         directory before stage 5 populates it.
+         directory before stage 5 populates it. The path is composed
+         via the canonical helper =workspace--sessions-dir= (in
+         data-model.el) per cycle-2's
+         =arch-cycle-20260525-213500-05= finding.
      - n: 5
        name: create-initial-session
        input: HOME, current date
@@ -3564,18 +3599,44 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/gptel-sessions-workspace-consult
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
-     cycle-20260525-213500 plan: populated forward-mode. Cross-subsystem
-     boundary between =workspaces= (producer of =workspace-sessions-dir=)
-     and =gptel/sessions= (consumer via =gptel-sessions--target-dir=).
-     Speculation: the consult is one-way, soft (featurep + fboundp
-     guards), nil-returning when not applicable, and gated by an
-     interactive prefix arg on the user-facing session-creation
-     command. Pressure-tested by =gptel-sessions-workspace-consult=
-     (cycle-2 task). The exact gptel function name being modified is
-     forward-pinned to Q1 in design.md; the boundary contract holds
-     regardless of what that function turns out to be called.
+     cycle-20260525-213500 integrate: speculated → reconciled.
+     Producer side (=workspace-sessions-dir=) matched speculation
+     verbatim. Consumer-side function drifted from speculated name
+     =gptel-sessions--target-dir= to =jf/gptel--target-sessions-root=
+     in =config/gptel/sessions/filesystem.el= (project =jf/gptel-=
+     prefix convention). Directionality contract held: post-merge
+     grep for =gptel-sessions-\|gptel-sessions/\|require.*gptel-sessions=
+     in =config/workspaces/*.el= returns zero matches (verified after
+     the orchestrator inline-fix at =63d60ec= removed a dead
+     =featurep= branch from =scaffold.el= that triggered the
+     cross-contract collision between two cycle-2 task scaffolds —
+     see PM digest meta-discoveries).
+
+     User-facing escape hatch was implemented as a separate command
+     =jf/gptel-persistent-session-global= rather than rebinding the
+     prefix arg (existing =jf/gptel-persistent-session= already
+     consumes =current-prefix-arg= for preset selection). Function-
+     arg contract (=force-global= routes correctly) preserved; UX
+     surface diverges from =specs/workspaces/spec.md:264-270=. Routed
+     to user as ask =ask-cycle-20260525-213500-2=.
+
+     Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/boundary-gptel-sessions-workspace-consult.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. Cross-
+     subsystem boundary between =workspaces= (producer of
+     =workspace-sessions-dir=) and =gptel/sessions= (consumer via
+     =gptel-sessions--target-dir=). Speculation: the consult is
+     one-way, soft (featurep + fboundp guards), nil-returning when
+     not applicable, and gated by an interactive prefix arg on the
+     user-facing session-creation command. Pressure-tested by
+     =gptel-sessions-workspace-consult= (cycle-2 task). The exact
+     gptel function name being modified is forward-pinned to Q1 in
+     design.md; the boundary contract holds regardless of what that
+     function turns out to be called."
    load_bearing: true
    title: gptel sessions ↔ workspaces one-way soft-dependency consult
    purpose: |
@@ -3611,36 +3672,43 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          check: (file-directory-p dir) returns nil
        - condition: workspace exists, healthy, sessions/ dir exists
          returns: absolute path to sessions/
-         shape: =(expand-file-name "sessions" home)=
+         shape: =(workspace--sessions-dir home)= (canonical helper;
+                resolves to =(expand-file-name "sessions" home)=)
      contract: |
        MUST NOT signal. MUST NOT have side effects (no directory
        creation, no notice). Pure inspection over the current-tab and
        registry state.
 
    consumer_side:
-     file: config/gptel/sessions/<file-tbd-during-apply>.org
-     function: gptel-sessions--target-dir (or equivalent name)
-     signature: (gptel-sessions--target-dir &optional force-global) → directory-string
+     file: config/gptel/sessions/filesystem.org
+     function: jf/gptel--target-sessions-root
+     signature: (jf/gptel--target-sessions-root &optional force-global) → directory-string
      fallback_chain:
        - condition: not force-global AND featurep 'workspaces AND fboundp 'workspace-sessions-dir AND (workspace-sessions-dir) non-nil
          resolves_to: (workspace-sessions-dir)
        - condition: any of the above fails (including (workspace-sessions-dir) returning nil)
-         resolves_to: gptel-sessions-default-directory (or whatever the existing var is named)
+         resolves_to: jf/gptel-sessions-directory
      guard_pattern: |
        (or (and (not force-global)
                 (featurep 'workspaces)
                 (fboundp 'workspace-sessions-dir)
                 (workspace-sessions-dir))
-           gptel-sessions-default-directory)
+           jf/gptel-sessions-directory)
 
    user_facing_command:
-     function: gptel-sessions-new (or equivalent — locate during apply)
+     function: jf/gptel-persistent-session
      interactive_form: "P"
-     force_global_arg: |
-       Prefix-arg invocation (=C-u M-x gptel-sessions-new=) binds
-       FORCE-GLOBAL non-nil → skips workspace consult → falls through
-       to global default. The escape hatch is the user's "I know what
-       I am doing" override; the package does not second-guess it.
+     escape_hatch_command: jf/gptel-persistent-session-global
+     escape_hatch_rationale: |
+       Implemented as a SEPARATE command rather than a prefix-arg
+       rebind because =jf/gptel-persistent-session= already consumes
+       =current-prefix-arg= for preset selection (pre-existing UX
+       that predates this change). The =-global= sibling command
+       binds FORCE-GLOBAL non-nil → skips workspace consult → falls
+       through to global default. Function-arg contract preserved;
+       UX surface diverges from =specs/workspaces/spec.md:264-270=
+       — routed to user as ask =ask-cycle-20260525-213500-2= for
+       spec disposition.
 
    directionality:
      forbidden: |
@@ -3658,14 +3726,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        function: workspace-sessions-dir
        enters_at_stage: producer-side (sole producer of the dir-or-nil value)
    consumers:
-     - file: config/gptel/sessions/<TBD>.org
-       function: gptel-sessions--target-dir
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--target-sessions-root
        reads_output_of_stage: consumer-side fallback head
        note: |
-         The actual file and function name are forward-pinned to
-         Q1 in design.md; the cycle-2 Implementor of
-         gptel-sessions-workspace-consult locates it during apply and
-         records the resolution in =## Discoveries=.
+         Resolved at cycle-2 integrate from design.md Q1.
+         =jf/gptel--ensure-sessions-root= remains global-only (used
+         by registry/listing); only =jf/gptel--target-sessions-root=
+         consults workspaces (creation path).
 
    related_entries:
      - register/shape/workspace-plist-v3
@@ -5437,18 +5505,35 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/scaffold-leave-partial-on-failure
    tier: invariant
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-20260525-213500 plan: populated forward-mode. Pairs with the
-     =register/boundary/workspace-scaffold-pipeline= entry: the pipeline's
-     contract says it can fail; this invariant pins WHAT THE PACKAGE
-     DOES NOT DO when failure happens. Speculation: any pipeline stage's
-     failure leaves the partial filesystem state in place (no =rm -rf=,
-     no =delete-directory= on the partial scaffold), signals =user-error=
-     with the path named, and does not mutate the registry. Pressure-
-     tested by =scaffold-module= (mid-pipeline-failure spec case) and
-     downstream by =workspace-new-default-path= (caller-side: the failed
-     scaffold MUST NOT yield a registry entry).
+     cycle-20260525-213500 integrate: speculated → confirmed.
+     scaffold-module's mid-pipeline-failure path leaves partial
+     filesystem state in place (no =delete-directory= / =delete-file=
+     in =config/workspaces/scaffold.el='s body — enforced by
+     structural lint in =scaffold-spec.el=), signals =user-error=
+     naming the HOME path, and does not mutate the registry. All
+     four scaffolded assertions lifted into =scaffold-spec.el=:
+     mid-pipeline git-commit failure leaves home.org + sessions/;
+     no-registry-mutation (delegated to caller-side); user-error
+     message names HOME path; structural lint on no-delete primitives.
+     The caller-side complement (workspace-new MUST NOT register on
+     failed scaffold) is owned by =workspace-new-default-path=
+     (cycle 3+). Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/invariant-scaffold-leave-partial-on-failure.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. Pairs with
+     the =register/boundary/workspace-scaffold-pipeline= entry: the
+     pipeline's contract says it can fail; this invariant pins WHAT
+     THE PACKAGE DOES NOT DO when failure happens. Speculation: any
+     pipeline stage's failure leaves the partial filesystem state in
+     place (no =rm -rf=, no =delete-directory= on the partial
+     scaffold), signals =user-error= with the path named, and does
+     not mutate the registry. Pressure-tested by =scaffold-module=
+     (mid-pipeline-failure spec case) and downstream by
+     =workspace-new-default-path= (caller-side: the failed scaffold
+     MUST NOT yield a registry entry)."
    load_bearing: true
    title: Scaffold pipeline never deletes partial filesystem state on failure
 
@@ -5533,20 +5618,47 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/broken-tag-runtime-only
    tier: invariant
-   status: speculated
+   status: reconciled
    status_note: |
-     cycle-20260525-213500 plan: populated forward-mode. The =:broken=
-     plist tag introduced by cycle-1 data-model work is documented in
-     =register/shape/workspace-plist-v3= as runtime-only; this invariant
-     pins the PERSISTENCE-SIDE contract that enforces it. Speculation:
-     the cycle-2 persistence serializer filters =:broken= from each
-     workspace plist before writing to disk, and the deserializer
-     re-derives the tag freshly on each load by =(file-directory-p
-     :home)=. Pressure-tested by =persistence-schema-v3= (the round-trip
-     :broken case). If the implementor finds a cheaper way to enforce
-     (e.g. a single helper =workspace--persistence-serialize-workspace=
-     that omits =:broken= by construction), the entry reconciles
-     confirmed with a note on the implementation locus.
+     cycle-20260525-213500 integrate: speculated → reconciled.
+     persistence-schema-v3 implements the contract via explicit-
+     enumeration in =workspace--persistence-serialize-workspace=:
+     the helper returns a fresh plist with exactly
+     =(:name :home :recent-layout-group :buffer-files :layout-groups)=,
+     omitting =:broken= by construction (not by defensive filter).
+     The deserializer re-derives the broken tag via
+     =(file-directory-p :home)= on load.
+
+     Enforcement mechanism revised: the scaffold's fourth assertion
+     (structural lint on writer body — defun named =serialize=,
+     =save=, =write= must not reference =:broken=) was substituted
+     by a byte-equivalence property test (serialize-with-broken vs
+     serialize-clean produce identical on-disk bytes). The
+     byte-equivalence assertion is rename-stable and tests the
+     INVARIANT outcome directly; the structural lint would have
+     asserted a property of the defensive-filter factoring style,
+     which the implementer did not use.
+
+     Three of four scaffolded assertions live in
+     =persistence-v3-spec.el= (serialize-omits-broken, byte-
+     equivalence) and =broken-home-load-spec.el= (deserialize-
+     derives-broken). Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/invariant-broken-tag-runtime-only.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. The
+     =:broken= plist tag introduced by cycle-1 data-model work is
+     documented in =register/shape/workspace-plist-v3= as runtime-
+     only; this invariant pins the PERSISTENCE-SIDE contract that
+     enforces it. Speculation: the cycle-2 persistence serializer
+     filters =:broken= from each workspace plist before writing to
+     disk, and the deserializer re-derives the tag freshly on each
+     load by =(file-directory-p :home)=. Pressure-tested by
+     =persistence-schema-v3= (the round-trip :broken case). If the
+     implementor finds a cheaper way to enforce (e.g. a single helper
+     =workspace--persistence-serialize-workspace= that omits =:broken=
+     by construction), the entry reconciles confirmed with a note on
+     the implementation locus."
    load_bearing: true
    title: The :broken plist tag is runtime-only — never serialized to disk
 

@@ -117,14 +117,13 @@ Two filtering rules apply per entry (design.md §D5, §D6):
                  (with-broken (if broken-p
                                   (workspace--mark-broken ws)
                                 ws))
-                 (tagged (let ((copy (copy-sequence with-broken)))
-                           (plist-put copy :restore-pending t))))
+                 (tagged (workspace--mark-restore-pending with-broken)))
             (when broken-p
               (message
                "Workspaces: workspace %S has missing :home directory %s — tagged broken"
                name home))
             (puthash name tagged workspace--registry)
-            (push with-broken restored))))))
+            (push tagged restored))))))
     (nreverse restored)))
 #+end_src
 
@@ -271,17 +270,16 @@ participates in the guard, including direct callers like
               (workspace--restore-frameset state)
             (error (message "Workspaces: layout restore failed: %s"
                             (error-message-string err))))))
-      (when (plist-get ws :restore-pending)
-        (let ((updated (let ((copy (copy-sequence ws)))
-                         (plist-put copy :restore-pending nil))))
-          (puthash name updated workspace--registry))))))
+      (when (workspace--restore-pending-p ws)
+        (puthash name (workspace--clear-restore-pending ws)
+                 workspace--registry)))))
 
 (defun workspace--activate-pending-workspace (name)
   "Restore NAME's recent layout if the workspace is `:restore-pending'.
 Called from the tab-switch hook on first selection of a restored
 workspace.  No-op when the flag is not set."
   (let ((ws (gethash name workspace--registry)))
-    (when (and ws (plist-get ws :restore-pending))
+    (when (and ws (workspace--restore-pending-p ws))
       (workspace--apply-saved-layout name))))
 #+end_src
 
