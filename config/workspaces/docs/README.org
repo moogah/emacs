@@ -79,10 +79,10 @@ state/workspaces/<machine-role>/workspaces.eld
 #+end_src
 
 The file is plain elisp (readable with =read=).  Schema is
-=:version 2=.  The package does /not/ read v1 files; if one exists,
-the reader emits a =*Messages*= notice naming the file and the
-version mismatch, and Emacs starts with no workspaces.  See *State
-format is pre-alpha* below.
+=:version 3=.  The package does /not/ read v1 or v2 files; if one
+exists, the reader emits a =*Messages*= notice naming the file and
+the version mismatch, and Emacs starts with no workspaces.  See
+*State format is pre-alpha* below.
 
 ** Two-state layouts
 

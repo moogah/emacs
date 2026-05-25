@@ -280,3 +280,143 @@ inlining `(plist-put ws :broken t)`. The architect's
 `arch-cycle-20260525-200459-2` informational finding tracks whether
 this happens — using the helper closes the finding; bypassing it
 promotes the finding to advisory in cycle-2 integrate.
+
+## Observations
+
+(Reviewer does NOT see this section.)
+
+- **Verification commands in this task's body use `-p` with Buttercup
+  spec names** (`./bin/run-tests.sh -d config/workspaces -p persistence-v3-spec`).
+  `bin/run-tests.sh -p` is ERT-only and the result is "Ran 0 tests"
+  for Buttercup paths. The gate I actually ran is
+  `./bin/run-tests.sh -d config/workspaces`, which loads all `*-spec.el`
+  files in the tree and runs them under Buttercup. Worth noting in the
+  task template — `-p` for Buttercup is silently a no-op rather than
+  an error.
+- **Constant name divergence between task body and codebase.** The task
+  body searches for `workspace--persistence-schema-version`; the actual
+  existing constant is `workspace--state-version`. I kept the existing
+  name to avoid a churn cascade; the task body's reference is a stale
+  alias for the same concept. Worth tightening in the task template if
+  the project standardises one or the other.
+- **Cycle-1 placeholder behaviour preserved unchanged.**
+  `wire-home-into-callsites--synthesize-home` (in `tabs.org`) builds
+  `~/emacs-workspaces/<name>/` paths that do NOT exist on disk in test
+  environments. After v3 lands, every `workspace-new` followed by
+  `workspace--restore` will tag the round-tripped workspace `:broken`.
+  This is *correct behaviour by the design contract* (missing-dir →
+  broken), but it means the existing `persistence-spec.el` round-trip
+  tests now exercise a broken state by accident. No assertion in those
+  tests reads `:broken`, so they continue to pass; the cycle-3
+  `workspace-new-default-path` task should land a real on-disk default
+  to remove this incidental coupling.
+- **Adjacent stale doc fixed in scope.** `config/workspaces/docs/README.org`
+  asserted `:version 2`; updated to `:version 3` since it described
+  user-visible behaviour the v3 cutover changes. Pure prose; no tangle
+  required.
+- **Existing `persistence-spec.el` "Schema v2 version check" describe
+  block renamed to "Schema version check"** plus a leading comment
+  pointing at the v3 spec files for new behavioural coverage. The
+  block's three `it` cases (constant equality, v1 reject, v99 reject)
+  continue to hold under v3 unchanged. The `:to-match ":version"`
+  assertion in the v1-reject test still passes because the new
+  v3-rejection message contains the literal "schema :version" prefix.
+- **Restore path's broken handling is deliberately limited to
+  registration.** When a `:broken` workspace is later activated via
+  the tab-switch hook (`workspace--persistence-after-tab-switch` →
+  `workspace--activate-pending-workspace`), the existing call chain
+  proceeds to `workspace--apply-saved-layout`, which is a no-op when
+  no saved layout state exists. The data layer carries the
+  `:broken` flag; the command-layer guards
+  (register/vocabulary/workspace-broken-disposition) for
+  `workspace-switch`/`workspace-restore` are NOT in this task's scope
+  (they belong to a later task). For now, a broken workspace's tab
+  CAN be selected and the user will see whatever `*scratch*` content
+  the default applies, which is non-destructive. Worth a follow-up
+  task `wire-broken-guards-into-commands` if the integrate phase
+  agrees.
+- **`workspace--deserialize-state` return value changed.** Previously
+  it returned the raw `ws-list` (every entry, including unhealthy
+  ones that would have been silently registered). It now returns
+  only the workspaces actually inserted into the registry (skipped
+  entries are excluded). The caller in `workspace--restore` ignores
+  the return value, so this is internally consistent; if a future
+  caller relies on "every plist as it appeared on disk," they will
+  see a behaviour change. Tests pin only the registry side, not the
+  return.
+
+## Discoveries
+
+(Reviewer does NOT see this section. Integrate phase reads for
+register reconciliation.)
+
+- **discovery_id**: persistence-schema-v3-d1
+  **class**: vocabulary-mismatch
+  **description**: The task body refers to the schema-version constant
+  as `workspace--persistence-schema-version`, but the actual constant
+  in `persistence.org` (introduced at the v1→v2 cutover) is
+  `workspace--state-version`. I kept the existing name; the task
+  template's reference is informational, not authoritative.
+  **affected_register_entry**: register/shape/workspace-plist-v3 (no
+  change recommended — the constant name is implementation detail not
+  pinned in the entry's contract).
+  **recommendation**: Update the task template / design.md cross-
+  reference to use `workspace--state-version` when this change
+  archives.
+
+- **discovery_id**: persistence-schema-v3-d2
+  **class**: invariant-gap
+  **description**: The deserializer's broken-home detection sets the
+  `:broken` tag at load time. Command-layer guards
+  (`workspace-switch`/`workspace-restore` refusing to operate on broken
+  workspaces per register/vocabulary/workspace-broken-disposition) are
+  NOT wired up yet. A user who restores a session with a broken
+  workspace can still `workspace-switch` to its tab, and
+  `workspace--apply-saved-layout` will silently no-op. The data is
+  marked correctly; the command-side enforcement is the gap.
+  **affected_register_entry**: register/vocabulary/workspace-broken-disposition
+  (status remains speculated for the command-side; the persistence-side
+  enforcement is implemented by this task).
+  **recommendation**: Open a follow-up task
+  `wire-broken-guards-into-commands` so cycle 3 can pick it up. Not
+  filed as a user-visible-bug task because the failure mode is silent
+  (no-op), not destructive.
+
+- **discovery_id**: persistence-schema-v3-d3
+  **class**: scope-question
+  **description**: Scaffold
+  `openspec/changes/add-workspace-home-directory/scaffolding/invariants/broken-tag-runtime-only.el`
+  included a "structural lint" `it` case asserting the persistence
+  writer's defun body does not contain `:broken`. I did NOT lift that
+  shape into the spec because the writer is now factored as
+  `workspace--persistence-serialize-workspace`, which explicitly
+  enumerates the persistable keys (`:name`, `:home`,
+  `:recent-layout-group`, `:buffer-files`, `:layout-groups`) — the
+  omission of `:broken` is structural-by-construction rather than
+  defensive-by-filter. The byte-equivalence test in
+  `persistence-v3-spec.el` ("serializing a workspace twice (once clean,
+  once :broken) yields identical bytes") is the stronger pin: any
+  drift would surface as a byte diff. The grep-the-defun-body lint is
+  redundant given the construction shape, and would tie the spec to
+  the current function name (rename-fragile).
+  **affected_register_entry**: register/invariant/broken-tag-runtime-only
+  (status: speculated → confirmed at integrate; the byte-equivalence
+  pin is the load-bearing test).
+  **recommendation**: Confirm the entry at integrate; revise the
+  scaffold's lint test or drop it in favour of the byte-equivalence
+  pin in the eventual `openspec/specs/workspaces/spec.md` reference.
+
+- **discovery_id**: persistence-schema-v3-d4
+  **class**: interface-drift
+  **description**: `workspace--deserialize-state` previously returned
+  the raw `ws-list` (every entry on disk). The v3 implementation
+  returns only the workspaces actually inserted into the registry
+  (skipped-for-missing-`:home` entries are excluded). The sole caller
+  (`workspace--restore`) ignores the return value, so this is
+  internally consistent, but the function's contract has narrowed.
+  **affected_register_entry**: none directly — the entry covers the
+  invariant ("skip entries lacking :home") but not the function's
+  return-value contract.
+  **recommendation**: If a register entry is created for the deserializer's
+  signature in a future cycle, pin the return as "registered subset"
+  rather than "all entries seen on disk".

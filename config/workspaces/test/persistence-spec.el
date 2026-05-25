@@ -147,7 +147,12 @@
     (expect (member #'workspace--kill-emacs-flush kill-emacs-hook)
             :to-be-truthy)))
 
-(describe "Schema v2 version check"
+(describe "Schema version check"
+  ;; Note: v3-specific behavior (v2 rejection, :home skip, broken-home
+  ;; tagging) lives in `persistence-v3-spec.el` and
+  ;; `broken-home-load-spec.el`. This block retains the framework-
+  ;; agnostic checks that were authored at the v2 cutover and continue
+  ;; to hold under v3.
   (before-each (persistence-spec--reset))
   (after-each (persistence-spec--cleanup))
 
