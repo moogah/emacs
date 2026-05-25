@@ -9,9 +9,24 @@ The in-memory representation mirrors the persistent shape (design.md
 §D5) so that serialization is a direct walk of the registry, no
 struct-to-plist conversion at the disk boundary:
 
-- =Workspace=    : =(:name STR :recent-layout-group STR :buffer-files (FILE ...) :layout-groups (LAYOUT-GROUP ...))=
+- =Workspace=    : =(:name STR :home STR :recent-layout-group STR :buffer-files (FILE ...) :layout-groups (LAYOUT-GROUP ...))=
 - =Layout-group= : =(:name STR :layouts (LAYOUT ...))=
 - =Layout=       : =(:timestamp INT :saved-state BLOB :working-state BLOB-or-nil :etc nil)=
+
+The =:home= slot is the workspace's filesystem anchor (an absolute
+path string).  It is required by the constructor — floating workspaces
+without a home directory are structurally unrepresentable.  By
+convention, =basename(:home)= equals =:name=, and the registry key
+under which a workspace is stored equals =:name=; the data layer does
+not enforce this equality (the constructor takes both NAME and HOME
+independently), but every caller is expected to honour the contract.
+
+The optional =:broken= runtime tag is set when the persistence loader
+discovers that =:home= no longer exists on disk; it is never
+serialized.  See =workspace--broken-p= and =workspace--mark-broken=
+below.  Validation of =:home= (does the directory exist?) lives at
+the persistence boundary (=persistence.org=) and in =scaffold.el=,
+not here.
 
 The =:saved-state= slot holds the window-state written by explicit
 saves (=workspace-save= and its variants).  The =:working-state= slot
@@ -191,10 +206,28 @@ disturbing callers."
 
 A workspace is the user-facing entity that pairs 1:1 with a tab.
 
+The =:home= slot is required (positional) and is the workspace's
+filesystem anchor — every workspace points at exactly one directory.
+The data layer treats =:home= as an opaque string; validation of its
+shape (absolute path, directory exists, basename equals =:name=) is the
+responsibility of the caller and the persistence boundary.  See
+register/invariant/home-required-no-floating-workspaces and
+register/invariant/registry-name-equals-basename.
+
 #+begin_src emacs-lisp
-(defun workspace--make (name)
-  "Build an empty workspace plist named NAME."
+(defun workspace--make (name home)
+  "Build an empty workspace plist named NAME anchored at HOME.
+
+NAME is the workspace name (and the registry key under which it is
+stored).  HOME is the workspace's filesystem anchor — an absolute
+path string.  By convention, =basename(HOME)= equals NAME; the data
+layer does not enforce this here, but callers in the command layer
+do (the canonical construction site derives NAME from HOME).
+
+Both arguments are required: floating workspaces (without a home
+directory) are structurally unrepresentable."
   (list :name name
+        :home home
         :recent-layout-group nil
         :buffer-files nil
         :layout-groups nil))
@@ -202,6 +235,19 @@ A workspace is the user-facing entity that pairs 1:1 with a tab.
 (defun workspace--name (ws)
   "Return the name of workspace WS."
   (plist-get ws :name))
+
+(defun workspace--home (ws)
+  "Return the absolute home directory path of workspace WS.
+
+Returns nil if WS has no =:home= slot (defensive: handles
+hand-constructed or stale plists from a corrupted persistence file)."
+  (plist-get ws :home))
+
+(defun workspace--set-home (ws home)
+  "Return a new workspace like WS with its =:home= slot set to HOME.
+Non-destructive: WS is not modified."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :home home)))
 
 (defun workspace--layout-groups (ws)
   "Return the layout-groups of workspace WS."
@@ -270,6 +316,46 @@ Non-destructive."
   (let* ((next (remove path (workspace--buffer-files ws)))
          (copy (copy-sequence ws)))
     (plist-put copy :buffer-files next)))
+#+end_src
+
+* Broken-state runtime tag
+
+The =:broken= tag is a *runtime-only* flag set by the persistence
+loader when a workspace's =:home= directory does not exist on disk at
+load time (design.md §D5).  It is never serialized — on next save the
+workspace is written out with its =:home= intact and the broken tag
+implicitly dropped, since the missing-directory check is fresh on
+every load.
+
+Command-layer callers consult =workspace--broken-p= as an entry-point
+guard.  Per
+register/vocabulary/workspace-broken-disposition, =workspace-switch=
+and =workspace-restore= refuse to operate on broken workspaces;
+=workspace-re-anchor=, =workspace-purge=, and =workspace-delete=
+permit it.  The runtime guards are inline at each command's entry
+point (design.md §D6); this module owns only the predicate and the
+mark/clear helpers.
+
+#+begin_src emacs-lisp
+(defun workspace--broken-p (ws)
+  "Return non-nil if WS is in a broken state.
+
+A workspace is broken when its =:home= directory was missing at
+persistence-load time.  The flag is runtime-only (never serialized);
+on next save it is implicitly dropped."
+  (plist-get ws :broken))
+
+(defun workspace--mark-broken (ws)
+  "Return a new workspace like WS marked broken.
+Non-destructive: WS is not modified.  Sets =:broken t= on the copy."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :broken t)))
+
+(defun workspace--clear-broken (ws)
+  "Return a new workspace like WS with the broken tag cleared.
+Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :broken nil)))
 #+end_src
 
 * Provide
