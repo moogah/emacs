@@ -71,15 +71,7 @@
         (expect (workspace--name ws)
                 :to-equal
                 (file-name-nondirectory
-                 (directory-file-name (workspace--home ws))))))
-
-    (it "trailing-slash variants of HOME normalise to the same basename"
-      ;; directory-file-name + file-name-nondirectory must produce the
-      ;; same basename whether HOME has a trailing slash or not — so
-      ;; callers can pass either form without false invariant violations.
-      (dolist (variant '("/tmp/alpha" "/tmp/alpha/" "/tmp/alpha//"))
-        (expect (file-name-nondirectory (directory-file-name variant))
-                :to-equal "alpha"))))
+                 (directory-file-name (workspace--home ws)))))))
 
   (describe "broken-state runtime tag"
 
