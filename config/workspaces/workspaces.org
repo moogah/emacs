@@ -157,6 +157,57 @@ enumerated for the v2 cycle.
 (global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 #+end_src
 
+* Published cross-module consult API
+
+Soft-dependency hooks other subsystems may consult to route artifacts
+into the active workspace.  The contract is one-way: workspaces never
+references its consumers; consumers reach for these functions behind a
+=(featurep 'workspaces)= + =fboundp= guard.
+
+** workspace-sessions-dir
+
+Returns the absolute path to =<:home>/sessions/= of the workspace owning
+the current tab — or =nil= if any of the three /no-route/ conditions
+hold:
+
+1. No workspace owns the current tab (=(workspace--current-name)= → nil,
+   e.g. the user is on a stock =tab-bar= tab that was never registered).
+2. The current workspace is broken (=(workspace--broken-p ws)= → t —
+   its =:home= was missing at persistence-load time; routing a new file
+   there would re-create the directory and silently mask the breakage).
+3. =<:home>/sessions/= does not exist on disk (=(file-directory-p dir)=
+   → nil — the user deleted it out-of-band after scaffolding).
+
+The function MUST NOT signal and MUST have no side effects.  The
+nil-discipline lets consumers fall through to their global default via
+a clean =(or (workspace-sessions-dir) <default>)= form.
+
+The broken-workspace nil-return is the producer-side expression of
+=register/vocabulary/workspace-broken-disposition=: writing a new
+session file into a broken workspace's path would re-materialise the
+missing directory and hide the breakage from the user; falling through
+to the global default is the correct =:refused= behaviour for the
+routing concern.
+
+#+begin_src emacs-lisp
+(defun workspace-sessions-dir ()
+  "Return the sessions/ directory of the current workspace, or nil.
+
+Returns nil when no workspace owns the current tab, when the workspace
+is broken, or when its :home/sessions/ directory is missing on disk.
+
+This function is the soft-dependency entry point used by other
+subsystems (notably gptel/sessions) to route new artifacts under the
+active workspace's home.  It MUST NOT signal and has no side effects."
+  (when-let* ((name (workspace--current-name))
+              (ws   (gethash name workspace--registry))
+              ((not (workspace--broken-p ws)))
+              (home (workspace--home ws)))
+    (let ((dir (expand-file-name "sessions" home)))
+      (when (file-directory-p dir)
+        dir))))
+#+end_src
+
 * Startup restoration
 
 After all submodules have loaded, restore any persisted workspaces.
