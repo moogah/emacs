@@ -431,5 +431,73 @@
         (expect (workspace--layout-saved-state layout-after)
                 :to-equal saved-before)))))
 
+(describe "layout-v2-plist producer shape equivalence"
+  ;; All three explicit-save variants — workspace-save,
+  ;; workspace-save-layout, and workspace--capture-home-layout — funnel
+  ;; through workspace--autosave-current-layout :saved-state, the
+  ;; canonical layout-construction helper.  Today :etc is universally
+  ;; nil (design.md §D7 :buffer-files consolidation deferred); tomorrow
+  ;; when :etc carries content (design.md §D5 per-layout-group git
+  ;; observation), divergent producers would silently wipe the field.
+  ;; These specs pin :etc round-trip across the three variants so the
+  ;; latent fragmentation cannot regress.  Resolves register/shape/
+  ;; layout-v2-plist producer_fragmentation_note.
+  (before-each (layouts-spec--reset))
+
+  (it "workspace-save preserves :etc on the recent layout (variant 1)"
+    (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))
+      (workspace-new "alpha")
+      ;; Inject a known :etc value via direct registry mutation.
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (group (workspace--find-group ws "home"))
+             (layout (workspace--group-recent-layout group)))
+        (plist-put layout :etc '((sentinel . cross-producer-test))))
+      (workspace-save)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "home"))))
+        (expect (plist-get layout :etc)
+                :to-equal '((sentinel . cross-producer-test))))))
+
+  (it "workspace-save-layout preserves :etc on re-save (variant 2)"
+    ;; The latent divergence the funnel fixes: pre-funnel,
+    ;; workspace-save-layout constructed a fresh layout via
+    ;; workspace--layout-make + upsert, wiping any prior :etc on the
+    ;; same-named group.  Post-funnel, the canonical :saved-state path
+    ;; copies the existing layout and preserves :etc.
+    (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))
+      (workspace-new "alpha")
+      ;; Create magit (initial save).
+      (workspace-save-layout "magit")
+      ;; Inject :etc on the named layout via direct registry mutation.
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (group (workspace--find-group ws "magit"))
+             (layout (workspace--group-recent-layout group)))
+        (plist-put layout :etc '((sentinel . cross-producer-test))))
+      ;; Re-save magit; :etc must survive.
+      (workspace-save-layout "magit")
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "magit"))))
+        (expect (plist-get layout :etc)
+                :to-equal '((sentinel . cross-producer-test))))))
+
+  (it "workspace--capture-home-layout produces a shape-equivalent layout (variant 3)"
+    ;; A brand-new workspace has nothing to preserve, but the funnel
+    ;; ensures shape parity: same keys, same nil-initialised :etc and
+    ;; :working-state, as the other two variants on first save.
+    (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))
+      (workspace-new "alpha")
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (layout (workspace--group-recent-layout
+                      (workspace--find-group ws "home"))))
+        (expect (plist-member layout :timestamp) :to-be-truthy)
+        (expect (plist-member layout :saved-state) :to-be-truthy)
+        (expect (plist-member layout :working-state) :to-be-truthy)
+        (expect (plist-member layout :etc) :to-be-truthy)
+        (expect (plist-get layout :working-state) :to-be nil)
+        (expect (plist-get layout :etc) :to-be nil)
+        (expect (plist-get layout :saved-state) :not :to-be nil)))))
+
 (provide 'layouts-spec)
 ;;; layouts-spec.el ends here

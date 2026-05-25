@@ -563,7 +563,15 @@ under the current workspace.
   "Save the current window configuration as layout NAME in the current workspace.
 
 Re-saving an existing layout (including the reserved `home' layout)
-overwrites it without invoking any builder."
+overwrites the layout's :saved-state while preserving :etc and any
+prior :working-state is then cleared (explicit-save-clears-working-
+state invariant).
+
+Funnels through `workspace--autosave-current-layout :saved-state' so
+all three explicit-save variants (`workspace-save', this command, and
+`workspace--capture-home-layout' via `workspace-new') share the same
+canonical layout-construction path.  Resolves
+register/shape/layout-v2-plist producer fragmentation."
   (interactive
    (list
     (completing-read "Save layout as: "
@@ -572,12 +580,26 @@ overwrites it without invoking any builder."
   (let ((ws-name (workspace--current-name)))
     (unless ws-name
       (user-error "Not on a workspaces-managed tab"))
+    ;; Re-point recent to NAME *before* invoking the canonical helper
+    ;; so the helper writes into the target group.  For an existing
+    ;; group, the helper's :saved-state cond arm copies and preserves
+    ;; :etc; for a new group, it falls through to the fresh-construction
+    ;; arm.  Either way: one canonical construction path.
     (let* ((ws (gethash ws-name workspace--registry))
-           (layout (workspace--layout-make (workspace--capture-frameset)))
-           (updated (workspace--upsert-group ws name layout))
-           (with-recent (workspace--set-recent-group updated name)))
-      (puthash ws-name with-recent workspace--registry)
-      name)))
+           (with-recent (workspace--set-recent-group ws name)))
+      (puthash ws-name with-recent workspace--registry))
+    (workspace--autosave-current-layout :saved-state)
+    ;; Clear any prior :working-state drift on the re-saved layout to
+    ;; honour register/invariant/explicit-save-clears-working-state.
+    ;; For a brand-new group the working-state is already nil (helper
+    ;; constructs via `workspace--layout-make'); for an existing group
+    ;; the helper preserved any prior :working-state, which this clears.
+    (let* ((ws (gethash ws-name workspace--registry))
+           (group (workspace--find-group ws name))
+           (layout (and group (workspace--group-recent-layout group))))
+      (when layout
+        (plist-put layout :working-state nil)))
+    name))
 #+end_src
 
 * Switch layout
@@ -679,14 +701,28 @@ saved layout* before any switch happens.
 
 #+begin_src emacs-lisp
 (defun workspace--capture-home-layout ()
-  "Stamp the current frame's window config as the current workspace's `home'."
+  "Stamp the current frame's window config as the current workspace's `home'.
+
+Funnels through `workspace--autosave-current-layout :saved-state' (the
+canonical layout-construction path), keeping shape parity with
+`workspace-save' and `workspace-save-layout'.  Resolves
+register/shape/layout-v2-plist producer fragmentation.
+
+Called as an `:after' advice on `workspace-new', which has just put a
+freshly-made workspace into the registry with `:recent-layout-group'
+nil and no layout-groups.  Pointing recent to \"home\" before the
+helper runs causes the helper's no-existing-layout branch to construct
+a fresh layout via `workspace--layout-make' — same shape as the
+explicit-save variants on first save."
   (let ((ws-name (workspace--current-name)))
     (when ws-name
+      ;; Set the recent pointer to "home" before invoking the helper so
+      ;; the helper writes into the home group (creating it via its
+      ;; no-existing-layout branch).
       (let* ((ws (gethash ws-name workspace--registry))
-             (layout (workspace--layout-make (workspace--capture-frameset)))
-             (updated (workspace--upsert-group ws "home" layout))
-             (with-recent (workspace--set-recent-group updated "home")))
-        (puthash ws-name with-recent workspace--registry)))))
+             (with-recent (workspace--set-recent-group ws "home")))
+        (puthash ws-name with-recent workspace--registry))
+      (workspace--autosave-current-layout :saved-state))))
 
 (advice-add 'workspace-new :after
             (lambda (&rest _)
