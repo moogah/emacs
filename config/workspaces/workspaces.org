@@ -16,6 +16,8 @@ land.
 
 #+begin_src emacs-lisp
 ;;; workspaces.el --- Named tab-based workspaces -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
 #+end_src
 
 * Custom Group
@@ -41,6 +43,46 @@ Called with one argument WORKSPACE-NAME, in the context of the freshly
 activated workspace.  Any buffers it displays become members of the
 new workspace."
   :type 'function
+  :group 'workspaces)
+#+end_src
+
+** Anti-save predicates
+
+Predicates consulted before any *autosave* trigger fires.  If any
+predicate returns non-nil, the autosave is skipped silently (no
+*Messages* notice, no user-visible error).  The explicit
+=workspace-save= command never consults this list — the user's
+deliberate save gesture is unconditional (register/invariant/
+explicit-save-bypasses-anti-save).
+
+The two default predicates protect the user from the two situations
+where autosave would capture stale or misleading window state:
+
+- =active-minibuffer-window= (built-in nullary predicate) returns the
+  minibuffer window when one is active.  This prevents tab-switch
+  autosave from snapshotting the prompt frame as the workspace's
+  "real" layout.
+- =workspace--backtrace-visible-p= returns non-nil when a =*Backtrace*=
+  window is visible on the current frame.  This prevents debug
+  sessions from being persisted as the workspace's working state.
+
+Reference: =activities--backtrace-visible-p= (activities.el:1010-1016)
+and =activities-anti-save-predicates= (activities.el:302-310).
+
+#+begin_src emacs-lisp
+(defun workspace--backtrace-visible-p ()
+  "Return non-nil if a *Backtrace* window is visible on the current frame."
+  (cl-some (lambda (w)
+             (string= (buffer-name (window-buffer w)) "*Backtrace*"))
+           (window-list nil 'no-mini)))
+
+(defcustom workspace-anti-save-predicates
+  '(active-minibuffer-window
+    workspace--backtrace-visible-p)
+  "List of nullary predicates consulted before any workspace autosave.
+If any predicate returns non-nil, the autosave is skipped silently.
+The explicit `workspace-save' command never consults this list."
+  :type '(repeat function)
   :group 'workspaces)
 #+end_src
 

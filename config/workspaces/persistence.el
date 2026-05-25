@@ -199,20 +199,28 @@ workspace.  No-op when the flag is not set."
   "Capture working-state then write the registry to disk synchronously.
 Cancels any pending debounce.  The working-state capture is wrapped in
 `ignore-errors' so a capture failure (e.g. unusual frame state during
-shutdown) does not prevent the flush itself."
+shutdown) does not prevent the flush itself.
+
+Consults `workspace-anti-save-predicates' before the working-state
+capture; the registry flush itself is unconditional (the user has
+explicitly initiated shutdown)."
   (when workspace--save-timer
     (cancel-timer workspace--save-timer)
     (setq workspace--save-timer nil))
-  (ignore-errors (workspace--autosave-current-layout :working-state))
+  (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+    (ignore-errors (workspace--autosave-current-layout :working-state)))
   (ignore-errors (workspace--write-state (workspace--serialize-registry))))
 
 (add-hook 'kill-emacs-hook #'workspace--kill-emacs-flush)
 
 (defun workspace--persistence-before-tab-switch (&rest _args)
   "Snapshot the outgoing workspace's :working-state before the tab switch.
-No-op when the current tab is not a workspace-managed tab."
+No-op when the current tab is not a workspace-managed tab.  Consults
+`workspace-anti-save-predicates'; if any predicate returns non-nil,
+the autosave is silently skipped."
   (when (workspace--current-name)
-    (workspace--autosave-current-layout :working-state)))
+    (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+      (workspace--autosave-current-layout :working-state))))
 
 (advice-add 'tab-bar-select-tab :before
             #'workspace--persistence-before-tab-switch)
