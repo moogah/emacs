@@ -157,7 +157,29 @@ Each fallback step is guarded with =condition-case= so one
 unrecoverable record (e.g. the =help-mode= =bug#56643=
 natively-compiled-subr issue) does not abort the whole restore.
 
+The four step symbols are pinned in a closed, ordered set
+(=workspace--valid-reincarnation-steps=) with a membership
+predicate, mirroring the =workspace--valid-state-slots= /
+=workspace--state-slot-p= pair below.  The order is load-bearing:
+it matches the =or= chain in =workspace--deserialize-buffer=.
+Adding a fifth step is a register-level change (see
+=register/vocabulary/buffer-reincarnation-fallback-chain= in
+=interfaces.org=), not a code-level addition.
+
 #+begin_src emacs-lisp
+(defconst workspace--valid-reincarnation-steps
+  '(bookmark filename name error-buffer)
+  "Closed, ordered set of reincarnation-chain step symbols.
+The order is load-bearing in production via the `or' chain in
+`workspace--deserialize-buffer'.  Adding a fifth member is a
+register-level change (see register/vocabulary/buffer-
+reincarnation-fallback-chain in =interfaces.org=), not a
+code-level addition.")
+
+(defun workspace--reincarnation-step-p (step)
+  "Return non-nil if STEP names a valid reincarnation-chain step."
+  (memq step workspace--valid-reincarnation-steps))
+
 (defun workspace--serialize-buffer (buffer)
   "Return a `workspace-buffer' struct capturing BUFFER's state, or nil if dead.
 The struct carries enough to reincarnate the buffer across restart:

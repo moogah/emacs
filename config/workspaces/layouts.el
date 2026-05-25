@@ -55,6 +55,19 @@ prefix before it preserved."
            (_ node))))
     (walk state)))
 
+(defconst workspace--valid-reincarnation-steps
+  '(bookmark filename name error-buffer)
+  "Closed, ordered set of reincarnation-chain step symbols.
+The order is load-bearing in production via the `or' chain in
+`workspace--deserialize-buffer'.  Adding a fifth member is a
+register-level change (see register/vocabulary/buffer-
+reincarnation-fallback-chain in =interfaces.org=), not a
+code-level addition.")
+
+(defun workspace--reincarnation-step-p (step)
+  "Return non-nil if STEP names a valid reincarnation-chain step."
+  (memq step workspace--valid-reincarnation-steps))
+
 (defun workspace--serialize-buffer (buffer)
   "Return a `workspace-buffer' struct capturing BUFFER's state, or nil if dead.
 The struct carries enough to reincarnate the buffer across restart:

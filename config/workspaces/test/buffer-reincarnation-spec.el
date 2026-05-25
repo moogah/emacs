@@ -216,6 +216,22 @@
           (funcall newer)
           (expect put-count :to-be-weakly-greater-than 0))))))
 
+(describe "reincarnation step closed-set"
+  ;; Mirrors the `workspace--valid-state-slots' / `workspace--state-slot-p'
+  ;; pair: pins the four step symbols in chain order and asserts the
+  ;; predicate accepts every shipped step while rejecting unrelated
+  ;; symbols and nil.  Closes the closed-set discipline asymmetry
+  ;; noted by cycle-1 architect findings.
+  (it "names exactly four steps in chain order"
+    (expect workspace--valid-reincarnation-steps
+            :to-equal '(bookmark filename name error-buffer)))
+  (it "predicate accepts every shipped step"
+    (dolist (s workspace--valid-reincarnation-steps)
+      (expect (workspace--reincarnation-step-p s) :to-be-truthy)))
+  (it "predicate rejects unrelated symbols"
+    (expect (workspace--reincarnation-step-p 'mystery) :to-be nil)
+    (expect (workspace--reincarnation-step-p nil) :to-be nil)))
+
 (describe "non-file buffer reincarnation (magit-status shape)"
   (it "uses the bookmark handler to materialize a magit-status buffer"
     ;; Mock at the bookmark handler boundary so we do not require
