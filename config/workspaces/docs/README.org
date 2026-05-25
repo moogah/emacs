@@ -20,16 +20,18 @@ and built once per workspace via the =workspace-home-builder= function.
 
 * Command reference
 
-| Binding   | Command                             | What it does                                                |
-|-----------+-------------------------------------+-------------------------------------------------------------|
-| =C-x w n= | =workspace-new=                     | Create a new workspace (or select an existing one by name)  |
-| =C-x w s= | =workspace-switch=                  | Select an existing workspace's tab                          |
-| =C-x w l= | =workspace-switch-layout=           | Switch to a named layout in the current workspace           |
-| =C-x w L= | =workspace-save-layout=             | Save current window config as a named layout                |
-| =C-x w D= | =workspace-delete-layout=           | Delete a named layout (refuses =home=)                      |
-| =C-x w R= | =workspace-switch-to-recent-layout= | Jump to the workspace's most recently activated layout      |
-| =C-x w r= | =workspace-remove-buffer=           | Remove a buffer from the current workspace's membership     |
-| =C-x w S= | =workspace-save-state=              | Schedule a debounced disk save of the workspace registry    |
+| Binding   | Command                             | What it does                                                 |
+|-----------+-------------------------------------+--------------------------------------------------------------|
+| =C-x w n= | =workspace-new=                     | Create a new workspace (or select an existing one by name)   |
+| =C-x w s= | =workspace-switch=                  | Select an existing workspace's tab                           |
+| =C-x w o= | =workspace-restore=                 | Materialize a saved workspace into a tab (creates if absent) |
+| =C-x w S= | =workspace-save=                    | Capture the current frame into =:saved-state= and flush      |
+| =C-x w r= | =workspace-revert=                  | Discard =:working-state=, restore last =:saved-state=        |
+| =C-x w b= | =workspace-remove-buffer=           | Remove a buffer from the current workspace's membership      |
+| =C-x w l= | =workspace-switch-layout=           | Switch to a named layout in the current workspace            |
+| =C-x w L= | =workspace-save-layout=             | Save current window config as a named layout                 |
+| =C-x w R= | =workspace-switch-to-recent-layout= | Jump to the workspace's most recently activated layout       |
+| =C-x w D= | =workspace-delete-layout=           | Delete a named layout (refuses =home=)                       |
 
 * Customization
 
@@ -48,6 +50,26 @@ opens a single window on =*scratch*=.  Example override:
 =workspace-save-idle-delay= — seconds of idle time before the debounced
 disk save fires.  Default: 2.
 
+=workspace-anti-save-predicates= — list of nullary predicate functions
+consulted before any autosave (tab switch, idle timer, =kill-emacs=).
+If any predicate returns non-nil the autosave is silently skipped.  The
+explicit =workspace-save= command never consults this list, so a
+misconfigured predicate cannot trap a deliberate save gesture.
+
+Defaults:
+
+- =active-minibuffer-window= (built-in) — skip while a minibuffer is
+  active.
+- =workspace--backtrace-visible-p= — skip when a =*Backtrace*= window
+  is showing on the current frame.
+
+Example: add a "skip during isearch" predicate:
+
+#+begin_src emacs-lisp
+(add-to-list 'workspace-anti-save-predicates
+             (lambda () (bound-and-true-p isearch-mode)))
+#+end_src
+
 * Persistence
 
 Workspaces persist to a per-machine path keyed by =jf/machine-role=:
@@ -56,31 +78,160 @@ Workspaces persist to a per-machine path keyed by =jf/machine-role=:
 state/workspaces/<machine-role>/workspaces.eld
 #+end_src
 
-The file is plain elisp (readable with =read=), forward-compatible
-with the deferred history feature (multiple timestamped revisions per
-layout-group, optional per-group git observations).
+The file is plain elisp (readable with =read=).  Schema is
+=:version 2=.  The package does /not/ read v1 files; if one exists,
+the reader emits a =*Messages*= notice naming the file and the
+version mismatch, and Emacs starts with no workspaces.  See *State
+format is pre-alpha* below.
 
-What persists:
+** Two-state layouts
+
+Each layout holds two window-state slots and an open-ended =:etc=
+alist:
+
+- =:saved-state= — written only by explicit =workspace-save= (and
+  its variants =workspace-save-layout NAME= and the =workspace-new=
+  home stamp).  This is the user's "I mean this configuration"
+  baseline.  Authoritative across restarts.
+- =:working-state= — written only by autosaves (workspace context
+  switch, idle timer, =kill-emacs=).  May be nil.  Captures drift
+  between explicit saves so a restart lands the user back where they
+  actually were.
+- =:etc= — alist for forward-compatible extension data.  Replaces
+  the legacy =:git-state= placeholder.
+
+Autosaves /never/ write =:saved-state=; explicit saves /always/
+clear =:working-state=.  This pair of invariants means the user's
+deliberate save can never be silently overwritten by transient or
+post-debug frame state, and a fresh explicit save becomes a clean
+baseline.
+
+** What persists
 
 - Workspace names and recent-layout pointers.
-- Each workspace's layouts (window configurations, restorable via
-  =frameset.el=).
+- Each workspace's layouts (the two window-state slots above; see
+  *Buffer reincarnation* for how individual buffers come back).
 - Each workspace's /file-buffer/ membership.  Non-file buffers
-  (=*Messages*=, =magit-status=, =*scratch*=) participate in
-  membership in-session but are not persisted; they re-acquire
-  membership when displayed again after restart.
+  (=*Messages*=, =magit-status=, =eshell=) participate in membership
+  in-session and reincarnate from the saved window-state via their
+  major modes' bookmark handlers.
+
+** Save triggers
+
+- Explicit =workspace-save= (=C-x w S=).  Captures the current frame
+  into =:saved-state=, clears =:working-state=, syncs the file list,
+  and flushes synchronously.  Never consults
+  =workspace-anti-save-predicates=.
+- Workspace context switch (tab change).  Captures the outgoing
+  workspace's window state into =:working-state=, debounced flush.
+- Intra-workspace layout switch.  Captures the outgoing layout's
+  window state into =:working-state=, debounced flush.
+- =kill-emacs-hook= flushes once before exit, capturing the current
+  workspace's =:working-state= synchronously.
+- Optional: =workspaces-mode='s idle timer (see *Idle save (opt-in)*).
+
+All autosave triggers consult =workspace-anti-save-predicates= first
+and skip silently if any predicate returns non-nil.
+
+** Restore
+
+Restore on startup is /lazy/: tabs are recreated immediately so the
+tab bar reflects the saved set, but each tab's window configuration
+and its buffers are reincarnated only when the user first selects
+that tab.
+
+Per-tab restore prefers =:working-state= when non-nil and falls back
+to =:saved-state=.  The =workspace-revert= command (=C-x w r=) is
+the "undo my drift" affordance: it clears =:working-state= and
+re-applies =:saved-state= on demand.
 
 When the persistence file is missing or unreadable, the package
 starts cleanly with no workspaces and emits a =*Messages*= notice
 (no error visible to the user).
 
-Saves happen automatically on every layout/workspace context switch
-(debounced via =workspace-save-idle-delay=), on =kill-emacs= (flushed
-synchronously), and on demand via =workspace-save-state= (=C-x w S=).
+** State format is pre-alpha
 
-Restore on startup is /lazy/: tabs are recreated immediately so the
-tab bar reflects the saved set, but each tab's frameset and file
-buffers are restored only when the user first selects that tab.
+The on-disk schema may break between refinement cycles.  There is no
+migration code.  If you see the version-mismatch notice on startup,
+delete =state/workspaces/<machine-role>/workspaces.eld= and recreate
+your workspaces by hand on the v2 reader.  This policy is
+intentional (design.md §D3): a real migration story is reserved for
+beta.
+
+* Buffer reincarnation
+
+When restoring a workspace's window configuration, each window-state
+leaf needs a /buffer/ — not just a name to look up.  The MVP looked
+buffers up by name (=window-state-put='s default), which worked only
+for file buffers that happened to be reopened first and ignored
+point, narrowing, and major-mode state entirely.
+
+The v2 package embeds a =workspace-buffer= struct in each leaf's
+=parameters= map at capture time and uses it to reincarnate the leaf
+at restore time.  Each struct carries:
+
+- A bookmark record produced by =bookmark-make-record= — the
+  standard Emacs bookmark API.
+- The buffer's filename (or nil for non-file buffers).
+- The buffer's name string.
+- Flags for narrowed / indirect buffers.
+
+** The fallback chain
+
+On restore, each leaf walks a closed-set chain of strategies and
+stops at the first one that produces a live buffer:
+
+1. =bookmark= — call =bookmark-handle-bookmark= on the saved record.
+   Restores point position, narrowing region, and any
+   major-mode-specific state.  Works for non-file buffers
+   (=magit-status=, =eshell=, =*Messages*=) via their registered
+   bookmark handlers.
+2. =filename= — =find-file-noselect= on the saved filename.  Used
+   when the bookmark restore errored or returned no buffer.
+3. =name= — =get-buffer= on the saved name.  Last-ditch lookup for
+   buffers that exist in-session but have no bookmark / filename.
+4. =error-buffer= — a clearly named buffer describing what failed.
+   The window slot is never left empty; a failed reincarnation is
+   visible, not silent.
+
+The four step names are closed-set-enforced at the code level via
+=workspace--valid-reincarnation-steps= and the
+=workspace--reincarnation-step-p= predicate.  Adding a fifth step
+is a deliberate change (both the defconst and the chain logic move
+together).
+
+** Per-leaf failure isolation
+
+Read-time errors on a single leaf — most notably the =help-mode=
+bookmark =bug#56643=, where a natively-compiled subr fails to read
+back — are trapped per leaf.  One unreadable bookmark causes that
+leaf alone to fall through to the next step in the chain; the rest
+of the layout restores normally.
+
+** Restore ordering
+
+The =window-state-put= call is deferred via =(run-at-time nil nil
+...)= so the restore does not race against =bookmark--jump-via='s
+own buffer-display call.  The user observes no delay; this is just
+"don't fight the bookmark protocol."
+
+* Working-state revert
+
+=workspace-revert= (=C-x w r=) is the "undo my drift" command.
+When you have been rearranging windows since the last explicit
+=workspace-save= and want to abandon the rearrangement, =C-x w r=:
+
+1. Clears the current workspace's =:working-state=.
+2. Re-applies =:saved-state= via the standard restore path (buffer
+   reincarnation included).
+3. Flushes the registry to disk.
+
+If =:working-state= is already nil, =workspace-revert= still
+re-applies =:saved-state= — a useful "reset to my last clean save"
+gesture even when nothing has accumulated to discard.
+
+The command errors off-workspace; it requires a tab registered with
+the workspaces package.
 
 * Idle save (opt-in)
 
@@ -126,10 +277,9 @@ either way).
 ** Interaction with anti-save predicates
 
 The idle save passes through =workspace--autosave-current-layout=,
-which (per the sibling =anti-save-predicates= task) consults
-=workspace-anti-save-predicates= before mutating.  No save fires
-during debugger activity, minibuffer interaction, or other states a
-user has declared off-limits.
+which consults =workspace-anti-save-predicates= before mutating.  No
+save fires during debugger activity, minibuffer interaction, or
+other states a user has declared off-limits.
 
 * Buffer membership
 
@@ -148,22 +298,22 @@ ends the buffer's life globally, removing it from every workspace's
 membership as a side effect.  This preserves universal Emacs
 convention: =C-x k= always means "end this buffer."
 
-=workspace-remove-buffer= (=C-x w r=) is the additive "I'm done with
+=workspace-remove-buffer= (=C-x w b=) is the additive "I'm done with
 this here" command.  It removes the buffer from the /current/
 workspace's membership without killing it.  Other workspaces that
 hold the same buffer remain unaffected.
 
 * Deferred features
 
-These are designed-for but not implemented in MVP.  The persistence
-schema reserves the slots, so they can land later without migration.
+These are designed-for but not implemented in v2.
 
 - Multiple timestamped layout revisions per layout-group (a single
   =layout-group= can hold a list of layouts; today it always holds
   exactly one).  Commands to browse and restore prior revisions are
   not implemented.
-- Per-layout-group git observations (real or shadow commits).  The
-  =:git-state= slot is present on every layout but always =nil=.
+- Per-layout-group git observations.  The layout shape carries an
+  open-ended =:etc= alist intended to host them, but no producer or
+  consumer exists yet.
 - A transient UI for layout / workspace operations.  Today's surface
   is a single =C-x w= prefix.
 - Restoring an explicit "selected tab at save time" — restoration
@@ -172,10 +322,10 @@ schema reserves the slots, so they can land later without migration.
 
 * Implementation notes
 
-- Built on =tab-bar-mode= directly; does not use =activities-tabs-mode=.
+- Built on =tab-bar-mode= directly; does not use
+  =activities-tabs-mode=.
 - Buffer scoping via =bufferlo= (per-tab buffer list).
-- Persistence via =frameset.el= with a sanitization pass that drops
-  frame parameters whose values reference live objects (e.g.
-  =perspective.el='s =persp--hash=).  This keeps the persistence file
-  =read=-able even during the side-by-side period with the legacy
-  packages still loaded.
+- Window configurations captured via =window-state-get= / restored
+  via =window-state-put=, with the per-leaf =workspace-buffer=
+  parameter (see *Buffer reincarnation*) carrying the bookmark
+  record and identifying metadata.

@@ -2,7 +2,7 @@
 name: docs-and-sync
 description: Finalize the v2 refinement cycle. Update config/workspaces/docs/README.org with the new commands, key bindings, schema, and the bookmark/two-state/anti-save/idle stories. Sync the delta spec to openspec/specs/workspaces/spec.md via /opsx-sync. Refresh the in-tree references to the old D4 and D7 gap callouts in the archived design (leave the archive intact, but cross-reference from the new spec). Ready the change for /opsx-archive.
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "blocked-by:bookmark-reincarnation"
   - "blocked-by:two-state-layout"
@@ -302,3 +302,101 @@ grep -n "workspace--reincarnation-step-p" openspec/specs/workspaces/spec.md     
 > the cycle's findings either inline-fixed, externalised to `.tasks/`,
 > or queued as task-body / register documentation updates (this
 > stanza absorbs them).
+
+## Cycle 3 updates (2026-05-25, cycle-20260525-093243)
+
+Cycle 3 closed this task via the inline path (single-task batch, no
+worktree, orchestrator-as-reviewer per `flows/inline.md`).
+
+### What landed
+
+- **`config/workspaces/docs/README.org`** — full v2 pass:
+  - Command table corrected and expanded to 10 bindings; the
+    `workspace-save-state` row removed (replaced by `workspace-save`
+    at `C-x w S`); `workspace-restore` (`C-x w o`) added (was
+    missing from the table since MVP); `workspace-revert` (`C-x w r`)
+    added; `workspace-remove-buffer` relocated to `C-x w b`.
+  - Customization gained the `workspace-anti-save-predicates`
+    defcustom block with default list and an example override.
+  - Persistence section rewritten for schema v2: two-state slots,
+    `:etc` replacing `:git-state`, save triggers enumerated (five),
+    restore-precedence (`:working-state` over `:saved-state`), and
+    the pre-alpha state-format break policy folded in.
+  - New `* Buffer reincarnation` section: closed-set fallback chain
+    (`bookmark`/`filename`/`name`/`error-buffer`), the
+    `workspace--reincarnation-step-p` symmetry note, the per-leaf
+    failure isolation (`bug#56643`), and the `run-at-time nil nil
+    …` deferral against `bookmark--jump-via`.
+  - New `* Working-state revert` section.
+  - Three in-flight staleness fixes (none register-worthy):
+    - Buffer membership prose corrected to `C-x w b` (was still
+      `C-x w r`).
+    - Implementation notes dropped the stale "Persistence via
+      `frameset.el` … side-by-side period with the legacy packages"
+      framing; replaced with the `window-state-get`/`put` +
+      `workspace-buffer` description.
+    - Idle-save anti-save-predicates subsection dropped the "(per
+      the sibling `anti-save-predicates` task)" forward-reference
+      that will be moot post-archive.
+  - Deferred features list trimmed — the `:git-state` slot bullet
+    is gone (slot was replaced by `:etc`); intro paragraph dropped
+    the "schema reserves the slots" claim (no longer fully true).
+
+- **`openspec/specs/workspaces/spec.md`** — full sync from the
+  delta at `openspec/changes/refine-workspaces-two-state-layout/
+  specs/workspaces/spec.md`:
+  - **MODIFIED**: "Auto-save layout on context switch" — MVP-gap
+    scenario removed; three v2 scenarios added (autosaves write
+    `:working-state`; never clobber `:saved-state`; suppressed by
+    predicates).
+  - **MODIFIED**: "Per-machine persistence and restoration" — schema
+    v2 body; five save triggers enumerated; restore precedence
+    pinned; two v2 scenarios.
+  - **MODIFIED**: "Explicit save command" — four-step body (snapshot
+    `:saved-state` → clear `:working-state` → sync `:buffer-files`
+    → synchronous flush); working-state-drift scenario.
+  - **ADDED**: "Buffer reincarnation across restart" — four-step
+    chain; four scenarios.
+  - **ADDED**: "Working-state revert" — three scenarios.
+  - **ADDED**: "Anti-save predicates" — defaults, scenarios for
+    minibuffer / backtrace / explicit-save-bypass.
+  - **ADDED**: "Idle save mode" — opt-in `workspaces-mode`, three
+    scenarios.
+  - **Purpose** section reworded to describe schema-v2 reality; the
+    "follow-ups in flight" paragraph replaced; prior-art catalog
+    cross-link added (referenced by name, no path — the catalog
+    moves with the archive).
+
+### Verification
+
+- `openspec validate workspaces --specs` → `✓ spec/workspaces`.
+- `openspec validate refine-workspaces-two-state-layout` → valid.
+- `./bin/run-tests.sh -d config/workspaces` → 136 specs, 0 failed
+  (baseline preserved).
+- Spec greps (positive): `:saved-state`/`:working-state`,
+  `workspace-revert`, `workspaces-mode`, `anti-save-predicates` all
+  surface throughout.
+- Spec greps (negative): `MVP gap | deferred | v2 schema lands`
+  returns no matches; all v1 forward-references are resolved.
+
+### Register impact (none)
+
+No code modified this cycle. All 8 register entries this task cited
+remain in their cycle-2 dispositions (5 reconciled, 3 confirmed)
+with `status_at_integrate = unchanged`. The task documents the
+behavior these entries pin; it does not change it.
+
+### Follow-ups left for the maintainer
+
+- The existing "Explicit restore command" requirement (line ~321 in
+  the main spec) still describes only the v1 pre-load mechanism
+  (`find-file-noselect` + `window-state-put`) and does not cite the
+  new "Buffer reincarnation across restart" requirement. The two
+  requirements together describe v2 behavior correctly, but
+  cross-referencing would tighten the spec. Out of scope for this
+  task (the delta did not modify "Explicit restore command"); worth
+  a small follow-up if/when the spec gets another pass.
+
+> Cycle 3: closing cycle. After this lands the change has no open
+> tasks; the user runs `/opsx-archive
+> refine-workspaces-two-state-layout` separately to archive it.
