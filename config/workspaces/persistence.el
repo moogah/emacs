@@ -22,35 +22,83 @@ unset."
   "Return the absolute path of the persistence file."
   (expand-file-name "workspaces.eld" (workspace--state-directory)))
 
-(defconst workspace--state-version 2
+(defconst workspace--state-version 3
   "Schema version for the workspaces persistence file.
-v2 (current): per-layout =:saved-state= / =:working-state= split, per-leaf
-=workspace-buffer= reincarnation struct, =:etc= forward-compat alist.
-v1 (rejected): single =:frameset= slot.  The reader emits an *Messages*
-notice and returns nil for any file whose =:version= is not 2.")
+v3 (current): adds the required =:home= filesystem-anchor slot to every
+workspace plist.  Inherits v2's per-layout =:saved-state= /
+=:working-state= split, per-leaf =workspace-buffer= reincarnation struct,
+=:etc= forward-compat alist.  The reader emits an *Messages* notice and
+returns nil for any file whose =:version= is not 3 (no migration: v1 and
+v2 files are rejected; delete the file to start fresh, design.md §D5).")
+
+(defun workspace--persistence-serialize-workspace (ws)
+  "Return WS reduced to its persistable shape.
+Filters out runtime-only tags — currently =:broken= (set by the
+deserializer on missing-home detection) and =:restore-pending= (set on
+deserialize to gate lazy frameset activation).  Both are observations
+about the *current session* and must be re-derived on next load, never
+persisted (register/invariant/broken-tag-runtime-only, design.md §D5)."
+  (list :name (workspace--name ws)
+        :home (workspace--home ws)
+        :recent-layout-group (workspace--recent-group ws)
+        :buffer-files (workspace--buffer-files ws)
+        :layout-groups (workspace--layout-groups ws)))
 
 (defun workspace--serialize-registry ()
-  "Walk `workspace--registry' and produce its on-disk plist form."
+  "Walk `workspace--registry' and produce its on-disk plist form.
+Each workspace is reduced to its persistable shape via
+`workspace--persistence-serialize-workspace' — runtime-only tags like
+=:broken= and =:restore-pending= are stripped at this boundary."
   (let (workspaces)
     (maphash
-     (lambda (_name ws) (push ws workspaces))
+     (lambda (_name ws)
+       (push (workspace--persistence-serialize-workspace ws) workspaces))
      workspace--registry)
     (list :version workspace--state-version
           :workspaces (nreverse workspaces))))
 
 (defun workspace--deserialize-state (state)
   "Read STATE (the form read from disk) into `workspace--registry'.
-Returns the list of restored workspace plists.  Does NOT create tabs;
-`workspace--restore-tabs' does that.  Assumes STATE has already been
-version-checked by `workspace--read-state'."
+Returns the list of workspaces that were inserted into the registry.
+Does NOT create tabs; `workspace--restore-tabs' does that.  Assumes
+STATE has already been version-checked by `workspace--read-state'.
+
+Two filtering rules apply per entry (design.md §D5, §D6):
+
+- Entries lacking the required =:home= slot are structural corruption
+  (the writer should have produced one); emit an *Messages* notice
+  naming the entry and skip it.  Sibling entries in the same file are
+  still loaded — one bad entry should not tank the whole session.
+
+- Entries whose =:home= directory does not exist on disk are tagged
+  via `workspace--mark-broken' before insertion.  The broken tag is
+  runtime-only (never serialized; the next load re-derives it from the
+  current filesystem state)."
   (clrhash workspace--registry)
-  (let ((ws-list (plist-get state :workspaces)))
+  (let ((ws-list (plist-get state :workspaces))
+        (restored nil))
     (dolist (ws ws-list)
-      ;; Mark each restored workspace as needing lazy activation.
-      (let ((tagged (let ((copy (copy-sequence ws)))
-                      (plist-put copy :restore-pending t))))
-        (puthash (workspace--name ws) tagged workspace--registry)))
-    ws-list))
+      (let ((name (workspace--name ws))
+            (home (workspace--home ws)))
+        (cond
+         ((or (null home) (not (stringp home)))
+          (message
+           "Workspaces: skipping persisted entry %S — missing :home slot"
+           name))
+         (t
+          (let* ((broken-p (not (file-directory-p home)))
+                 (with-broken (if broken-p
+                                  (workspace--mark-broken ws)
+                                ws))
+                 (tagged (let ((copy (copy-sequence with-broken)))
+                           (plist-put copy :restore-pending t))))
+            (when broken-p
+              (message
+               "Workspaces: workspace %S has missing :home directory %s — tagged broken"
+               name home))
+            (puthash name tagged workspace--registry)
+            (push with-broken restored))))))
+    (nreverse restored)))
 
 (defun workspace--write-state (form)
   "Write FORM to the persistence file.
@@ -64,9 +112,9 @@ Creates the parent directory if missing."
 (defun workspace--read-state ()
   "Read and return the persisted state form, or nil if missing/unreadable.
 Emits an *Messages* notice and returns nil for files whose =:version= is
-not =workspace--state-version=.  v1 files on disk are expected to be
-deleted by the user before running v2 code (design.md §D3 — no migration
-during pre-alpha)."
+not =workspace--state-version=.  v1 and v2 files on disk are expected to
+be deleted by the user before running v3 code (design.md §D5 — no
+migration during pre-alpha)."
   (let ((file (workspace--state-file)))
     (when (file-exists-p file)
       (condition-case err
@@ -76,8 +124,9 @@ during pre-alpha)."
             (let ((v (plist-get form :version)))
               (if (eql v workspace--state-version)
                   form
-                (message "Workspaces: ignoring persistence file %s (unsupported :version %S)"
-                         file v)
+                (message
+                 "Workspaces: persistence file at %s is schema :version %S; v%d required — file ignored. Delete the file to start fresh."
+                 file v workspace--state-version)
                 nil)))
         (error
          (message "Workspaces: failed to read state file %s: %s"
