@@ -166,28 +166,13 @@ Interactively completes over workspaces currently backed by a tab."
 
 * Switch advice
 
-The advice currently no-ops for workspace tabs; subsequent tasks
-(layout-commands, buffer-membership, persistence) attach behavior
-here.  The critical invariant is the early return for non-workspace
-tabs so we do not interfere with =activities-tabs-mode= during
-side-by-side development (design.md §D8).
-
-#+begin_src emacs-lisp
-(defun workspace--after-tab-switch (&rest _)
-  "Hook point after `tab-bar-switch-to-tab' selects a tab.
-No-op for tabs not tagged with :workspace-name.  Subsequent tasks
-extend this function with layout-restore and membership-activation
-logic; the early return for non-workspace tabs is the load-bearing
-guarantee."
-  (let ((name (workspace--current-name)))
-    (when name
-      ;; Placeholder: layout-commands and buffer-membership will
-      ;; attach behavior here.
-      nil)))
-
-(advice-add 'tab-bar-switch-to-tab :after #'workspace--after-tab-switch)
-(advice-add 'tab-bar-select-tab    :after #'workspace--after-tab-switch)
-#+end_src
+The tab-switch attachment point lives in =persistence.org=
+(=workspace--persistence-after-tab-switch=), which installs an
+=:after= advice on =tab-bar-switch-to-tab= / =tab-bar-select-tab=
+for lazy layout activation.  The critical invariant — early
+return for non-workspace tabs so we do not interfere with
+=activities-tabs-mode= during side-by-side development (design.md
+§D8) — is enforced by that advice's own =(when name ...)= guard.
 
 * Provide
 

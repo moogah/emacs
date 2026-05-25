@@ -102,20 +102,5 @@ Interactively completes over workspaces currently backed by a tab."
       (user-error "No tab found for workspace %s" name))
     (tab-bar-select-tab idx)))
 
-(defun workspace--after-tab-switch (&rest _)
-  "Hook point after `tab-bar-switch-to-tab' selects a tab.
-No-op for tabs not tagged with :workspace-name.  Subsequent tasks
-extend this function with layout-restore and membership-activation
-logic; the early return for non-workspace tabs is the load-bearing
-guarantee."
-  (let ((name (workspace--current-name)))
-    (when name
-      ;; Placeholder: layout-commands and buffer-membership will
-      ;; attach behavior here.
-      nil)))
-
-(advice-add 'tab-bar-switch-to-tab :after #'workspace--after-tab-switch)
-(advice-add 'tab-bar-select-tab    :after #'workspace--after-tab-switch)
-
 (provide 'workspace-tabs)
 ;;; tabs.el ends here
