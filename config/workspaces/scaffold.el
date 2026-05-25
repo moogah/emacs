@@ -37,14 +37,9 @@ Returns the absolute path of the session file."
          (filename (format "%s-initial.org" (format-time-string "%Y-%m-%d")))
          (path (expand-file-name filename sessions-dir)))
     (make-directory sessions-dir t)
-    (cond
-     ((and (featurep 'gptel-sessions)
-           (fboundp 'gptel-sessions-create-empty-file))
-      (gptel-sessions-create-empty-file path))
-     (t
-      (with-temp-file path
-        (insert (format "#+TITLE: %s initial session\n"
-                        (format-time-string "%Y-%m-%d"))))))
+    (with-temp-file path
+      (insert (format "#+TITLE: %s initial session\n"
+                      (format-time-string "%Y-%m-%d"))))
     path))
 
 (cl-defun workspace-scaffold (home name &key init-and-commit?)

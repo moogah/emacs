@@ -115,22 +115,17 @@ Creates a single empty session file under =<HOME>/sessions/=.  The
 filename uses today's date (=YYYY-MM-DD-initial.org=) so the user's
 first session is immediately visible.
 
-Two implementation paths:
-
-1. *Preferred.*  Call into the gptel-sessions module's stable
-   creator (=gptel-sessions-create-empty-file=) so the file's
-   contents stay in sync with whatever schema gptel-sessions
-   expects.  Guarded behind both =featurep= AND =fboundp= so that
-   the call is safe whether or not the gptel module is loaded.
-2. *Fallback.*  Write a minimal =#+TITLE: <date> initial session=
-   stub.  This is sufficient for cycle 2 — the sibling task
-   =gptel-sessions-workspace-consult= owns deeper integration.
-
-The =cycle 2 plan stanza= for this task expects the fallback path
-to be the active path at cycle 2 merge time (the sibling task does
-not introduce =gptel-sessions-create-empty-file= in cycle 2).
-Either branch is correct; cycle 3's =verify-end-to-end= task
-records which branch is live.
+The body writes a minimal =#+TITLE: <date> initial session= stub
+directly.  A gptel-aware preferred path was considered but cannot
+land here: =register/boundary/gptel-sessions-workspace-consult=
+enforces a one-way directionality contract — no =.el= under
+=config/workspaces/= may reference any =gptel-sessions-*= symbol.
+The sibling cycle-2 task =gptel-sessions-workspace-consult= did not
+introduce a non-interactive session-file creator, so there is no
+existing function to soft-consult anyway.  When a non-interactive
+creator does land (cycle 3+), the integration belongs on the
+gptel-sessions side as a hook or post-create call, not as a
+=featurep= guard here.
 
 #+begin_src emacs-lisp
 (defun workspace--scaffold-initial-session (home)
@@ -140,14 +135,9 @@ Returns the absolute path of the session file."
          (filename (format "%s-initial.org" (format-time-string "%Y-%m-%d")))
          (path (expand-file-name filename sessions-dir)))
     (make-directory sessions-dir t)
-    (cond
-     ((and (featurep 'gptel-sessions)
-           (fboundp 'gptel-sessions-create-empty-file))
-      (gptel-sessions-create-empty-file path))
-     (t
-      (with-temp-file path
-        (insert (format "#+TITLE: %s initial session\n"
-                        (format-time-string "%Y-%m-%d"))))))
+    (with-temp-file path
+      (insert (format "#+TITLE: %s initial session\n"
+                      (format-time-string "%Y-%m-%d"))))
     path))
 #+end_src
 
