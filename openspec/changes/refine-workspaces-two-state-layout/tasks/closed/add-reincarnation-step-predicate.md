@@ -2,7 +2,7 @@
 name: add-reincarnation-step-predicate
 description: Add a workspace--valid-reincarnation-steps defconst and workspace--reincarnation-step-p predicate to symmetrize closed-set discipline with workspace-state-slot. The fallback chain (bookmark → filename → name → error-buffer) is currently a closed set in name only — step symbols appear only in comments. Closes end-of-cycle architect Finding 2 + on-touch Finding 3.
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "discovered-from:bookmark-reincarnation"
 discovered_by: architect

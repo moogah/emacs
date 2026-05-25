@@ -2,7 +2,7 @@
 name: remove-dead-after-tab-switch-placeholder
 description: Remove the placeholder workspace--after-tab-switch defun and its two advice-add lines in tabs.org. The cycle's two-state-layout task added workspace--persistence-after-tab-switch (the targeted advice the placeholder was waiting to host); the placeholder body is now unreachable (let-bind a name, when name truthy, return nil — provably nil for both branches). Closes end-of-cycle architect Finding 4.
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "discovered-from:two-state-layout"
 discovered_by: architect

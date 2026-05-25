@@ -2,7 +2,7 @@
 name: test-switch-layout-race-guard
 description: Add a buttercup spec that fires two workspace-switch-layout calls back-to-back and asserts the older deferred restore closure no-ops via the workspace--restore-generation check. Closes the test gap surfaced by on-touch Architect Finding 1 (advisory remainder after inline-fix commit bc64784 moved the cl-incf into workspace--restore-frameset).
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "discovered-from:bookmark-reincarnation"
 discovered_by: architect

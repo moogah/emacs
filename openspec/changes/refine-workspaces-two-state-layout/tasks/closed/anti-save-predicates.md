@@ -2,7 +2,7 @@
 name: anti-save-predicates
 description: Add workspace-anti-save-predicates defcustom (default skips autosave during minibuffer activity and when a *Backtrace* window is visible) and guard workspace--autosave-current-layout on it. Explicit workspace-save bypasses the predicates. Closes the safety gap that re-enabling autosave-on-tab-switch (in the two-state-layout task) opened.
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "blocked-by:two-state-layout"
 ---

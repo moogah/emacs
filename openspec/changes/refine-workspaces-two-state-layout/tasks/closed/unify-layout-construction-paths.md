@@ -2,7 +2,7 @@
 name: unify-layout-construction-paths
 description: Funnel workspace-save-layout and workspace--capture-home-layout through workspace--autosave-current-layout :saved-state so the three explicit-save variants share one canonical construction path. Removes a latent shape-fragmentation that will activate when :etc carries content (per design.md §D5 deferred feature). Closes end-of-cycle architect Finding 3 + on-touch Finding 5 for two-state-layout.
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "discovered-from:two-state-layout"
 discovered_by: architect

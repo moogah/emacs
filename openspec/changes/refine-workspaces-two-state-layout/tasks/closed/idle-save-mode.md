@@ -2,7 +2,7 @@
 name: idle-save-mode
 description: Add workspaces-mode global minor mode with a workspaces-mode-idle-frequency-seconds idle timer that captures the current workspace's :working-state. Off by default; user opts in. Closes the crash-safety gap.
 change: refine-workspaces-two-state-layout
-status: ready
+status: done
 relations:
   - "blocked-by:two-state-layout"
 ---
