@@ -102,6 +102,7 @@ layout= from =layouts=) exist at definition time.
 
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/home-org.el"          jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/tabs.el"              jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/buffer-membership.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/layouts.el"           jf/emacs-dir))
