@@ -140,3 +140,100 @@ callers do `(or title fallback)` cleanly.
 design.md § Decisions / D4 — home.org reader: regex scan, no `org-mode` activation
 specs/workspaces/spec.md § ADDED "home.org is user-authored after creation"
 specs/workspaces/spec.md § ADDED "Required home directory and identity coupling" (scenarios on #+TITLE: override)
+
+## Observations
+
+- Task body step 8 instructs registering `"workspaces/home-org"` in
+  `jf/enabled-modules` in `init.org`, but the existing workspaces
+  subsystem (data-model, tabs, buffer-membership, layouts, persistence,
+  workspaces-mode) does not use that pattern — those submodules are
+  loaded from inside `config/workspaces/workspaces.org`'s "Submodules"
+  section via `jf/load-module`, and only the top-level `workspaces/
+  workspaces` appears in `init.org`. Following the established
+  convention, I registered `home-org` in `workspaces.org`'s submodule
+  load list (after `data-model.el`, before `tabs.el`) rather than in
+  `init.org`. The task body's referenced anchor `"workspaces-mode"`
+  doesn't exist in `init.org` either, which is further evidence the
+  step was written without checking the actual current loader shape.
+  Outcome: zero changes to `init.org`; one new line in
+  `workspaces.org`. Recording as a deviation; the loader contract is
+  satisfied either way (the module loads at startup).
+
+- The task body's step-7 enumeration of test cases includes "On
+  `#+TITLE:` (empty) returns nil." This case is ambiguous: the regex
+  pattern `^#\+TITLE:[ \t]+\(.*\)$` requires at least one space/tab
+  AFTER the colon, so a bare `#+TITLE:` with no trailing whitespace
+  short-circuits at stage 4 (no regex match), not stage 5
+  (trim-and-emptiness). I wrote the spec case for `#+TITLE:    \n`
+  (trailing whitespace only) to exercise the stage-5 short-circuit
+  explicitly, and documented the distinction in a comment. The
+  alternative — relaxing the regex to `[ \t]*` — would change the
+  observable behavior (now an unwritten title silently falls back via
+  stage 4 vs. stage 5), so I kept the speculated regex unchanged. No
+  behavioral difference at the boundary (both return nil).
+
+- The scaffolded invariant `home-org-user-authored-after-creation.el`
+  cycle-1 assertion (the 2nd `it`) is implemented in spirit inside the
+  new spec file as "Invariant: reader module is read-only". I did NOT
+  copy/migrate the scaffold file itself into `config/workspaces/test/`
+  — the scaffold-file-with-shared-helpers shape doesn't match the
+  per-spec-file convention in this test tree. The narrower assertion
+  is in `home-org-spec.el`; the broader lint (1st `it`, applies to
+  the full workspaces module set) and the cycle-2 byte-for-byte
+  snapshot (3rd `it`) remain in the scaffolding directory for their
+  owning cycles to pick up.
+
+- The reader-module read-only assertion uses a literal-token grep
+  scoped to function-call form (`(write-region\_>`, etc.) to avoid
+  false matches against the strings inside docstrings (the org file's
+  prose mentions the names of write primitives by way of explaining
+  the invariant). The tangled `.el` strips org comments, so the only
+  way `write-region` could appear in the tangled file is if a future
+  edit actually adds it — exactly the failure mode the lint catches.
+
+## Discoveries
+
+- discovery_id: disc-home-org-1
+  class: vocabulary-mismatch
+  description: |
+    The task body refers to wiring the new module via
+    `jf/enabled-modules` in `init.org`, but the workspaces subsystem
+    uses a top-level loader (`workspaces.org`) that owns its own
+    submodule load order via embedded `jf/load-module` calls. The
+    project implementor overlay (`.claude/orchestrator/roles/
+    implementor.md` § "Module loading") describes the general
+    `jf/enabled-modules` pattern, but the workspaces subsystem is a
+    structural exception that pre-dates this change. Future task
+    bodies for cycle-2+ workspaces modules (scaffold, etc.) should
+    state "register in `workspaces.org`'s Submodules section" rather
+    than "register in `jf/enabled-modules`" to avoid the misdirection.
+  affected_register_entry: register/boundary/home-org-read-pipeline
+  recommendation: |
+    Integrate phase: when registering this entry as reconciled, add a
+    note to the entry's `producers:` block (or a sibling note) that
+    the load wiring goes through `workspaces.org`'s submodule loader,
+    not `init.org`'s `jf/enabled-modules`. Equally, update the
+    cycle-2 scaffold-module task body (when authored) to reference
+    the correct wiring path.
+
+- discovery_id: disc-home-org-2
+  class: spec-signal
+  description: |
+    The task-body spec case "On `#+TITLE:` (empty) returns nil" does
+    not distinguish between two structurally-different stage
+    short-circuits: stage 4 (regex no-match because the regex
+    requires `[ \t]+` after the colon) vs. stage 5 (regex matches
+    but trimmed value is empty). The speculated regex in the
+    register entry pins `[ \t]+`, so a bare `#+TITLE:` line is a
+    stage-4 case, not stage-5. I split this into two spec cases:
+    `#+TITLE:    \n` (trailing whitespace only) for stage 5, and the
+    existing "no #+TITLE: keyword" case covers stage 4. The bare
+    `#+TITLE:` form remains untested — it would also return nil but
+    via a path that's not interesting to pin behaviorally.
+  affected_register_entry: register/boundary/home-org-read-pipeline
+  recommendation: |
+    No register change required — the staged short-circuit policies
+    already distinguish the two paths correctly. But the next
+    architect-audit pass could tighten the register entry's stage-5
+    notes by adding an explicit example string ("e.g. `#+TITLE:    `
+    → stage 5") to disambiguate for future implementors.
