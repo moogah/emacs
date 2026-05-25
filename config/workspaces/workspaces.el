@@ -34,6 +34,7 @@ The explicit `workspace-save' command never consults this list."
 
 (jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/home-org.el"          jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/scaffold.el"          jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/tabs.el"              jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/buffer-membership.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/layouts.el"           jf/emacs-dir))
