@@ -104,13 +104,81 @@ The new path must exist and must be a directory."
       (workspace--flush-state)
       (message "Workspace re-anchored: %s → %s" name new-home))))
 
+(defun workspace-delete (name)
+  "Remove workspace NAME from the registry and close its tab.
+The home directory and all its contents (including .git/, home.org,
+and sessions/) remain on disk untouched.  To delete the directory
+too, use `workspace-purge'.
+
+Interactively, completes over registered workspace names."
+  (interactive
+   (list (completing-read "Delete workspace (unregister only): "
+                          (workspace--registered-names) nil t)))
+  (unless (gethash name workspace--registry)
+    (user-error "No workspace named %s" name))
+  (let ((tab-idx (workspace--tab-index-for name)))
+    (when tab-idx
+      (tab-bar-close-tab tab-idx)))
+  (remhash name workspace--registry)
+  (workspace--flush-state)
+  (message "Workspace %s unregistered (home directory left on disk)" name))
+
+(defun workspace-purge (name)
+  "Unregister workspace NAME and recursively delete its home directory.
+Prompts for `yes-or-no-p' confirmation showing the absolute path.
+
+Refuses to operate when `:home' is not a descendant of
+`workspaces-default-parent-directory' unless a prefix argument is
+supplied.  This guards against accidentally purging an anchored
+external project (e.g., =~/code/myproj/=).
+
+For broken-state workspaces (=:home= missing on disk), no
+filesystem deletion is attempted — the registry entry is still
+removed (register/vocabulary/workspace-broken-disposition pins
+purge as =:permitted= on broken)."
+  (interactive
+   (list (completing-read "Purge workspace (DELETES HOME DIR): "
+                          (workspace--registered-names) nil t)))
+  (let* ((ws (gethash name workspace--registry))
+         (home (and ws (workspace--home ws))))
+    (unless ws
+      (user-error "No workspace named %s" name))
+    (unless home
+      (user-error "Workspace %s has no :home (data corruption?)" name))
+    ;; Scope safeguard: refuse to nuke a dir outside the default parent
+    ;; unless the user explicitly opts in via prefix arg.  Checked BEFORE
+    ;; the yes-or-no-p so an anchored external project never even shows
+    ;; the destructive prompt without a deliberate two-step opt-in
+    ;; (design.md §D8).
+    (unless (or current-prefix-arg
+                (file-in-directory-p home workspaces-default-parent-directory))
+      (user-error
+       "Refusing to purge %s; outside %s. Use `C-u M-x workspace-purge' to override."
+       home workspaces-default-parent-directory))
+    ;; Final confirmation.
+    (unless (yes-or-no-p (format "Recursively delete %s? " home))
+      (user-error "Cancelled"))
+    ;; Unregister first; even if delete-directory errors below the
+    ;; registry is already clean.
+    (let ((tab-idx (workspace--tab-index-for name)))
+      (when tab-idx
+        (tab-bar-close-tab tab-idx)))
+    (remhash name workspace--registry)
+    (workspace--flush-state)
+    ;; Filesystem delete (best-effort; broken-home case has nothing
+    ;; to do — :home is already absent).
+    (when (file-directory-p home)
+      (delete-directory home t))
+    (message "Workspace %s purged" name)))
+
 (global-set-key (kbd "C-x w n") #'workspace-new)
 (global-set-key (kbd "C-x w s") #'workspace-switch)
 (global-set-key (kbd "C-x w o") #'workspace-restore)
 (global-set-key (kbd "C-x w S") #'workspace-save)
 (global-set-key (kbd "C-x w l") #'workspace-switch-layout)
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
-(global-set-key (kbd "C-x w D") #'workspace-delete-layout)
+(global-set-key (kbd "C-x w D") #'workspace-delete)
+(global-set-key (kbd "C-x w P") #'workspace-purge)
 (global-set-key (kbd "C-x w R") #'workspace-re-anchor)
 (global-set-key (kbd "C-x w T") #'workspace-switch-to-recent-layout)
 (global-set-key (kbd "C-x w r") #'workspace-revert)
