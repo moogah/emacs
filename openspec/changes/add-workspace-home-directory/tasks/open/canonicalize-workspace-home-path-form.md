@@ -159,3 +159,82 @@ architect should confirm at integrate.
   identified the `:name`/`:home` mutation-side asymmetry; inline-fixed
   at commit `c6c1b22` with `workspace--set-name` introduction. This
   task captures the same class one representational tier up.
+
+## Integrate-phase extended frame (cycle-20260526-191802)
+
+Architect end-of-cycle audit `arch-cycle-20260526-191802-02`
+(informational, shape-fragmentation) extends this task's frame:
+
+### Three producers, not two
+
+The reviewer F1 narrative framed the asymmetry as 1:1 (default-path
+vs. anchor-existing). The architect's call-site enumeration found
+**three** producers in tree:
+
+1. `workspace--new-default-path`: stores `:home` **WITHOUT**
+   trailing slash. `(expand-file-name name parent-dir)`.
+
+2. `workspace--new-anchor-existing` (cycle-4): stores **WITH**
+   trailing slash. `(file-name-as-directory (read-directory-name ...))`.
+
+3. `workspace-re-anchor` (cycle-3): the rename branch passes
+   `new-home` to `workspace--set-home`; `new-home` is read via
+   `read-directory-name` and is **WITH** trailing slash.
+
+So default-path is the *odd one out* (1:2), not 1:1. After any
+re-anchor on a default-path workspace, the workspace acquires the
+trailing-slash form. The persistence round-trip preserves whatever
+form was stored at save time. Treat this in the implementation.
+
+### Latent class: other string-typed slots
+
+The shape entry `register/shape/workspace-plist-v3` is silent on
+canonical form for **every** string-typed slot, not just `:home`:
+
+- `:name`: silent on case-sensitivity and whitespace canonicalisation
+  (currently de-facto preserved exactly as user-supplied; basename
+  derivation pins this de facto, but it is not pinned in the spec).
+- `:home`: this task's scope.
+- `:recent-layout-group`: silent on canonicalisation; non-path.
+- `:buffer-files`: list of strings — each string is a filename, and
+  there is no per-element canonicalisation pin (absolute? resolved
+  symlinks? double-slash?). **Latent** — no current consumer
+  `equal`-compares cross-workspace `:buffer-files`, but a future
+  cross-workspace buffer-membership query would surface this.
+
+### Implementation guidance update
+
+If you choose **Option A** (constructor-side canonicalisation at
+`workspace--make`), the architect recommends a stronger version
+of step (e) "update `register/shape/workspace-plist-v3`":
+
+- Add a `canonical_form` sub-field to **each** string-typed key
+  description in the shape spec, not just `:home`. For `:home`:
+  `"absolute path; trailing slash present; expand-file-name
+  applied; no double-slashes; symlinks NOT resolved (preserve
+  user-supplied resolution choice)"`. For `:buffer-files`: pin to
+  `"each element absolute, expand-file-name applied"` (current
+  de facto). For `:name`: `"exact basename(:home); case-
+  sensitive"` (current de facto).
+- The `validator` block should assert these structurally — adding
+  the `canonical_form` field is half the work; the corresponding
+  `workspace--make` argument-normalisation is the other half.
+
+If you choose **Option B** (shape-spec pin only, call-site
+canonicalisation), the same multi-slot frame applies: pin each
+slot's form in the shape entry's description, and add a comment
+to each producer call site documenting the normalisation it
+performs to satisfy the shape.
+
+### PM-trends frame
+
+Two cycles in a row have surfaced a shape-tier asymmetry on
+`register/shape/workspace-plist-v3` (cycle-3: `:name`/`:home`
+lockstep mutation; cycle-4: `:home` representational form). If
+cycle-5 or later surfaces a third instance, the PM will propose
+a between-cycle architect audit of the entire shape entry. This
+task is the first opportunity to **resolve the second instance
+and pre-empt a third** by addressing the latent class while the
+constructor-side change is open.
+
+

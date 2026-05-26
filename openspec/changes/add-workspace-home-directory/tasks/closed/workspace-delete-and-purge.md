@@ -2,7 +2,7 @@
 name: workspace-delete-and-purge
 description: Make workspace-delete unregister-only; add workspace-purge with yes-or-no-p + scope safeguard; bind C-x w D and C-x w P
 change: add-workspace-home-directory
-status: needs-review
+status: done
 merge_commit: 81001ee
 relations: []
 ---

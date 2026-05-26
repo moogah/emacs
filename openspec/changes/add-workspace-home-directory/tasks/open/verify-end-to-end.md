@@ -4,10 +4,56 @@ description: Full test run; manual sanity check of scaffold + anchor + delete + 
 change: add-workspace-home-directory
 status: blocked
 relations:
-  - blocked-by:workspace-new-anchor-existing
-  - blocked-by:workspace-delete-and-purge
   - blocked-by:update-docs-readme
 ---
+
+## Cycle 4 updates (cycle-20260526-191802)
+
+### Status
+
+- Blocker `workspace-new-anchor-existing` resolved (merge `9cbba3e`).
+- Blocker `workspace-delete-and-purge` resolved (merge `81001ee`).
+- Remaining blocker: `update-docs-readme` (now `ready` after cycle-4
+  unblocks; this task unblocks when update-docs-readme merges).
+
+### Cycle-4 commands now part of end-to-end verification
+
+The manual sanity check should now cover:
+
+- `M-x workspace-new alpha` (default-path; cycle-3 wired).
+- `C-u M-x workspace-new` → existing dir (cycle-4 anchor-existing,
+  three sub-cases).
+- `M-x workspace-delete alpha` → verify dir untouched.
+- `M-x workspace-purge alpha` → confirm yes-or-no-p; verify dir
+  gone.
+- `M-x workspace-purge` against external dir → safeguard refuses.
+- `C-u M-x workspace-purge` against external dir → safeguard
+  bypassed; verify works.
+- Broken-home scenarios (cycle-3 broken-home-tolerance + cycle-4
+  purge on broken).
+- `workspace-re-anchor` (cycle-3) against a broken entry → rename
+  + clear-broken.
+
+### Test count baseline shifted
+
+- Pre-cycle-4: 209 specs in `config/workspaces/`.
+- Post-cycle-4: 224 specs (5 from anchor-spec, 10 from
+  delete-purge-spec; refactor-broken-home-test follow-up will
+  refactor but not change count).
+- Plus pending follow-ups (canonicalize-workspace-home-path-form,
+  refactor-broken-home-test-observable-end-state, two cycle-3
+  test-hygiene tasks) may add ~1-3 specs.
+
+When this task runs, the baseline should be ~225+ specs depending
+on follow-up disposition.
+
+### Cycle-4 register-diff hits
+
+None directly cited (no register cites in body). All cycle-4
+reconciliations are `confirmed`; no contract changes to verify
+against.
+
+
 
 ## Files to modify
 *(verification-only task; no production code changes)*

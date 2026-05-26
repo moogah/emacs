@@ -2,11 +2,70 @@
 name: update-docs-readme
 description: Update config/workspaces/docs/README.org with new commands, scaffolding behavior, broken-home UX, gptel routing
 change: add-workspace-home-directory
-status: blocked
-relations:
-  - blocked-by:workspace-new-anchor-existing
-  - blocked-by:workspace-delete-and-purge
+status: ready
+relations: []
 ---
+
+## Cycle 4 updates (cycle-20260526-191802)
+
+### Status
+
+- `status: blocked` → `status: ready`. Both blockers
+  (`workspace-new-anchor-existing` merge `9cbba3e`,
+  `workspace-delete-and-purge` merge `81001ee`) landed cycle-4. The
+  user-visible command surface is now functionally complete.
+
+### What landed in cycle 4 that the README must document
+
+- `workspace-new` prefix-arg branch (`C-u M-x workspace-new`) for
+  anchoring an existing directory. Three sub-cases:
+  - Git repo + `home.org` → register only; no scaffolding.
+  - Git repo, no `home.org` → scaffold files; no git ops.
+  - Non-repo → full scaffold (mkdir, git init, files, initial
+    commit).
+  Plus double-registration guard via `file-equal-p` on normalised
+  paths. Bound to `C-u M-x workspace-new`; no separate command.
+- `workspace-delete` is now unregister-only (no filesystem effect).
+  Bound to `C-x w D` (rebound from `workspace-delete-layout`).
+- `workspace-purge` (new, destructive) deletes the home directory
+  recursively. Scope-safeguarded: refuses to operate outside
+  `workspaces-default-parent-directory` unless prefix-arg. Bound to
+  `C-x w P`.
+- The `workspace-delete-layout` command (previously on `C-x w D`)
+  is now `M-x`-only — not destroyed, just unbound at the prefix
+  keymap. Document the migration.
+
+### Cycle-4 register-diff hits
+
+None directly on this task (no register cites in body). The README
+is downstream of the register's user-facing contracts; the cycle-4
+reconciliations are all `confirmed` (no contract changes).
+
+### Open asks (not docs-blocking, but mention if relevant)
+
+- `ask-cycle-20260526-171719-1` (writer-lint heuristic) is a
+  developer-facing concern; not README material.
+- `ask-cycle-20260526-171719-2` (*scratch* fallback) is also
+  developer-facing; not README material.
+
+### Verification keybindings table
+
+Audit `config/workspaces/docs/README.org`'s keybindings table for
+ALL the cycle-3 + cycle-4 changes:
+- `C-x w R` → `workspace-re-anchor` (cycle-3; was
+  `workspace-switch-to-recent-layout`).
+- `C-x w T` → `workspace-switch-to-recent-layout` (cycle-3
+  relocation).
+- `C-x w D` → `workspace-delete` (cycle-4; was
+  `workspace-delete-layout`).
+- `C-x w P` → `workspace-purge` (cycle-4 new).
+
+The cycle-3 reviewer (workspace-delete-and-purge F-rule-out)
+noted that the README still showed pre-cycle-3 bindings. Cycle 4
+inherits that staleness; this task is the right place to refresh
+everything.
+
+
 
 ## Files to modify
 - `config/workspaces/docs/README.org` (modify — substantial new content)

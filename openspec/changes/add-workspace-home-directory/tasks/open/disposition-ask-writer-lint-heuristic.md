@@ -144,3 +144,85 @@ the implementation contract.
 - Reviewer file: `.orchestrator/cycles/cycle-20260526-171719/reviews/port-cross-module-home-org-writer-lint.md`
 - Reconciliation note: `.orchestrator/cycles/cycle-20260526-171719/reconciliations/invariant-home-org-user-authored-after-creation.md`
 - PM digest (this cycle): `.orchestrator/cycles/cycle-20260526-171719/pm-digest.md` § Asks for the user
+
+## Cycle 4 updates (cycle-20260526-191802)
+
+### Aggravating evidence: architect finding `arch-cycle-20260526-191802-01`
+
+Cycle-4's `route-scaffold-writer-through-home-org-helper` (merge
+`7f74a01`) routed `scaffold.el`'s home.org writer through the
+canonical helper `workspace-home-org-path`. As a side effect, the
+literal string `"home.org"` no longer appears anywhere in the
+writer's source body — the path is now resolved by a helper call.
+
+The cycle-4 architect end-of-cycle audit
+(`.orchestrator/cycles/cycle-20260526-191802/findings/arch-cycle-20260526-191802-01.md`)
+identified that this leaves the cross-module writer-lint with
+**zero** literals to match against its proximity heuristic, even
+ignoring the cycle-3 let-binding-before-write gap. The lint's
+allow-list arm (which checks "is this writer the permitted
+`workspace--scaffold-write-home-org`?") is structurally
+unreachable because the input set to `cl-remove-if` is now always
+empty.
+
+Net effect: the writer-lint passes for **two different wrong
+reasons** post-cycle-4:
+
+1. **Cycle-3 reason** (open in this ask's body): proximity
+   heuristic is forward-only, so a literal in a let-binding
+   *before* the write is missed.
+2. **Cycle-4 reason** (this stanza): no literal exists in the
+   writer's body at all — the writer routes through a helper
+   that resolves the literal in a different module.
+
+### Decision frame extended
+
+The original options (bidirectional window; s-expression-aware
+path resolution; AST-walk against write-region/with-temp-file
+sites) addressed only the cycle-3 reason. They do not address the
+cycle-4 reason — even a bidirectional window over scaffold.el's
+writer body would find zero `"home.org"` literals.
+
+A robust resolution must address both. The cycle-4 architect
+recommends one of:
+
+**Option C (call-graph-based detection)**: enumerate every defun
+in `config/workspaces/*.el` whose body invokes any write
+primitive AND invokes (directly or transitively)
+`workspace-home-org-path`. Compare against the allow-list.
+Catches both old (literal-in-let) and new (literal-in-helper)
+failure modes. Cheap because the call set is tiny.
+
+**Option D (helper-recognition extension)**: extend the lint's
+`write-fn-symbols` set to also fire on `workspace-home-org-path`
+calls, treating helper invocation as equivalent to literal
+"home.org" reference. Partial fix — a future second-layer
+indirection would re-introduce the same gap.
+
+### Recommended disposition (per cycle-4 architect)
+
+**Option C (call-graph)** is the preferred resolution. It is
+robust to arbitrary indirection depth and matches how a human
+reviewer would actually audit the writer surface.
+
+If the user chooses Option C, the disposition payload should
+explicitly cover both cycle-3 and cycle-4 failure modes (the
+implementation must list the path-resolution call set, not just
+the literal-string set).
+
+### Severity context
+
+Architect rated finding `arch-cycle-20260526-191802-01` as
+**advisory** (not blocking) because:
+
+- The invariant `register/invariant/home-org-user-authored-after-
+  creation` remains *true* — no other module writes `home.org`.
+- The cycle-4 routing strengthens the boundary
+  `register/boundary/home-org-read-pipeline` (single canonical
+  path resolver).
+- Per-module review remains effective as the primary defense.
+
+The cross-module lint is the *secondary* defense, now
+(significantly more) decorative.
+
+
