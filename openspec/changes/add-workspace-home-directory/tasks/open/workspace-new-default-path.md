@@ -303,3 +303,75 @@ implementation establishes the call-site shape both consume — keep
 the workspace-construction logic factored such that the prefix-arg
 branch (cycle 3+) can call it with the same HOME but
 `:init-and-commit? nil`.
+
+## Observations
+
+- The cycle-1 placeholder `wire-home-into-callsites--synthesize-home`
+  had exactly one caller in `tabs.org`, matching the task body's
+  prediction. Removed cleanly along with its sole `workspace--make`
+  callsite wiring.
+
+- `workspace-new`'s new shape required adding `(require
+  'workspace-scaffold)` to `tabs.org`'s lexical-binding block — the
+  scaffold module was already loaded in dependency order by
+  `workspaces.org`'s submodule loader, but tabs.el now depends on it
+  directly via the call to `workspace-scaffold`.
+
+- The `workspace--new-anchor-existing` stub signals `user-error`
+  ("Anchor-existing not yet implemented (cycle 4)") so the prefix-arg
+  call structure is exercised at the byte-compile + interactive level
+  but is a no-op at runtime. Per the brief, this is acceptable to keep
+  the byte-compile clean ahead of the cycle-4 anchor task.
+
+- The cycle-3 change to `workspace-new`'s contract broke 59 of 195
+  pre-existing workspaces specs that called `(workspace-new "alpha")`
+  without expecting filesystem effects. Updated each affected
+  spec's `*-reset`/`before-each` to `spy-on 'workspace-scaffold` (a
+  filesystem-isolated stub that just creates the home dir) and
+  re-point `workspaces-default-parent-directory` at a per-test
+  tmpdir. Affected files: anti-save-spec, buffer-membership-spec,
+  buffer-reincarnation-spec (three inline `before-each` blocks),
+  home-spec, layouts-spec (two distinct `before-each` blocks — one
+  via the shared `layouts-spec--reset`, one inline in
+  `workspace--capture-frameset`), persistence-spec, revert-spec,
+  save-restore-spec, tabs-spec. The stub pattern mirrors the
+  existing `bufferlo-mode` defalias-at-load-time stub for the same
+  test isolation concern. Buttercup's `spy-on` is per-spec scoped
+  and auto-restores, so `scaffold-spec.el` (which uses the real
+  `workspace-scaffold`) is unaffected.
+
+- The cycle-1 "re-selects an existing workspace's tab on duplicate
+  name" test in `tabs-spec.el` was removed (replaced with an explanatory
+  comment block citing the new contract). The previous behavior — re-
+  select an existing tab when `workspace-new` is called with a name
+  already in the registry — is incompatible with design D2's
+  "Default-path collision is rejected" decision. The collision case is
+  now covered as a hard `user-error` in `workspace-new-default-spec.el`.
+
+- The new `workspace-default-home-builder` calls `find-file
+  (expand-file-name "home.org" home)`. For pre-existing tests that go
+  through `workspace-new` but don't care about the home buffer, this
+  is benign — `find-file` on a non-existent path silently creates a
+  buffer. But it does mean those tests now have an additional file-
+  visiting buffer in their environment. None of the existing assertions
+  appear to depend on `current-buffer` immediately post-`workspace-new`,
+  but if a future test does, it should be aware.
+
+- Adjacent observation (out-of-scope for this task): the
+  `workspace-default-home-builder`'s fallback to `*scratch*` when
+  `:home` is missing should be unreachable per
+  `register/invariant/home-required-no-floating-workspaces`. It's
+  defensive code that's expensive to remove later if the invariant
+  ever weakens — worth pairing with a structural lint in a future
+  cycle to ensure the invariant holds at every producer (workspace--
+  make, persistence-load, anchor-existing).
+
+- The pre-existing bash-parser test failures (9 of 620 ERT tests in
+  `config/bash-parser/test/integration/test-pattern-flow.el` and
+  `corpus/runners/test-corpus-file-operations.el`) are unrelated to
+  this task — verified by running the full test suite on a
+  pre-change snapshot of the same branch.
+
+## Discoveries
+
+-

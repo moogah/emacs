@@ -40,9 +40,28 @@ avoid a load-order dependency in the byte-compiler).
 (defcustom workspace-home-builder #'workspace-default-home-builder
   "Function called to build the `home' layout for a newly-created workspace.
 Called with one argument WORKSPACE-NAME, in the context of the freshly
-activated workspace.  Any buffers it displays become members of the
-new workspace."
+activated workspace.  The default implementation opens
+=<:home>/home.org= for the workspace via a registry lookup; any buffers
+it displays become members of the new workspace."
   :type 'function
+  :group 'workspaces)
+#+end_src
+
+** Default parent directory
+
+The directory under which =workspace-new= creates new workspace home
+directories when invoked without a prefix argument.  Expansion happens
+at defcustom-load time (via =getenv \"HOME\"=) so that subsequent
+=expand-file-name= calls in =workspace-new= do not re-resolve =~= at
+every invocation.
+
+#+begin_src emacs-lisp
+(defcustom workspaces-default-parent-directory
+  (expand-file-name "emacs-workspaces" (or (getenv "HOME") "~"))
+  "Default parent directory under which `workspace-new' creates new workspaces.
+When `workspace-new NAME' is invoked without a prefix arg, the new
+workspace's home directory is `(expand-file-name NAME this-dir)'."
+  :type 'directory
   :group 'workspaces)
 #+end_src
 

@@ -34,7 +34,13 @@
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
-        (tab-bar-close-tab 2)))))
+        (tab-bar-close-tab 2))))
+  ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+  ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+  (spy-on 'workspace-scaffold :and-call-fake
+          (lambda (home _name &rest _) (make-directory home t) home))
+  (setq workspaces-default-parent-directory
+        (make-temp-file "ws-bm-spec-" t)))
 
 (defun bm-spec--with-membership (alist body-fn)
   "Run BODY-FN while bufferlo's per-tab list is mocked from ALIST.
