@@ -135,7 +135,7 @@ external project (e.g., =~/code/myproj/=).
 For broken-state workspaces (=:home= missing on disk), no
 filesystem deletion is attempted — the registry entry is still
 removed (register/vocabulary/workspace-broken-disposition pins
-purge as =:permitted= on broken)."
+purge as =:allowed= on broken)."
   (interactive
    (list (completing-read "Purge workspace (DELETES HOME DIR): "
                           (workspace--registered-names) nil t)))

@@ -226,7 +226,7 @@ semantics (design.md §D8, §D10; cycle-4
 
 Both commands operate on broken-state workspaces
 (register/vocabulary/workspace-broken-disposition pins both as
-=:permitted= on broken).  Purge skips the filesystem step when
+=:allowed= on broken).  Purge skips the filesystem step when
 =:home= is missing on disk — registry cleanup still proceeds so the
 broken entry vanishes from the user's tab bar and persistence file.
 
@@ -272,7 +272,7 @@ external project (e.g., =~/code/myproj/=).
 For broken-state workspaces (=:home= missing on disk), no
 filesystem deletion is attempted — the registry entry is still
 removed (register/vocabulary/workspace-broken-disposition pins
-purge as =:permitted= on broken)."
+purge as =:allowed= on broken)."
   (interactive
    (list (completing-read "Purge workspace (DELETES HOME DIR): "
                           (workspace--registered-names) nil t)))
