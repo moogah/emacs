@@ -51,6 +51,50 @@ The explicit `workspace-save' command never consults this list."
 (jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
 (require 'workspaces-mode)
 
+(defun workspace-re-anchor (name new-home)
+  "Point broken workspace NAME at NEW-HOME on the filesystem.
+
+Clears the broken-state tag and updates `:home'.  If
+=(file-name-nondirectory (directory-file-name NEW-HOME))= differs
+from NAME, the registry entry is renamed to match the new basename
+(per the registry-name-equals-basename invariant).
+
+The new path must exist and must be a directory."
+  (interactive
+   (list (completing-read "Re-anchor workspace: "
+                          (workspace--registered-names) nil t)
+         (file-name-as-directory
+          (read-directory-name "New home directory: " nil nil t))))
+  (let ((ws (gethash name workspace--registry)))
+    (unless ws
+      (user-error "No workspace named %s" name))
+    (unless (file-directory-p new-home)
+      (user-error "Not a directory: %s" new-home))
+    (let* ((new-name (file-name-nondirectory
+                      (directory-file-name new-home)))
+           (next-ws (workspace--clear-broken
+                     (workspace--set-home ws new-home))))
+      ;; If basename changed, rename the registry key too.
+      (cond
+       ((string= name new-name)
+        (puthash name next-ws workspace--registry))
+       (t
+        (when (gethash new-name workspace--registry)
+          (user-error
+           "Cannot rename to %s — a workspace with that name already exists"
+           new-name))
+        ;; Capture the tab index BEFORE we mutate the registry —
+        ;; `workspace--tab-index-for' consults `workspace--registry'
+        ;; for ownership, so after `remhash' the lookup would fail.
+        (let ((tab-idx (workspace--tab-index-for name)))
+          (remhash name workspace--registry)
+          (puthash new-name next-ws workspace--registry)
+          ;; Update tab label if a live tab exists.
+          (when tab-idx
+            (tab-bar-rename-tab new-name tab-idx)))))
+      (workspace--flush-state)
+      (message "Workspace re-anchored: %s → %s" name new-home))))
+
 (global-set-key (kbd "C-x w n") #'workspace-new)
 (global-set-key (kbd "C-x w s") #'workspace-switch)
 (global-set-key (kbd "C-x w o") #'workspace-restore)
@@ -58,7 +102,8 @@ The explicit `workspace-save' command never consults this list."
 (global-set-key (kbd "C-x w l") #'workspace-switch-layout)
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
 (global-set-key (kbd "C-x w D") #'workspace-delete-layout)
-(global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
+(global-set-key (kbd "C-x w R") #'workspace-re-anchor)
+(global-set-key (kbd "C-x w T") #'workspace-switch-to-recent-layout)
 (global-set-key (kbd "C-x w r") #'workspace-revert)
 (global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 
