@@ -202,6 +202,113 @@ The new path must exist and must be a directory."
       (message "Workspace re-anchored: %s → %s" name new-home))))
 #+end_src
 
+* Delete and purge commands
+
+Two commands handle workspace removal, with deliberately split
+semantics (design.md §D8, §D10; cycle-4
+=workspace-delete-and-purge=):
+
+- =workspace-delete= is the safe default — unregister-only.  It
+  removes the registry entry, closes the live tab, and flushes
+  persistence.  The =:home= directory and all its contents are left
+  on disk untouched.  Users coming from =kill-buffer=-style
+  mental-models get the non-destructive behavior by default; the
+  directory can be re-anchored later via =workspace-new= with a
+  prefix arg.
+- =workspace-purge= is the destructive counterpart.  After a
+  =yes-or-no-p= confirmation showing the absolute path, it performs
+  =workspace-delete='s unregister steps and then recursively deletes
+  the =:home= directory.  A scope safeguard refuses to operate when
+  =:home= is not a descendant of
+  =workspaces-default-parent-directory= unless the user supplies a
+  prefix argument; this protects anchored existing projects (e.g.
+  =~/code/myproj/=) from accidental destruction.
+
+Both commands operate on broken-state workspaces
+(register/vocabulary/workspace-broken-disposition pins both as
+=:permitted= on broken).  Purge skips the filesystem step when
+=:home= is missing on disk — registry cleanup still proceeds so the
+broken entry vanishes from the user's tab bar and persistence file.
+
+Order is deliberate: unregister first, =delete-directory= second.
+If =delete-directory= errors (permission denied, file busy), the
+registry is already clean, so the workspace appears removed from
+the user's perspective; the leftover filesystem state is inspectable
+out-of-band.  The inverse order could leave the registry pointing at
+a half-deleted directory, which is strictly worse.
+
+=workspace--tab-index-for= returns a 1-based index suitable for
+=tab-bar-close-tab= directly (no =1+= bridge).
+
+#+begin_src emacs-lisp
+(defun workspace-delete (name)
+  "Remove workspace NAME from the registry and close its tab.
+The home directory and all its contents (including .git/, home.org,
+and sessions/) remain on disk untouched.  To delete the directory
+too, use `workspace-purge'.
+
+Interactively, completes over registered workspace names."
+  (interactive
+   (list (completing-read "Delete workspace (unregister only): "
+                          (workspace--registered-names) nil t)))
+  (unless (gethash name workspace--registry)
+    (user-error "No workspace named %s" name))
+  (let ((tab-idx (workspace--tab-index-for name)))
+    (when tab-idx
+      (tab-bar-close-tab tab-idx)))
+  (remhash name workspace--registry)
+  (workspace--flush-state)
+  (message "Workspace %s unregistered (home directory left on disk)" name))
+
+(defun workspace-purge (name)
+  "Unregister workspace NAME and recursively delete its home directory.
+Prompts for `yes-or-no-p' confirmation showing the absolute path.
+
+Refuses to operate when `:home' is not a descendant of
+`workspaces-default-parent-directory' unless a prefix argument is
+supplied.  This guards against accidentally purging an anchored
+external project (e.g., =~/code/myproj/=).
+
+For broken-state workspaces (=:home= missing on disk), no
+filesystem deletion is attempted — the registry entry is still
+removed (register/vocabulary/workspace-broken-disposition pins
+purge as =:permitted= on broken)."
+  (interactive
+   (list (completing-read "Purge workspace (DELETES HOME DIR): "
+                          (workspace--registered-names) nil t)))
+  (let* ((ws (gethash name workspace--registry))
+         (home (and ws (workspace--home ws))))
+    (unless ws
+      (user-error "No workspace named %s" name))
+    (unless home
+      (user-error "Workspace %s has no :home (data corruption?)" name))
+    ;; Scope safeguard: refuse to nuke a dir outside the default parent
+    ;; unless the user explicitly opts in via prefix arg.  Checked BEFORE
+    ;; the yes-or-no-p so an anchored external project never even shows
+    ;; the destructive prompt without a deliberate two-step opt-in
+    ;; (design.md §D8).
+    (unless (or current-prefix-arg
+                (file-in-directory-p home workspaces-default-parent-directory))
+      (user-error
+       "Refusing to purge %s; outside %s. Use `C-u M-x workspace-purge' to override."
+       home workspaces-default-parent-directory))
+    ;; Final confirmation.
+    (unless (yes-or-no-p (format "Recursively delete %s? " home))
+      (user-error "Cancelled"))
+    ;; Unregister first; even if delete-directory errors below the
+    ;; registry is already clean.
+    (let ((tab-idx (workspace--tab-index-for name)))
+      (when tab-idx
+        (tab-bar-close-tab tab-idx)))
+    (remhash name workspace--registry)
+    (workspace--flush-state)
+    ;; Filesystem delete (best-effort; broken-home case has nothing
+    ;; to do — :home is already absent).
+    (when (file-directory-p home)
+      (delete-directory home t))
+    (message "Workspace %s purged" name)))
+#+end_src
+
 * Keybindings
 
 User-facing commands hang off the =C-x w= prefix (design.md Open
@@ -217,7 +324,8 @@ it is a sibling not a parent.
 | =C-x w S= | =workspace-save=                     |
 | =C-x w l= | =workspace-switch-layout=            |
 | =C-x w L= | =workspace-save-layout=              |
-| =C-x w D= | =workspace-delete-layout=            |
+| =C-x w D= | =workspace-delete=                   |
+| =C-x w P= | =workspace-purge=                    |
 | =C-x w R= | =workspace-re-anchor=                |
 | =C-x w T= | =workspace-switch-to-recent-layout=  |
 | =C-x w r= | =workspace-revert=                   |
@@ -226,9 +334,15 @@ it is a sibling not a parent.
 Note: cycle-3 design.md §D10 pins =C-x w R= to =workspace-re-anchor=
 (the broken-home recovery command).  The previous occupant of =R= —
 =workspace-switch-to-recent-layout= — was relocated to =T= (mnemonic:
-"to recent").  =workspace-delete= (uppercase =D=) and
-=workspace-purge= (uppercase =P=) are bound by the
-=workspace-delete-and-purge= task once it lands; both displace nothing.
+"to recent").  Cycle-4 =workspace-delete-and-purge= claims =C-x w D=
+for =workspace-delete= (workspace-level, unregister-only) and =C-x w P=
+for =workspace-purge= (destructive).  The previous occupant of =D= —
+=workspace-delete-layout= (a layout-scoped operation) — is now =M-x=
+only; it was a narrow operation whose prominence on a single-letter
+binding crowded out the workspace-level commands that cycle-4
+introduced.  Uppercase =D=/=P= flag destructive intent visually and
+keep lowercase prefix-space free for future buffer-membership
+commands (design.md §D10).
 
 =workspace-save= (=C-x w S=) captures the live frame and writes
 synchronously.  The lower-level =workspace-save-state= still exists
@@ -250,7 +364,8 @@ enumerated for the v2 cycle.
 (global-set-key (kbd "C-x w S") #'workspace-save)
 (global-set-key (kbd "C-x w l") #'workspace-switch-layout)
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
-(global-set-key (kbd "C-x w D") #'workspace-delete-layout)
+(global-set-key (kbd "C-x w D") #'workspace-delete)
+(global-set-key (kbd "C-x w P") #'workspace-purge)
 (global-set-key (kbd "C-x w R") #'workspace-re-anchor)
 (global-set-key (kbd "C-x w T") #'workspace-switch-to-recent-layout)
 (global-set-key (kbd "C-x w r") #'workspace-revert)

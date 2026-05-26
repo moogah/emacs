@@ -299,3 +299,138 @@ keybindings section before adding your bindings** to ensure no
 re-collision; the architect finding INDEX confirms `C-x w D` is
 currently bound to `workspace-delete-layout` (legacy, not yet
 rebound).
+
+## Observations
+
+- **Task body cited `workspace--persistence-save`; actual symbol is
+  `workspace--flush-state`.** The persistence module exposes the
+  synchronous flush as `workspace--flush-state` (defined in
+  `config/workspaces/persistence.org` ~line 194); no
+  `workspace--persistence-save` symbol exists in the codebase. I
+  routed both `workspace-delete` and `workspace-purge` through
+  `workspace--flush-state`, matching every existing
+  registry-mutating site (`workspace-re-anchor`,
+  `workspace-revert`, etc.). The cycle-3 reference
+  `broken-home-runtime-spec.el` also stubs
+  `workspace--flush-state` in its tests, confirming the name.
+  Filed under Discoveries as a `spec-signal` against the task body.
+- **Task body cited `(1+ tab-idx)` as the bridge from a 0-indexed
+  helper to a 1-indexed `tab-bar-close-tab` arg; the helper is
+  already 1-indexed.** Reading `workspace--tab-index-for` in
+  `tabs.org`, the loop seeds `(i 1)` and uses `1+` on each step,
+  so the returned index is 1-based. Every existing caller passes
+  the result directly to `tab-bar-select-tab` / `tab-bar-rename-tab`
+  (1-based). I used the helper's return value directly; adding the
+  redundant `1+` would have closed the *next* tab instead of the
+  workspace's own. Filed under Discoveries.
+- **Relegated `workspace-delete-layout` to `M-x`-only.** D10 claims
+  `C-x w D` for the workspace-level delete; the prior occupant was
+  the narrower layout-scoped `workspace-delete-layout`. Rather
+  than picking a new single-letter binding for the layout
+  operation (every uppercase letter in the `C-x w` space is now
+  either claimed or reserved by ergonomic convention), I removed
+  its binding from the global key table and updated the
+  keybindings doc-table accordingly. `workspace-delete-layout`
+  itself is unchanged in `layouts.org`; users who want it via a
+  binding can `global-set-key` it locally. No test broke from the
+  rebind. If the reviewer feels this is too aggressive, a single
+  follow-up edit can pin it to e.g. `C-x w X`; flagging here so
+  the call is visible rather than buried in a diff.
+- **Persistence flush count in the happy paths.** I asserted
+  `workspace--flush-state` is called exactly once per successful
+  invocation of `workspace-delete` / `workspace-purge`. This is a
+  tighter contract than the task body asked for (which said
+  "synchronous flush" without specifying count). Justification:
+  multiple flushes per command would imply intermediate states
+  reaching disk, and a future refactor that introduces e.g. a
+  pre-clean and a post-clean flush should surface as a test
+  failure rather than silently doubling disk I/O.
+- **Cancellation does not flush persistence.** The `user-error
+  "Cancelled"` path exits before reaching `remhash`, so no
+  registry mutation, no flush. The spec implicitly requires this
+  (Scenario "Purge cancellation: no filesystem deletion, registry
+  unchanged"); the test asserts the no-flush leg explicitly to
+  pin the absence-of-side-effects contract.
+- **Test isolation note.** The tests stub
+  `workspace--flush-state` rather than redirecting
+  `workspace--state-file` at a tmpdir. The
+  `broken-home-runtime-spec.el` reference uses the redirect
+  approach (`broken-home-runtime-spec--with-state-file` macro)
+  because it wants to test the persisted-form round trip; my
+  tests only need to confirm the flush was *invoked*, not its
+  result on disk. The stub is the lighter pattern; if the
+  reviewer prefers consistency with the cycle-3 reference, the
+  switch is mechanical (define a `with-state-file` macro and call
+  the real flush). Flagging for awareness, not requesting change.
+- **Broken-home test guards `delete-directory` via `cl-letf`
+  rather than asserting on disk.** Setup creates a registry entry
+  whose `:home` does NOT exist on disk; the test asserts that
+  `delete-directory` is never called. This is a stricter contract
+  than the spec scenario ("no error" + "registry entry removed"
+  + "no attempt to delete a nonexistent path"). The
+  `cl-letf`-on-`delete-directory` form pins the implementation's
+  `(when (file-directory-p home) ...)` guard structurally — a
+  future refactor that drops the guard and relies on
+  `delete-directory`'s own missing-path tolerance would fail this
+  test, which I think is the desired behavior (the safeguard is a
+  defensive ordering contract, not a coincidence of
+  `delete-directory`'s arg parsing).
+
+## Discoveries
+
+- discovery_id: disc-workspace-delete-and-purge-1
+  class: spec-signal
+  description: |
+    The task body's pseudocode references `workspace--persistence-save`,
+    but the persistence module exposes the synchronous flush as
+    `workspace--flush-state` (defined in `persistence.org` ~line 194).
+    No `workspace--persistence-save` symbol exists in the codebase.
+    Every existing registry-mutating site (`workspace-re-anchor`,
+    `workspace-revert`, layout commands) routes through
+    `workspace--flush-state`; the cycle-3 reference test
+    `broken-home-runtime-spec.el` also stubs this name.
+  recommendation: |
+    Future task bodies should pin function names against the actual
+    codebase rather than a generic-sounding placeholder. For the
+    surrounding workflow: if pseudocode survives unchanged from
+    proposal through cycle-4 task-writing, the architect / PM digest
+    sweep is the right point to grep the proposed symbol against the
+    target module and surface mismatches. Not a runtime bug — the
+    correct symbol is obvious on inspection — but a friction signal
+    for the orchestration loop.
+- discovery_id: disc-workspace-delete-and-purge-2
+  class: spec-signal
+  description: |
+    The task body claims `workspace--tab-index-for` "returns 0-indexed
+    (or nil)" and prescribes `(1+ tab-idx)` as the bridge to
+    `tab-bar-close-tab`'s 1-based arg. Reading `tabs.org`, the helper
+    seeds its counter at `i 1` and returns the 1-based index directly;
+    every existing caller passes it to `tab-bar-select-tab` /
+    `tab-bar-rename-tab` without `1+`. Following the task body literally
+    would have closed the *next* tab instead of the workspace's.
+  recommendation: |
+    The same provenance comment as disc-1: pin claims against the
+    actual code. A reasonable follow-up is to add a docstring example
+    or invariant note in `tabs.org` that explicitly states the
+    1-based convention, so future readers don't have to derive it
+    from the loop seed. Not in scope for this task.
+- discovery_id: disc-workspace-delete-and-purge-3
+  class: scope-question
+  description: |
+    `workspace-delete-layout` lost its `C-x w D` binding in this
+    change because the workspace-level `workspace-delete` claimed
+    the slot per design.md §D10. I relegated the layout command to
+    `M-x`-only rather than picking a new single-letter binding. The
+    rationale (uppercase letters in `C-x w` are crowded by cycle-4)
+    is in `## Observations`. If the change author wants a binding,
+    the natural candidates are `C-x w X` (mnemonic: kill — but
+    overloaded with `kill-region`-style verbs) or a layout-prefix
+    `C-x w l D` (mnemonic: layout-delete — but requires introducing
+    a sub-prefix that doesn't exist yet).
+  recommendation: |
+    Leave as `M-x`-only unless usage data suggests otherwise. If a
+    sub-prefix gets introduced for layout commands in a future
+    cycle, fold the layout-scoped operations under it
+    (`workspace-switch-layout`, `workspace-save-layout`,
+    `workspace-delete-layout`); the current flat namespace is hitting
+    its limits as more workspace-level commands land.
