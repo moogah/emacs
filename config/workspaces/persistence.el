@@ -63,12 +63,23 @@ Returns the list of workspaces that were inserted into the registry.
 Does NOT create tabs; `workspace--restore-tabs' does that.  Assumes
 STATE has already been version-checked by `workspace--read-state'.
 
-Two filtering rules apply per entry (design.md §D5, §D6):
+Three filtering rules apply per entry (design.md §D5, §D6; cycle-2
+architect finding =arch-cycle-20260525-213500-04= for the
+absolute-path arm):
 
 - Entries lacking the required =:home= slot are structural corruption
   (the writer should have produced one); emit an *Messages* notice
   naming the entry and skip it.  Sibling entries in the same file are
   still loaded — one bad entry should not tank the whole session.
+
+- Entries whose =:home= is a relative path violate
+  =register/invariant/home-required-no-floating-workspaces= (which
+  requires =:home= to be an absolute filesystem anchor).  Such
+  entries are skipped with a notice naming the offending value; this
+  is the deserializer-side enforcement of the absolute-path
+  requirement (the constructor =workspace--make= is the other entry
+  point, but we cannot rely on it for hand-edited or corrupted
+  persistence files).
 
 - Entries whose =:home= directory does not exist on disk are tagged
   via `workspace--mark-broken' before insertion.  The broken tag is
@@ -85,6 +96,10 @@ Two filtering rules apply per entry (design.md §D5, §D6):
           (message
            "Workspaces: skipping persisted entry %S — missing :home slot"
            name))
+         ((not (file-name-absolute-p home))
+          (message
+           "Workspaces: skipping persisted entry %S — :home %S is not absolute"
+           name home))
          (t
           (let* ((broken-p (not (file-directory-p home)))
                  (with-broken (if broken-p
@@ -350,7 +365,11 @@ If a tab for NAME already exists, switch to it.  Otherwise create a
 tab and apply the workspace's saved window configuration.
 
 Interactively, completes over every workspace in the registry —
-including saved workspaces that have no live tab."
+including saved workspaces that have no live tab.
+
+Signals `user-error' if NAME is in a broken state (its `:home' no
+longer exists on disk).  Use `workspace-re-anchor' to point it at a
+new path or `workspace-purge' to remove the registry entry."
   (interactive
    (let ((names (workspace--registered-names)))
      (unless names
@@ -359,6 +378,11 @@ including saved workspaces that have no live tab."
                             nil t nil 'workspace--restore-history))))
   (unless (gethash name workspace--registry)
     (user-error "No saved workspace named %s" name))
+  (let ((ws (gethash name workspace--registry)))
+    (when (and ws (workspace--broken-p ws))
+      (user-error
+       "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'."
+       name (workspace--home ws))))
   (if-let ((idx (workspace--tab-index-for name)))
       (tab-bar-select-tab idx)
     (tab-bar-new-tab)

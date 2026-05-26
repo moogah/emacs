@@ -254,3 +254,161 @@ does not touch the deserializer directly, but if you read it for
 reference your inspiration patterns now show `(workspace--mark-broken ws)`
 and `(workspace--mark-restore-pending ws)` instead of inline
 `plist-put`.
+
+## Observations
+
+- Task body's example code for `workspace-re-anchor` placed the
+  tab-rename branch's `(workspace--tab-index-for name)` lookup AFTER
+  `remhash`. The lookup walks `frame-parameter 'tabs` but qualifies
+  matches by `(gethash name workspace--registry)` for ownership — so
+  once the old key has been removed the index lookup returns nil and
+  the live tab is never relabeled. Reproduced once empirically (one
+  test failure on the live-tab-rename arm of the rename-basename spec),
+  fixed by capturing `tab-idx` before mutating the registry. This is a
+  small drift between the task body's prescriptive example and the
+  actual implementation contract of `workspace--tab-index-for`;
+  reviewer should confirm the ordering.
+
+- Task body also wrote `(tab-bar-rename-tab new-name (1+ tab-idx))`.
+  `workspace--tab-index-for` returns a 1-based index already (its
+  docstring says so), and Emacs's `tab-bar-rename-tab` expects a
+  1-based tab number. Passing `(1+ tab-idx)` would target the wrong
+  tab. Used `tab-idx` directly; matches existing call sites
+  (`tabs.org` line 157, `persistence.org` line 528 use
+  `workspace--tab-index-for` directly with `tab-bar-select-tab`).
+
+- The keybinding for `C-x w R` already existed and pointed at
+  `workspace-switch-to-recent-layout`. Per design.md §D10 the spot
+  goes to `workspace-re-anchor`; relocated the previous occupant to
+  `C-x w T` ("to recent") to avoid losing the affordance silently.
+  Updated both the keybindings table and the `global-set-key` block
+  in `workspaces.org`. Reviewer should sanity-check that the
+  displacement does not violate any spec assertion about the old
+  binding; I did not find one in the change's specs.
+
+- `workspaces.org` is a loader, not a command home. Per task body the
+  new `workspace-re-anchor` defun lives there. Placed it AFTER the
+  `Submodules` section so all dependencies (`workspace--registry`,
+  `workspace--clear-broken`, `workspace--set-home`,
+  `workspace--tab-index-for`, `workspace--flush-state`) are loaded
+  by the time the defun's body runs. The defun itself is just a
+  definition at load time; only its body executes at call time.
+
+- The test for the rename-basename branch intentionally relies on
+  `workspace--name` continuing to hold the OLD name after the
+  rename — the implementation does NOT rewrite the `:name` slot of
+  the workspace plist on re-anchor; only the registry KEY changes.
+  This matches the design's distinction between "registry name"
+  (the key) and the plist `:name` slot. Worth noting because a
+  future refactor that propagates the rename into the plist would
+  change this test's assertion; the test documents the current
+  contract.
+
+- Cycle-2 architect finding `arch-cycle-20260525-213500-04` flagged
+  the absolute-path gap on
+  `register/invariant/home-required-no-floating-workspaces`.
+  Absorbed the deserializer arm here (with a spec) but did NOT add
+  a defensive `cl-check-type` / `error` in `workspace--make`. The
+  task body listed that as optional; chose not to add it because
+  there are still in-tree call sites synthesising paths through
+  `wire-home-into-callsites--synthesize-home`
+  (`tabs.org:135-143`) and `scaffold.el` whose contracts I did
+  not want to tighten in a parallel cycle. Recommend a follow-up
+  to enforce at the constructor once cycle-3's
+  `workspace-new-default-path` task lands.
+
+## Discoveries
+
+- discovery_id: disc-broken-home-tolerance-1
+  class: invariant-gap
+  description: |
+    `register/invariant/home-required-no-floating-workspaces`
+    requires that every workspace's `:home` be an absolute filesystem
+    path. The previous deserializer enforced `(file-directory-p
+    :home)` (the broken-state arm) but did NOT enforce
+    `(file-name-absolute-p :home)`. This task added the
+    relative-path skip arm to `workspace--deserialize-state` with a
+    notice `"Workspaces: skipping persisted entry %S — :home %S is
+    not absolute"` and a spec it-clause that asserts the entry is
+    not loaded into the registry. The absolute-path requirement is
+    now structurally enforced at the persistence boundary.
+    `workspace--make` still does NOT defensively assert absolute
+    paths; see Observations for the rationale and the
+    recommended follow-up.
+  affected_register_entry: register/invariant/home-required-no-floating-workspaces
+  recommendation: |
+    Reconcile entry: status confirmed → reconciled. Add the
+    deserializer absolute-path arm to the enforcement
+    locus list. Open a follow-up task (cycle-3 or later) to add
+    a constructor-side `cl-check-type` / `error` in
+    `workspace--make` so the invariant has two
+    independent enforcement points (persistence + constructor),
+    matching the broken-tag pattern.
+
+- discovery_id: disc-broken-home-tolerance-2
+  class: interface-drift
+  description: |
+    `design.md` §D5 and §D6 use the name `workspace--home-broken-p`
+    for the predicate (cited verbatim in cycle-1 open ask
+    `ask-cycle-20260525-200459-1`). The actual implementation
+    (and `register/shape/workspace-plist-v3`,
+    `register/vocabulary/workspace-broken-disposition`,
+    `register/invariant/broken-tag-runtime-only`) uses
+    `workspace--broken-p`. Implementor used `workspace--broken-p`
+    (matches code + register; the cycle-1 ask resolved by name in
+    favor of the register). design.md is the only stale reference.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    No register reconciliation needed — register already uses
+    the correct name. Integrate phase: open a `.tasks/`
+    follow-up to update design.md §D5/§D6 to reference
+    `workspace--broken-p`. Out-of-scope for this task per the
+    brief ("do not modify design.md").
+
+- discovery_id: disc-broken-home-tolerance-3
+  class: deviation
+  description: |
+    Task body's `workspace-re-anchor` example listed the registry
+    rename in the wrong order: it called `(remhash name
+    workspace--registry)` BEFORE looking up
+    `(workspace--tab-index-for name)`. Since
+    `workspace--tab-index-for` qualifies matches by
+    `(gethash name workspace--registry)` for ownership, the lookup
+    after `remhash` returns nil and the live tab is never
+    relabeled. Implementor captured `tab-idx` BEFORE the mutation;
+    a buttercup test on the live-tab-rename arm reproduced the
+    failure once, then passed after the fix.
+
+    Also: task body's example wrote
+    `(tab-bar-rename-tab new-name (1+ tab-idx))`. The
+    `workspace--tab-index-for` helper returns a 1-based index
+    already and `tab-bar-rename-tab` expects a 1-based number, so
+    `(1+ tab-idx)` targets the wrong tab. Used `tab-idx` directly;
+    consistent with all other call sites in
+    `tabs.org` / `persistence.org`.
+  affected_register_entry: register/invariant/registry-name-equals-basename
+  recommendation: |
+    No register entry update needed — the invariant itself is
+    intact (registry key DOES equal `:home` basename after the
+    rename). The discoveries are about prescription accuracy in
+    the task body, not about the contract. Integrate phase may
+    want to update future task templates to flag the
+    tab-rename ordering and the tab-number argument convention.
+
+- discovery_id: disc-broken-home-tolerance-4
+  class: scope-question
+  description: |
+    The keybinding `C-x w R` was previously bound to
+    `workspace-switch-to-recent-layout` (existing) and is reassigned
+    here to `workspace-re-anchor` per design.md §D10. The previous
+    occupant was relocated to `C-x w T` to avoid losing the
+    affordance silently. design.md §D10 does NOT specify what to
+    do with the displaced binding; this is a local decision. No
+    spec or register entry references `C-x w R` or
+    `workspace-switch-to-recent-layout` as a load-bearing pair.
+  recommendation: |
+    Reviewer should confirm the relocation (`R` → `T` for the
+    displaced command) is acceptable and is documented adequately
+    in `workspaces.org`'s keybindings note. If not acceptable,
+    options include dropping the displaced binding entirely or
+    finding another letter; no test will catch the choice.

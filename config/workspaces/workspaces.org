@@ -112,6 +112,68 @@ layout= from =layouts=) exist at definition time.
 (require 'workspaces-mode)
 #+end_src
 
+* Re-anchor command
+
+=workspace-re-anchor= is the user-facing recovery command for the
+broken-state disposition (register/vocabulary/workspace-broken-
+disposition).  When a workspace's =:home= directory has been moved or
+recreated under a new name, the user can point the registry entry at
+the new path; if the new basename differs from the registry key, the
+entry is renamed in place to honour the registry-name-equals-basename
+invariant (register/invariant/registry-name-equals-basename).
+
+Mutation discipline: the broken tag is cleared via
+=workspace--clear-broken= (never inline =plist-put=) per
+register/invariant/broken-tag-runtime-only and the cycle-2
+architect-pinned contract.  Registry rename is a remhash/puthash pair;
+collisions are guarded.
+
+#+begin_src emacs-lisp
+(defun workspace-re-anchor (name new-home)
+  "Point broken workspace NAME at NEW-HOME on the filesystem.
+
+Clears the broken-state tag and updates `:home'.  If
+=(file-name-nondirectory (directory-file-name NEW-HOME))= differs
+from NAME, the registry entry is renamed to match the new basename
+(per the registry-name-equals-basename invariant).
+
+The new path must exist and must be a directory."
+  (interactive
+   (list (completing-read "Re-anchor workspace: "
+                          (workspace--registered-names) nil t)
+         (file-name-as-directory
+          (read-directory-name "New home directory: " nil nil t))))
+  (let ((ws (gethash name workspace--registry)))
+    (unless ws
+      (user-error "No workspace named %s" name))
+    (unless (file-directory-p new-home)
+      (user-error "Not a directory: %s" new-home))
+    (let* ((new-name (file-name-nondirectory
+                      (directory-file-name new-home)))
+           (next-ws (workspace--clear-broken
+                     (workspace--set-home ws new-home))))
+      ;; If basename changed, rename the registry key too.
+      (cond
+       ((string= name new-name)
+        (puthash name next-ws workspace--registry))
+       (t
+        (when (gethash new-name workspace--registry)
+          (user-error
+           "Cannot rename to %s — a workspace with that name already exists"
+           new-name))
+        ;; Capture the tab index BEFORE we mutate the registry —
+        ;; `workspace--tab-index-for' consults `workspace--registry'
+        ;; for ownership, so after `remhash' the lookup would fail.
+        (let ((tab-idx (workspace--tab-index-for name)))
+          (remhash name workspace--registry)
+          (puthash new-name next-ws workspace--registry)
+          ;; Update tab label if a live tab exists.
+          (when tab-idx
+            (tab-bar-rename-tab new-name tab-idx)))))
+      (workspace--flush-state)
+      (message "Workspace re-anchored: %s → %s" name new-home))))
+#+end_src
+
 * Keybindings
 
 User-facing commands hang off the =C-x w= prefix (design.md Open
@@ -128,9 +190,17 @@ it is a sibling not a parent.
 | =C-x w l= | =workspace-switch-layout=            |
 | =C-x w L= | =workspace-save-layout=              |
 | =C-x w D= | =workspace-delete-layout=            |
-| =C-x w R= | =workspace-switch-to-recent-layout=  |
+| =C-x w R= | =workspace-re-anchor=                |
+| =C-x w T= | =workspace-switch-to-recent-layout=  |
 | =C-x w r= | =workspace-revert=                   |
 | =C-x w b= | =workspace-remove-buffer=            |
+
+Note: cycle-3 design.md §D10 pins =C-x w R= to =workspace-re-anchor=
+(the broken-home recovery command).  The previous occupant of =R= —
+=workspace-switch-to-recent-layout= — was relocated to =T= (mnemonic:
+"to recent").  =workspace-delete= (uppercase =D=) and
+=workspace-purge= (uppercase =P=) are bound by the
+=workspace-delete-and-purge= task once it lands; both displace nothing.
 
 =workspace-save= (=C-x w S=) captures the live frame and writes
 synchronously.  The lower-level =workspace-save-state= still exists
@@ -153,7 +223,8 @@ enumerated for the v2 cycle.
 (global-set-key (kbd "C-x w l") #'workspace-switch-layout)
 (global-set-key (kbd "C-x w L") #'workspace-save-layout)
 (global-set-key (kbd "C-x w D") #'workspace-delete-layout)
-(global-set-key (kbd "C-x w R") #'workspace-switch-to-recent-layout)
+(global-set-key (kbd "C-x w R") #'workspace-re-anchor)
+(global-set-key (kbd "C-x w T") #'workspace-switch-to-recent-layout)
 (global-set-key (kbd "C-x w r") #'workspace-revert)
 (global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 #+end_src

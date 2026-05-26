@@ -111,12 +111,21 @@ displays become workspace members via the buffer-membership module."
 (defun workspace-switch (name)
   "Select the tab for workspace NAME.
 
-Interactively completes over workspaces currently backed by a tab."
+Interactively completes over workspaces currently backed by a tab.
+
+Signals `user-error' if NAME is in a broken state (its `:home' no
+longer exists on disk).  Use `workspace-re-anchor' to point it at a
+new path or `workspace-purge' to remove the registry entry."
   (interactive
    (list (completing-read
           "Switch to workspace: "
           (seq-filter #'workspace--tab-for (workspace--registered-names))
           nil t)))
+  (let ((ws (gethash name workspace--registry)))
+    (when (and ws (workspace--broken-p ws))
+      (user-error
+       "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'."
+       name (workspace--home ws))))
   (let ((idx (workspace--tab-index-for name)))
     (unless idx
       (user-error "No tab found for workspace %s" name))
