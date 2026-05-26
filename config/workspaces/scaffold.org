@@ -102,7 +102,7 @@ Does nothing if `home.org' already exists.
 
 This function is the SOLE writer of `home.org' in the workspaces
 package — see `register/invariant/home-org-user-authored-after-creation'."
-  (let ((path (expand-file-name "home.org" home)))
+  (let ((path (workspace-home-org-path home)))
     (unless (file-exists-p path)
       (with-temp-file path
         (insert (format "#+TITLE: %s\n\n" name))
