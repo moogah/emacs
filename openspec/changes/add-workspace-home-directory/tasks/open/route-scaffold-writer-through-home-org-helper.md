@@ -2,7 +2,8 @@
 name: route-scaffold-writer-through-home-org-helper
 description: Route scaffold.el's home.org writer through the workspace-home-org-path helper instead of inlining (expand-file-name "home.org" home), matching the cycle-3 inline-fix pattern applied to tabs.el
 change: add-workspace-home-directory
-status: ready
+status: needs-review
+merge_commit: 7f74a01
 relations:
   - discovered-from:arch-cycle-20260526-171719-01
 ---

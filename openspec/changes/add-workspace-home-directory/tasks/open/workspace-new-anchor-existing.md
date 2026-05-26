@@ -2,7 +2,8 @@
 name: workspace-new-anchor-existing
 description: Prefix-arg branch — anchor an existing directory with three sub-cases (repo+home.org, repo no home.org, non-repo); double-registration guard
 change: add-workspace-home-directory
-status: ready
+status: needs-review
+merge_commit: 9cbba3e
 relations: []
 ---
 
