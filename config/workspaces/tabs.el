@@ -2,6 +2,7 @@
 
 (require 'tab-bar)
 (require 'workspace-data-model)
+(require 'workspace-scaffold)
 
 (defvar workspace--registry (make-hash-table :test 'equal)
   "WORKSPACE-NAME → workspace plist.
@@ -58,55 +59,71 @@ Returns nil if no such tab exists."
             i (1+ i)))
     result))
 
-(defun workspace-default-home-builder (_workspace-name)
-  "Default `workspace-home-builder': show a single window on *scratch*."
+(defun workspace-default-home-builder (workspace-name)
+  "Default `workspace-home-builder': `find-file' the workspace's home.org.
+Looks up the workspace by WORKSPACE-NAME and opens
+`<:home>/home.org' in a single window. If the workspace has no
+`:home' (defensive — should never happen now that :home is
+required), falls back to *scratch*."
   (delete-other-windows)
-  (switch-to-buffer (get-buffer-create "*scratch*")))
+  (let* ((ws (gethash workspace-name workspace--registry))
+         (home (and ws (workspace--home ws))))
+    (if home
+        (find-file (expand-file-name "home.org" home))
+      (switch-to-buffer (get-buffer-create "*scratch*")))))
 
-;; CYCLE-1 PLACEHOLDER: this helper synthesizes a HOME path so that
-;; `workspace--make' (whose signature now requires HOME) has something
-;; to anchor to.  Cycle 3's `workspace-new-default-path' task replaces
-;; this with the proper `workspaces-default-parent-directory'
-;; defcustom + scaffold pipeline (which also creates the directory on
-;; disk).  Until then, hardcode a sensible default so workspace-new
-;; produces a valid :home and the branch stays buildable.  See task
-;; `wire-home-into-callsites'.
-(defun wire-home-into-callsites--synthesize-home (name)
-  "Synthesize a placeholder home path for NAME.
-This is a CYCLE-1 PLACEHOLDER replaced by cycle-3's
-`workspace-new-default-path' task (which introduces the
-`workspaces-default-parent-directory' defcustom + scaffold pipeline)."
-  (file-name-as-directory
-   (expand-file-name
-    name
-    (expand-file-name "emacs-workspaces" (or (getenv "HOME") "~")))))
+(defun workspace--new-anchor-existing ()
+  "Anchor-existing-directory branch of `workspace-new'.
+Stub: implemented by task `workspace-new-anchor-existing' in cycle 4.
+Signals `user-error' so the prefix-arg call structure is exercised
+but no anchoring occurs."
+  (user-error "Anchor-existing not yet implemented (cycle 4)"))
 
-(defun workspace-new (name)
-  "Create a new workspace named NAME (or select it if it already exists).
+(defun workspace--new-default-path (name)
+  "Default-path branch of `workspace-new'.
+Scaffold a fresh workspace directory at
+=(expand-file-name NAME workspaces-default-parent-directory)=.
 
-A new tab is created and renamed to NAME; the registry entry is
-inserted before the home builder runs so the new workspace is
-recognized by `workspace--current-name' from the builder onward.
-The home builder runs in the context of the new tab; buffers it
-displays become workspace members via the buffer-membership module."
-  (interactive "sWorkspace name: ")
-  (let ((existing-tab (workspace--tab-for name)))
-    (if existing-tab
-        (progn
-          (tab-bar-select-tab (workspace--tab-index-for name))
-          (gethash name workspace--registry))
-      (tab-bar-new-tab)
-      (tab-bar-rename-tab name)
-      ;; Register BEFORE running the home builder so the new tab is
-      ;; recognized as owned by workspaces from this point on.
-      (let ((ws (workspace--make
-                 name
-                 (wire-home-into-callsites--synthesize-home name))))
-        (puthash name ws workspace--registry))
-      (when (and (boundp 'workspace-home-builder)
-                 (functionp workspace-home-builder))
-        (funcall workspace-home-builder name))
-      (gethash name workspace--registry))))
+Signal `user-error' if that directory already exists (the user's
+remedy is the prefix-arg form, which anchors an existing dir).
+Otherwise: scaffold first (creates the directory, git-inits it,
+writes home.org and sessions/<date>-initial.org, commits); only on
+scaffold success do we register the workspace, create a tab, and
+run the home builder.  The home builder runs last so any buffers it
+displays become members of the freshly-registered workspace."
+  (let* ((home (expand-file-name
+                name
+                workspaces-default-parent-directory)))
+    (when (file-exists-p home)
+      (user-error
+       "Cannot scaffold %s: %s already exists. Use `C-u %s' to anchor an existing dir."
+       name home (key-description (where-is-internal 'workspace-new nil t))))
+    ;; Scaffold first; only register if scaffold succeeded.
+    (workspace-scaffold home name :init-and-commit? t)
+    (tab-bar-new-tab)
+    (tab-bar-rename-tab name)
+    (puthash name (workspace--make name home) workspace--registry)
+    (when (and (boundp 'workspace-home-builder)
+               (functionp workspace-home-builder))
+      (funcall workspace-home-builder name))
+    (gethash name workspace--registry)))
+
+(defun workspace-new (name &optional anchor-existing)
+  "Create a new workspace named NAME.
+
+With no prefix argument (ANCHOR-EXISTING is nil), scaffold a fresh
+directory at `(expand-file-name NAME workspaces-default-parent-directory)'.
+Signal `user-error' if that directory already exists.
+
+With a prefix argument (ANCHOR-EXISTING is non-nil), prompt for an
+existing directory to anchor — see Requirement: Anchoring an
+existing directory via prefix arg. (That branch is implemented in
+task `workspace-new-anchor-existing'; for this task, only the
+default-path scaffold flow is wired.)"
+  (interactive "sWorkspace name: \nP")
+  (if anchor-existing
+      (workspace--new-anchor-existing)
+    (workspace--new-default-path name)))
 
 (defun workspace-switch (name)
   "Select the tab for workspace NAME.

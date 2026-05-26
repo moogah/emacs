@@ -24,13 +24,23 @@
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
 (defun workspaces-spec--reset ()
-  "Reset tab-bar and workspace registry to a known empty state."
+  "Reset tab-bar and workspace registry to a known empty state.
+Also stubs `workspace-scaffold' and points
+`workspaces-default-parent-directory' at a fresh tmpdir, so
+`workspace-new' is filesystem-isolated for these specs (cycle-3 wired
+the scaffold pipeline; pre-existing specs predate that and don't
+exercise it).  Must be called from `before-each' — buttercup's
+`spy-on' requires it."
   (clrhash workspace--registry)
   ;; Close all but one tab.
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
-        (tab-bar-close-tab 2)))))
+        (tab-bar-close-tab 2))))
+  (spy-on 'workspace-scaffold :and-call-fake
+          (lambda (home _name &rest _) (make-directory home t) home))
+  (setq workspaces-default-parent-directory
+        (make-temp-file "ws-tabs-spec-" t)))
 
 (describe "workspace-new"
   (before-each (workspaces-spec--reset))
@@ -50,14 +60,14 @@
     (expect (workspace--name (gethash "alpha" workspace--registry))
             :to-equal "alpha"))
 
-  (it "re-selects an existing workspace's tab on duplicate name (and does not create another)"
-    (workspace-new "alpha")
-    (workspace-new "beta")
-    (let ((count-before (length (funcall tab-bar-tabs-function))))
-      (workspace-new "alpha")
-      (expect (length (funcall tab-bar-tabs-function))
-              :to-equal count-before)
-      (expect (workspace--current-name) :to-equal "alpha"))))
+  ;; The cycle-1 "re-select existing workspace's tab on duplicate name"
+  ;; test was removed in cycle-3 (task workspace-new-default-path).
+  ;; The contract changed: per design D2 + spec scenario "Default-path
+  ;; collision is rejected", a duplicate workspace name whose home
+  ;; directory already exists now signals `user-error' (the user's
+  ;; remedy is the prefix-arg form, which anchors an existing dir).
+  ;; The collision case is covered in workspace-new-default-spec.el.
+  )
 
 (describe "workspace-switch"
   (before-each (workspaces-spec--reset))

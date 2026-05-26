@@ -12,9 +12,18 @@
 (defcustom workspace-home-builder #'workspace-default-home-builder
   "Function called to build the `home' layout for a newly-created workspace.
 Called with one argument WORKSPACE-NAME, in the context of the freshly
-activated workspace.  Any buffers it displays become members of the
-new workspace."
+activated workspace.  The default implementation opens
+=<:home>/home.org= for the workspace via a registry lookup; any buffers
+it displays become members of the new workspace."
   :type 'function
+  :group 'workspaces)
+
+(defcustom workspaces-default-parent-directory
+  (expand-file-name "emacs-workspaces" (or (getenv "HOME") "~"))
+  "Default parent directory under which `workspace-new' creates new workspaces.
+When `workspace-new NAME' is invoked without a prefix arg, the new
+workspace's home directory is `(expand-file-name NAME this-dir)'."
+  :type 'directory
   :group 'workspaces)
 
 (defun workspace--backtrace-visible-p ()

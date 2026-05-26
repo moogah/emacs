@@ -21,11 +21,20 @@
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
 (defun layouts-spec--reset ()
+  "Reset state for each spec.
+Also stubs `workspace-scaffold' and points
+`workspaces-default-parent-directory' at a fresh tmpdir so
+`workspace-new' is filesystem-isolated (cycle-3 wired the scaffold
+pipeline)."
   (clrhash workspace--registry)
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
-        (tab-bar-close-tab 2)))))
+        (tab-bar-close-tab 2))))
+  (spy-on 'workspace-scaffold :and-call-fake
+          (lambda (home _name &rest _) (make-directory home t) home))
+  (setq workspaces-default-parent-directory
+        (make-temp-file "ws-layouts-spec-" t)))
 
 (describe "workspace-save-layout"
   (before-each (layouts-spec--reset))
@@ -277,7 +286,13 @@
     (let ((tabs (frame-parameter nil 'tabs)))
       (when (> (length tabs) 1)
         (dotimes (_ (1- (length tabs)))
-          (tab-bar-close-tab 2)))))
+          (tab-bar-close-tab 2))))
+    ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+    ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+    (spy-on 'workspace-scaffold :and-call-fake
+            (lambda (home _name &rest _) (make-directory home t) home))
+    (setq workspaces-default-parent-directory
+          (make-temp-file "ws-layouts-spec-" t)))
 
   (it "embeds a workspace-buffer struct in every captured leaf"
     (workspace-new "alpha")

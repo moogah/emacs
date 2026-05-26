@@ -31,7 +31,13 @@
       (dotimes (_ (1- (length tabs)))
         (tab-bar-close-tab 2))))
   (setq persistence-spec--tmp-dir
-        (make-temp-file "ws-state-" t)))
+        (make-temp-file "ws-state-" t))
+  ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+  ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+  (spy-on 'workspace-scaffold :and-call-fake
+          (lambda (home _name &rest _) (make-directory home t) home))
+  (setq workspaces-default-parent-directory
+        (make-temp-file "ws-persistence-spec-" t)))
 
 (defun persistence-spec--cleanup ()
   (when (and persistence-spec--tmp-dir

@@ -27,7 +27,13 @@
         (tab-bar-close-tab 2))))
   (delete-other-windows)
   (setq save-restore-spec--tmp-dir
-        (make-temp-file "ws-save-restore-" t)))
+        (make-temp-file "ws-save-restore-" t))
+  ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+  ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+  (spy-on 'workspace-scaffold :and-call-fake
+          (lambda (home _name &rest _) (make-directory home t) home))
+  (setq workspaces-default-parent-directory
+        (make-temp-file "ws-save-restore-spec-" t)))
 
 (defun save-restore-spec--cleanup ()
   (when (and save-restore-spec--tmp-dir

@@ -151,7 +151,13 @@
     (let ((tabs (frame-parameter nil 'tabs)))
       (when (> (length tabs) 1)
         (dotimes (_ (1- (length tabs)))
-          (tab-bar-close-tab 2)))))
+          (tab-bar-close-tab 2))))
+    ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+    ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+    (spy-on 'workspace-scaffold :and-call-fake
+            (lambda (home _name &rest _) (make-directory home t) home))
+    (setq workspaces-default-parent-directory
+          (make-temp-file "ws-br-spec-" t)))
 
   (it "schedules window-state-put via run-at-time rather than calling it immediately"
     (let* ((scheduled nil)
@@ -183,7 +189,13 @@
     (let ((tabs (frame-parameter nil 'tabs)))
       (when (> (length tabs) 1)
         (dotimes (_ (1- (length tabs)))
-          (tab-bar-close-tab 2)))))
+          (tab-bar-close-tab 2))))
+    ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+    ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+    (spy-on 'workspace-scaffold :and-call-fake
+            (lambda (home _name &rest _) (make-directory home t) home))
+    (setq workspaces-default-parent-directory
+          (make-temp-file "ws-br-spec-" t)))
 
   (it "stale deferred restore no-ops when a newer one has been queued"
     ;; Two restores in rapid succession.  Capture both closures; fire
@@ -244,7 +256,13 @@
     (let ((tabs (frame-parameter nil 'tabs)))
       (when (> (length tabs) 1)
         (dotimes (_ (1- (length tabs)))
-          (tab-bar-close-tab 2)))))
+          (tab-bar-close-tab 2))))
+    ;; Stub workspace-scaffold + tmpdir for workspaces-default-parent-directory
+    ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
+    (spy-on 'workspace-scaffold :and-call-fake
+            (lambda (home _name &rest _) (make-directory home t) home))
+    (setq workspaces-default-parent-directory
+          (make-temp-file "ws-br-spec-" t)))
 
   (it "stale deferred restore no-ops when triggered by a later workspace-switch-layout"
     ;; Two `workspace-switch-layout' calls back-to-back across two
