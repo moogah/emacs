@@ -26,6 +26,7 @@ This module owns:
 
 (require 'tab-bar)
 (require 'workspace-data-model)
+(require 'workspace-home-org)
 (require 'workspace-scaffold)
 #+end_src
 
@@ -152,11 +153,8 @@ required), falls back to *scratch*."
 =workspace-new= dispatches by prefix-arg: with no prefix arg it
 scaffolds a fresh directory under
 =workspaces-default-parent-directory= via the scaffold pipeline; with
-a prefix arg it anchors an existing directory (implemented by sibling
-task =workspace-new-anchor-existing=).  This cycle wires only the
-default-path branch; the anchor-existing branch is a stub that signals
-=user-error= so the interactive call structure is in place for the
-follow-up cycle.
+a prefix arg it anchors an existing directory (=workspace--new-
+anchor-existing=, implemented below).
 
 The default-path branch order is deliberate (design.md §D2): scaffold
 first (the fail-prone step — git, filesystem); only register and
@@ -164,13 +162,96 @@ create the tab if scaffold succeeded.  On scaffold failure the
 =user-error= propagates verbatim and the registry / tab-bar are
 untouched (=register/invariant/scaffold-leave-partial-on-failure=).
 
+The anchor-existing branch has three sub-cases distinguished by the
+target directory's state (design.md §D2 / spec "Anchoring an existing
+directory via prefix arg"):
+
+1. *Repo + =home.org= already present* — register only.  We never
+   touch a repo we did not initialize, and we never overwrite a
+   user-authored =home.org=.
+2. *Repo, no =home.org=* — call =workspace-scaffold= with
+   =:init-and-commit? nil=.  Stages 1, 3, 4, 5 run (mkdir is
+   idempotent; home.org write is guarded; sessions/ + initial session
+   land safely).  Stages 2 (=git init=) and 6 (=git add . && git
+   commit=) are skipped — the user owns this repo and we do not
+   stage their changes for them.
+3. *Not a git repo* — call =workspace-scaffold= with =:init-and-
+   commit? t=.  Same pipeline as the default-path branch.
+
+A double-registration guard refuses to anchor a directory that is
+already a registered workspace's =:home=.  Path comparison is by
+=file-equal-p= on directory-normalized, =expand-file-name='d paths so
+trailing-slash and =~= variants do not produce false negatives.  This
+preserves the registry-key uniqueness invariant (broken entries are
+not exempt: a broken workspace's =:home= is still a registered home).
+
+The construction order mirrors the default-path branch — work first,
+register last — so a scaffold failure leaves the registry and
+tab-bar untouched.
+
 #+begin_src emacs-lisp
+(defun workspace--registered-for-home-p (home)
+  "Return non-nil if any workspace in the registry has =:home= equal to HOME.
+
+Path comparison is by `file-equal-p' on directory-normalized,
+`expand-file-name'-d paths so trailing-slash and =~= variants do
+not produce false negatives.  Broken-state workspaces are NOT
+exempt: a broken workspace's =:home= remains a registered home for
+the purposes of the uniqueness invariant."
+  (let ((target (file-name-as-directory (expand-file-name home))))
+    (catch 'found
+      (maphash
+       (lambda (_name ws)
+         (let ((ws-home (workspace--home ws)))
+           (when (and ws-home
+                      (file-equal-p (file-name-as-directory
+                                     (expand-file-name ws-home))
+                                    target))
+             (throw 'found t))))
+       workspace--registry)
+      nil)))
+
 (defun workspace--new-anchor-existing ()
-  "Anchor-existing-directory branch of `workspace-new'.
-Stub: implemented by task `workspace-new-anchor-existing' in cycle 4.
-Signals `user-error' so the prefix-arg call structure is exercised
-but no anchoring occurs."
-  (user-error "Anchor-existing not yet implemented (cycle 4)"))
+  "Anchor an existing directory as a workspace.
+Prompts for an existing directory (`read-directory-name' with
+mustmatch=t) and registers it as a workspace.  Three sub-cases by
+directory state:
+
+  1. Git repo AND has home.org  → register only; no scaffolding.
+  2. Git repo, no home.org      → scaffold files; NO git ops
+                                  (the user owns this repo).
+  3. Not a git repo             → full scaffold (mkdir, git init,
+                                  files, initial commit).
+
+Signals `user-error' if HOME is already a registered workspace's
+=:home= (compared by `file-equal-p').  Returns the freshly-registered
+workspace plist on success."
+  (let* ((home (file-name-as-directory
+                (read-directory-name "Anchor workspace at: " nil nil t)))
+         (name (file-name-nondirectory
+                (directory-file-name home))))
+    (when (workspace--registered-for-home-p home)
+      (user-error "Already a registered workspace: %s" home))
+    (let ((is-repo? (file-directory-p (expand-file-name ".git" home)))
+          (has-home-org? (workspace-home-org-exists-p home)))
+      (cond
+       ;; Case 1: repo + home.org → register only.
+       ((and is-repo? has-home-org?)
+        ;; No scaffolding; just register.
+        )
+       ;; Case 2: repo, no home.org → scaffold files, no git ops.
+       (is-repo?
+        (workspace-scaffold home name :init-and-commit? nil))
+       ;; Case 3: non-repo → full scaffold including git init + commit.
+       (t
+        (workspace-scaffold home name :init-and-commit? t)))
+      (tab-bar-new-tab)
+      (tab-bar-rename-tab name)
+      (puthash name (workspace--make name home) workspace--registry)
+      (when (and (boundp 'workspace-home-builder)
+                 (functionp workspace-home-builder))
+        (funcall workspace-home-builder name))
+      (gethash name workspace--registry))))
 
 (defun workspace--new-default-path (name)
   "Default-path branch of `workspace-new'.
@@ -209,10 +290,11 @@ directory at `(expand-file-name NAME workspaces-default-parent-directory)'.
 Signal `user-error' if that directory already exists.
 
 With a prefix argument (ANCHOR-EXISTING is non-nil), prompt for an
-existing directory to anchor — see Requirement: Anchoring an
-existing directory via prefix arg. (That branch is implemented in
-task `workspace-new-anchor-existing'; for this task, only the
-default-path scaffold flow is wired.)"
+existing directory to anchor (NAME is ignored — the workspace name
+is derived from the chosen directory's basename, per
+=register/invariant/registry-name-equals-basename=).  See the
+docstring of `workspace--new-anchor-existing' for the three
+sub-cases."
   (interactive "sWorkspace name: \nP")
   (if anchor-existing
       (workspace--new-anchor-existing)
