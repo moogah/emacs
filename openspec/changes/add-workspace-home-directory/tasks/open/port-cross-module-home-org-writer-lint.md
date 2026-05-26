@@ -183,3 +183,93 @@ already marked archived at cycle-1 integrate.)
 None directly. The cycle-2 cross-contract collision (orchestrator
 fix `63d60ec` removing the dead featurep branch from scaffold.el)
 does not affect the writer's identity or signature.
+
+## Observations
+
+- The task body's prescribed `expect ... :to-equal nil :reason
+  (format ...)` call shape is not valid buttercup syntax — `expect`
+  passes any trailing positional args to the matcher, so `:to-equal`
+  would receive `(nil :reason "...")` and signal an arity error.
+  Implemented an equivalent assertion that surfaces the same
+  actionable failure message: a `home-org-writer-lint--describe-failure`
+  helper renders the hits list as either the empty string (success)
+  or the prescribed remediation hint with the unexpected hits
+  pretty-printed in. The spec asserts `(expect report :to-equal "")`,
+  so on failure the buttercup output prints the full hint verbatim.
+  Wording of the hint is preserved verbatim from the task body
+  (modulo the helper-name rename `home-org-cross-module-` →
+  `home-org-writer-lint-` per the cycle-2 file-location guidance).
+
+- Helper-name prefix is `home-org-writer-lint--` (matching the
+  cycle-2 suggested filename `home-org-writer-lint-spec.el` rather
+  than the task body's earlier `home-org-cross-module-spec.el`
+  proposal). Both filenames were declared acceptable in the
+  spawn brief; chose the cycle-2 form. The scaffold's
+  `home-org-user-authored--*` helpers are renamed wholesale to
+  the new prefix in case the scaffold ever becomes loadable
+  side-by-side with this spec — the scaffold is already marked
+  archived per cycle-1 / cycle-2 integrate, but eliminating the
+  collision risk is cheap.
+
+- Confirmed by inspection (`grep -nE
+  '\b(write-region|with-temp-file|append-to-file|delete-file|rename-file|copy-file|write-file|save-buffer)\b'`
+  across `config/workspaces/*.el` excluding `test/`): the only
+  current `home.org`-adjacent write site is `scaffold.el` line 29
+  (`with-temp-file path` inside `workspace--scaffold-write-home-org`),
+  which is on the allow-list. `scaffold.el` line 41
+  (`workspace--scaffold-initial-session`) is a `with-temp-file` for
+  the session-org file; `home.org` first appears in the
+  `workspace-scaffold` docstring well outside the 200-char window
+  from that write call. `persistence.el` line 106 is a
+  `with-temp-file (workspace--state-file)` with no `home.org`
+  literal anywhere nearby. The reader module `home-org.el` has
+  zero write primitives. The lint passes cleanly today and is
+  positioned to surface any future regression.
+
+- The lint's correctness depends on the 200-char proximity window
+  being narrower than the docstring + body gap between
+  `workspace--scaffold-initial-session`'s `with-temp-file` and the
+  `workspace-scaffold` docstring's `home.org` mentions. Today's gap
+  is ~300+ chars; the window is comfortable but not enormous. If a
+  future refactor compresses scaffold.el (e.g. inlines the
+  initial-session writer next to the home.org writer), the lint
+  could produce a false positive against `initial-session` —
+  remediation is the same workflow the failure message prescribes
+  (verify, add to allow-list, update register entry), so a false
+  positive is recoverable without invariant erosion.
+
+## Discoveries
+
+- discovery_id: disc-port-cross-module-home-org-writer-lint-1
+  class: invariant-gap
+  description: |
+    The cycle-1 reader-module spec (`home-org-spec.el`, "Invariant:
+    reader module is read-only") and this cycle-2 cross-module
+    writer-lint spec (`home-org-writer-lint-spec.el`) together
+    enforce the structural half of the invariant
+    `register/invariant/home-org-user-authored-after-creation`. The
+    byte-for-byte snapshot half (it #3 in the original scaffold)
+    is still forward-pinned; the register's `enforcement_mechanism`
+    notes a `test` enforcement layer "added at cycle 2+ when the
+    scaffold and command modules are wired". With cycle-2's
+    scaffold-module now landed and command modules (workspace-new,
+    workspace-switch, workspace-save, idle-tick, kill-emacs hook)
+    visible in the merged tree, the snapshot test is implementable
+    today — but is intentionally out-of-scope for this task per
+    the spawn brief. The register entry's `status_note` already
+    flags the snapshot as "naturally lands with scaffold-module";
+    with scaffold-module merged, that natural landing has not
+    happened, leaving an asymmetry between "lint is durable"
+    (now true) and "snapshot is durable" (still deferred).
+    Recommend integrate confirm the snapshot follow-up is filed
+    (or file one) so the invariant's third enforcement leg is not
+    silently dropped.
+  affected_register_entry: register/invariant/home-org-user-authored-after-creation
+  recommendation: |
+    No change to the entry's status or fields. Verify the snapshot-
+    test follow-up exists; if not, file a task `home-org-byte-equivalence-snapshot`
+    so the third enforcement leg (it #3 in the cycle-1 scaffold) is
+    on the backlog. Today's two enforcement legs (narrow read-only
+    on `home-org.el`; broad writer-allow-list on `config/workspaces/`)
+    are sufficient to keep the invariant load-bearing in the
+    interim.
