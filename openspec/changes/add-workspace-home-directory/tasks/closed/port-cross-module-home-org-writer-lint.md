@@ -2,7 +2,7 @@
 name: port-cross-module-home-org-writer-lint
 description: Port the cross-module writer-allow-list lint from the home-org-user-authored-after-creation scaffold into a real test spec
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - discovered-from:home-org-reader-module
 ---

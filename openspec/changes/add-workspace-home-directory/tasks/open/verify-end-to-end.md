@@ -4,10 +4,8 @@ description: Full test run; manual sanity check of scaffold + anchor + delete + 
 change: add-workspace-home-directory
 status: blocked
 relations:
-  - blocked-by:workspace-new-default-path
   - blocked-by:workspace-new-anchor-existing
   - blocked-by:workspace-delete-and-purge
-  - blocked-by:broken-home-tolerance
   - blocked-by:update-docs-readme
 ---
 
@@ -205,3 +203,73 @@ the user picks "revise spec" → verify against the separate-command
 UX. If "re-implement to rebind" → verify against prefix-arg
 behaviour. If "defer" → verify against the current separate-
 command UX with the spec marked tentative.
+
+## Cycle 3 updates (cycle-20260526-171719)
+
+### Status
+
+- Still `blocked`. Two of five cycle-2 blockers cleared this cycle
+  (`workspace-new-default-path` and `broken-home-tolerance` both done).
+  Three remain: `workspace-new-anchor-existing`,
+  `workspace-delete-and-purge`, `update-docs-readme`. Terminal task
+  for archiving the change.
+
+### Cycle-3 scope additions to verify
+
+The verification matrix should now include:
+
+- **Default-path scaffold flow**: `M-x workspace-new foo` →
+  `~/emacs-workspaces/foo/` exists with `.git/`, `home.org`,
+  `sessions/<date>-initial.org`, one git commit. Tab shows `home.org`.
+- **Collision detection**: pre-create `~/emacs-workspaces/foo/`; invoke
+  `M-x workspace-new foo`; expect hard `user-error`.
+- **Default home builder**: after `workspace-new foo`, the active
+  buffer is `<home>/home.org`.
+- **`workspace-re-anchor` (`C-x w R`)**: create workspace, `rm -rf`
+  the home dir, restart Emacs, observe `*Messages*` notice,
+  `M-x workspace-switch <name>` → user-error naming `workspace-re-anchor`
+  and `workspace-purge`; `M-x workspace-re-anchor` → pick fresh dir;
+  registry updates with `:home` and `:name` BOTH equal to the new
+  basename; rename survives save/restore.
+- **Activation guards**: `workspace-switch` and `workspace-restore`
+  on a broken workspace produce the user-error; consistent message.
+- **Absolute-path enforcement**: hand-write a persistence file with
+  a relative-path `:home`; restart; observe the `*Messages*`
+  "skipping persisted entry %S — :home %S is not absolute" notice
+  and confirm the entry is NOT in the registry.
+
+### Cycle-3 register-touch coverage (use as a checklist)
+
+Verify the verification covers the cycle's 9 touched register entries:
+
+- `home-org-user-authored-after-creation` — confirm
+  `home-org-writer-lint-spec.el` passes (note: see open ask
+  `ask-cycle-20260526-171719-1` on heuristic adequacy).
+- `workspace-plist-v3` — confirm `workspace--set-name` lockstep
+  enforcement is exercised (the re-anchor rename test does this).
+- `workspace-scaffold-pipeline` — confirm scaffold runs cleanly +
+  leaves partial on failure.
+- `scaffold-leave-partial-on-failure` — exercise scaffold failure
+  (e.g., target inside a read-only dir) and confirm no auto-cleanup.
+- `home-required-no-floating-workspaces` — exercise the absolute-path
+  deserializer arm; note open ask `ask-cycle-20260526-171719-2` on
+  constructor-side enforcement.
+- `home-org-read-pipeline` — confirm home-builder routes through
+  `workspace-home-org-path`.
+- `broken-tag-runtime-only` — confirm `:broken` is set on load and
+  cleared on re-anchor; persistence file does NOT contain `:broken`.
+- `registry-name-equals-basename` — confirm the rename-on-different-
+  basename branch updates both `:home` and `:name`, and the rename
+  survives save/restore.
+- `workspace-broken-disposition` — confirm error messages name both
+  remediation commands consistently.
+
+### Open asks (verification should NOT preempt user disposition)
+
+If `ask-cycle-20260526-171719-1` (writer-lint heuristic) is
+unresolved at verification time, verify the current lint state but
+flag the trivially-passing concern.
+
+If `ask-cycle-20260526-171719-2` (*scratch* fallback) is unresolved,
+verify the current behaviour (fallback exists; one spec exercises it)
+but flag in the verification report.

@@ -2,7 +2,7 @@
 name: broken-home-tolerance
 description: Activation guards in workspace-switch/workspace-restore; add workspace-re-anchor; bind C-x w R
 change: add-workspace-home-directory
-status: ready
+status: done
 relations: []
 ---
 

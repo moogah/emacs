@@ -2,9 +2,8 @@
 name: workspace-new-anchor-existing
 description: Prefix-arg branch — anchor an existing directory with three sub-cases (repo+home.org, repo no home.org, non-repo); double-registration guard
 change: add-workspace-home-directory
-status: blocked
-relations:
-  - blocked-by:workspace-new-default-path
+status: ready
+relations: []
 ---
 
 ## Files to modify
@@ -202,3 +201,74 @@ The "double-registration guard" requirement of this task — refuse
 to register a workspace whose `:home` matches an already-registered
 entry — should also work against broken entries (the broken status
 doesn't change the registry-key uniqueness invariant).
+
+## Cycle 3 updates (cycle-20260526-171719)
+
+### Status
+
+- `status: blocked` → `status: ready`. Blocker `workspace-new-default-path`
+  closed at merge `cde20af` (cycle-3). The `workspace--new-anchor-existing`
+  stub is live at `config/workspaces/tabs.el` signalling `user-error`
+  ("Anchor-existing not yet implemented (cycle 4)"); this task replaces
+  the stub with the real implementation.
+
+### Cycle-3 register-diff hits relevant to this task
+
+- `register/shape/workspace-plist-v3`: confirmed → **reconciled**. Cycle-3
+  inline-fix `c6c1b22` added `workspace--set-name` as a sibling setter to
+  `workspace--set-home`. Your task does NOT touch the rename code path
+  (re-anchor's rename branch is in `workspace-re-anchor`, separate
+  command), but the lockstep convention is now part of the entry's
+  contract — keep `:name` and `:home` consistent in every code path
+  that mutates either.
+
+- `register/invariant/registry-name-equals-basename`: confirmed →
+  **reconciled**. Same inline-fix; same convention. Your task's
+  "double-registration guard" upholds the registry-key uniqueness
+  invariant which is sibling to (but not the same as) name-equals-
+  basename. Construct the new plist via `workspace--make name home`;
+  basename(home) == name by construction at the canonical caller.
+
+- `register/invariant/home-required-no-floating-workspaces`: confirmed →
+  **reconciled**. Cycle-3 added the absolute-path skip arm to the
+  persistence deserializer. Your task ingests an existing directory
+  via `read-directory-name`; the user-supplied path will be absolute
+  by virtue of the prompt's interactive completion. No additional
+  guard required here, but the broader invariant remains the load-
+  bearing contract.
+
+### Architect findings relevant to this task
+
+- `arch-cycle-20260526-171719-01`: scaffold.el inlines
+  `(expand-file-name "home.org" home)` duplicating the
+  `workspace-home-org-path` helper. Not in your scope — `scaffold` is
+  not on the anchor-existing path (which uses an *existing* directory).
+  Flagged for follow-up task `route-scaffold-writer-through-home-org-helper`.
+
+### Open asks (do not block this task)
+
+Two cycle-3 user asks (writer-lint heuristic; *scratch* fallback
+reachability) are non-blocking on your work. The fallback ask
+(`ask-cycle-20260526-171719-2`) is *adjacent* — if option A is
+chosen, your task may need to incorporate a `cl-check-type` guard
+in `workspace--make`. Watch the disposition.
+
+### Notes on the anchor-existing call sequence
+
+The cycle-3 default-path branch (which you'll dispatch from) does:
+
+```
+workspace-scaffold → puthash → tab-bar-new-tab → workspace-home-builder
+```
+
+The anchor-existing branch should do (per design):
+
+```
+validate-existing-dir → puthash (workspace--make name home) → tab-bar-new-tab → workspace-home-builder
+```
+
+i.e. NO `workspace-scaffold` call (the directory already exists; you
+do not init-and-commit). Use the `workspace-scaffold` boundary's
+`:init-and-commit? nil` keyword for the case-2 (repo, no home.org)
+sub-flow if you want to share the home.org seeding logic; otherwise
+write the home.org directly.

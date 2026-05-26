@@ -4,10 +4,8 @@ description: Update config/workspaces/docs/README.org with new commands, scaffol
 change: add-workspace-home-directory
 status: blocked
 relations:
-  - blocked-by:workspace-new-default-path
   - blocked-by:workspace-new-anchor-existing
   - blocked-by:workspace-delete-and-purge
-  - blocked-by:broken-home-tolerance
 ---
 
 ## Files to modify
@@ -171,3 +169,50 @@ to be documented:
 The cross-contract collision finding (orchestrator fix at `63d60ec`)
 means scaffold does NOT call into gptel-sessions. README should not
 promise such integration; cycle 3+ may add it via a gptel-side hook.
+
+## Cycle 3 updates (cycle-20260526-171719)
+
+### Status
+
+- Still `blocked`. Two of four cycle-2 blockers cleared this cycle
+  (`workspace-new-default-path` and `broken-home-tolerance` both done).
+  Two remain: `workspace-new-anchor-existing` and
+  `workspace-delete-and-purge` — both now `ready` after this cycle,
+  so this task unblocks two cycles from now at the earliest.
+
+### What's landed since this task was written that should be reflected in the README
+
+The README rewrite should now include:
+
+- **`workspace-new`** (no prefix arg) — scaffolds a new directory under
+  `workspaces-default-parent-directory` (defcustom), with full git
+  init + initial commit. Collision is a hard `user-error`.
+- **`workspace-default-home-builder`** opens `<home>/home.org` (not
+  `*scratch*`). Custom builders can override via
+  `workspace-home-builder`.
+- **`workspace-re-anchor`** (`C-x w R`) — recovery command for
+  broken-state workspaces. Lockstep updates `:home` and `:name`
+  (registry key matches new basename). Refuses non-existent or
+  collision targets.
+- **Activation guards** — `workspace-switch` and `workspace-restore`
+  refuse broken workspaces (`:home` no longer exists on disk), with
+  error messages naming both remediation commands.
+- **Absolute-path enforcement** — persistence deserializer skips
+  entries with relative-path `:home` (with `*Messages*` notice).
+- **Key-binding reshuffle** — `C-x w R` now means re-anchor;
+  `workspace-switch-to-recent-layout` moved to `C-x w T`.
+- **Closed vocabulary** — switch/restore are refused on broken;
+  re-anchor/purge/delete are permitted on broken.
+
+### Open asks to mention or defer
+
+Two cycle-3 spec-signal asks (writer-lint heuristic; *scratch*
+fallback reachability) are open. README should NOT preempt the
+user's disposition — write the docs against the current behaviour;
+update later if the asks resolve to changes that affect users.
+
+### Architect-tier follow-ups not user-facing
+
+The architect's invariant-completeness audit (externalised to
+`.tasks/audit-load-bearing-invariant-enforcement-completeness.md`) is
+not user-facing; no README change required.

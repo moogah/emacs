@@ -1034,11 +1034,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/workspace-plist-v3
    tier: shape
-   status: confirmed
+   status: reconciled
    status_note: |
-     cycle-20260525-200459 integrate (2026-05-25): speculation matched
-     implementation. Cycle-1 add-home-slot-to-data-model task introduced
-     workspace--make(name home), accessors workspace--home /
+     cycle-20260526-171719 integrate (2026-05-26): reconciled. Cycle-3
+     added the missing setter-helper sibling: =workspace--set-name=
+     joins =workspace--set-home= in data-model.el (inline-fix c6c1b22
+     after reviewer F1 on broken-home-tolerance flagged the asymmetry
+     as the root cause of the BLOCKING registry-name-equals-basename
+     violation). Accessor-pair completeness is now structural: every
+     mutable slot has a setter helper. The lockstep constraint with
+     register/invariant/registry-name-equals-basename is enforced at
+     workspace-re-anchor's rename branch via the
+     workspace--clear-broken ∘ workspace--set-name ∘ workspace--set-home
+     chain. See
+     .orchestrator/cycles/cycle-20260526-171719/reconciliations/shape-workspace-plist-v3.md.
+
+     Prior status_note (cycle-20260525-200459 integrate, 2026-05-25):
+     speculation matched implementation. Cycle-1 add-home-slot-to-data-model
+     task introduced workspace--make(name home), accessors workspace--home /
      workspace--set-home, and the :broken runtime tag with three helpers
      (workspace--broken-p / workspace--mark-broken / workspace--clear-broken).
      The wire-home-into-callsites mid-cycle follow-up closed the 76-failure
@@ -1046,8 +1059,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Validator's name-not-basename-of-home check holds at the canonical
      caller (synthesizes name from basename(home)). Cycle-3 sharp-edge
      captured: workspace--set-home alone is insufficient for re-anchor's
-     rekey dance; absorbed into cycle-3 broken-home-tolerance refinement.
-     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/shape-workspace-plist-v3.md.
+     rekey dance; absorbed into cycle-3 broken-home-tolerance refinement
+     (and the inline-fix above).
    load_bearing: true
    title: Top-level workspace plist (post-:home extension)
    purpose: |
@@ -1162,6 +1175,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - file: config/workspaces/data-model.org
        function: workspace--name (accessor)
        reads_keys: [":name"]
+     - file: config/workspaces/data-model.org
+       function: workspace--set-name (setter — added cycle-3 via inline-fix c6c1b22)
+       writes_keys: [":name"]
+       note: |
+         Sibling to workspace--set-home. Lockstep partner at
+         workspace-re-anchor's rename branch per
+         register/invariant/registry-name-equals-basename.
      - file: config/workspaces/data-model.org
        function: workspace--home (NEW accessor — this change)
        reads_keys: [":home"]
@@ -5252,21 +5272,34 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/home-required-no-floating-workspaces
    tier: invariant
-   status: confirmed
+   status: reconciled
    status_note: |
-     cycle-20260525-200459 integrate (2026-05-25): structural enforcement
-     landed at workspace--make's required (name home) signature — single-arg
-     calls signal wrong-number-of-arguments at every caller. Cycle-1
-     data-model task added the constructor signature; mid-cycle
-     wire-home-into-callsites closed the 76-failure cascade so the
-     contract is bearable across the full test suite (165 → 164 specs
-     after orchestrator inline-deleted one non-informative test).
-     Test-tier enforcement landed in config/workspaces/test/data-model-home-spec.el
-     (:home accessor describe block, 5 specs). Persistence-side enforcement
-     (deserializer's skip-with-notice for malformed entries) forward-pinned
-     to cycle-2 persistence-schema-v3. Scaffold archived; cycle-1 5 it
-     clauses' equivalents implemented in spirit in data-model-home-spec.el.
-     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-home-required-no-floating-workspaces.md.
+     cycle-20260526-171719 integrate (2026-05-26): reconciled. Cycle-3
+     broken-home-tolerance absorbed cycle-2 architect finding
+     arch-cycle-20260525-213500-04 by extending the persistence
+     deserializer with a (not (file-name-absolute-p home)) filter arm
+     that emits "Workspaces: skipping persisted entry %S — :home %S
+     is not absolute". The cycle-3 broken-home-runtime-spec.el adds
+     the corresponding it-clause. Enforcement surface now structurally
+     includes absolute-path filtering at the deserialize boundary.
+     OPEN: programmatic construction via workspace--make still admits
+     relative paths (no cl-check-type or error in the constructor) —
+     this is the spec-signal carried as ask-cycle-20260526-171719-2
+     (workspace-default-home-builder's *scratch* fallback reachability).
+     See .orchestrator/cycles/cycle-20260526-171719/reconciliations/invariant-home-required-no-floating-workspaces.md.
+
+     Prior status_note (cycle-20260525-200459 integrate, 2026-05-25):
+     structural enforcement landed at workspace--make's required
+     (name home) signature — single-arg calls signal wrong-number-of-arguments
+     at every caller. Cycle-1 data-model task added the constructor
+     signature; mid-cycle wire-home-into-callsites closed the
+     76-failure cascade. Test-tier enforcement landed in
+     config/workspaces/test/data-model-home-spec.el (:home accessor
+     describe block, 5 specs). Persistence-side enforcement
+     (deserializer's skip-with-notice for malformed entries)
+     forward-pinned to cycle-2 persistence-schema-v3 (which landed
+     the missing-directory arm; cycle-3 above adds the
+     non-absolute-path arm).
    load_bearing: true
    title: Every workspace in the registry has :home set to an absolute path
 
@@ -5307,16 +5340,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        parameters (cannot be invoked with =:home= nil). Secondary:
        =workspace--persistence-deserialize-workspace='s skip-with-
        notice path for entries lacking =:home= (cycle-2 task
-       =persistence-schema-v3=). Architect-audit signal-class:
-       shape-fragmentation — flags any future code path that
-       inserts into =workspace--registry= without going through
-       =workspace--make=.
+       =persistence-schema-v3=) AND for entries whose =:home= is
+       relative (cycle-3 task =broken-home-tolerance=, absorbing
+       cycle-2 finding =arch-cycle-20260525-213500-04=). Architect-audit
+       signal-class: shape-fragmentation — flags any future code
+       path that inserts into =workspace--registry= without going
+       through =workspace--make=.
      notes: |
-       The =test= enforcement (scaffolded for cycle 1) is a property
-       check that maps over =workspace--registry= and asserts the
-       invariant; the structural-audit catches new code paths the
+       The =test= enforcement (scaffolded for cycle 1; promoted to
+       =data-model-home-spec.el= and =broken-home-runtime-spec.el=) is a
+       property check that maps over =workspace--registry= and asserts
+       the invariant; the structural-audit catches new code paths the
        property check would only catch retroactively (after a bug
        has landed in the registry). Both layers together.
+
+       OPEN (carried as spec-signal ask-cycle-20260526-171719-2):
+       programmatic construction via =workspace--make= still admits
+       relative-path =:home= (no =cl-check-type= in the constructor).
+       If the invariant is treated as load-bearing-and-complete, a
+       constructor-side guard is required; if "deserializer is the
+       single point of entry", the existing deserializer arms are
+       sufficient and the *scratch* fallback in
+       =workspace-default-home-builder= becomes dead code.
 
    related_entries:
      - register/shape/workspace-plist-v3
@@ -5336,25 +5381,41 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/registry-name-equals-basename
    tier: invariant
-   status: confirmed
+   status: reconciled
    status_note: |
-     cycle-20260525-200459 integrate (2026-05-25): cycle-1 enforcement is
-     the canonical-pattern test in data-model-home-spec.el (constructed
-     workspace's :name equals basename(directory-file-name(:home))).
-     wire-home-into-callsites synthesized HOME values where basename(:home)
-     == :name by construction in both the production callsite (tabs.org
+     cycle-20260526-171719 integrate (2026-05-26): reconciled. Cycle-3
+     reviewer F1 on broken-home-tolerance (BLOCKING, design-drift)
+     caught that workspace-re-anchor's initial rename branch mutated
+     only :home via workspace--set-home, leaving :name desynchronised
+     — and the rename did not survive save/restore because the
+     serializer writes (workspace--name ws) and the deserializer
+     puthashes under the same. Inline-fix c6c1b22 introduced
+     workspace--set-name (data-model.el:139-147) as the sibling
+     setter to workspace--set-home and re-wrote workspace-re-anchor's
+     rename branch to chain
+     workspace--clear-broken ∘ workspace--set-name ∘ workspace--set-home
+     in a single lockstep update. The divergent spec assertion was
+     flipped from (expect ... :to-equal "foo") to "renamed". The
+     invariant is now structurally enforced at the only mutation site
+     the entry's statement cites: workspace-re-anchor.
+     See .orchestrator/cycles/cycle-20260526-171719/reconciliations/invariant-registry-name-equals-basename.md.
+
+     Prior status_note (cycle-20260525-200459 integrate, 2026-05-25):
+     cycle-1 enforcement is the canonical-pattern test in
+     data-model-home-spec.el (constructed workspace's :name equals
+     basename(directory-file-name(:home))). wire-home-into-callsites
+     synthesized HOME values where basename(:home) == :name by
+     construction in both the production callsite (tabs.org
      workspace-new placeholder) and the 14 fixture calls in
      data-model-spec.el. The data layer correctly does NOT enforce
-     equality (spec delegates to the canonical caller). Property-test-over-
-     registry and rename-on-re-anchor enforcement forward-pinned to cycle-3
-     broken-home-tolerance (where workspace-re-anchor does the
-     remhash/puthash/:home/:name choreography). disc-add-home-slot-1
-     captures the cycle-3 sharp edge (workspace--set-home alone is
-     insufficient); absorbed into cycle-3 task refinement this cycle.
-     Scaffold archived; 4 of 5 it clauses landed in data-model-home-spec.el
-     (orchestrator inline-deleted the trailing-slash test that asserted
-     on Emacs primitives only); 5th clause forward-pinned.
-     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-registry-name-equals-basename.md.
+     equality (spec delegates to the canonical caller).
+     Property-test-over-registry and rename-on-re-anchor enforcement
+     forward-pinned to cycle-3 broken-home-tolerance (where
+     workspace-re-anchor does the remhash/puthash/:home/:name
+     choreography). disc-add-home-slot-1 captures the cycle-3 sharp
+     edge (workspace--set-home alone is insufficient); absorbed via
+     the inline-fix above. Scaffold archived; 4 of 5 it clauses
+     landed in data-model-home-spec.el; 5th clause forward-pinned.
    load_bearing: true
    title: Workspace registry-name equals basename of :home
 
@@ -5389,7 +5450,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      =broken-home-tolerance='s step 3).
 
    enforcement_mechanism:
-     kind: test
+     kind: test + lockstep-helpers
      location: |
        Property test (Buttercup) over =workspace--registry= run
        after each of: =workspace--make=, =workspace-restore=
@@ -5397,12 +5458,33 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        cycle 1; cycle-2+ tasks that touch any of these paths must
        keep the property test green or revise the scaffold (and
        explain in =## Discoveries=).
+
+       Lockstep-helper enforcement (cycle-3 inline-fix c6c1b22):
+       the data-model module exposes =workspace--set-name= and
+       =workspace--set-home= as accessor-pair siblings. Every
+       mutation site that touches either =:name= or =:home=
+       SHALL call BOTH setters in a single non-destructive
+       update — verifiable by grep:
+       =grep -nE "workspace--set-(name|home)" config/workspaces/=
+       at every match site shows both setters used together.
+       =workspace-re-anchor='s rename branch is the canonical
+       enforcement site.
      notes: |
        The =structural-audit= enforcement (architect on-touch
        signal-class: vocabulary-mismatch) is a secondary layer.
        The primary layer is the test because the invariant is
        cheap to assert as a property; structural-audit catches
        new code paths that the test would miss between cycles.
+
+       The cycle-3 reviewer-caught BLOCKING violation
+       (workspace-re-anchor mutating :home without :name) was a
+       case where the data-model exposed an asymmetric helper set
+       (only =workspace--set-home=) and the implementor followed
+       the helpers rather than the invariant. The inline-fix
+       restored symmetry. Future register entries with multi-slot
+       lockstep clauses SHOULD declare the required setter set in
+       this section so the architect can audit helper-completeness
+       at on-touch time.
 
    related_entries:
      - register/shape/workspace-plist-v3

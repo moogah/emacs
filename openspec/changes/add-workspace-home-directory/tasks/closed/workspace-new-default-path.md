@@ -2,7 +2,7 @@
 name: workspace-new-default-path
 description: Wire scaffold into workspace-new (no prefix arg); add workspaces-default-parent-directory defcustom; rewrite default workspace-home-builder to find-file home.org
 change: add-workspace-home-directory
-status: ready
+status: done
 relations: []
 ---
 

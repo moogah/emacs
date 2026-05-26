@@ -2,9 +2,8 @@
 name: workspace-delete-and-purge
 description: Make workspace-delete unregister-only; add workspace-purge with yes-or-no-p + scope safeguard; bind C-x w D and C-x w P
 change: add-workspace-home-directory
-status: blocked
-relations:
-  - blocked-by:workspace-new-default-path
+status: ready
+relations: []
 ---
 
 ## Files to modify
@@ -230,3 +229,73 @@ The new `workspace--sessions-dir` helper (introduced at commit
 `cd1d721` per architect finding 05) is irrelevant to delete/purge
 directly, but if your purge UI lists what would be removed, prefer
 the helper for the sessions/ path.
+
+## Cycle 3 updates (cycle-20260526-171719)
+
+### Status
+
+- `status: blocked` → `status: ready`. Blocker `workspace-new-default-path`
+  closed at merge `cde20af` (cycle-3).
+
+### Why this is now load-bearing for the broader change
+
+The cycle-3 `broken-home-tolerance` task added activation guards in
+`workspace-switch` and `workspace-restore` whose error messages
+**name `workspace-purge` as a remediation command**. The command
+does not yet exist (this task adds it). Until this task lands, users
+who hit a broken-state guard see a remediation command in the error
+message that produces "void-function: workspace-purge" when invoked.
+This is now a user-visible gap, not a forward-looking nicety.
+
+### Cycle-3 register-diff hits relevant to this task
+
+- `register/shape/workspace-plist-v3`: confirmed → **reconciled**. The
+  inline-fix at `c6c1b22` added `workspace--set-name` as a sibling
+  setter to `workspace--set-home`. Your task's delete and purge flows
+  mutate the registry (remhash) and the filesystem (delete-directory);
+  neither calls the setters directly, but the convention "every
+  mutation site that touches :name or :home uses the helper pair"
+  applies if you introduce a state-change intermediate (you should
+  not need to).
+
+- `register/invariant/registry-name-equals-basename`: confirmed →
+  **reconciled** via the same inline-fix. Your task removes registry
+  entries; the invariant says nothing about removal (only about the
+  registry's content). No new constraint on your work.
+
+- `register/vocabulary/workspace-broken-disposition`: confirmed.
+  Your `workspace-purge` and `workspace-delete` commands are part of
+  the closed vocabulary. The cycle-3 broken-state guards refuse
+  `switch` and `restore` but **permit** `purge` and `delete` — this
+  task should NOT add broken-state guards to the new commands; both
+  must work on broken workspaces (that's their primary use case).
+
+### Architect findings relevant to this task
+
+None directly. The cycle-3 architect findings cluster on invariant
+enforcement (-02), co-cited entries (-03), and the scaffold writer
+duplication (-01) — none touch the delete/purge code path.
+
+### Open asks (do not block this task; potentially adjacent)
+
+- `ask-cycle-20260526-171719-2` (*scratch* fallback / constructor
+  admits relative paths): if user chooses option A (drop fallback,
+  add constructor guard), the constructor guard lives in
+  `workspace--make`. Your task does not call `workspace--make`
+  (delete and purge remove entries; they don't construct new ones).
+  Not affected.
+
+### Key-binding note
+
+Per design.md §D10, the bindings are:
+- `C-x w D` → `workspace-delete` (currently bound to
+  `workspace-delete-layout` — relegate that or rebind it)
+- `C-x w P` → `workspace-purge` (new)
+
+The cycle-3 `broken-home-tolerance` reshuffled bindings: `C-x w R`
+went to `workspace-re-anchor`; the previous `workspace-switch-to-recent-layout`
+on `R` was moved to `C-x w T`. **Audit `workspaces.org`'s
+keybindings section before adding your bindings** to ensure no
+re-collision; the architect finding INDEX confirms `C-x w D` is
+currently bound to `workspace-delete-layout` (legacy, not yet
+rebound).
