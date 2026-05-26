@@ -169,8 +169,17 @@ The new path must exist and must be a directory."
       (user-error "Not a directory: %s" new-home))
     (let* ((new-name (file-name-nondirectory
                       (directory-file-name new-home)))
+           ;; Update :home AND :name in lockstep (per
+           ;; register/invariant/registry-name-equals-basename, which
+           ;; pins identity on the plist :name accessor, not on the
+           ;; registry key — both must move together when basename
+           ;; differs, otherwise the rename is lost across save/
+           ;; restore because the serializer writes (workspace--name
+           ;; ws) and the deserializer puthashes under the same).
            (next-ws (workspace--clear-broken
-                     (workspace--set-home ws new-home))))
+                     (workspace--set-name
+                      (workspace--set-home ws new-home)
+                      new-name))))
       ;; If basename changed, rename the registry key too.
       (cond
        ((string= name new-name)

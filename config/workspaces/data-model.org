@@ -249,6 +249,15 @@ Non-destructive: WS is not modified."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :home home)))
 
+(defun workspace--set-name (ws name)
+  "Return a new workspace like WS with its =:name= slot set to NAME.
+Non-destructive: WS is not modified.  Used by =workspace-re-anchor=
+to keep =:name= in lockstep with =:home= when the new home's basename
+differs from the workspace's current name (per
+=register/invariant/registry-name-equals-basename=)."
+  (let ((copy (copy-sequence ws)))
+    (plist-put copy :name name)))
+
 (defun workspace--layout-groups (ws)
   "Return the layout-groups of workspace WS."
   (plist-get ws :layout-groups))

@@ -69,7 +69,11 @@ required), falls back to *scratch*."
   (let* ((ws (gethash workspace-name workspace--registry))
          (home (and ws (workspace--home ws))))
     (if home
-        (find-file (expand-file-name "home.org" home))
+        ;; Route through the home-org-read-pipeline helper rather than
+        ;; duplicating the (expand-file-name "home.org" HOME) literal,
+        ;; per register/boundary/home-org-read-pipeline's stage-1
+        ;; producer contract.
+        (find-file (workspace-home-org-path home))
       (switch-to-buffer (get-buffer-create "*scratch*")))))
 
 (defun workspace--new-anchor-existing ()

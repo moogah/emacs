@@ -107,9 +107,11 @@
   (it "signals user-error naming the missing path and remediation commands"
     (broken-home-runtime-spec--make-broken "broken-ws")
     (let* ((tab-count-before (length (frame-parameter nil 'tabs)))
-           (err (should-error (workspace-switch "broken-ws")
-                              :type 'user-error))
-           (msg (error-message-string err)))
+           (err (condition-case e
+                    (progn (workspace-switch "broken-ws") nil)
+                  (user-error e)))
+           (msg (when err (error-message-string err))))
+      (expect err :not :to-be nil)
       ;; The error names the workspace.
       (expect msg :to-match "broken-ws")
       ;; The error explicitly names BOTH remediation commands.
@@ -128,9 +130,11 @@
   (it "signals user-error naming the missing path and remediation commands; no tab created"
     (broken-home-runtime-spec--make-broken "broken-ws")
     (let* ((tab-count-before (length (frame-parameter nil 'tabs)))
-           (err (should-error (workspace-restore "broken-ws")
-                              :type 'user-error))
-           (msg (error-message-string err)))
+           (err (condition-case e
+                    (progn (workspace-restore "broken-ws") nil)
+                  (user-error e)))
+           (msg (when err (error-message-string err))))
+      (expect err :not :to-be nil)
       (expect msg :to-match "broken-ws")
       (expect msg :to-match "workspace-re-anchor")
       (expect msg :to-match "workspace-purge")
@@ -191,12 +195,14 @@
           (expect renamed :not :to-be nil)
           (expect (workspace--home renamed) :to-equal new-home)
           (expect (workspace--broken-p renamed) :to-be nil)
-          (expect (workspace--name renamed) :to-equal "foo")
-          ;; The registry KEY equals the new basename per
-          ;; register/invariant/registry-name-equals-basename; the
-          ;; workspace's :name slot is intentionally left at the old
-          ;; value (re-anchor does not rewrite the plist :name; the
-          ;; key is the source of truth for identity).
+          (expect (workspace--name renamed) :to-equal "renamed")
+          ;; Both the registry KEY and the plist :name slot equal the
+          ;; new basename, in lockstep, per
+          ;; register/invariant/registry-name-equals-basename (which
+          ;; pins identity on the plist accessor, not on the registry
+          ;; key).  Without this, the rename would not survive a save/
+          ;; restore cycle: the serializer writes (workspace--name ws)
+          ;; and the deserializer puthashes under the same.
           )
         ;; No live tab existed for "foo", so tab-bar-rename-tab MUST
         ;; NOT have been called.
@@ -242,10 +248,11 @@
       (let* ((collision-home (file-name-as-directory
                               (expand-file-name "bar"
                                                 broken-home-runtime-spec--tmp-dir)))
-             (err (should-error
-                   (workspace-re-anchor "foo" collision-home)
-                   :type 'user-error))
-             (msg (error-message-string err)))
+             (err (condition-case e
+                      (progn (workspace-re-anchor "foo" collision-home) nil)
+                    (user-error e)))
+             (msg (when err (error-message-string err))))
+        (expect err :not :to-be nil)
         ;; The error names the colliding new name.
         (expect msg :to-match "bar")
         (expect msg :to-match "already exists"))
@@ -267,10 +274,11 @@
       (let* ((nonexistent (file-name-as-directory
                            (expand-file-name "no-such-dir"
                                              broken-home-runtime-spec--tmp-dir)))
-             (err (should-error
-                   (workspace-re-anchor "foo" nonexistent)
-                   :type 'user-error))
-             (msg (error-message-string err)))
+             (err (condition-case e
+                      (progn (workspace-re-anchor "foo" nonexistent) nil)
+                    (user-error e)))
+             (msg (when err (error-message-string err))))
+        (expect err :not :to-be nil)
         (expect msg :to-match "Not a directory")
         (expect msg :to-match (regexp-quote nonexistent)))
       ;; Registry unchanged: foo still broken at its original path.
@@ -280,9 +288,10 @@
 
   (it "signals user-error when no workspace by that name exists"
     (broken-home-runtime-spec--with-state-file
-      (let ((err (should-error
-                  (workspace-re-anchor "nonexistent" "/tmp/")
-                  :type 'user-error)))
+      (let ((err (condition-case e
+                     (progn (workspace-re-anchor "nonexistent" "/tmp/") nil)
+                   (user-error e))))
+        (expect err :not :to-be nil)
         (expect (error-message-string err) :to-match "No workspace named")))))
 
 (describe "Persistence deserializer rejects relative-path :home"
