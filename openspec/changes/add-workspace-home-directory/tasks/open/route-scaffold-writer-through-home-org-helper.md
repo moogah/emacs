@@ -107,3 +107,63 @@ task ports the same pattern to the one remaining site.
 
 - Architect finding: `.orchestrator/cycles/cycle-20260526-171719/findings/arch-cycle-20260526-171719-01.md`
 - Cycle-3 inline-fix commit: `c6c1b22`
+
+## Observations
+
+- The swap is exactly the prescribed one-token refactor: the
+  `let`-binding now reads
+  `(let ((path (workspace-home-org-path home))) ...)`. The helper
+  is `(expand-file-name "home.org" home)` by definition, so output
+  shape (and therefore every existing assertion) is unchanged.
+- Load order is correct: `workspaces.org` lines 124–125 load
+  `home-org.el` immediately before `scaffold.el`, so the helper is
+  defined at the time `workspace--scaffold-write-home-org` is
+  invoked. No load-order change is required.
+- Verification greps after the swap:
+  - `grep -n 'expand-file-name "home.org"' config/workspaces/scaffold.el`
+    → 0 matches (expected).
+  - `grep -n 'workspace-home-org-path' config/workspaces/scaffold.el`
+    → 1 match at line 27 inside `workspace--scaffold-write-home-org`
+    (expected).
+- Searched the workspaces module for any remaining inlined
+  `(expand-file-name "home.org" …)` literals across production
+  `.el` files. Remaining matches:
+  - `home-org.el:6` — the helper's own definition (intended).
+  - `tabs.el:73` — a comment referencing the literal as prose, not
+    code (intended; documents why the find-file site uses the helper).
+  - Five matches across `test/scaffold-spec.el`,
+    `test/workspace-new-default-spec.el`, and `test/home-org-spec.el`
+    — these are test oracles, intentionally independent of the
+    function-under-test so the test does not co-evolve with the
+    helper. No production site bypasses the helper after this patch.
+- Test suite: `./bin/run-tests.sh -d config/workspaces` → 209 specs,
+  0 failed, 7.72 s.
+
+## Discoveries
+
+- discovery_id: disc-route-scaffold-writer-through-home-org-helper-1
+  class: duplication
+  description: |
+    The originating architect finding identified a single duplication
+    of the path-resolution literal between `tabs.el` (already fixed in
+    cycle-3 / commit `c6c1b22`) and `scaffold.el` (this task). After
+    the swap, the workspaces module has exactly one site that builds
+    the `home.org` absolute path — `workspace-home-org-path` in
+    `config/workspaces/home-org.el` — and every other reader/writer
+    routes through it (`tabs.el` line 76 for the find-file site;
+    `scaffold.el` line 27 for the writer site; `home-org.el`'s own
+    `workspace-home-org-exists-p` and `workspace-home-org-title`).
+    The duplication called out by `arch-cycle-20260526-171719-01` is
+    resolved with N=0 remaining sites.
+  affected_register_entry: register/boundary/home-org-read-pipeline
+  recommendation: |
+    No follow-up action required. The boundary entry's stage-1
+    contract ("`workspace-home-org-path` is the sole path producer")
+    is now satisfied empirically across the workspaces module. The
+    structural lint introduced in cycle-3 (port-cross-module-home-org-writer-lint)
+    already keeps non-scaffold writers out; an analogous lint to
+    forbid inlined `(expand-file-name "home.org" …)` literals
+    outside `home-org.el` could be considered but is not justified
+    at N=0 hold-outs — recommend re-evaluating only if a future
+    cycle reintroduces a second site.
+
