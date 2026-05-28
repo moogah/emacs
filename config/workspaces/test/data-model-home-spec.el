@@ -22,11 +22,16 @@
   (describe ":home accessor"
 
     (it "workspace--make produces a plist carrying both :name and :home"
+      ;; HOME is canonicalised on entry per
+      ;; register/shape/workspace-plist-v3 (trailing slash present;
+      ;; expand-file-name applied).  Input "/tmp/foo" is normalised to
+      ;; "/tmp/foo/".
       (let ((ws (workspace--make "foo" "/tmp/foo")))
         (expect (workspace--name ws) :to-equal "foo")
-        (expect (workspace--home ws) :to-equal "/tmp/foo")))
+        (expect (workspace--home ws) :to-equal "/tmp/foo/")))
 
     (it "workspace--home returns the path stored in :home"
+      ;; Already-canonical input observes the canonicalisation as a no-op.
       (let ((ws (workspace--make "alpha" "/tmp/alpha/")))
         (expect (workspace--home ws) :to-equal "/tmp/alpha/")))
 
@@ -44,9 +49,11 @@
               :to-throw 'wrong-number-of-arguments))
 
     (it "workspace--set-home returns a NEW workspace with :home updated"
+      ;; Both the constructor and the setter canonicalise to the
+      ;; trailing-slash form per register/shape/workspace-plist-v3.
       (let* ((ws (workspace--make "alpha" "/tmp/alpha"))
              (ws2 (workspace--set-home ws "/tmp/renamed")))
-        (expect (workspace--home ws2) :to-equal "/tmp/renamed")
+        (expect (workspace--home ws2) :to-equal "/tmp/renamed/")
         ;; The :name is unchanged by set-home; the caller is responsible
         ;; for any re-anchor coordination (see workspace-re-anchor in
         ;; later cycle).
@@ -55,7 +62,9 @@
     (it "workspace--set-home does not mutate the input workspace"
       (let* ((ws (workspace--make "alpha" "/tmp/alpha"))
              (_  (workspace--set-home ws "/tmp/elsewhere")))
-        (expect (workspace--home ws) :to-equal "/tmp/alpha"))))
+        ;; ws is constructed via workspace--make so its :home is
+        ;; canonicalised to "/tmp/alpha/" (trailing slash).
+        (expect (workspace--home ws) :to-equal "/tmp/alpha/"))))
 
   (describe "name-equals-basename construction contract"
     ;; Constructor-side check for register/invariant/
@@ -119,7 +128,8 @@
              (ws (workspace--set-recent-group ws "home"))
              (ws-broken (workspace--mark-broken ws)))
         (expect (workspace--name ws-broken)          :to-equal "alpha")
-        (expect (workspace--home ws-broken)          :to-equal "/tmp/alpha")
+        ;; HOME canonicalised by the constructor; trailing slash present.
+        (expect (workspace--home ws-broken)          :to-equal "/tmp/alpha/")
         (expect (workspace--recent-group ws-broken)  :to-equal "home")
         (expect (workspace--buffer-files ws-broken)  :to-equal '("~/a.el"))
         (expect (length (workspace--layout-groups ws-broken)) :to-equal 1)))))

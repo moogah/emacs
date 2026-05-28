@@ -80,11 +80,18 @@
               :to-be t)
       ;; Tab created.
       (expect 'tab-bar-new-tab :to-have-been-called)
-      ;; Registry has foo with :home set to the resolved path.
+      ;; Registry has foo with :home set to the canonicalised resolved
+      ;; path.  Per register/shape/workspace-plist-v3 the constructor
+      ;; pins :home to (file-name-as-directory (expand-file-name ...)),
+      ;; so the registered :home carries a trailing slash even though
+      ;; the default-path call-site computed home via expand-file-name
+      ;; (no trailing slash).  See cycle-5 task
+      ;; canonicalize-workspace-home-path-form.
       (let ((ws (gethash "foo" workspace--registry)))
         (expect ws :not :to-be nil)
         (expect (workspace--name ws) :to-equal "foo")
-        (expect (workspace--home ws) :to-equal home)))))
+        (expect (workspace--home ws)
+                :to-equal (file-name-as-directory home))))))
 
 (describe "workspace-new default-path collision"
   (before-each

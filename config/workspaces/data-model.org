@@ -208,11 +208,34 @@ A workspace is the user-facing entity that pairs 1:1 with a tab.
 
 The =:home= slot is required (positional) and is the workspace's
 filesystem anchor — every workspace points at exactly one directory.
-The data layer treats =:home= as an opaque string; validation of its
-shape (absolute path, directory exists, basename equals =:name=) is the
-responsibility of the caller and the persistence boundary.  See
-register/invariant/home-required-no-floating-workspaces and
-register/invariant/registry-name-equals-basename.
+=workspace--make= canonicalises HOME on entry to the form pinned by
+=register/shape/workspace-plist-v3= so that every constructed workspace
+carries an =:home= in the same shape regardless of how the caller
+shaped the input:
+
+- absolute path (=expand-file-name= applied — tilde and relative
+  prefixes resolved against =default-directory=),
+- trailing slash present (=file-name-as-directory= applied — so
+  =equal= comparison across producers always agrees), and
+- symlinks NOT resolved (we preserve the user's resolution choice).
+
+Three known producers (cycle-3 =workspace--new-default-path=,
+cycle-4 =workspace--new-anchor-existing=, cycle-3
+=workspace-re-anchor= via =workspace--set-home=) all reach the
+constructor via this entry point; canonicalising here means none of
+them can drift out of the pinned shape (cycle-4 architect finding
+=arch-cycle-20260526-191802-02=).
+
+The persistence-loader path bypasses =workspace--make= deliberately:
+=:home= is preserved verbatim on read so that a corrupted or
+hand-edited file shows the offending path in =*Messages*= rather than
+silently re-canonicalising it. The =:home=-shape validator on the
+shape register pins the canonical form structurally so that any new
+producer that tries to bypass the constructor surfaces the drift.
+
+See register/invariant/home-required-no-floating-workspaces,
+register/invariant/registry-name-equals-basename, and
+register/shape/workspace-plist-v3.
 
 #+begin_src emacs-lisp
 (defun workspace--make (name home)
@@ -224,10 +247,21 @@ path string.  By convention, =basename(HOME)= equals NAME; the data
 layer does not enforce this here, but callers in the command layer
 do (the canonical construction site derives NAME from HOME).
 
+HOME is canonicalised on entry to the form pinned by
+=register/shape/workspace-plist-v3=: absolute (=expand-file-name=
+applied) and trailing-slash-present (=file-name-as-directory=
+applied).  Symlinks are NOT resolved.  Callers that already pass a
+canonical HOME observe a no-op; callers that pass the un-slashed or
+tilde-prefixed form get normalised silently.  This makes the
+constructor the single canonicalisation choke-point so that
+downstream =equal= comparison on =:home= across all three producers
+(=workspace--new-default-path=, =workspace--new-anchor-existing=,
+=workspace-re-anchor=) agrees.
+
 Both arguments are required: floating workspaces (without a home
 directory) are structurally unrepresentable."
   (list :name name
-        :home home
+        :home (file-name-as-directory (expand-file-name home))
         :recent-layout-group nil
         :buffer-files nil
         :layout-groups nil))
@@ -245,9 +279,18 @@ hand-constructed or stale plists from a corrupted persistence file)."
 
 (defun workspace--set-home (ws home)
   "Return a new workspace like WS with its =:home= slot set to HOME.
-Non-destructive: WS is not modified."
+Non-destructive: WS is not modified.
+
+HOME is canonicalised identically to =workspace--make=: absolute
+(=expand-file-name= applied) and trailing-slash-present
+(=file-name-as-directory= applied).  This keeps the invariant pinned
+by =register/shape/workspace-plist-v3= holding across the post-
+construction re-anchor path (=workspace-re-anchor= is the third known
+producer of =:home= values, alongside =workspace--new-default-path=
+and =workspace--new-anchor-existing= — see
+=arch-cycle-20260526-191802-02=)."
   (let ((copy (copy-sequence ws)))
-    (plist-put copy :home home)))
+    (plist-put copy :home (file-name-as-directory (expand-file-name home)))))
 
 (defun workspace--set-name (ws name)
   "Return a new workspace like WS with its =:name= slot set to NAME.

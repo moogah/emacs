@@ -238,3 +238,152 @@ and pre-empt a third** by addressing the latent class while the
 constructor-side change is open.
 
 
+## Observations
+
+**Approach chosen: Option A (constructor-side canonicalisation).**
+
+Implementation widened the attachment point from `workspace--make`
+alone to **both** `workspace--make` and `workspace--set-home`. The
+architect-enumerated third producer (`workspace-re-anchor`) reaches
+`:home` via `workspace--set-home`, not via `workspace--make`; without
+canonicalising the setter the re-anchor path would smuggle the
+non-canonical form back into the registry. The shape contract becomes
+"both attachment points pin the canonical form" rather than "the
+constructor pins it."
+
+**Three producers confirmed in code** (matching architect's
+`arch-cycle-20260526-191802-02` enumeration):
+
+1. `workspace--new-default-path` (config/workspaces/tabs.org:268) —
+   reaches `:home` via `workspace--make`. Pre-canonicalisation it
+   passed the unslashed `(expand-file-name name parent-dir)` form;
+   post-canonicalisation the constructor normalises silently.
+2. `workspace--new-anchor-existing` (config/workspaces/tabs.org:229)
+   — reaches `:home` via `workspace--make`. Already passed
+   `(file-name-as-directory (read-directory-name ...))` (already
+   canonical); the constructor's canonicalisation is a no-op on its
+   input.
+3. `workspace-re-anchor` (config/workspaces/workspaces.org:151) —
+   reaches `:home` via `workspace--set-home`. Already passed
+   `(file-name-as-directory (read-directory-name ...))` in its
+   interactive form (already canonical); the setter's
+   canonicalisation is a no-op on its input.
+
+**Architect's extended scope — implemented fully on `:home`,
+documented for the other string-typed slots.**
+
+- `:home` — structurally pinned at the constructor and setter;
+  validator block extended with a `home-not-canonical` check.
+- `:name` — `canonical_form` sub-field added to the shape entry
+  pinning the de-facto `basename(:home)` contract. No constructor-
+  side change: the canonical call site already synthesises
+  `NAME = basename(HOME)`, and `register/invariant/registry-name-
+  equals-basename` already pins it elsewhere.
+- `:buffer-files` — `canonical_form` sub-field added pinning the
+  de-facto "each absolute, `expand-file-name` applied" form as
+  documentation only. Not enforced structurally because no consumer
+  cross-workspace-equality-compares `:buffer-files` today;
+  surfaced as a latent-class follow-up in `## Discoveries` for the
+  on-touch architect.
+- `:recent-layout-group` — `canonical_form` sub-field added
+  documenting "non-path; no canonicalisation."
+
+**Existing test fixtures touched.** Five existing test assertions
+were updated to reflect the new canonical form (no fixture rewrite
+required; the assertions were directly testing the old non-canonical
+output of `workspace--make`):
+
+- `config/workspaces/test/data-model-home-spec.el` — 4 expectations
+  on `(workspace--home ws)` updated from `"/tmp/foo"` etc. to
+  `"/tmp/foo/"` etc. (consequence of constructor canonicalisation).
+- `config/workspaces/test/workspace-new-default-spec.el` — 1
+  expectation updated to compare against
+  `(file-name-as-directory home)` instead of `home` (default-path's
+  pre-canonicalisation form was the odd-one-out per the architect
+  enumeration).
+
+No fixture bypassed `workspace--make` in a way that would have hidden
+the canonicalisation; every existing test goes through the
+constructor or `workspace--set-home`, so the behavior change is
+uniformly visible. No tests use `(list :name ... :home ...)`
+hand-construction that would have needed pre-canonicalisation.
+
+**Persistence loader intentionally NOT canonicalised.** The
+deserialiser in `persistence.org` preserves `:home` verbatim from
+disk — this is the behavior pinned by `broken-home-load-spec.el`
+line 102 ("`:home` is preserved verbatim (the user may want to
+inspect or restore the path)"). Files written post-cycle-5 will
+already be canonical on read; corrupted or hand-edited files surface
+the offending path in `*Messages*` rather than being silently
+normalised. The shape validator's new `home-not-canonical` check
+would surface such drift to any consumer that calls the validator.
+
+## Discoveries
+
+- discovery_id: disc-canonicalize-workspace-home-path-form-1
+  class: shape-fragmentation
+  description: |
+    Architect's extended frame called out three producers, not two
+    (cycle-3 `workspace-re-anchor` is the third, reaching `:home`
+    via `workspace--set-home`, not via `workspace--make`). Confirmed
+    in code. Single-attachment-point canonicalisation at the
+    constructor alone would have left the re-anchor path producing
+    canonical `:home` only by accident (because `workspace-re-anchor`'s
+    interactive form already wraps its `read-directory-name` result
+    in `file-name-as-directory`). Implementation chose to canonicalise
+    both `workspace--make` and `workspace--set-home` so the shape
+    invariant is structurally enforced at every entry point a `:home`
+    value can enter the registry through.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    The shape entry's `producers` list now enumerates three
+    attachment points (`workspace--make`, `workspace--set-home`,
+    `workspace--persistence-deserialize-workspace`), where previously
+    only two were listed (`workspace--make` and the deserialiser).
+    The integrate-phase architect should confirm this expansion of
+    the producer enumeration is correct.
+
+- discovery_id: disc-canonicalize-workspace-home-path-form-2
+  class: invariant-gap
+  description: |
+    The `:buffer-files` slot has a de-facto canonical form (each
+    element absolute, `expand-file-name` applied) but no structural
+    enforcement attachment point. `workspace--add-buffer-file`
+    forwards the caller's path unchanged. The architect's extended
+    frame called this out as a latent-class pin: no consumer
+    cross-workspace-equality-compares `:buffer-files` today, but a
+    future buffer-membership-across-workspaces query would surface
+    drift. Implementation pinned the canonical form in the shape
+    entry as documentation-only; structural enforcement deferred.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    Defer structural enforcement to the cycle where a consumer
+    actually emerges that cross-workspace-equality-compares
+    `:buffer-files`. At that point, add `(expand-file-name path)`
+    inside `workspace--add-buffer-file` and tighten the test
+    assertions in `buffer-membership-spec.el`. Keep the
+    `canonical_form` field in the shape entry as documentation
+    pin in the meantime; the validator's symmetric check
+    (`buffer-files-not-canonical`) is the natural sibling but is
+    not yet useful (no producer would fail it today).
+
+- discovery_id: disc-canonicalize-workspace-home-path-form-3
+  class: spec-signal
+  description: |
+    The persistence deserialiser's verbatim `:home` preservation is
+    pinned by `broken-home-load-spec.el` line 102 as a contract,
+    not an accident. After cycle-5 canonicalisation, files written
+    by the constructor will always be canonical, so the contract's
+    practical scope narrows to (a) corrupted files and (b) hand-
+    edited files. The shape validator's new `home-not-canonical`
+    check is the natural detector for files in either category.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    The integrate-phase architect should consider whether the
+    deserialiser's verbatim-preservation contract is still load-
+    bearing post-canonicalisation, or whether it could be tightened
+    to "preserve verbatim AND emit a notice if non-canonical" so the
+    drift signal surfaces in `*Messages*` automatically rather than
+    requiring an external validator call.
+
+
