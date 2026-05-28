@@ -108,10 +108,21 @@ path string.  By convention, =basename(HOME)= equals NAME; the data
 layer does not enforce this here, but callers in the command layer
 do (the canonical construction site derives NAME from HOME).
 
+HOME is canonicalised on entry to the form pinned by
+=register/shape/workspace-plist-v3=: absolute (=expand-file-name=
+applied) and trailing-slash-present (=file-name-as-directory=
+applied).  Symlinks are NOT resolved.  Callers that already pass a
+canonical HOME observe a no-op; callers that pass the un-slashed or
+tilde-prefixed form get normalised silently.  This makes the
+constructor the single canonicalisation choke-point so that
+downstream =equal= comparison on =:home= across all three producers
+(=workspace--new-default-path=, =workspace--new-anchor-existing=,
+=workspace-re-anchor=) agrees.
+
 Both arguments are required: floating workspaces (without a home
 directory) are structurally unrepresentable."
   (list :name name
-        :home home
+        :home (file-name-as-directory (expand-file-name home))
         :recent-layout-group nil
         :buffer-files nil
         :layout-groups nil))
@@ -129,9 +140,18 @@ hand-constructed or stale plists from a corrupted persistence file)."
 
 (defun workspace--set-home (ws home)
   "Return a new workspace like WS with its =:home= slot set to HOME.
-Non-destructive: WS is not modified."
+Non-destructive: WS is not modified.
+
+HOME is canonicalised identically to =workspace--make=: absolute
+(=expand-file-name= applied) and trailing-slash-present
+(=file-name-as-directory= applied).  This keeps the invariant pinned
+by =register/shape/workspace-plist-v3= holding across the post-
+construction re-anchor path (=workspace-re-anchor= is the third known
+producer of =:home= values, alongside =workspace--new-default-path=
+and =workspace--new-anchor-existing= — see
+=arch-cycle-20260526-191802-02=)."
   (let ((copy (copy-sequence ws)))
-    (plist-put copy :home home)))
+    (plist-put copy :home (file-name-as-directory (expand-file-name home)))))
 
 (defun workspace--set-name (ws name)
   "Return a new workspace like WS with its =:name= slot set to NAME.

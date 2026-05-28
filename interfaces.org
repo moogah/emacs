@@ -1034,17 +1034,43 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/workspace-plist-v3
    tier: shape
-   status: reconciled
+   status: reconciled-recommended
    status_note: |
-     cycle-20260526-171719 integrate (2026-05-26): reconciled. Cycle-3
-     added the missing setter-helper sibling: =workspace--set-name=
-     joins =workspace--set-home= in data-model.el (inline-fix c6c1b22
-     after reviewer F1 on broken-home-tolerance flagged the asymmetry
-     as the root cause of the BLOCKING registry-name-equals-basename
-     violation). Accessor-pair completeness is now structural: every
-     mutable slot has a setter helper. The lockstep constraint with
-     register/invariant/registry-name-equals-basename is enforced at
-     workspace-re-anchor's rename branch via the
+     cycle-5 task canonicalize-workspace-home-path-form (cycle-20260528-
+     180230): proposes reconciled-recommended. Closes cycle-4 reviewer
+     Finding 1 on workspace-new-anchor-existing (representational
+     asymmetry on :home between the three known producers) and absorbs
+     architect arch-cycle-20260526-191802-02 (multi-slot canonical_form
+     extended frame).
+
+     The shape entry is extended with a canonical_form sub-field for
+     every string-typed slot (:name, :home, :buffer-files); the
+     :home pin is enforced structurally at workspace--make (and at
+     workspace--set-home, the post-construction sibling reached by
+     workspace-re-anchor). The validator block now asserts the :home
+     canonical form. The :name canonical form (exact basename of :home,
+     case-sensitive) is the existing de-facto invariant pinned by
+     register/invariant/registry-name-equals-basename. The :buffer-files
+     element form (each absolute, expand-file-name applied) is pinned
+     as documentation of the de-facto behavior; no consumer cross-
+     workspace-equality-compares :buffer-files today so this is a
+     latent-class pin awaiting either a buffer-membership-equality
+     consumer or a constructor-side enforcement pass.
+
+     Integrate-phase architect: please review the new canonical_form
+     fields, particularly whether the :buffer-files pin should be
+     structurally enforced (e.g. via workspace--add-buffer-file) in a
+     follow-up cycle or stay documentation-only.
+
+     Prior status_note (cycle-20260526-171719 integrate, 2026-05-26):
+     reconciled. Cycle-3 added the missing setter-helper sibling:
+     =workspace--set-name= joins =workspace--set-home= in data-model.el
+     (inline-fix c6c1b22 after reviewer F1 on broken-home-tolerance
+     flagged the asymmetry as the root cause of the BLOCKING
+     registry-name-equals-basename violation). Accessor-pair completeness
+     is now structural: every mutable slot has a setter helper. The
+     lockstep constraint with register/invariant/registry-name-equals-
+     basename is enforced at workspace-re-anchor's rename branch via the
      workspace--clear-broken ∘ workspace--set-name ∘ workspace--set-home
      chain. See
      .orchestrator/cycles/cycle-20260526-171719/reconciliations/shape-workspace-plist-v3.md.
@@ -1089,6 +1115,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          the persistence file. Display name (mode-line, prompts) MAY
          differ — see =workspace-home-org-title= override and the
          =home-org-user-authored-after-creation= invariant.
+       canonical_form: |
+         Exact =basename(:home)= (i.e. =(file-name-nondirectory
+         (directory-file-name :home))=); case-sensitive; no
+         whitespace canonicalisation. The de-facto contract since
+         cycle-1; pinned by =register/invariant/registry-name-
+         equals-basename=. Constructor-side enforcement is at the
+         canonical call site (synthesises NAME from
+         basename(HOME)); the data layer does not re-derive on
+         construction.
      - name: ":home"
        type: string (absolute filesystem path)
        description: |
@@ -1101,17 +1136,53 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          see =register/shape/home-directory-layout= (cycle-2
          candidate). NOT optional: pre-alpha floating-workspace
          support is removed in this change.
+       canonical_form: |
+         Absolute path; trailing slash present; =expand-file-name=
+         applied (tilde and relative prefixes resolved against
+         =default-directory=); no double-slashes (=expand-file-name=
+         collapses internal =//=); symlinks NOT resolved (preserve
+         the user's resolution choice). Pinned at =workspace--make=
+         and =workspace--set-home= via
+         =(file-name-as-directory (expand-file-name HOME))=
+         (cycle-5 task =canonicalize-workspace-home-path-form=).
+         All three known producers reach :home through one of
+         these two attachment points: =workspace--new-default-path=
+         and =workspace--new-anchor-existing= via =workspace--make=,
+         =workspace-re-anchor= via =workspace--set-home=. The
+         persistence-loader path bypasses both: =:home= is preserved
+         verbatim on read so corrupted or hand-edited files surface
+         the offending path in =*Messages*= rather than silently
+         re-canonicalising it.
      - name: ":recent-layout-group"
        type: string | nil
        description: |
          Unchanged from v2. The name of the layout-group most
          recently activated for this workspace; nil if none.
+       canonical_form: |
+         Non-path; no canonicalisation. The value is a layout-group
+         name (matched by =equal= against
+         =(workspace--group-name g)=); whitespace and case are
+         preserved as user-supplied.
      - name: ":buffer-files"
        type: list of strings | nil
        description: |
          Unchanged from v2. The workspace's buffer membership
          (filenames). Reincarnation handled separately per
          =register/shape/workspace-buffer-struct=.
+       canonical_form: |
+         Each element is an absolute path with =expand-file-name=
+         applied; symlinks NOT resolved. De-facto form across all
+         existing producers (=workspace--add-buffer-file= forwards
+         the caller's path unchanged; callers in
+         =buffer-membership.org= compute via =expand-file-name= or
+         =buffer-file-name=). Documentation-only pin as of cycle-5;
+         no consumer cross-workspace-equality-compares
+         =:buffer-files= today, so the form is latent-class. A
+         future cross-workspace membership query would surface
+         drift here; the architect-recommended structural pin is
+         to canonicalise inside =workspace--add-buffer-file= when
+         that consumer lands (cycle-5
+         architect-extended-frame deferred follow-up).
      - name: ":layout-groups"
        type: alist (name . layout-group) | nil
        description: |
@@ -1158,17 +1229,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        note: |
          The canonical constructor. Signature changes from
          =(workspace--make name)= to =(workspace--make name home)=
-         in task =add-home-slot-to-data-model=. Speculation: this
-         is the SINGLE producer of new (non-deserialized) workspace
-         plists. If a sibling constructor turns up during execute,
-         that is a duplication signal — surface in =## Discoveries=.
+         in task =add-home-slot-to-data-model=. As of cycle-5 task
+         =canonicalize-workspace-home-path-form=, =workspace--make=
+         is the canonical :home canonicalisation choke-point:
+         =HOME= is wrapped via
+         =(file-name-as-directory (expand-file-name HOME))= so
+         the registered plist always carries the canonical form
+         pinned in the =:home= =canonical_form= sub-field above.
+     - file: config/workspaces/data-model.org
+       function: workspace--set-home
+       note: |
+         Post-construction :home producer. Reached by
+         =workspace-re-anchor= (cycle-3 third call-site enumerated
+         by architect =arch-cycle-20260526-191802-02=).
+         Canonicalises identically to =workspace--make= so the
+         shape invariant holds through re-anchor.
      - file: config/workspaces/persistence.org
        function: workspace--persistence-deserialize-workspace
        note: |
          Reconstructs from disk. Skips entries lacking =:home=
          (notice + continue). Tags entries whose =:home= is missing
-         with =:broken t=. Speculation: the deserializer is the
-         SECOND producer; no third producer exists.
+         with =:broken t=. Preserves =:home= verbatim from the
+         on-disk form — does NOT re-canonicalise; corrupted or
+         hand-edited files surface the offending path in
+         =*Messages*= rather than silently being normalised. A
+         file written by the cycle-5 constructor-side
+         canonicalisation will already be canonical on read.
    canonical_producer: workspace--make
 
    consumers:
@@ -1228,6 +1314,13 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      ;; boundary]); the validator lives here as YAML rather than as
      ;; a scaffolded file. Promote to a scaffold if a second
      ;; producer turns up during execute.
+     ;;
+     ;; The :home canonical-form check (home-not-canonical) is the
+     ;; cycle-5 addition closing reviewer Finding 1 on cycle-4's
+     ;; workspace-new-anchor-existing. Constructor-side
+     ;; canonicalisation in workspace--make / workspace--set-home
+     ;; means a workspace that fails this check has bypassed both
+     ;; attachment points — a structural-drift signal worth surfacing.
      (defun shape/validate-workspace-plist-v3 (ws)
        "Returns nil on success; error symbol otherwise."
        (cond ((not (plistp ws)) 'not-a-plist)
@@ -1235,6 +1328,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
              ((not (stringp (plist-get ws :home))) 'missing-home)
              ((not (file-name-absolute-p (plist-get ws :home)))
               'home-not-absolute)
+             ;; :home canonical-form check (cycle-5
+             ;; canonicalize-workspace-home-path-form): the
+             ;; constructor pins
+             ;; (file-name-as-directory (expand-file-name HOME)).
+             ;; A :home that differs from that form has bypassed
+             ;; workspace--make and workspace--set-home — surface as
+             ;; a distinct error symbol so audits can tell apart
+             ;; "missing :home" from "non-canonical :home".
+             ((not (equal (plist-get ws :home)
+                          (file-name-as-directory
+                           (expand-file-name (plist-get ws :home)))))
+              'home-not-canonical)
              ((not (equal (plist-get ws :name)
                           (file-name-nondirectory
                            (directory-file-name (plist-get ws :home)))))
@@ -1253,6 +1358,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        - { :name: "myproj", :home: "relative/path" } # :home not absolute
        - { :name: "alpha", :home: "/Users/jefffarr/emacs-workspaces/beta/" }
                                                     # name ≠ basename(:home)
+       - { :name: "myproj", :home: "/Users/jefffarr/emacs-workspaces/myproj" }
+                                                    # :home not canonical (no trailing slash)
+       - { :name: "myproj", :home: "~/emacs-workspaces/myproj/" }
+                                                    # :home not canonical (tilde not expanded)
 
    related_entries:
      - register/invariant/home-required-no-floating-workspaces
