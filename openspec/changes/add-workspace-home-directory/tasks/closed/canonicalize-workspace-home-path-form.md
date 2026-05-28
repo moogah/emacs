@@ -2,9 +2,11 @@
 name: canonicalize-workspace-home-path-form
 description: Reconcile :home representation between workspace-new default-path (no trailing slash) and anchor-existing (file-name-as-directory with trailing slash); either canonicalize at workspace--make or pin the canonical form in register/shape/workspace-plist-v3
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - discovered-from:workspace-new-anchor-existing
+merge_commit: 6afd70cb219603e716fd1f608f83385f665ed078
+implementor_commit: df0330c970ccee08bec9225a6028978d721ce82d
 ---
 
 <!-- Provenance fields (orchestrator schema):

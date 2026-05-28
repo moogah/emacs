@@ -2,9 +2,11 @@
 name: refactor-broken-home-test-observable-end-state
 description: Reframe workspace-purge broken-home spec to assert observable end-state (no error + clean registry) instead of mocking delete-directory globally
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - discovered-from:workspace-delete-and-purge
+merge_commit: b840bad9c0b579c25cbc086ef66ad95ef40e15c8
+implementor_commit: 8a4b55dddc6212bd83b9d84512e8a1e38ac10603
 ---
 
 <!-- Provenance fields (orchestrator schema):

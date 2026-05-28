@@ -2,8 +2,10 @@
 name: update-docs-readme
 description: Update config/workspaces/docs/README.org with new commands, scaffolding behavior, broken-home UX, gptel routing
 change: add-workspace-home-directory
-status: ready
+status: done
 relations: []
+merge_commit: b934f954558e588c3bd90bd5c7ad97f124c109de
+implementor_commit: f22d28bb13c546431d59d13d6f8f1f885173c9b8
 ---
 
 ## Cycle 4 updates (cycle-20260526-191802)
