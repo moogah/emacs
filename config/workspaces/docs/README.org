@@ -541,8 +541,11 @@ These are designed-for but not implemented in v2.
   preserves the user's current tab rather than jumping to the
   previously-selected workspace.
 - A =workspace-rename= command.  Today, renaming a workspace is an
-  out-of-band action: =mv= the home directory and restart Emacs;
-  the registry name follows the new basename automatically.
+  out-of-band action: =mv= the home directory, then on next load
+  the workspace surfaces as broken (its persisted =:home= no longer
+  exists; see *Broken workspaces* above).  Run =workspace-re-anchor=
+  (=C-x w R=) and point it at the new directory; the registry entry
+  is renamed in place to match the new basename.
 
 * Implementation notes
 
