@@ -144,3 +144,45 @@ form would pass these assertions because the end-state is the same.
 - Core test guidance: CLAUDE.md § "Test levels — Behavioural"
   ("Tests declare preconditions explicitly rather than building up
   stateful test infrastructure")
+
+## Observations
+
+- **Departure from task-body template (intentional)**: the template
+  in the task body wrapped the call in `(let ((current-prefix-arg
+  '(4))) ...)` and re-built the registry entry from scratch via
+  `puthash ... (workspace--make ...)`. Neither is needed for the
+  broken-home scenario because the seeded `:home` is under
+  `wdp-spec--tmp-parent` (which the `before-each` binds as
+  `workspaces-default-parent-directory`), so the scope safeguard does
+  not fire and no prefix arg is required. Using the file's existing
+  `wdp-spec--make-workspace` helper (with `broken=t`) keeps the test
+  consistent with the four sibling tests in the file (all of which
+  go through the same helper). The behavioural contract asserted is
+  identical to the template's: no error + registry clean + parent
+  untouched + flush exactly once.
+
+- **One extra assertion added vs. task template**: I added
+  `(expect 'workspace--flush-state :to-have-been-called-times 1)` to
+  match the four sibling `workspace-purge` happy-path / safeguard
+  tests in this `describe` group — every other purge-succeeds test
+  in the file pins the flush count. Dropping it on the broken-home
+  test only would weaken the regression net for "broken purge
+  forgets to flush". Buttercup spec-count is unchanged (224); only
+  the assertion list inside the same `it` differs.
+
+- **Test count delta**: 0. Baseline 224 → post-refactor 224, both
+  with 0 failed. Verified by running `./bin/run-tests.sh -d
+  config/workspaces` before and after the change.
+
+- **Out-of-scope observation (latent, not a defect)**: the
+  precondition `(expect (file-directory-p wdp-spec--tmp-parent) :to-be
+  t)` is redundant in principle — `wdp-spec--reset` creates this dir
+  via `make-temp-file ... t` in the `before-each`. I kept it because
+  the SAME assertion is then re-checked AFTER the purge to prove the
+  parent was not collaterally deleted; reading them as a pair is
+  what makes "parent untouched" a clear assertion. The cost is one
+  extra micro-assertion; the benefit is clarity. No action needed.
+
+## Discoveries
+
+(none)
