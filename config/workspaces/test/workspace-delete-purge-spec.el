@@ -255,24 +255,32 @@ delete-leaves-files-on-disk assertions are meaningful."
     (spy-on 'workspace--flush-state :and-return-value nil))
   (after-each (wdp-spec--cleanup))
 
-  (it "removes registry entry; no delete-directory call against missing path"
+  (it "no-ops on filesystem when :home no longer exists"
+    ;; Observable end-state contract for the broken-home purge path
+    ;; (register/vocabulary/workspace-broken-disposition: purge is
+    ;; :allowed on broken — registry-only cleanup, no filesystem
+    ;; deletion to perform).  Asserts the BEHAVIOUR, not the call
+    ;; shape: any implementation that completes without error, leaves
+    ;; the registry clean, and does not touch the parent directory
+    ;; satisfies the contract.
     (let* ((missing (file-name-as-directory
-                     (expand-file-name "vanished" wdp-spec--tmp-parent)))
-           (delete-calls 0))
-      ;; Precondition: directory does NOT exist on disk.
+                     (expand-file-name "vanished" wdp-spec--tmp-parent))))
+      ;; Precondition: :home does NOT exist on disk; parent does.
       (expect (file-exists-p missing) :to-be nil)
+      (expect (file-directory-p wdp-spec--tmp-parent) :to-be t)
       (wdp-spec--make-workspace "vanished" missing t)
-      ;; The broken entry's :home is inside the default parent, so the
-      ;; safeguard does not fire and no prefix arg is required.  Spy on
-      ;; delete-directory so we can confirm it is NOT called for a path
-      ;; that does not exist — the (file-directory-p home) guard inside
-      ;; `workspace-purge' is what protects this case.
-      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t))
-                ((symbol-function 'delete-directory)
-                 (lambda (&rest _) (cl-incf delete-calls))))
+      ;; :home is inside the default parent, so the safeguard does
+      ;; not fire and no prefix arg is required.  yes-or-no-p stubbed
+      ;; to t — the implicit assertion is that `workspace-purge'
+      ;; completes without signalling (Buttercup would raise).
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
         (workspace-purge "vanished"))
+      ;; Observable end-state:
+      ;; - registry entry gone
       (expect (gethash "vanished" workspace--registry) :to-be nil)
-      (expect delete-calls :to-equal 0)
+      ;; - parent directory untouched (no over-broad deletion)
+      (expect (file-directory-p wdp-spec--tmp-parent) :to-be t)
+      ;; - persistence flushed exactly once
       (expect 'workspace--flush-state :to-have-been-called-times 1))))
 
 (describe "workspace-delete and workspace-purge keybindings"
