@@ -4,12 +4,12 @@
 
 Provides a purpose-built window/workspace management system layered
 directly on `tab-bar-mode`. A *workspace* is a uniquely-named
-user-facing context surfaced as a single tab; each workspace owns an
-arbitrary number of named *layouts* (window configurations), a
-*home* layout produced by a configurable builder, a *recent-layout
-pointer*, a per-workspace *buffer membership* set scoped via
-`bufferlo`, and a per-machine persistence file keyed by
-`jf/machine-role`.
+user-facing context surfaced as a single tab, anchored to a
+filesystem `:home` directory; each workspace owns an arbitrary
+number of named *layouts* (window configurations), a *home* layout
+produced by a configurable builder, a *recent-layout pointer*, a
+per-workspace *buffer membership* set scoped via `bufferlo`, and a
+per-machine persistence file keyed by `jf/machine-role`.
 
 This capability supersedes the legacy combination of `activities.el`
 + `activities-extensions` (workflow shell + tabs + persistence but

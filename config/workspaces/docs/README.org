@@ -1,44 +1,239 @@
 #+title: Workspaces
 
-Named tab-based workspaces with per-workspace named layouts,
-configurable home, recent-layout pointer, per-workspace buffer
-membership scoping (via [[https://github.com/florommel/bufferlo][bufferlo]]), and per-machine persistence.
+Named tab-based workspaces with per-workspace named layouts, a
+filesystem-anchored home directory, recent-layout pointer,
+per-workspace buffer membership scoping (via [[https://github.com/florommel/bufferlo][bufferlo]]), and
+per-machine persistence.  Each workspace is bound 1:1 to a tab and to
+a =:home= directory on disk that holds =home.org= (the dashboard /
+display-name source) and =sessions/= (gptel session files).
 
 * Concepts
 
 | Term          | What it is                                                  |
 |---------------+-------------------------------------------------------------|
 | /workspace/   | A named user-facing context; one tab in =tab-bar-mode=      |
+| /home/        | The workspace's filesystem anchor (absolute path)           |
 | /layout/      | A named, restorable window configuration inside a workspace |
-| /home/        | A reserved layout-group name; every workspace has one       |
+| /home layout/ | A reserved layout-group name; every workspace has one       |
 | /membership/  | The set of buffers visible to the current workspace's tab   |
 
 A workspace is bound 1:1 to a tab, tagged via the =workspace-name=
-tab parameter.  Layouts are window configurations stored under the
-workspace; they are named, with no upper bound.  =home= is reserved
-and built once per workspace via the =workspace-home-builder= function.
+tab parameter, and anchored to a =:home= directory on disk.  The
+registry /name/ of a workspace equals the basename of its =:home=
+(e.g. =~/emacs-workspaces/notes/= → =notes=).  The /display name/
+defaults to the registry name and may be overridden by a =#+TITLE:=
+keyword in =<home>/home.org=; editing =#+TITLE:= never changes the
+registry name or invalidates the persistence file.
+
+Layouts are window configurations stored under the workspace; they
+are named, with no upper bound.  =home= is the reserved layout-group
+name (distinct from the =:home= directory): it is built once per
+workspace via the =workspace-home-builder= function.
+
+* Home directory
+
+Every workspace has an absolute =:home= path.  By default, new
+workspaces are scaffolded under =~/emacs-workspaces/<name>/=;
+override =workspaces-default-parent-directory= to point elsewhere.
+
+The home directory contains:
+
+- =home.org= — your dashboard.  The package writes it exactly once
+  at scaffold time and never modifies it after that.  Add whatever
+  you like (links, TODOs, embedded session listings).  A
+  =#+TITLE:= keyword here overrides the workspace's display name
+  without changing its registry name.
+- =sessions/= — where new gptel persistent sessions land when this
+  workspace is active (see *gptel sessions*).
+
+The package does not auto-render =sessions/= contents back into
+=home.org=.  If you want a listing, add it manually; =sessions/=
+on disk is the source of truth.
+
+* Creating workspaces
+
+=workspace-new= (=C-x w n=) has two flows controlled by the prefix
+argument:
+
+** No prefix arg — scaffold a fresh directory
+
+=workspace-new NAME= scaffolds a new directory at
+=(expand-file-name NAME workspaces-default-parent-directory)=.  The
+scaffold pipeline runs six stages in order: =make-directory=,
+=git init=, write =home.org= skeleton, =make-directory sessions/=,
+create =sessions/<date>-initial.org=, then =git add . && git commit
+-m "Initial workspace"=.  Only after scaffolding succeeds is the
+workspace registered, a tab created, and =workspace-home-builder=
+called.
+
+If the target directory already exists, =workspace-new= signals a
+hard =user-error= and tells you to use the prefix-arg form to anchor
+an existing directory.  Scaffold failures (=git= missing, permission
+denied) propagate verbatim; partial filesystem state is left in
+place for manual inspection (design.md §D2 — auto-cleanup of a
+typo'd path would risk =rm -rf= on user data).
+
+** =C-u= — anchor an existing directory
+
+=C-u M-x workspace-new= ignores the name prompt and instead asks for
+an existing directory.  The new workspace's name is derived from the
+directory's basename.  Three sub-cases by directory state:
+
+1. *Git repo with =home.org= already present* — register only.  No
+   scaffolding, no git ops; we never touch a repo we did not create
+   and never overwrite a user-authored =home.org=.
+2. *Git repo, no =home.org=* — scaffold files only (skip =git init=
+   and the initial commit).  =home.org= and =sessions/= land in your
+   repo; you stage and commit them when you choose.
+3. *Not a git repo* — full scaffold (mkdir is idempotent, =git
+   init=, files, initial commit), same as the default-path branch.
+
+A double-registration guard refuses to anchor a directory that is
+already a registered workspace's =:home=.  Path comparison is by
+=file-equal-p=, so trailing-slash and =~= variants do not produce
+false positives.
+
+* Deleting and purging workspaces
+
+Two commands handle workspace removal, with deliberately split
+semantics.
+
+** =workspace-delete= (=C-x w D=) — unregister only
+
+Removes the workspace from the registry, closes its tab, and flushes
+persistence.  The =:home= directory and all its contents
+(including =.git/=, =home.org=, =sessions/=) are left on disk
+untouched.  This is the safe default: a =kill-buffer=-style mental
+model gets non-destructive removal.
+
+The "delete then re-anchor later" workflow works precisely because
+=workspace-delete= leaves the files alone — invoke =C-u M-x
+workspace-new= and point it at the dir to bring it back.
+
+** =workspace-purge= (=C-x w P=) — destructive
+
+Unregisters the workspace and recursively deletes the =:home=
+directory after a =yes-or-no-p= confirmation showing the absolute
+path.
+
+A scope safeguard refuses to operate when =:home= is not a
+descendant of =workspaces-default-parent-directory= unless you
+supply a prefix argument.  This protects anchored existing projects
+(e.g. =~/code/myproj/=) from accidental destruction: you must invoke
+=C-u M-x workspace-purge= to opt in to deleting a dir outside the
+default parent.  Inside the default parent (=~/emacs-workspaces/=)
+the safeguard is silent and only =yes-or-no-p= guards the delete.
+
+Order is deliberate: unregister first, =delete-directory= second.
+If the filesystem delete errors (permission denied, file busy), the
+registry is already clean, so the workspace appears removed from
+your perspective; leftover state is inspectable out-of-band.
+
+Both commands also operate on broken-state workspaces (see *Broken
+workspaces*).  Purge skips the filesystem step when =:home= is
+already missing on disk — registry cleanup still proceeds.
+
+* Broken workspaces
+
+A workspace becomes /broken/ at load time when the persistence
+loader sees its =:home= is no longer a directory on disk (the
+directory was moved, deleted, or renamed out-of-band while Emacs was
+down).  The loader tags the in-memory entry with a runtime-only
+=:broken= flag and emits a =*Messages*= notice naming the workspace
+and its missing =:home=.
+
+The =:broken= tag never persists to disk: it lives on the registry
+plist at runtime only, recomputed on every load from the current
+state of the filesystem.  No surgery on the persistence file is
+needed; just fix the dir.
+
+Three operations are /allowed/ on a broken workspace:
+
+- =workspace-re-anchor= (=C-x w R=) — point the registry entry at
+  a new home directory.  Prompts for the workspace name and the
+  new path; the path must exist and be a directory.  If the new
+  basename differs from the registry key, the registry entry is
+  renamed in place (and the live tab relabelled) to honour the
+  invariant that the registry name equals the basename.
+- =workspace-purge= (=C-x w P=) — remove the registry entry.  The
+  filesystem step is skipped automatically when =:home= is already
+  missing.
+- =workspace-delete= (=C-x w D=) — also removes the registry
+  entry; equivalent to purge for broken entries since there is no
+  directory to delete.
+
+Two operations are /refused/ on a broken workspace, with an error
+message naming both remediation commands:
+
+- =workspace-switch= (=C-x w s=)
+- =workspace-restore= (=C-x w o=)
+
+Routing concerns also honour broken state: gptel session creation
+falls through to the global default rather than re-materialising the
+missing directory (see *gptel sessions*).
+
+* gptel sessions
+
+When a workspace owns the current tab and the =workspaces= feature
+is loaded, =jf/gptel-persistent-session= writes new session
+directories under that workspace's =<:home>/sessions/=.  When no
+workspace owns the current tab, the active workspace is broken, or
+its =sessions/= directory has been removed out-of-band, creation
+falls through to the global =jf/gptel-sessions-directory=.
+
+Two user-facing commands:
+
+- =M-x jf/gptel-persistent-session= — the default flow.  Routes
+  to the active workspace's =sessions/= when one applies; otherwise
+  global.  Its existing =C-u= prefix prompts for a preset (the
+  prefix is already spoken for in the per-session UX), so it is
+  /not/ the global-override knob.
+- =M-x jf/gptel-persistent-session-global= — the
+  escape-hatch.  Forces the global =jf/gptel-sessions-directory=
+  unconditionally, even when a workspace is active.  Use this when
+  you explicitly want a session outside any workspace.
+
+The =sessions/= directory contents are the source of truth.  The
+workspaces package does not auto-render a listing into =home.org=;
+if you want one, write it by hand or via a custom
+=workspace-home-builder=.
+
+The integration is one-way: workspaces never references gptel;
+gptel-side code reaches into workspaces behind a =(featurep
+'workspaces)= + =fboundp= guard.  The published consult function is
+=workspace-sessions-dir= (nil on the three no-route conditions:
+off-workspace, broken workspace, missing =sessions/= dir).
 
 * Command reference
 
-| Binding   | Command                             | What it does                                                 |
-|-----------+-------------------------------------+--------------------------------------------------------------|
-| =C-x w n= | =workspace-new=                     | Create a new workspace (or select an existing one by name)   |
-| =C-x w s= | =workspace-switch=                  | Select an existing workspace's tab                           |
-| =C-x w o= | =workspace-restore=                 | Materialize a saved workspace into a tab (creates if absent) |
-| =C-x w S= | =workspace-save=                    | Capture the current frame into =:saved-state= and flush      |
-| =C-x w r= | =workspace-revert=                  | Discard =:working-state=, restore last =:saved-state=        |
-| =C-x w b= | =workspace-remove-buffer=           | Remove a buffer from the current workspace's membership      |
-| =C-x w l= | =workspace-switch-layout=           | Switch to a named layout in the current workspace            |
-| =C-x w L= | =workspace-save-layout=             | Save current window config as a named layout                 |
-| =C-x w R= | =workspace-switch-to-recent-layout= | Jump to the workspace's most recently activated layout       |
-| =C-x w D= | =workspace-delete-layout=           | Delete a named layout (refuses =home=)                       |
+| Binding   | Command                              | What it does                                                 |
+|-----------+--------------------------------------+--------------------------------------------------------------|
+| =C-x w n= | =workspace-new=                      | Scaffold a new workspace; =C-u= to anchor an existing dir    |
+| =C-x w s= | =workspace-switch=                   | Select an existing workspace's tab (refuses broken)          |
+| =C-x w o= | =workspace-restore=                  | Materialize a saved workspace into a tab (refuses broken)    |
+| =C-x w S= | =workspace-save=                     | Capture the current frame into =:saved-state= and flush      |
+| =C-x w r= | =workspace-revert=                   | Discard =:working-state=, restore last =:saved-state=        |
+| =C-x w b= | =workspace-remove-buffer=            | Remove a buffer from the current workspace's membership      |
+| =C-x w l= | =workspace-switch-layout=            | Switch to a named layout in the current workspace            |
+| =C-x w L= | =workspace-save-layout=              | Save current window config as a named layout                 |
+| =C-x w T= | =workspace-switch-to-recent-layout=  | Jump to the workspace's most recently activated layout       |
+| =C-x w R= | =workspace-re-anchor=                | Point a broken workspace at a new =:home=                    |
+| =C-x w D= | =workspace-delete=                   | Unregister a workspace; leave its home directory on disk     |
+| =C-x w P= | =workspace-purge=                    | Unregister AND recursively delete the home directory         |
+
+The layout-scoped delete command (=workspace-delete-layout=, formerly
+on =C-x w D=) is still available via =M-x= but no longer holds a
+prefix binding — =D= now flags the destructive workspace-level
+delete.  The recent-layout pointer was moved from =R= to =T= so =R=
+could host the broken-state recovery command (mnemonic: re-anchor).
 
 * Customization
 
 =workspace-home-builder= — the function called to build a freshly
 created workspace's =home= layout.  Called with one argument
 (WORKSPACE-NAME) in the context of the new workspace.  The default
-opens a single window on =*scratch*=.  Example override:
+=workspace-default-home-builder= opens =<:home>/home.org= in a
+single window.  Example override that opens an index file instead:
 
 #+begin_src emacs-lisp
 (setq workspace-home-builder
@@ -47,8 +242,13 @@ opens a single window on =*scratch*=.  Example override:
         (find-file "~/notes/index.org")))
 #+end_src
 
-=workspace-save-idle-delay= — seconds of idle time before the debounced
-disk save fires.  Default: 2.
+=workspaces-default-parent-directory= — directory under which
+=workspace-new= scaffolds new workspace homes.  Default:
+=~/emacs-workspaces/=.  Also acts as the scope-safeguard boundary
+for =workspace-purge= (purges outside this dir require =C-u=).
+
+=workspace-save-idle-delay= — seconds of idle time before the
+debounced disk save fires.  Default: 2.
 
 =workspace-anti-save-predicates= — list of nullary predicate functions
 consulted before any autosave (tab switch, idle timer, =kill-emacs=).
@@ -84,6 +284,26 @@ exists, the reader emits a =*Messages*= notice naming the file and
 the version mismatch, and Emacs starts with no workspaces.  See
 *State format is pre-alpha* below.
 
+** Schema v3
+
+v3 records each workspace with its required =:home= absolute path —
+v2 had no =:home= slot and treated workspaces as floating contexts
+keyed by name only.  v3 also enforces absolute =:home= paths at
+deserialize time: entries with a relative =:home= are skipped and a
+=*Messages*= notice is emitted for each.  Relative paths cannot be
+disambiguated (the workspace might restore in a different working
+directory on a different machine) so dropping them is safer than
+guessing.
+
+=:broken= and =:restore-pending= are /runtime-only/ tags managed by
+helpers (=workspace--mark-broken=, =workspace--mark-restore-pending=,
+=workspace--clear-broken=); they live on the registry plist only and
+are stripped at the persistence boundary so they never appear in
+=workspaces.eld=.  This means the on-disk format does not need to
+encode transient state, and a missing-home entry recomputes its
+broken status on every load against the current state of the
+filesystem.
+
 ** Two-state layouts
 
 Each layout holds two window-state slots and an open-ended =:etc=
@@ -108,7 +328,8 @@ baseline.
 
 ** What persists
 
-- Workspace names and recent-layout pointers.
+- Workspace names, =:home= absolute paths, and recent-layout
+  pointers.
 - Each workspace's layouts (the two window-state slots above; see
   *Buffer reincarnation* for how individual buffers come back).
 - Each workspace's /file-buffer/ membership.  Non-file buffers
@@ -154,7 +375,7 @@ starts cleanly with no workspaces and emits a =*Messages*= notice
 The on-disk schema may break between refinement cycles.  There is no
 migration code.  If you see the version-mismatch notice on startup,
 delete =state/workspaces/<machine-role>/workspaces.eld= and recreate
-your workspaces by hand on the v2 reader.  This policy is
+your workspaces by hand on the current reader.  This policy is
 intentional (design.md §D3): a real migration story is reserved for
 beta.
 
@@ -319,6 +540,9 @@ These are designed-for but not implemented in v2.
 - Restoring an explicit "selected tab at save time" — restoration
   preserves the user's current tab rather than jumping to the
   previously-selected workspace.
+- A =workspace-rename= command.  Today, renaming a workspace is an
+  out-of-band action: =mv= the home directory and restart Emacs;
+  the registry name follows the new basename automatically.
 
 * Implementation notes
 

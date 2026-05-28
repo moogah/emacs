@@ -275,3 +275,62 @@ update later if the asks resolve to changes that affect users.
 The architect's invariant-completeness audit (externalised to
 `.tasks/audit-load-bearing-invariant-enforcement-completeness.md`) is
 not user-facing; no README change required.
+
+## Observations
+
+- The pre-change README opened with "Named tab-based workspaces with
+  per-workspace named layouts, configurable home, recent-layout
+  pointer, ..." — the word "home" there was ambiguous (it could mean
+  either the reserved layout-group or the new filesystem anchor).
+  Rewrote the opening paragraph to disambiguate: the layout-group is
+  now consistently called the "home layout" and the filesystem path
+  is "the `:home` directory".  The Concepts table now has a separate
+  row for /home/ (filesystem anchor) and /home layout/ (reserved
+  layout-group name).
+- The pre-change README's Command reference still listed
+  `workspace-delete-layout` on `C-x w D` and
+  `workspace-switch-to-recent-layout` on `C-x w R` — the bindings
+  the cycle-3 reviewer flagged as stale.  Cycle-4 + this task
+  refresh them in lockstep: the table now matches the live keymap
+  bindings in `config/workspaces/workspaces.el:180-183`.
+- The pre-change README had no section discussing scaffold,
+  delete/purge, broken workspaces, or gptel routing.  Added four
+  new sections (`Home directory`, `Creating workspaces`, `Deleting
+  and purging workspaces`, `Broken workspaces`, `gptel sessions`)
+  and refactored Persistence to call out v3-specific schema
+  notes (required `:home`, absolute-path enforcement, runtime-only
+  `:broken`/`:restore-pending` tags).
+- The Persistence section already said `:version 3` (carried in
+  from a prior cycle) so the version-bump narrative was already
+  partly correct; this task added the prose explanation of *why*
+  it bumped (required `:home` slot; absolute-path enforcement).
+- Used the closed-set vocabulary `:allowed` (re-anchor / purge /
+  delete) and `:refused` (switch / restore) directly from
+  `register/vocabulary/workspace-broken-disposition`.  Avoided
+  introducing `:permitted` (the mis-citation the cycle-4
+  inline-fix corrected).
+- Did NOT pin any `register/shape/workspace-plist-v3` sub-field
+  detail in the README — described `:home` and the runtime-only
+  tags as behaviour, not as plist shape.  This leaves the parallel
+  `canonicalize-workspace-home-path-form` task free to extend the
+  shape entry without forcing a README touch.
+- Touched `openspec/specs/workspaces/spec.md` Purpose paragraph
+  (one sentence — added "anchored to a filesystem `:home`
+  directory").  Did NOT touch the "on-disk persistence schema is
+  `:version 2`" sentence further down in Purpose: that's covered
+  by the change's spec delta (the deserialiser scenarios already
+  document v3), and modifying prose outside the delta's scope
+  would arguably be drift the spec sync should catch rather than
+  this task.
+- Did NOT modify the existing Buffer reincarnation, Working-state
+  revert, Idle save, Buffer membership, Deferred features, or
+  Implementation notes sections (they are accurate as written).
+  Added a "no `workspace-rename` command" bullet under Deferred
+  features, since the new mental model invites the question
+  "what if I want to rename a workspace" and the answer is
+  out-of-band `mv` + restart.
+
+## Discoveries
+
+(none)
+
