@@ -2,9 +2,8 @@
 name: verify-end-to-end
 description: Full test run; manual sanity check of scaffold + anchor + delete + purge + broken-home flows; all spec scenarios pass
 change: add-workspace-home-directory
-status: blocked
-relations:
-  - blocked-by:update-docs-readme
+status: ready
+relations: []
 ---
 
 ## Cycle 4 updates (cycle-20260526-191802)
@@ -319,3 +318,75 @@ flag the trivially-passing concern.
 If `ask-cycle-20260526-171719-2` (*scratch* fallback) is unresolved,
 verify the current behaviour (fallback exists; one spec exercises it)
 but flag in the verification report.
+
+
+## Cycle 5 updates (cycle-20260528-180230)
+
+### Status
+
+- Final blocker `update-docs-readme` resolved (merge `b934f95`,
+  inline-fix `badb863` on rename-bullet design-drift). Status
+  flipped `blocked → ready`. Eligible for any future cycle's
+  batch; the proposal's user-visible surface plus README are
+  now functionally complete and any remaining quality
+  follow-ups (canonical_form deserialiser reconciliation,
+  test-isolation hygiene) are non-blocking.
+
+### Cycle-5 register-diff hits relevant to this task
+
+- `register/shape/workspace-plist-v3` `confirmed → reconciled`
+  (modified this cycle to add `canonical_form` sub-fields per
+  string-typed slot). Verify-end-to-end's manual flows must
+  exercise:
+  - `M-x workspace-new alpha` + `C-u M-x workspace-new` →
+    inspect `workspace--registry` and confirm both `:home`
+    values carry trailing slashes and `expand-file-name`
+    normalisation (cycle-5's structural pin).
+  - `C-x w R` re-anchor → confirm `:home` lands canonical on
+    the new path (no manual trailing-slash dance needed in
+    the prompt response — file-name-as-directory wraps it).
+  - Save + restart + reload → confirm persisted `:home`
+    survives round-trip in the form it was stored (verbatim
+    preservation; see follow-up
+    `reconcile-home-canonical-form-deserialiser-promise`).
+- `register/vocabulary/workspace-broken-disposition` and
+  `register/invariant/broken-tag-runtime-only` re-confirmed.
+  Manual flow: kill a workspace's home dir mid-Emacs session
+  (or `mv` then restart) → confirm `:broken` flag on the
+  registry plist, confirm `workspace-switch` / `workspace-restore`
+  are refused with naming of `workspace-re-anchor` /
+  `workspace-purge`, confirm `workspace-re-anchor` recovers
+  cleanly.
+
+### Cycle-5 follow-up tasks created this cycle
+
+Two follow-ups landed during cycle-5 integrate. Both are
+non-blocking for verify-end-to-end, but the manual sanity
+sweep should be aware:
+
+1. `reconcile-home-canonical-form-deserialiser-promise`
+   (in-change, ready) — softens or wires the canonical_form
+   deserialiser promise. If this lands before verify-end-to-end
+   runs, re-confirm the entry's prose matches the deserialiser
+   behaviour you observe in the round-trip flow.
+
+2. `.tasks/refresh-workspaces-spec-md-v3-schema-and-
+   canonical-form` — externalised; spec.md resync. Not
+   user-visible; no impact on verify-end-to-end's checks.
+
+### Manual flow checklist additions
+
+Beyond the prior cycle's checklist, add:
+
+- `M-x workspace-purge missing-ws` on a broken workspace
+  (`:home` was mv'd away) → confirm no error, registry
+  cleaned, parent directory untouched (cycle-5 refactor of
+  the broken-home test asserts this end-state; the manual
+  flow should match).
+- After `mv ~/emacs-workspaces/foo ~/emacs-workspaces/bar`
+  + Emacs restart → confirm workspace `foo` surfaces as
+  broken at load; `C-x w R foo /full/path/to/bar` →
+  workspace renames in place to `bar`, registry key
+  flips, tab relabels. (This is now the documented rename
+  flow per README's Deferred-features bullet rewrite at
+  inline-fix `badb863`.)
