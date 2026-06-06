@@ -5629,6 +5629,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      it #2 landed in home-org-spec.el, it #1 in the follow-up task, it #3
      (byte-for-byte snapshot) naturally lands with scaffold-module.
      See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-home-org-user-authored-after-creation.md.
+     POST-CYCLE-5 (ask-cycle-20260526-171719-1): the broader cross-module
+     lint (home-org-writer-lint-spec.el) was REMOVED — it passed trivially
+     (forward-only proximity window + cycle-4 helper routing left zero
+     literals to match), giving false coverage. Enforcement reverts to
+     per-module review plus home-org-spec.el's narrow read-only assertion;
+     the invariant remains true (no other module writes home.org).
    load_bearing: true
    title: The package writes home.org exactly once (at scaffold time)
 
@@ -5660,24 +5666,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      writes once with an =unless (file-exists-p path)= guard.
 
    enforcement_mechanism:
-     kind: lint
+     kind: review
      location: |
-       Primary: grep-based lint over =config/workspaces/*.el= for
-       write operations targeting =home.org= (=write-region=,
-       =with-temp-file=, =append-to-file=, =delete-file=, etc.).
-       Permitted writer: =workspace--scaffold-write-home-org= in
-       =scaffold.el= (cycle-2 module). Any other writer is a
-       defect. Scaffolded at cycle 1 as a Buttercup spec that
-       reads the workspaces module sources and asserts the writer
-       allow-list.
+       Primary: per-module code review. =home.org= has exactly one
+       producer, =workspace--scaffold-write-home-org= in
+       =scaffold.el= (writing once under an =unless (file-exists-p
+       path)= guard); every other module under =config/workspaces/*=
+       only reads. A new writer is a reviewable, single-site change.
+       Narrow automated backstop: =home-org-spec.el='s "reader module
+       is read-only" case asserts =home-org.el= contains zero file-
+       write primitives.
      notes: |
-       The =test= enforcement (a byte-for-byte snapshot of
-       =home.org= across operations) is a secondary layer added
-       at cycle 2+ when the scaffold and command modules are wired.
-       The cycle-1 scaffold focuses on the lint: it does not need
-       the scaffold module to exist (the read module exists and
-       must NOT write; the lint asserts both modules' present and
-       future writer count).
+       The cross-module grep/proximity lint
+       (=home-org-writer-lint-spec.el=) was REMOVED post-cycle-5
+       (ask-cycle-20260526-171719-1). It passed for two wrong
+       reasons — a forward-only proximity window missed the
+       let-binding-before-write idiom (cycle-3), and after cycle-4
+       routed the writer through =workspace-home-org-path= the
+       writer body contained zero =home.org= literals to match at
+       all — so it gave false "covered" confidence. A lint that
+       passes for the wrong reasons is worse than none; per-module
+       review is the real defense and the invariant remains true
+       (no other module writes =home.org=).
 
    related_entries:
      - register/boundary/home-org-read-pipeline

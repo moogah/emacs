@@ -2,10 +2,33 @@
 name: cleanup-workspaces-test-isolation
 description: Backport the workspace-new-default-spec.el after-each cleanup pattern (delete tmpdir + restore defcustom) to the 9 pre-existing workspaces test files updated during cycle-3
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - discovered-from:workspace-new-default-path
 ---
+
+## Resolution (2026-06-06, manual review)
+
+Root cause confirmed: in all 9 files the
+`workspaces-default-parent-directory` tmpdir was created inline with
+`make-temp-file` and never captured, so it could never be deleted —
+even the files with an existing `--cleanup` only deleted a *separate*
+state-file tmpdir. Fix (modelled on `wnd-spec--cleanup`): capture the
+parent-dir in a per-file `*--parent-dir` defvar in the `before-each`
+setup, and delete it in an `after-each`. No defcustom restore needed —
+every `before-each` re-sets the value (same shape as the model).
+
+- Extended existing `--cleanup` + defvar: `anti-save-spec.el`,
+  `persistence-spec.el`, `revert-spec.el`, `save-restore-spec.el`.
+- Added defvar + `--cleanup` fn + `after-each` to each describe block:
+  `buffer-membership-spec.el` (4), `home-spec.el` (1),
+  `tabs-spec.el` (3), `layouts-spec.el` (helper sites + the inline
+  `workspace--capture-frameset` block), `buffer-reincarnation-spec.el`
+  (3 inline blocks).
+
+Verified: `./bin/run-tests.sh -d config/workspaces` → 231 passed;
+isolated re-runs of the fixed files leave zero net tmpdir
+accumulation (before == after).
 
 <!-- Provenance fields (orchestrator schema):
      discovered_from: workspace-new-default-path

@@ -117,12 +117,12 @@ literate root; that file simply forward-declares the builder symbol.
 Here we provide the default implementation.
 
 The default builder looks up the workspace by name in the registry and
-=find-file='s =<:home>/home.org= for it.  The fallback to =*scratch*=
-is purely defensive: with the cycle-1 data-model change every
-registered workspace has =:home= (=register/invariant/home-required-no-
-floating-workspaces=), so the =if= branch should never fire in
-practice.  Any code path that produces a no-=:home= workspace is a
-separate bug to fix.
+=find-file='s =<:home>/home.org= for it.  Every registered workspace
+has =:home= (=register/invariant/home-required-no-floating-workspaces=,
+enforced structurally by =workspace--make='s =cl-check-type= and the
+deserialiser's skip of =:home=-less entries), so the builder does not
+carry a no-=:home= fallback: a workspace reaching here without =:home=
+is a constructor-contract violation that should already have signalled.
 
 The builder receives only WORKSPACE-NAME (not HOME) because that is
 the established =workspace-home-builder= contract — custom builders
@@ -133,19 +133,16 @@ a custom builder needs HOME it can perform the same registry lookup.
 (defun workspace-default-home-builder (workspace-name)
   "Default `workspace-home-builder': `find-file' the workspace's home.org.
 Looks up the workspace by WORKSPACE-NAME and opens
-`<:home>/home.org' in a single window. If the workspace has no
-`:home' (defensive — should never happen now that :home is
-required), falls back to *scratch*."
+`<:home>/home.org' in a single window.  Every registered workspace
+has a `:home' (see `register/invariant/home-required-no-floating-
+workspaces'), so no missing-home fallback is carried here."
   (delete-other-windows)
-  (let* ((ws (gethash workspace-name workspace--registry))
-         (home (and ws (workspace--home ws))))
-    (if home
-        ;; Route through the home-org-read-pipeline helper rather than
-        ;; duplicating the (expand-file-name "home.org" HOME) literal,
-        ;; per register/boundary/home-org-read-pipeline's stage-1
-        ;; producer contract.
-        (find-file (workspace-home-org-path home))
-      (switch-to-buffer (get-buffer-create "*scratch*")))))
+  (let ((home (workspace--home (gethash workspace-name workspace--registry))))
+    ;; Route through the home-org-read-pipeline helper rather than
+    ;; duplicating the (expand-file-name "home.org" HOME) literal,
+    ;; per register/boundary/home-org-read-pipeline's stage-1
+    ;; producer contract.
+    (find-file (workspace-home-org-path home))))
 #+end_src
 
 * Commands

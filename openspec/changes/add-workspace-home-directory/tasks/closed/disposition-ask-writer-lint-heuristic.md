@@ -2,11 +2,37 @@
 name: disposition-ask-writer-lint-heuristic
 description: User disposition for ask-cycle-20260526-171719-1 — the cross-module writer-lint's proximity heuristic mismatches scaffold.el's actual writer idiom, so the lint passes trivially
 change: add-workspace-home-directory
-status: blocked
+status: done
 relations:
   - discovered-from:port-cross-module-home-org-writer-lint
-  - blocked-by:user-decision
 ---
+
+## Resolution (2026-06-06, manual review)
+
+**User disposition: delete the lint** (a clean variant of Option D —
+delete without the runtime-check substitute). The lint passed for two
+unrelated wrong reasons (cycle-3 forward-only proximity window missing
+the let-binding-before-write idiom; cycle-4 helper routing leaving zero
+`"home.org"` literals in the writer body), so it gave false "covered"
+confidence. The architect rated the finding advisory and noted the lint
+was "(significantly more) decorative" — the invariant is genuinely true
+and per-module review is the primary defense. Building a call-graph
+static lint (Option C) to prop up a decorative secondary check was not
+warranted.
+
+Implemented:
+- Removed `config/workspaces/test/home-org-writer-lint-spec.el`.
+- `interfaces.org` — `register/invariant/home-org-user-authored-after-
+  creation`: rewrote `enforcement_mechanism` from `kind: lint` to
+  `kind: review` (per-module review primary; `home-org-spec.el`'s
+  read-only assertion on the reader module as the narrow automated
+  backstop), and recorded the removal in `status_note`.
+
+No runtime check was added: the invariant holds, the scaffold writer
+already guards with `unless (file-exists-p path)`, and a new writer is
+a single-site reviewable change.
+
+Verified: `./bin/run-tests.sh -d config/workspaces` → 231 passed.
 
 <!-- Provenance fields (orchestrator schema):
      discovered_from: port-cross-module-home-org-writer-lint

@@ -20,6 +20,9 @@
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
+(defvar layouts-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun layouts-spec--reset ()
   "Reset state for each spec.
 Also stubs `workspace-scaffold' and points
@@ -33,11 +36,18 @@ pipeline)."
         (tab-bar-close-tab 2))))
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-layouts-spec-" t)))
+  (setq layouts-spec--parent-dir
+        (make-temp-file "ws-layouts-spec-" t)
+        workspaces-default-parent-directory layouts-spec--parent-dir))
+
+(defun layouts-spec--cleanup ()
+  (when (and layouts-spec--parent-dir
+             (file-directory-p layouts-spec--parent-dir))
+    (delete-directory layouts-spec--parent-dir t)))
 
 (describe "workspace-save-layout"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "stamps a `home' layout when a workspace is created"
     (workspace-new "alpha")
@@ -80,6 +90,7 @@ pipeline)."
 
 (describe "workspace-switch-layout"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "updates the recent-layout pointer to the chosen layout"
     (workspace-new "alpha")
@@ -119,6 +130,7 @@ pipeline)."
 
 (describe "layout names are scoped to their workspace"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "permits independent layouts in different workspaces sharing a name"
     (workspace-new "alpha")
@@ -144,6 +156,7 @@ pipeline)."
 
 (describe "workspace-delete-layout"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "removes the named layout"
     (workspace-new "alpha")
@@ -174,6 +187,7 @@ pipeline)."
 
 (describe "recent-layout pointer"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "survives workspace switching"
     (workspace-new "alpha")
@@ -291,8 +305,10 @@ pipeline)."
     ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
     (spy-on 'workspace-scaffold :and-call-fake
             (lambda (home _name &rest _) (make-directory home t) home))
-    (setq workspaces-default-parent-directory
-          (make-temp-file "ws-layouts-spec-" t)))
+    (setq layouts-spec--parent-dir
+          (make-temp-file "ws-layouts-spec-" t)
+          workspaces-default-parent-directory layouts-spec--parent-dir))
+  (after-each (layouts-spec--cleanup))
 
   (it "embeds a workspace-buffer struct in every captured leaf"
     (workspace-new "alpha")
@@ -314,6 +330,7 @@ pipeline)."
 
 (describe "workspace--autosave-current-layout slot routing"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it ":working-state writes :working-state and leaves :saved-state untouched"
     (workspace-new "alpha")
@@ -375,6 +392,7 @@ pipeline)."
   ;; not an explicit-save variant per design.md §D4 — it does NOT clear
   ;; :working-state and is intentionally out of scope here.
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "workspace-save clears :working-state on the affected layout"
     ;; Stub the disk-flush so the test doesn't write.
@@ -425,6 +443,7 @@ pipeline)."
 
 (describe "workspace-switch-layout routes outgoing capture to :working-state"
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "writes the outgoing layout's :working-state, not :saved-state"
     (workspace-new "alpha")
@@ -458,6 +477,7 @@ pipeline)."
   ;; latent fragmentation cannot regress.  Resolves register/shape/
   ;; layout-v2-plist producer_fragmentation_note.
   (before-each (layouts-spec--reset))
+  (after-each (layouts-spec--cleanup))
 
   (it "workspace-save preserves :etc on the recent layout (variant 1)"
     (cl-letf (((symbol-function 'workspace--flush-state) (lambda () nil)))

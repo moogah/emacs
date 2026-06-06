@@ -120,7 +120,12 @@ downstream =equal= comparison on =:home= across all three producers
 =workspace-re-anchor=) agrees.
 
 Both arguments are required: floating workspaces (without a home
-directory) are structurally unrepresentable."
+directory) are structurally unrepresentable.  HOME is type-checked
+so that a programmatic caller passing nil (the only way to land a
+no-=:home= entry, since the deserialiser skips such entries) fails
+loudly at the constructor rather than producing a workspace that
+violates =register/invariant/home-required-no-floating-workspaces=."
+  (cl-check-type home string)
   (list :name name
         :home (file-name-as-directory (expand-file-name home))
         :recent-layout-group nil

@@ -23,6 +23,9 @@
 ;; the parent workspaces.el (which holds the defcustom).
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
+(defvar workspaces-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun workspaces-spec--reset ()
   "Reset tab-bar and workspace registry to a known empty state.
 Also stubs `workspace-scaffold' and points
@@ -39,11 +42,18 @@ exercise it).  Must be called from `before-each' — buttercup's
         (tab-bar-close-tab 2))))
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-tabs-spec-" t)))
+  (setq workspaces-spec--parent-dir
+        (make-temp-file "ws-tabs-spec-" t)
+        workspaces-default-parent-directory workspaces-spec--parent-dir))
+
+(defun workspaces-spec--cleanup ()
+  (when (and workspaces-spec--parent-dir
+             (file-directory-p workspaces-spec--parent-dir))
+    (delete-directory workspaces-spec--parent-dir t)))
 
 (describe "workspace-new"
   (before-each (workspaces-spec--reset))
+  (after-each (workspaces-spec--cleanup))
 
   (it "creates a new tab whose name identifies the workspace"
     (let ((count-before (length (funcall tab-bar-tabs-function))))
@@ -71,6 +81,7 @@ exercise it).  Must be called from `before-each' — buttercup's
 
 (describe "workspace-switch"
   (before-each (workspaces-spec--reset))
+  (after-each (workspaces-spec--cleanup))
 
   (it "selects the named workspace's tab"
     (workspace-new "alpha")
@@ -84,6 +95,7 @@ exercise it).  Must be called from `before-each' — buttercup's
 
 (describe "tab-switch advice"
   (before-each (workspaces-spec--reset))
+  (after-each (workspaces-spec--cleanup))
 
   (it "workspace--persistence-after-tab-switch no-ops on non-workspace tabs"
     ;; The cycle-1 two-state-layout task installed

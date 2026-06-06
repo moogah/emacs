@@ -29,6 +29,9 @@
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
+(defvar bm-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun bm-spec--reset ()
   (clrhash workspace--registry)
   (let ((tabs (frame-parameter nil 'tabs)))
@@ -39,8 +42,14 @@
   ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-bm-spec-" t)))
+  (setq bm-spec--parent-dir
+        (make-temp-file "ws-bm-spec-" t)
+        workspaces-default-parent-directory bm-spec--parent-dir))
+
+(defun bm-spec--cleanup ()
+  (when (and bm-spec--parent-dir
+             (file-directory-p bm-spec--parent-dir))
+    (delete-directory bm-spec--parent-dir t)))
 
 (defun bm-spec--with-membership (alist body-fn)
   "Run BODY-FN while bufferlo's per-tab list is mocked from ALIST.
@@ -56,6 +65,7 @@ ALIST maps workspace-name (string) → list of buffer objects."
 
 (describe "displayed buffers become workspace members (synced via :buffer-files)"
   (before-each (bm-spec--reset))
+  (after-each (bm-spec--cleanup))
 
   (it "syncs file paths from bufferlo into the workspace plist"
     (let* ((tmpfile (make-temp-file "ws-bm-"))
@@ -76,6 +86,7 @@ ALIST maps workspace-name (string) → list of buffer objects."
 
 (describe "non-file buffers are members in-session but omitted from :buffer-files"
   (before-each (bm-spec--reset))
+  (after-each (bm-spec--cleanup))
 
   (it "skips *Messages* and the like during sync"
     (let ((buf (get-buffer-create "*ws-test-non-file*")))
@@ -93,6 +104,7 @@ ALIST maps workspace-name (string) → list of buffer objects."
 
 (describe "workspace-remove-buffer"
   (before-each (bm-spec--reset))
+  (after-each (bm-spec--cleanup))
 
   (it "removes from current workspace only; does not kill the buffer"
     (let* ((tmpfile (make-temp-file "ws-rm-"))
@@ -141,6 +153,7 @@ ALIST maps workspace-name (string) → list of buffer objects."
   ;; (workspace--autosave-current-layout) updates :buffer-files only
   ;; when the user actually saves.
   (before-each (bm-spec--reset))
+  (after-each (bm-spec--cleanup))
 
   (it "leaves :buffer-files untouched when a buffer is killed"
     (let* ((tmpfile (make-temp-file "ws-kill-"))

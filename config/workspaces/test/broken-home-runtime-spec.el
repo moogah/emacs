@@ -42,14 +42,22 @@
   (let ((workspaces-el (expand-file-name "../workspaces.el" dir)))
     ;; The parent file has a top-level `(jf/load-module ...)` cascade
     ;; and a `(when (fboundp 'workspace--restore) (workspace--restore))`
-    ;; call; both are inert in a test process where the submodules are
-    ;; already loaded directly above and `jf/load-module' is stubbed.
+    ;; call. The `jf/load-module' cascade is inert here (submodules are
+    ;; already loaded above and `jf/load-module' is stubbed), but the
+    ;; auto-restore is NOT: at load time `workspace--state-directory'
+    ;; still points at the developer's real `~/emacs-workspaces/state/'
+    ;; (no `before-each' has run yet to redirect it), so the restore
+    ;; would read real on-disk state and pollute `*Messages*' and the
+    ;; registry before the first test. Stub `workspace--restore' to a
+    ;; no-op for the duration of the load so the `fboundp' guard still
+    ;; sees it defined but the body does nothing.
     (unless (fboundp 'jf/load-module)
       (defalias 'jf/load-module
         (lambda (path) (when (file-exists-p path) (load path nil t)))))
     (unless (boundp 'jf/emacs-dir)
       (defvar jf/emacs-dir (expand-file-name "../../.." dir)))
-    (load workspaces-el nil t)))
+    (cl-letf (((symbol-function 'workspace--restore) (lambda () nil)))
+      (load workspaces-el nil t))))
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 

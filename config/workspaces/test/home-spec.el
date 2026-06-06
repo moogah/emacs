@@ -14,6 +14,9 @@
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
+(defvar home-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun home-spec--reset ()
   (clrhash workspace--registry)
   (let ((tabs (frame-parameter nil 'tabs)))
@@ -24,11 +27,18 @@
   ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-home-spec-" t)))
+  (setq home-spec--parent-dir
+        (make-temp-file "ws-home-spec-" t)
+        workspaces-default-parent-directory home-spec--parent-dir))
+
+(defun home-spec--cleanup ()
+  (when (and home-spec--parent-dir
+             (file-directory-p home-spec--parent-dir))
+    (delete-directory home-spec--parent-dir t)))
 
 (describe "workspace-home-builder"
   (before-each (home-spec--reset))
+  (after-each (home-spec--cleanup))
 
   (it "invokes the configured builder with the new workspace name"
     (let* ((calls nil)

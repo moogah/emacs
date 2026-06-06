@@ -19,6 +19,9 @@
 (defvar revert-spec--tmp-dir nil
   "Per-test temp directory backing the persistence file.")
 
+(defvar revert-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun revert-spec--reset ()
   (clrhash workspace--registry)
   (let ((tabs (frame-parameter nil 'tabs)))
@@ -32,13 +35,17 @@
   ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-revert-spec-" t)))
+  (setq revert-spec--parent-dir
+        (make-temp-file "ws-revert-spec-" t)
+        workspaces-default-parent-directory revert-spec--parent-dir))
 
 (defun revert-spec--cleanup ()
   (when (and revert-spec--tmp-dir
              (file-directory-p revert-spec--tmp-dir))
-    (delete-directory revert-spec--tmp-dir t)))
+    (delete-directory revert-spec--tmp-dir t))
+  (when (and revert-spec--parent-dir
+             (file-directory-p revert-spec--parent-dir))
+    (delete-directory revert-spec--parent-dir t)))
 
 (defmacro revert-spec--with-state-file (&rest body)
   (declare (indent 0))

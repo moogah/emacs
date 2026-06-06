@@ -27,6 +27,9 @@
 (defvar anti-save-spec--tmp-dir nil
   "Per-suite temp directory backing the persistence file.")
 
+(defvar anti-save-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun anti-save-spec--reset ()
   (clrhash workspace--registry)
   (let ((tabs (frame-parameter nil 'tabs)))
@@ -39,13 +42,17 @@
   ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-anti-save-spec-" t)))
+  (setq anti-save-spec--parent-dir
+        (make-temp-file "ws-anti-save-spec-" t)
+        workspaces-default-parent-directory anti-save-spec--parent-dir))
 
 (defun anti-save-spec--cleanup ()
   (when (and anti-save-spec--tmp-dir
              (file-directory-p anti-save-spec--tmp-dir))
-    (delete-directory anti-save-spec--tmp-dir t)))
+    (delete-directory anti-save-spec--tmp-dir t))
+  (when (and anti-save-spec--parent-dir
+             (file-directory-p anti-save-spec--parent-dir))
+    (delete-directory anti-save-spec--parent-dir t)))
 
 (defmacro anti-save-spec--with-state-file (&rest body)
   "Run BODY with `workspace--state-file' pointed at a temp directory."

@@ -144,16 +144,7 @@
       ;; to neutralise symlink-resolved tmpdir prefixes (e.g. macOS
       ;; /var/folders ↔ /private/var/folders).
       (expect (file-truename (buffer-file-name))
-              :to-equal (file-truename homeorg-path))))
-
-  (it "falls back to *scratch* when the workspace has no :home"
-    ;; Defensive branch: register a workspace plist without :home and
-    ;; invoke the builder directly.  In practice this should never
-    ;; happen (=register/invariant/home-required-no-floating-workspaces=),
-    ;; but the fallback exists so the builder cannot crash.
-    (puthash "bare" (list :name "bare") workspace--registry)
-    (workspace-default-home-builder "bare")
-    (expect (buffer-name) :to-equal "*scratch*")))
+              :to-equal (file-truename homeorg-path)))))
 
 (provide 'workspace-new-default-spec)
 ;;; workspace-new-default-spec.el ends here

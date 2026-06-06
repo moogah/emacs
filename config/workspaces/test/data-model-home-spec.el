@@ -48,6 +48,15 @@
       (expect (workspace--make "alpha")
               :to-throw 'wrong-number-of-arguments))
 
+    (it "workspace--make signals when HOME is nil (constructor guard)"
+      ;; A programmatic caller passing nil HOME is the only way to land
+      ;; a no-:home entry (the deserialiser skips such entries).  The
+      ;; cl-check-type guard makes that fail loudly at the constructor
+      ;; rather than producing a workspace that violates
+      ;; register/invariant/home-required-no-floating-workspaces.
+      (expect (workspace--make "alpha" nil)
+              :to-throw 'wrong-type-argument))
+
     (it "workspace--set-home returns a NEW workspace with :home updated"
       ;; Both the constructor and the setter canonicalise to the
       ;; trailing-slash form per register/shape/workspace-plist-v3.

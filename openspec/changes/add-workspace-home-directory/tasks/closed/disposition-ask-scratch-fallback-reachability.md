@@ -2,11 +2,31 @@
 name: disposition-ask-scratch-fallback-reachability
 description: User disposition for ask-cycle-20260526-171719-2 — workspace-default-home-builder's *scratch* fallback is unreachable per the home-required-no-floating-workspaces invariant, yet exists and is tested; decide whether to drop or harden
 change: add-workspace-home-directory
-status: blocked
+status: done
 relations:
   - discovered-from:workspace-new-default-path
-  - blocked-by:user-decision
 ---
+
+## Resolution (2026-06-06, manual review)
+
+**User disposition: Option A.** The invariant is load-bearing-and-
+complete; the `*scratch*` fallback was dead code.
+
+Implemented:
+- `config/workspaces/tabs.org` — removed the `*scratch*` branch from
+  `workspace-default-home-builder`; it now unconditionally
+  `find-file`s `(workspace-home-org-path home)`.
+- `config/workspaces/data-model.org` — added `(cl-check-type home
+  string)` to `workspace--make` so a programmatic nil-HOME caller
+  (the only way to land a no-`:home` entry, since the deserialiser
+  skips such entries) fails loudly at the constructor.
+- `config/workspaces/test/workspace-new-default-spec.el` — dropped the
+  "falls back to *scratch*" `it` clause.
+- `config/workspaces/test/data-model-home-spec.el` — added a guard
+  test asserting `(workspace--make "alpha" nil)` throws
+  `wrong-type-argument`.
+
+Verified: `./bin/run-tests.sh -d config/workspaces` → 231 passed.
 
 <!-- Provenance fields (orchestrator schema):
      discovered_from: workspace-new-default-path

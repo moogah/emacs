@@ -19,6 +19,9 @@
 (defvar save-restore-spec--tmp-dir nil
   "Per-test temp directory backing the persistence file.")
 
+(defvar save-restore-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
 (defun save-restore-spec--reset ()
   (clrhash workspace--registry)
   (let ((tabs (frame-parameter nil 'tabs)))
@@ -32,13 +35,17 @@
   ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
   (spy-on 'workspace-scaffold :and-call-fake
           (lambda (home _name &rest _) (make-directory home t) home))
-  (setq workspaces-default-parent-directory
-        (make-temp-file "ws-save-restore-spec-" t)))
+  (setq save-restore-spec--parent-dir
+        (make-temp-file "ws-save-restore-spec-" t)
+        workspaces-default-parent-directory save-restore-spec--parent-dir))
 
 (defun save-restore-spec--cleanup ()
   (when (and save-restore-spec--tmp-dir
              (file-directory-p save-restore-spec--tmp-dir))
-    (delete-directory save-restore-spec--tmp-dir t)))
+    (delete-directory save-restore-spec--tmp-dir t))
+  (when (and save-restore-spec--parent-dir
+             (file-directory-p save-restore-spec--parent-dir))
+    (delete-directory save-restore-spec--parent-dir t)))
 
 (defmacro save-restore-spec--with-state-file (&rest body)
   "Run BODY with `workspace--state-file' pointed at a temp directory."

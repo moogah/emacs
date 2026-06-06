@@ -2,10 +2,30 @@
 name: isolate-test-helper-load-time-restore
 description: Suppress or redirect the load-time workspace--restore call in broken-home-runtime-spec.el (and the same pre-existing pattern in broken-home-load-spec.el) so it does not read the developer's real persistence state
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - discovered-from:broken-home-tolerance
 ---
+
+## Resolution (2026-06-06, manual review)
+
+Applied **Option A** to `broken-home-runtime-spec.el`: wrapped the
+top-level `(load workspaces-el nil t)` in a `cl-letf` that stubs
+`workspace--restore` to a no-op for the duration of the load.
+`workspace--restore` is defined in `persistence.el` (loaded earlier at
+the top of the same `let`), so the stub holds through the
+`workspaces.el` load and the auto-restore body becomes inert — it can
+no longer read the developer's real `~/emacs-workspaces/state/` before
+any `before-each` redirects `workspace--state-directory`.
+
+`broken-home-load-spec.el` needed **no change**: the task's premise
+("same pre-existing pattern") is inaccurate — that file never loads
+`workspaces.el` (it stops at `persistence.el`), so it has no top-level
+auto-restore. Its `workspace--restore` calls are all inside `it`
+clauses already wrapped in `broken-home-load-spec--with-state-file`,
+which redirects state dir/file to a tmp path. Verified.
+
+Verified: `./bin/run-tests.sh -d config/workspaces` → 231 passed.
 
 <!-- Provenance fields (orchestrator schema):
      discovered_from: broken-home-tolerance

@@ -63,19 +63,16 @@ Returns nil if no such tab exists."
 (defun workspace-default-home-builder (workspace-name)
   "Default `workspace-home-builder': `find-file' the workspace's home.org.
 Looks up the workspace by WORKSPACE-NAME and opens
-`<:home>/home.org' in a single window. If the workspace has no
-`:home' (defensive — should never happen now that :home is
-required), falls back to *scratch*."
+`<:home>/home.org' in a single window.  Every registered workspace
+has a `:home' (see `register/invariant/home-required-no-floating-
+workspaces'), so no missing-home fallback is carried here."
   (delete-other-windows)
-  (let* ((ws (gethash workspace-name workspace--registry))
-         (home (and ws (workspace--home ws))))
-    (if home
-        ;; Route through the home-org-read-pipeline helper rather than
-        ;; duplicating the (expand-file-name "home.org" HOME) literal,
-        ;; per register/boundary/home-org-read-pipeline's stage-1
-        ;; producer contract.
-        (find-file (workspace-home-org-path home))
-      (switch-to-buffer (get-buffer-create "*scratch*")))))
+  (let ((home (workspace--home (gethash workspace-name workspace--registry))))
+    ;; Route through the home-org-read-pipeline helper rather than
+    ;; duplicating the (expand-file-name "home.org" HOME) literal,
+    ;; per register/boundary/home-org-read-pipeline's stage-1
+    ;; producer contract.
+    (find-file (workspace-home-org-path home))))
 
 (defun workspace--registered-for-home-p (home)
   "Return non-nil if any workspace in the registry has =:home= equal to HOME.

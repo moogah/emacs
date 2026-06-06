@@ -22,6 +22,14 @@
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
+(defvar br-spec--parent-dir nil
+  "Per-test temp directory used as `workspaces-default-parent-directory'.")
+
+(defun br-spec--cleanup ()
+  (when (and br-spec--parent-dir
+             (file-directory-p br-spec--parent-dir))
+    (delete-directory br-spec--parent-dir t)))
+
 (defun br-spec--make-temp-file (&optional contents)
   "Create a temp file with optional CONTENTS, return its path."
   (let ((path (make-temp-file "ws-br-")))
@@ -156,8 +164,10 @@
     ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
     (spy-on 'workspace-scaffold :and-call-fake
             (lambda (home _name &rest _) (make-directory home t) home))
-    (setq workspaces-default-parent-directory
-          (make-temp-file "ws-br-spec-" t)))
+    (setq br-spec--parent-dir
+          (make-temp-file "ws-br-spec-" t)
+          workspaces-default-parent-directory br-spec--parent-dir))
+  (after-each (br-spec--cleanup))
 
   (it "schedules window-state-put via run-at-time rather than calling it immediately"
     (let* ((scheduled nil)
@@ -194,8 +204,10 @@
     ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
     (spy-on 'workspace-scaffold :and-call-fake
             (lambda (home _name &rest _) (make-directory home t) home))
-    (setq workspaces-default-parent-directory
-          (make-temp-file "ws-br-spec-" t)))
+    (setq br-spec--parent-dir
+          (make-temp-file "ws-br-spec-" t)
+          workspaces-default-parent-directory br-spec--parent-dir))
+  (after-each (br-spec--cleanup))
 
   (it "stale deferred restore no-ops when a newer one has been queued"
     ;; Two restores in rapid succession.  Capture both closures; fire
@@ -261,8 +273,10 @@
     ;; so workspace-new is filesystem-isolated (cycle-3 wired scaffold pipeline).
     (spy-on 'workspace-scaffold :and-call-fake
             (lambda (home _name &rest _) (make-directory home t) home))
-    (setq workspaces-default-parent-directory
-          (make-temp-file "ws-br-spec-" t)))
+    (setq br-spec--parent-dir
+          (make-temp-file "ws-br-spec-" t)
+          workspaces-default-parent-directory br-spec--parent-dir))
+  (after-each (br-spec--cleanup))
 
   (it "stale deferred restore no-ops when triggered by a later workspace-switch-layout"
     ;; Two `workspace-switch-layout' calls back-to-back across two
