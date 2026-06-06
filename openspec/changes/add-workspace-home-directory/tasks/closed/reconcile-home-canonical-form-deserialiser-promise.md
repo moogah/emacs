@@ -2,10 +2,52 @@
 name: reconcile-home-canonical-form-deserialiser-promise
 description: Soften register/shape/workspace-plist-v3's :home canonical_form prose to describe verbatim-preservation at the persistence boundary, OR wire the home-not-canonical validator clause into the deserialiser; converged advisory finding from on-touch architect + reviewer F2 of canonicalize-workspace-home-path-form
 change: add-workspace-home-directory
-status: ready
+status: done
 relations:
   - discovered-from:canonicalize-workspace-home-path-form
 ---
+
+## Resolution (2026-06-06, manual review)
+
+Applied **Option A** (architect-preferred). Confirmed empirically
+against `config/workspaces/persistence.el:94-114`: the deserialiser
+rejects only missing/non-string and non-absolute `:home` with a
+`*Messages*` notice, tags missing-directory `:home` broken (also with
+a notice), and otherwise preserves `:home` verbatim — a non-canonical-
+but-absolute hand-edited path loads silently with no rewrite. The
+register entry previously over-promised that such a path would
+"surface in `*Messages*`".
+
+Edited `register/shape/workspace-plist-v3` in `interfaces.org` (all
+hunks within the single entry):
+- `:home` `canonical_form` sub-field — dropped the false `*Messages*`
+  promise; reframed canonical_form as an IN-SESSION guarantee
+  (`workspace--make` / `workspace--set-home`) and described the
+  loader's deliberate verbatim-preservation exception.
+- deserialiser producer note — rewritten to state accurately what is
+  rejected vs. preserved verbatim.
+- `validator` block comment — added a SCOPE note: the
+  `home-not-canonical` clause is documentation-only (no production
+  caller) and is NOT run by the deserialiser. The clause itself is
+  retained as the in-session shape contract.
+- `status: reconciled-recommended → reconciled`; prepended a
+  `status_note` documenting the disposition.
+
+No code change (verbatim-preservation is intentional; Option B would
+collide with `broken-tag-runtime-only` and surprise users with
+hand-edited files). The same canonical_form-silence shape at
+`spec.md` is already externalised to
+`.tasks/refresh-workspaces-spec-md-v3-schema-and-canonical-form`
+(verified present).
+
+Verified:
+- `./bin/run-tests.sh -d config/workspaces` → 231 passed (register
+  edit; count unchanged from the prior batch, which had removed the
+  writer-lint spec — the task's "232" predated that removal).
+- `git diff interfaces.org` touches only the `workspace-plist-v3`
+  entry (status_note, `:home` description, producers note, validator).
+- No remaining promise of a `*Messages*` notice for a non-canonical
+  persisted `:home`.
 
 <!-- Provenance fields (orchestrator schema):
      discovered_from: canonicalize-workspace-home-path-form (cycle 5)

@@ -1034,8 +1034,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/workspace-plist-v3
    tier: shape
-   status: reconciled-recommended
+   status: reconciled
    status_note: |
+     2026-06-06 manual review (reconcile-home-canonical-form-deserialiser-
+     promise): resolved the converged advisory finding (on-touch architect
+     arch-cycle-20260528-180230-on-touch-canonicalize + reviewer F2) via
+     Option A. The :home canonical_form sub-field, the deserialiser
+     producer note, and the validator-block comment previously PROMISED
+     that a non-canonical persisted :home would "surface in *Messages*",
+     but the deserialiser (config/workspaces/persistence.el:94-114) only
+     notices missing/non-string and non-absolute :home — a non-canonical-
+     but-absolute hand-edited path loads verbatim and silently. Prose now
+     describes the actual behaviour: canonical_form is an IN-SESSION
+     guarantee (workspace--make / workspace--set-home); the persistence
+     loader deliberately preserves :home verbatim and the home-not-
+     canonical validator clause is documentation-only, not a load-time
+     check. No code change (verbatim-preservation is intentional and
+     Option B would collide with broken-tag-runtime-only). The same
+     canonical_form-silence shape recurs at spec.md, externalised to
+     .tasks/refresh-workspaces-spec-md-v3-schema-and-canonical-form.
+
      cycle-5 task canonicalize-workspace-home-path-form (cycle-20260528-
      180230): proposes reconciled-recommended. Closes cycle-4 reviewer
      Finding 1 on workspace-new-anchor-existing (representational
@@ -1145,14 +1163,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          and =workspace--set-home= via
          =(file-name-as-directory (expand-file-name HOME))=
          (cycle-5 task =canonicalize-workspace-home-path-form=).
-         All three known producers reach :home through one of
+         All three in-session producers reach :home through one of
          these two attachment points: =workspace--new-default-path=
          and =workspace--new-anchor-existing= via =workspace--make=,
-         =workspace-re-anchor= via =workspace--set-home=. The
-         persistence-loader path bypasses both: =:home= is preserved
-         verbatim on read so corrupted or hand-edited files surface
-         the offending path in =*Messages*= rather than silently
-         re-canonicalising it.
+         =workspace-re-anchor= via =workspace--set-home=. This
+         canonical_form is therefore guaranteed only for plists
+         constructed in-session (or read from a file an in-session
+         producer wrote).
+
+         The persistence-loader path is the deliberate exception:
+         it bypasses both attachment points and preserves =:home=
+         VERBATIM on read. It does NOT re-canonicalise, and it does
+         NOT reject or emit a notice for a non-canonical-but-absolute
+         persisted path (e.g. a hand-edited =:home= with no trailing
+         slash, or an un-expanded =~=). Such a value loads as-is.
+         Only =:home= that is missing/non-string or non-absolute is
+         rejected with a =*Messages*= notice (see the deserialiser
+         producer note below). Verbatim-preservation is intentional:
+         silently rewriting a user's persistence file would mask the
+         drift rather than surface it, and the value the constructor
+         next touches (re-anchor, set-home) re-canonicalises anyway.
+         The =home-not-canonical= validator clause below therefore
+         describes the IN-SESSION shape contract, not a load-time
+         check.
      - name: ":recent-layout-group"
        type: string | nil
        description: |
@@ -1247,14 +1280,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - file: config/workspaces/persistence.org
        function: workspace--persistence-deserialize-workspace
        note: |
-         Reconstructs from disk. Skips entries lacking =:home=
-         (notice + continue). Tags entries whose =:home= is missing
-         with =:broken t=. Preserves =:home= verbatim from the
-         on-disk form — does NOT re-canonicalise; corrupted or
-         hand-edited files surface the offending path in
-         =*Messages*= rather than silently being normalised. A
-         file written by the cycle-5 constructor-side
-         canonicalisation will already be canonical on read.
+         Reconstructs from disk. Rejects (notice + continue) entries
+         whose =:home= is missing/non-string or non-absolute. Tags
+         entries whose =:home= directory does not exist on disk with
+         =:broken t= (also with a notice). Otherwise preserves
+         =:home= VERBATIM from the on-disk form — does NOT
+         re-canonicalise and does NOT notice/reject a non-canonical-
+         but-absolute path (e.g. missing trailing slash, un-expanded
+         =~=); such a value is loaded as-is. This is the deliberate
+         persistence-boundary exception to the =:home=
+         =canonical_form= pin: the loader never rewrites a user's
+         file. A file written by the cycle-5 constructor-side
+         canonicalisation is already canonical on read, so the
+         exception only matters for hand-edited files.
    canonical_producer: workspace--make
 
    consumers:
@@ -1319,8 +1357,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      ;; cycle-5 addition closing reviewer Finding 1 on cycle-4's
      ;; workspace-new-anchor-existing. Constructor-side
      ;; canonicalisation in workspace--make / workspace--set-home
-     ;; means a workspace that fails this check has bypassed both
-     ;; attachment points — a structural-drift signal worth surfacing.
+     ;; means an in-session workspace that fails this check has
+     ;; bypassed both attachment points — a structural-drift signal.
+     ;;
+     ;; SCOPE: this validator describes the IN-SESSION shape contract.
+     ;; It is documentation-only (no production caller) and is NOT run
+     ;; by the persistence deserialiser, which deliberately preserves
+     ;; :home verbatim (see the :home canonical_form note and the
+     ;; deserialiser producer note above). A hand-edited persistence
+     ;; file carrying a non-canonical-but-absolute :home loads as-is
+     ;; with no notice; home-not-canonical would flag it only if some
+     ;; future caller chose to validate a deserialised plist against
+     ;; this shape — the deserialiser intentionally does not.
      (defun shape/validate-workspace-plist-v3 (ws)
        "Returns nil on success; error symbol otherwise."
        (cond ((not (plistp ws)) 'not-a-plist)
