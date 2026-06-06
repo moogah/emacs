@@ -2,8 +2,92 @@
 name: verify-end-to-end
 description: Full test run; manual sanity check of scaffold + anchor + delete + purge + broken-home flows; all spec scenarios pass
 change: add-workspace-home-directory
-status: ready
+status: done
 relations: []
+---
+
+## Resolution (2026-06-06, manual review)
+
+### Automated verification
+- **Workspaces in isolation: 243/243 pass** (`./bin/run-tests.sh -d
+  config/workspaces`). Zero workspaces regressions.
+- **Full suite: 2722 ran, 2690 passed.** Every failure classified:
+  **0 workspaces failures.** The remaining ~32 are pre-existing,
+  unrelated subsystems (bash-parser ERT `pattern-flow`/`xargs`/`cmdsub`,
+  corpus-002; gptel scope/bash-tools `run_bash_command`/`Parallel tool
+  callback`/`add-to-scope`) — all already tracked in `.tasks/`
+  (`investigate-cross-suite-pollution-scope-tests`,
+  `scope-and-bash-tool-test-failures-followup`,
+  `fix-corpus-integration-002-cat-pattern-source`,
+  `fix-match-pattern-parser-validator-boundary`).
+- Key bindings present (`C-x w n/s/D/P/R`); persistence v2 rejection
+  verified in isolation.
+
+### Findings fixed this session
+1. **#+TITLE: display override was built-but-unwired** — `workspace-
+   home-org-title` (cycle 1) had zero production callers; every tab
+   label used the basename, so the proposal/design-D4 display-name
+   override was undelivered. Implemented per user disposition (display-
+   only model): added `workspace--display-name` (`(or title basename)`,
+   live read) and a `tab-bar-tab-name-format-function` wrapper
+   (`workspace--tab-bar-tab-name-format` + idempotent installer) that
+   renders the title in the tab label while leaving the tab's `name`
+   slot — the registry key — untouched. Covered by new
+   `display-name-spec.el` (10 specs).
+2. **4 `*Messages*`-fragile tests** failed only under the full suite
+   (cross-suite log pollution: `(substring messages-after (length
+   messages-before))` drifts when `message-log-max` truncates the log
+   from the front). Hardened all 5 capture sites across
+   `persistence-v3-spec`, `persistence-spec`, `broken-home-load-spec`
+   by binding `message-log-max` to `t` during capture.
+
+### Coverage gaps closed
+- **Scenario 2** (display half) — now implemented + tested
+  (`display-name-spec.el`). The `completing-read`-keys-by-registry-name
+  half was already true and tested.
+- **Scenario 20** (deleted workspace can be re-anchored) — new chained
+  test in `workspace-new-anchor-spec.el` (delete → surviving dir →
+  prefix-arg re-anchor → re-registered, no scaffold side effects).
+- **Scenario 3** — was **over-specified**: it (and the requirement
+  prose) implied `mv` + restart alone makes a workspace re-appear under
+  the new basename, but that needs the directory-scan rediscovery the
+  proposal **explicitly defers**. Reality: a moved workspace loads
+  broken and is recovered via `workspace-re-anchor` (which renames to
+  the new basename). **Amended the delta spec** (requirement prose +
+  scenario 3) to describe the real re-anchor recovery flow, and added
+  an end-to-end test (`broken-home-runtime-spec.el`: move → broken-on-
+  load → re-anchor → renamed + `#+TITLE:` drives display). Also
+  softened the display-surface prose: the tab-bar label is the wired
+  surface in this change; mode-line/status-message display names are
+  reserved for a later change (no existing workspace mode-line element
+  to hook).
+
+### Soft gaps NOT closed (out of agreed scope; flag for later)
+- Scenario 11 (home.org byte-identical across session-create/autosave —
+  covered only by a no-write-primitives lint, not an end-to-end byte
+  check).
+- Scenario 14 (delete-a-session-file-mid-flight inventory update —
+  covered indirectly via the live directory read).
+- Scenario 33 (restart prefers working-state — unit precedence covered;
+  full restart+tab-switch integration path not).
+
+### Notes
+- The manual GUI smoke (step 4) was executed as **batch behavioral
+  tests** driving the real command functions (more reproducible than
+  manual clicking). Genuinely GUI-only confirmation (live tab-bar
+  rendering of the title in an interactive Emacs, real gptel session
+  UI) is left to the user's own manual pass.
+- `run-tests.sh --snapshot` writes raw ANSI codes into
+  `test-results.txt`; no clean baseline was committed (poor git
+  artifact). Snapshot baseline establishment deferred.
+
+### Test count
+209 (pre-cycle-4) → 231 (this session's earlier batches, after removing
+the writer-lint spec) → **243** (after +10 display-name, +1 scenario-20,
++1 scenario-3).
+
+Original task body (cycle updates) follows.
+
 ---
 
 ## Cycle 4 updates (cycle-20260526-191802)

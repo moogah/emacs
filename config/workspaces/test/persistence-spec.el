@@ -179,7 +179,8 @@
 
   (it "rejects a v1 file with a notice and returns nil"
     (persistence-spec--with-state-file
-      (let* ((file (workspace--state-file))
+      (let* ((message-log-max t)
+             (file (workspace--state-file))
              (messages-before (with-current-buffer "*Messages*"
                                 (buffer-string))))
         ;; Hand-craft a v1-shaped file.

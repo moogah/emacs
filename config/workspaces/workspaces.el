@@ -184,6 +184,8 @@ purge as =:allowed= on broken)."
 (global-set-key (kbd "C-x w r") #'workspace-revert)
 (global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 
+(workspace--install-tab-bar-display-name)
+
 (defun workspace-sessions-dir ()
   "Return the sessions/ directory of the current workspace, or nil.
 

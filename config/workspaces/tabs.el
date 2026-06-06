@@ -60,6 +60,53 @@ Returns nil if no such tab exists."
             i (1+ i)))
     result))
 
+(defun workspace--display-name (name)
+  "Return the cosmetic display name for workspace NAME.
+The `#+TITLE:' of the workspace's home.org when present (live read,
+no caching), otherwise NAME itself.  Purely cosmetic: it NEVER changes
+the registry key, the tab's `name' slot, or the persistence key (per
+register/invariant/registry-name-equals-basename).  Returns NAME
+unchanged when no workspace is registered under NAME."
+  (let* ((ws (gethash name workspace--registry))
+         (home (and ws (workspace--home ws))))
+    (or (and home (workspace-home-org-title home))
+        name)))
+
+(defvar workspace--prev-tab-bar-tab-name-format-function nil
+  "The `tab-bar-tab-name-format-function' present before workspaces
+installed its display-name wrapper.  Used to delegate rendering and to
+restore the prior formatter if workspaces is unloaded.")
+
+(defun workspace--tab-bar-tab-name-format (tab i)
+  "Render TAB's tab-bar label, substituting the workspace display name.
+For a tab owned by a workspace whose home.org carries a `#+TITLE:',
+the label shows that title (via `workspace--display-name') instead of
+the registry name; the tab's actual `name' slot is left untouched.
+Delegates propertized rendering to the wrapped formatter."
+  (let* ((name (cdr (assq 'name tab)))
+         (ws (and name (gethash name workspace--registry)))
+         (display (and ws (workspace--display-name name)))
+         (fn (or workspace--prev-tab-bar-tab-name-format-function
+                 #'tab-bar-tab-name-format-default)))
+    (if (and display (not (equal display name)))
+        (funcall fn
+                 (cons (car tab)
+                       (cons (cons 'name display)
+                             (assq-delete-all 'name (copy-alist (cdr tab)))))
+                 i)
+      (funcall fn tab i))))
+
+(defun workspace--install-tab-bar-display-name ()
+  "Install the workspace display-name tab-bar formatter (idempotent).
+Captures the prior `tab-bar-tab-name-format-function' once so the
+wrapper can delegate to it; a second call is a no-op."
+  (unless (eq tab-bar-tab-name-format-function
+              #'workspace--tab-bar-tab-name-format)
+    (setq workspace--prev-tab-bar-tab-name-format-function
+          tab-bar-tab-name-format-function
+          tab-bar-tab-name-format-function
+          #'workspace--tab-bar-tab-name-format)))
+
 (defun workspace-default-home-builder (workspace-name)
   "Default `workspace-home-builder': `find-file' the workspace's home.org.
 Looks up the workspace by WORKSPACE-NAME and opens

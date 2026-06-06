@@ -176,6 +176,58 @@
           (expect (workspace--home foo) :to-equal new-home)
           (expect (workspace--broken-p foo) :to-be nil))))))
 
+(describe "out-of-band move recovery via re-anchor (spec scenario 3)"
+  ;; End-to-end of the amended scenario: a workspace whose directory was
+  ;; moved out-of-band loads BROKEN on restart (its persisted :home is
+  ;; gone — there is no auto-rediscovery; the proposal defers directory
+  ;; discovery beyond the prefix-arg anchor flow).  `workspace-re-anchor'
+  ;; to the new location renames the registry entry to the new basename,
+  ;; and a `#+TITLE:' in the moved home.org continues to drive display.
+  (before-each (broken-home-runtime-spec--reset))
+  (after-each (broken-home-runtime-spec--cleanup))
+
+  (it "loads broken, re-anchors to the new basename, and #+TITLE: still drives display"
+    (broken-home-runtime-spec--with-state-file
+      (let* ((old-home (file-name-as-directory
+                        (expand-file-name "myproj"
+                                          broken-home-runtime-spec--tmp-dir)))
+             (new-home (file-name-as-directory
+                        (expand-file-name "renamed"
+                                          broken-home-runtime-spec--tmp-dir))))
+        ;; The move already happened: the old path is gone, the new one
+        ;; exists and carries the user's #+TITLE:.
+        (make-directory new-home t)
+        (with-temp-file (expand-file-name "home.org" new-home)
+          (insert "#+TITLE: My Cool Project\n* Description\n"))
+        ;; Persisted state still points at the OLD (now-missing) path.
+        (broken-home-runtime-spec--write-raw
+         `(:version 3
+                    :workspaces ((:name "myproj"
+                                        :home ,old-home
+                                        :recent-layout-group nil
+                                        :buffer-files nil
+                                        :layout-groups nil))))
+        ;; Restart: load from disk.  The entry surfaces broken.
+        (let ((message-log-max t))
+          (workspace--restore))
+        (let ((loaded (gethash "myproj" workspace--registry)))
+          (expect loaded :not :to-be nil)
+          (expect (workspace--broken-p loaded) :to-be t))
+        ;; Recover: the user names the new path (no auto-rediscovery).
+        (cl-letf (((symbol-function 'workspace--flush-state)
+                   (lambda (&rest _) nil)))
+          (workspace-re-anchor "myproj" new-home))
+        ;; Registry name now follows the new basename.
+        (expect (gethash "myproj" workspace--registry) :to-be nil)
+        (let ((renamed (gethash "renamed" workspace--registry)))
+          (expect renamed :not :to-be nil)
+          (expect (workspace--name renamed) :to-equal "renamed")
+          (expect (workspace--home renamed) :to-equal new-home)
+          (expect (workspace--broken-p renamed) :to-be nil))
+        ;; #+TITLE: in the moved home.org drives the display name.
+        (expect (workspace--display-name "renamed")
+                :to-equal "My Cool Project")))))
+
 (describe "workspace-re-anchor renames the registry key on basename change"
   (before-each (broken-home-runtime-spec--reset))
   (after-each (broken-home-runtime-spec--cleanup))

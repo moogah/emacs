@@ -13,17 +13,26 @@ registry name is the key used by `workspace--registry`, the
 `tab-bar` tab name, and `completing-read` prompts.
 
 The workspace's *display name* SHALL default to the registry name and MAY
-be overridden by a `#+TITLE:` keyword in `<home>/home.org`. The display
-name SHALL be used wherever the workspace is presented to the user as
-prose (mode-line label, tab display label, status messages); the registry
-name SHALL be used wherever the workspace is used as a key (registry
-lookup, persistence file, programmatic API).
+be overridden by a `#+TITLE:` keyword in `<home>/home.org`, resolved by
+`workspace--display-name` (a live read of `home.org`, no caching). In
+this change the display name SHALL drive the **tab-bar label**; other
+prose surfaces (mode-line label, status messages) MAY adopt
+`workspace--display-name` in a later change but continue to show the
+registry name today. The registry name SHALL be used wherever the
+workspace is used as a key (registry lookup, persistence file,
+programmatic API) and wherever the workspace is keyed in a
+`completing-read` prompt.
 
 Editing `#+TITLE:` in `home.org` SHALL never change the registry name and
 SHALL never invalidate the persistence file. Directory rename — and
-therefore registry-name rename — SHALL be an out-of-band user action
-(e.g., `mv` the directory and restart Emacs); the package does not provide
-a `workspace-rename` command in this change.
+therefore registry-name rename — SHALL be an out-of-band user action:
+move the directory, restart Emacs (the workspace loads in a broken state
+because its persisted `:home` no longer exists — the package performs no
+automatic directory rediscovery, which is explicitly deferred), then
+`workspace-re-anchor` the broken entry to the new location, which renames
+the registry entry to the new basename. The package provides neither a
+`workspace-rename` command nor directory discovery beyond the prefix-arg
+anchor flow in this change.
 
 #### Scenario: New workspace has :home set
 - **WHEN** the user invokes `workspace-new` with name `"myproj"`
@@ -40,11 +49,16 @@ a `workspace-rename` command in this change.
 - **AND** `completing-read` prompts that key by registry name list `myproj`
 - **AND** the tab-bar label displays `My Cool Project`
 
-#### Scenario: Registry name follows directory basename, not #+TITLE:
+#### Scenario: Registry name follows the new basename after an out-of-band move + re-anchor
 - **WHEN** the user moves a workspace directory from
   `~/emacs-workspaces/myproj/` to `~/emacs-workspaces/renamed/`
   out-of-band and restarts Emacs
-- **THEN** the workspace re-appears in the registry under the name `renamed`
+- **THEN** the workspace loads in a broken state (its persisted `:home`
+  no longer exists) and a `*Messages*` notice names the missing path
+  (there is no automatic rediscovery of the moved directory)
+- **AND** invoking `workspace-re-anchor` for it and choosing
+  `~/emacs-workspaces/renamed/` renames the registry entry to `renamed`
+  (the registry name follows the new basename)
 - **AND** any `#+TITLE:` in `home.org` continues to drive the display name
 
 ---

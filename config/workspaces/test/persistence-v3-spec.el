@@ -94,7 +94,8 @@ synthetic :home directories the tests construct.")
 
   (it "rejects a v1 file with a notice and returns nil"
     (persistence-v3-spec--with-state-file
-      (let ((messages-before (with-current-buffer "*Messages*"
+      (let ((message-log-max t)
+            (messages-before (with-current-buffer "*Messages*"
                                (buffer-string))))
         (persistence-v3-spec--write-raw
          '(:version 1
@@ -110,7 +111,8 @@ synthetic :home directories the tests construct.")
 
   (it "rejects a v2 file with a notice and returns nil"
     (persistence-v3-spec--with-state-file
-      (let ((messages-before (with-current-buffer "*Messages*"
+      (let ((message-log-max t)
+            (messages-before (with-current-buffer "*Messages*"
                                (buffer-string))))
         (persistence-v3-spec--write-raw
          '(:version 2
@@ -173,7 +175,8 @@ synthetic :home directories the tests construct.")
 
   (it "skips the malformed entry but loads its sibling"
     (persistence-v3-spec--with-state-file
-      (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
+      (let* ((message-log-max t)
+             (alpha-home (persistence-v3-spec--make-home "alpha"))
              (messages-before (with-current-buffer "*Messages*"
                                 (buffer-string))))
         (persistence-v3-spec--write-raw

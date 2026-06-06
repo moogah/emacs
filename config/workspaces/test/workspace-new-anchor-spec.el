@@ -149,6 +149,52 @@ to return HOME.  Returns the freshly-registered workspace plist."
           ;; Tab was created.
           (expect 'tab-bar-new-tab :to-have-been-called))))))
 
+(describe "workspace-new anchor-existing — delete then re-anchor (spec scenario 20)"
+  ;; "Deleted workspace can be re-anchored": workspace-delete is
+  ;; unregister-only, so the directory survives; re-running the
+  ;; prefix-arg anchor flow on that surviving directory re-registers it
+  ;; and recreates the tab, with no scaffolding side effects (case-1
+  ;; path: repo + home.org already present).
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'tab-bar-rename-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through))
+  (after-each (wna-spec--cleanup))
+
+  (it "re-registers a deleted workspace from its surviving home directory"
+    (let ((home (file-name-as-directory
+                 (expand-file-name "gamma" wna-spec--tmp-dir))))
+      (make-directory home t)
+      (wna-spec--init-repo home)
+      (let ((user-content "#+TITLE: gamma\n* Pre-existing\n"))
+        (with-temp-file (expand-file-name "home.org" home)
+          (insert user-content))
+        ;; First anchor: register + tab.
+        (wna-spec--call-anchor home)
+        (expect (gethash "gamma" workspace--registry) :not :to-be nil)
+        ;; Delete (unregister-only): registry entry gone, dir intact.
+        (workspace-delete "gamma")
+        (expect (gethash "gamma" workspace--registry) :to-be nil)
+        (expect (file-directory-p home) :to-be t)
+        (expect (file-exists-p (expand-file-name "home.org" home)) :to-be t)
+        ;; Re-anchor the surviving directory.
+        (let ((commits-before (wna-spec--git-log-oneline home)))
+          (wna-spec--call-anchor home)
+          ;; Re-registered under the same basename, same :home.
+          (let ((ws (gethash "gamma" workspace--registry)))
+            (expect ws :not :to-be nil)
+            (expect (workspace--name ws) :to-equal "gamma")
+            (expect (workspace--home ws) :to-equal home))
+          ;; No scaffolding ran on re-anchor (case-1: home.org present).
+          (expect (with-temp-buffer
+                    (insert-file-contents (expand-file-name "home.org" home))
+                    (buffer-string))
+                  :to-equal user-content)
+          ;; No new commits; user's git state untouched.
+          (expect (wna-spec--git-log-oneline home)
+                  :to-equal commits-before))))))
+
 (describe "workspace-new anchor-existing — case 2: repo, no home.org"
   (before-each
     (wna-spec--reset)

@@ -372,6 +372,19 @@ enumerated for the v2 cycle.
 (global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
 #+end_src
 
+* Tab-bar display name
+
+Activate the cosmetic =#+TITLE:= → tab-bar-label overlay.  This is a
+global side effect (it wraps =tab-bar-tab-name-format-function=), so it
+lives in the top-level loader's activation step rather than at
+=tabs.el= load time — loading =tabs.el= in isolation (as the specs do)
+should not mutate the user's global tab-bar rendering.  The installer
+is idempotent and captures the prior formatter for delegation.
+
+#+begin_src emacs-lisp
+(workspace--install-tab-bar-display-name)
+#+end_src
+
 * Published cross-module consult API
 
 Soft-dependency hooks other subsystems may consult to route artifacts

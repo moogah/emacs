@@ -67,7 +67,8 @@
 
   (it "loads a workspace whose :home is missing, marks it :broken, names the path"
     (broken-home-load-spec--with-state-file
-      (let* ((missing-home (file-name-as-directory
+      (let* ((message-log-max t)
+             (missing-home (file-name-as-directory
                             (expand-file-name "never-existed"
                                               broken-home-load-spec--tmp-dir)))
              (messages-before (with-current-buffer "*Messages*"
