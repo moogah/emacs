@@ -5,8 +5,8 @@
 
 Scaffolds a workspace's on-disk home directory: =mkdir= the home
 directory, =git init=, write the =home.org= skeleton, =mkdir
-sessions/=, create the initial gptel session file, and (optionally)
-=git add . && git commit=.
+sessions/= (left empty — session files are an integration concern, not
+a scaffold concern), and (optionally) =git add . && git commit=.
 
 This module is a pure filesystem operation; it does NOT register
 workspaces or create tabs.  That is =tabs.el='s responsibility — the
@@ -16,8 +16,8 @@ registration.
 Three contractual properties are pinned by the cycle 2 register
 entries:
 
-1. =register/boundary/workspace-scaffold-pipeline= — the six-stage
-   ordered pipeline with =INIT-AND-COMMIT?= gating stages 2 and 6.
+1. =register/boundary/workspace-scaffold-pipeline= — the five-stage
+   ordered pipeline with =INIT-AND-COMMIT?= gating stages 2 and 5.
 2. =register/invariant/scaffold-leave-partial-on-failure= — on any
    stage failure, partial filesystem state is LEFT IN PLACE.  No
    =delete-directory=, no =delete-file=, no rollback.
@@ -110,52 +110,29 @@ package — see `register/invariant/home-org-user-authored-after-creation'."
         (insert "* Notes\n")))))
 #+end_src
 
-* Initial gptel session creator
-
-Creates a single empty session file under =<HOME>/sessions/=.  The
-filename uses today's date (=YYYY-MM-DD-initial.org=) so the user's
-first session is immediately visible.
-
-The body writes a minimal =#+TITLE: <date> initial session= stub
-directly.  A gptel-aware preferred path was considered but cannot
-land here: =register/boundary/gptel-sessions-workspace-consult=
-enforces a one-way directionality contract — no =.el= under
-=config/workspaces/= may reference any =gptel-sessions-*= symbol.
-The sibling cycle-2 task =gptel-sessions-workspace-consult= did not
-introduce a non-interactive session-file creator, so there is no
-existing function to soft-consult anyway.  When a non-interactive
-creator does land (cycle 3+), the integration belongs on the
-gptel-sessions side as a hook or post-create call, not as a
-=featurep= guard here.
-
-#+begin_src emacs-lisp
-(defun workspace--scaffold-initial-session (home)
-  "Create the initial gptel session file under HOME/sessions/.
-Returns the absolute path of the session file."
-  (let* ((sessions-dir (workspace--sessions-dir home))
-         (filename (format "%s-initial.org" (format-time-string "%Y-%m-%d")))
-         (path (expand-file-name filename sessions-dir)))
-    (make-directory sessions-dir t)
-    (with-temp-file path
-      (insert (format "#+TITLE: %s initial session\n"
-                      (format-time-string "%Y-%m-%d"))))
-    path))
-#+end_src
-
 * Pipeline (workspace-scaffold)
 
-The six-stage pipeline.  =INIT-AND-COMMIT?= gates stages 2 (=git
-init=) and 6 (=git add . && git commit=); the file-touching stages
-(1, 3, 4, 5) run unconditionally.
+The five-stage pipeline.  =INIT-AND-COMMIT?= gates stages 2 (=git
+init=) and 5 (=git add . && git commit=); the file-touching stages
+(1, 3, 4) run unconditionally.
+
+The =sessions/= directory is created empty.  Populating it with an
+initial session is NOT a scaffold concern — session files belong to
+the gptel-sessions integration, which decides at workspace-creation
+time whether to create one (=register/boundary/gptel-sessions-
+workspace-consult= enforces a one-way directionality contract: no
+=.el= under =config/workspaces/= may reference any =gptel-sessions-*=
+symbol, so the scaffolder cannot and must not build a real session
+file).  The creation-time integration dispatch (tabs.el) fires after
+registration; consumers attach an =:on-create= handler there.
 
 Stages:
 
 1. =make-directory HOME=
 2. =git init HOME=                                 (gated)
 3. write =HOME/home.org= skeleton                  (idempotent)
-4. =make-directory HOME/sessions/=
-5. create =HOME/sessions/<date>-initial.org=
-6. =git add . && git commit=                       (gated)
+4. =make-directory HOME/sessions/=                 (left empty)
+5. =git add . && git commit=                       (gated)
 
 On any failure: =user-error= is signalled with the HOME path and the
 failing operation in the message.  Partial filesystem state is LEFT
@@ -184,9 +161,8 @@ Stages (always | INIT-AND-COMMIT?):
   1. make-directory HOME                       (always)
   2. git init HOME                             (INIT-AND-COMMIT?)
   3. write HOME/home.org skeleton              (always — idempotent)
-  4. make-directory HOME/sessions/             (always)
-  5. create HOME/sessions/<date>-initial.org   (always)
-  6. git add . && git commit                   (INIT-AND-COMMIT?)
+  4. make-directory HOME/sessions/             (always — left empty)
+  5. git add . && git commit                   (INIT-AND-COMMIT?)
 
 On any failure, signal `user-error'.  Partially-created files are
 LEFT IN PLACE (design.md §D2) — the error message names the path
@@ -201,7 +177,6 @@ that is the caller's responsibility (tabs.el's workspace-new)."
     (workspace--scaffold-git home "init"))
   (workspace--scaffold-write-home-org home name)
   (make-directory (workspace--sessions-dir home) t)
-  (workspace--scaffold-initial-session home)
   (when init-and-commit?
     (workspace--scaffold-git home "add" ".")
     (workspace--scaffold-git home "commit" "-m" "Initial workspace"))

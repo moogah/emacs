@@ -31,18 +31,6 @@ package — see `register/invariant/home-org-user-authored-after-creation'."
         (insert "* Description\n\n")
         (insert "* Notes\n")))))
 
-(defun workspace--scaffold-initial-session (home)
-  "Create the initial gptel session file under HOME/sessions/.
-Returns the absolute path of the session file."
-  (let* ((sessions-dir (workspace--sessions-dir home))
-         (filename (format "%s-initial.org" (format-time-string "%Y-%m-%d")))
-         (path (expand-file-name filename sessions-dir)))
-    (make-directory sessions-dir t)
-    (with-temp-file path
-      (insert (format "#+TITLE: %s initial session\n"
-                      (format-time-string "%Y-%m-%d"))))
-    path))
-
 (cl-defun workspace-scaffold (home name &key init-and-commit?)
   "Scaffold a workspace directory at HOME with display NAME.
 
@@ -55,9 +43,8 @@ Stages (always | INIT-AND-COMMIT?):
   1. make-directory HOME                       (always)
   2. git init HOME                             (INIT-AND-COMMIT?)
   3. write HOME/home.org skeleton              (always — idempotent)
-  4. make-directory HOME/sessions/             (always)
-  5. create HOME/sessions/<date>-initial.org   (always)
-  6. git add . && git commit                   (INIT-AND-COMMIT?)
+  4. make-directory HOME/sessions/             (always — left empty)
+  5. git add . && git commit                   (INIT-AND-COMMIT?)
 
 On any failure, signal `user-error'.  Partially-created files are
 LEFT IN PLACE (design.md §D2) — the error message names the path
@@ -72,7 +59,6 @@ that is the caller's responsibility (tabs.el's workspace-new)."
     (workspace--scaffold-git home "init"))
   (workspace--scaffold-write-home-org home name)
   (make-directory (workspace--sessions-dir home) t)
-  (workspace--scaffold-initial-session home)
   (when init-and-commit?
     (workspace--scaffold-git home "add" ".")
     (workspace--scaffold-git home "commit" "-m" "Initial workspace"))
