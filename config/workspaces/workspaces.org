@@ -130,6 +130,10 @@ layout= from =layouts=) exist at definition time.
 (jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
 (require 'workspaces-mode)
+;; Front-door transient: needs `workspace--current-name'/`workspace--registry'
+;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
+;; (integrations), so it loads last.
+(jf/load-module (expand-file-name "config/workspaces/workspaces-transient.el" jf/emacs-dir))
 #+end_src
 
 * Re-anchor command
@@ -312,65 +316,40 @@ purge as =:allowed= on broken)."
 
 * Keybindings
 
-User-facing commands hang off the =C-x w= prefix (design.md Open
-Questions §1; resolved here).  =C-x w= itself is unbound in the stock
+=C-x w= opens =workspace-menu=, the single context-aware transient that
+is the front door for all workspace commands (design.md §Decision 5,
+user-confirmed promote).  =C-x w= itself is unbound in the stock
 configuration; =C-x n w= (=widen=) is the only =C-x w...= binding, and
 it is a sibling not a parent.
 
-| Binding   | Command                              |
-|-----------+--------------------------------------|
-| =C-x w n= | =workspace-new=                      |
-| =C-x w s= | =workspace-switch=                   |
-| =C-x w o= | =workspace-restore=                  |
-| =C-x w S= | =workspace-save=                     |
-| =C-x w l= | =workspace-switch-layout=            |
-| =C-x w L= | =workspace-save-layout=              |
-| =C-x w D= | =workspace-delete=                   |
-| =C-x w P= | =workspace-purge=                    |
-| =C-x w R= | =workspace-re-anchor=                |
-| =C-x w T= | =workspace-switch-to-recent-layout=  |
-| =C-x w r= | =workspace-revert=                   |
-| =C-x w b= | =workspace-remove-buffer=            |
+Previously each command hung off its own =C-x w <key>= chord.  Those
+chords are retired in favour of the menu: every command remains
+reachable through =workspace-menu= (where the old mnemonics survive as
+the menu's suffix keys — =n=/=s=/=o=/=S=/=l=/=L=/=D=/=P=/=R=/=T=/=r=/=b=)
+and via =M-x=.  The menu's group visibility is context-aware: see
+=config/workspaces/workspaces-transient.org=.
 
-Note: cycle-3 design.md §D10 pins =C-x w R= to =workspace-re-anchor=
-(the broken-home recovery command).  The previous occupant of =R= —
-=workspace-switch-to-recent-layout= — was relocated to =T= (mnemonic:
-"to recent").  Cycle-4 =workspace-delete-and-purge= claims =C-x w D=
-for =workspace-delete= (workspace-level, unregister-only) and =C-x w P=
-for =workspace-purge= (destructive).  The previous occupant of =D= —
-=workspace-delete-layout= (a layout-scoped operation) — is now =M-x=
-only; it was a narrow operation whose prominence on a single-letter
-binding crowded out the workspace-level commands that cycle-4
-introduced.  Uppercase =D=/=P= flag destructive intent visually and
-keep lowercase prefix-space free for future buffer-membership
-commands (design.md §D10).
+The mnemonic rationale carried over from the chord era still holds for
+the menu suffixes: cycle-3 design.md §D10 pins =R= to
+=workspace-re-anchor= (the broken-home recovery command); the previous
+occupant of =R= — =workspace-switch-to-recent-layout= — lives at =T=
+(mnemonic: "to recent").  Cycle-4 =workspace-delete-and-purge= claims
+=D= for =workspace-delete= (workspace-level, unregister-only) and =P=
+for =workspace-purge= (destructive).  Uppercase =D=/=P= flag
+destructive intent visually.
 
-=workspace-save= (=C-x w S=) captures the live frame and writes
-synchronously.  The lower-level =workspace-save-state= still exists
-for internal use as a debounced flush primitive, but is no longer
-bound by default.
+=workspace-save= (=S=) captures the live frame and writes
+synchronously.  The lower-level =workspace-save-state= still exists for
+internal use as a debounced flush primitive, but is no longer bound by
+default.
 
-=workspace-revert= (=C-x w r=) is the v2 \"throw away autosave drift\"
+=workspace-revert= (=r=) is the v2 \"throw away autosave drift\"
 affordance: it clears the current workspace's =:working-state=,
 flushes, and re-applies =:saved-state= (design.md §D9).  The
-=workspace-remove-buffer= command was relocated from =r= to =b=
-(mnemonic: \"buffer\") to free =r= for revert — design.md §D9 listed
-=r= as free, having been written against the explicit bindings
-enumerated for the v2 cycle.
+=workspace-remove-buffer= command lives at =b= (mnemonic: \"buffer\").
 
 #+begin_src emacs-lisp
-(global-set-key (kbd "C-x w n") #'workspace-new)
-(global-set-key (kbd "C-x w s") #'workspace-switch)
-(global-set-key (kbd "C-x w o") #'workspace-restore)
-(global-set-key (kbd "C-x w S") #'workspace-save)
-(global-set-key (kbd "C-x w l") #'workspace-switch-layout)
-(global-set-key (kbd "C-x w L") #'workspace-save-layout)
-(global-set-key (kbd "C-x w D") #'workspace-delete)
-(global-set-key (kbd "C-x w P") #'workspace-purge)
-(global-set-key (kbd "C-x w R") #'workspace-re-anchor)
-(global-set-key (kbd "C-x w T") #'workspace-switch-to-recent-layout)
-(global-set-key (kbd "C-x w r") #'workspace-revert)
-(global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
+(global-set-key (kbd "C-x w") #'workspace-menu)
 #+end_src
 
 * Tab-bar display name
