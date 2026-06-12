@@ -99,3 +99,30 @@ creation pipeline is the next task.
 design.md § Decisions 1–4; spec `workspace-integrations` (Requirements:
 Integration registry and registration; Anchor payload contract; Integration
 result protocol; Creation-time dispatch).
+
+## Observations
+- The (failed . REASON) result, when returned as the cdr of a (ID . OUTCOME)
+  pair, produces the 3-element improper list `(ID failed . REASON)` —
+  e.g. `(boom failed . "explode")`. This is the natural consequence of the
+  prescribed `(ID . OUTCOME)` shape combined with `OUTCOME = (failed . REASON)`
+  and is consistent across the runner and dispatch. Tests assert against this
+  exact structure (`caar`/`cadar`/`cddar`). Callers in later tasks (tabs
+  dispatch consumer) should pattern-match outcomes via
+  `(pcase outcome ('ok ...) ('skipped ...) (`(failed . ,r) ...))` rather than
+  indexing, to stay robust to this nesting.
+- Decision 3's "unknown return values are treated leniently as `ok`" is
+  implemented via the `(_ 'ok)` pcase arm. A handler that returns the symbol
+  `nil` (a common accidental return) therefore normalizes to `ok`, not
+  `skipped`. This matches the design's lenient stance but is worth flagging:
+  handlers that intend "no-op" must return the symbol `skipped` explicitly.
+- `workspace-register-integration` always stores the full plist
+  `(:label L :on-create H :menu M)` even when keys are nil, so
+  `plist-get … :menu` returns nil cleanly for handler-only entries. No
+  partial-plist branching needed; `assq` + `setcdr` gives stable in-place
+  replacement.
+- The spec file loads `data-model.el` then `integrations.el` directly via
+  `load` (mirroring `scaffold-spec.el`), independent of the module-loader
+  wiring, so the registry is testable in isolation.
+
+## Discoveries
+None
