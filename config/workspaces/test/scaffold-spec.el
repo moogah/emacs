@@ -1,6 +1,6 @@
 ;;; scaffold-spec.el --- Tests for workspace directory scaffolder -*- lexical-binding: t; -*-
 
-;; Covers register/boundary/workspace-scaffold-pipeline (six-stage
+;; Covers register/boundary/workspace-scaffold-pipeline (five-stage
 ;; ordered pipeline with INIT-AND-COMMIT? gating) and
 ;; register/invariant/scaffold-leave-partial-on-failure (no rollback
 ;; on stage failure; no delete-* primitives in scaffold.el body).
@@ -44,7 +44,7 @@
        (with-current-buffer standard-output
          (apply #'call-process "git" nil t nil args))))))
 
-;;; Stage-1..6 default-path acceptance
+;;; Stage-1..5 default-path acceptance
 
 (describe "workspace-scaffold default path (INIT-AND-COMMIT? t)"
   (it "returns HOME on success"
@@ -75,14 +75,20 @@
       (expect (file-directory-p (expand-file-name "sessions" home))
               :not :to-be nil)))
 
-  (it "creates exactly one <date>-initial.org under sessions/ (stage 5)"
+  (it "leaves sessions/ empty (no initial session file)"
+    ;; The scaffolder creates sessions/ but never populates it.  An
+    ;; initial session file, when wanted, is created by the
+    ;; gptel-sessions integration's :on-create handler (fired from
+    ;; tabs.el after registration), NOT by the scaffold pipeline —
+    ;; register/boundary/gptel-sessions-workspace-consult forbids the
+    ;; scaffolder from naming any gptel-sessions symbol.
     (scaffold-spec--with-tmp-home home
       (workspace-scaffold home "alpha" :init-and-commit? t)
       (let* ((sessions (expand-file-name "sessions" home))
-             (files (directory-files sessions nil "-initial\\.org\\'")))
-        (expect (length files) :to-equal 1))))
+             (files (directory-files sessions nil "\\`[^.]")))
+        (expect files :to-equal nil))))
 
-  (it "produces exactly one commit named `Initial workspace' (stage 6)"
+  (it "produces exactly one commit named `Initial workspace' (stage 5)"
     (scaffold-spec--with-tmp-home home
       (workspace-scaffold home "alpha" :init-and-commit? t)
       (let* ((log (scaffold-spec--git home "log" "--oneline"))
@@ -93,7 +99,7 @@
 ;;; Anchor-without-commit branch (INIT-AND-COMMIT? nil)
 
 (describe "workspace-scaffold anchor branch (INIT-AND-COMMIT? nil)"
-  (it "writes home.org and sessions/<date>-initial.org but does not init or commit"
+  (it "writes home.org and creates an empty sessions/ but does not init or commit"
     (scaffold-spec--with-tmp-home home
       ;; Pre-init the directory as a git repo so stage 2 is not relevant.
       (let ((default-directory (file-name-as-directory home)))
@@ -103,11 +109,12 @@
               :not :to-be nil)
       (expect (file-directory-p (expand-file-name "sessions" home))
               :not :to-be nil)
-      ;; Files are present but UNTRACKED — the function did not run
-      ;; `git add' or `git commit'.
+      ;; home.org is present but UNTRACKED — the function did not run
+      ;; `git add' or `git commit'.  (sessions/ is empty, so git's
+      ;; porcelain status does not list it — git does not track empty
+      ;; directories.)
       (let ((porcelain (scaffold-spec--git home "status" "--porcelain")))
-        (expect porcelain :to-match "^\\?\\? home\\.org$")
-        (expect porcelain :to-match "^\\?\\? sessions/$"))
+        (expect porcelain :to-match "^\\?\\? home\\.org$"))
       ;; No commits exist on the anchor branch.
       (let ((default-directory (file-name-as-directory home))
             (out-buf (generate-new-buffer " *scaffold-spec-log-status*")))
@@ -157,9 +164,12 @@
         (expect (file-exists-p (expand-file-name "home.org" home))
                 :not :to-be nil)
         (let* ((sessions (expand-file-name "sessions" home)))
+          ;; sessions/ was created (stage 4 ran before the simulated
+          ;; commit failure) and is left in place; it is empty because
+          ;; the scaffolder never populates it.
           (expect (file-directory-p sessions) :not :to-be nil)
-          (expect (directory-files sessions nil "-initial\\.org\\'")
-                  :not :to-be nil)))))
+          (expect (directory-files sessions nil "\\`[^.]")
+                  :to-equal nil)))))
 
   (it "the user-error message names the HOME path"
     (scaffold-spec--with-tmp-home home

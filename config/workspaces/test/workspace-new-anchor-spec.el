@@ -212,7 +212,7 @@ to return HOME.  Returns the freshly-registered workspace plist."
         (wna-spec--call-anchor home)
         ;; Scaffold ran with :init-and-commit? nil.
         (expect 'workspace-scaffold :to-have-been-called)
-        ;; home.org and sessions/<date>-initial.org now exist.
+        ;; home.org and an empty sessions/ directory now exist.
         (expect (file-exists-p (expand-file-name "home.org" home))
                 :to-be t)
         (expect (file-directory-p (expand-file-name "sessions" home))

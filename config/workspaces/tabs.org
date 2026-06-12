@@ -28,6 +28,7 @@ This module owns:
 (require 'workspace-data-model)
 (require 'workspace-home-org)
 (require 'workspace-scaffold)
+(require 'workspace-integrations)
 #+end_src
 
 * Registry
@@ -242,13 +243,21 @@ directory via prefix arg"):
    touch a repo we did not initialize, and we never overwrite a
    user-authored =home.org=.
 2. *Repo, no =home.org=* — call =workspace-scaffold= with
-   =:init-and-commit? nil=.  Stages 1, 3, 4, 5 run (mkdir is
-   idempotent; home.org write is guarded; sessions/ + initial session
-   land safely).  Stages 2 (=git init=) and 6 (=git add . && git
-   commit=) are skipped — the user owns this repo and we do not
-   stage their changes for them.
+   =:init-and-commit? nil=.  Stages 1, 3, 4 run (mkdir is
+   idempotent; home.org write is guarded; the empty sessions/
+   directory lands safely).  Stages 2 (=git init=) and 5 (=git add
+   . && git commit=) are skipped — the user owns this repo and we
+   do not stage their changes for them.
 3. *Not a git repo* — call =workspace-scaffold= with =:init-and-
    commit? t=.  Same pipeline as the default-path branch.
+
+After registration, each sub-case fires =workspace--dispatch-create-
+integrations= with a per-case =:context= label (case 1 →
+=anchored-existing=, case 2 → =anchored-scaffolded=, case 3 →
+=fresh=).  Dispatch runs after the =puthash= so a failing integration
+cannot block a clean workspace, and so a mid-pipeline scaffold failure
+(which propagates before registration) leaves no registry entry and
+runs no =:on-create= handler.
 
 A double-registration guard refuses to anchor a directory that is
 already a registered workspace's =:home=.  Path comparison is by
@@ -304,25 +313,37 @@ workspace plist on success."
                 (directory-file-name home))))
     (when (workspace--registered-for-home-p home)
       (user-error "Already a registered workspace: %s" home))
-    (let ((is-repo? (file-directory-p (expand-file-name ".git" home)))
-          (has-home-org? (workspace-home-org-exists-p home)))
-      (cond
-       ;; Case 1: repo + home.org → register only.
-       ((and is-repo? has-home-org?)
-        ;; No scaffolding; just register.
-        )
-       ;; Case 2: repo, no home.org → scaffold files, no git ops.
-       (is-repo?
-        (workspace-scaffold home name :init-and-commit? nil))
-       ;; Case 3: non-repo → full scaffold including git init + commit.
-       (t
-        (workspace-scaffold home name :init-and-commit? t)))
+    (let* ((is-repo? (file-directory-p (expand-file-name ".git" home)))
+           (has-home-org? (workspace-home-org-exists-p home))
+           ;; The per-case integration :context label.  Each cond
+           ;; branch picks its own; dispatch fires once after
+           ;; registration with this value (design Decision 4).
+           (context
+            (cond
+             ;; Case 1: repo + home.org → register only.
+             ((and is-repo? has-home-org?)
+              ;; No scaffolding; just register.
+              'anchored-existing)
+             ;; Case 2: repo, no home.org → scaffold files, no git ops.
+             (is-repo?
+              (workspace-scaffold home name :init-and-commit? nil)
+              'anchored-scaffolded)
+             ;; Case 3: non-repo → full scaffold including git init + commit.
+             (t
+              (workspace-scaffold home name :init-and-commit? t)
+              'fresh))))
       (tab-bar-new-tab)
       (tab-bar-rename-tab name)
       (puthash name (workspace--make name home) workspace--registry)
       (when (and (boundp 'workspace-home-builder)
                  (functionp workspace-home-builder))
         (funcall workspace-home-builder name))
+      ;; Dispatch AFTER registration so a failing integration cannot
+      ;; block an otherwise-clean workspace, and so mid-pipeline
+      ;; scaffold failure (above) leaves no registry entry and runs no
+      ;; :on-create handler (design Decision 4).  Case 1 dispatches too,
+      ;; so consumers can decide/skip even when nothing was scaffolded.
+      (workspace--dispatch-create-integrations name home context)
       (gethash name workspace--registry))))
 
 (defun workspace--new-default-path (name)
@@ -333,10 +354,14 @@ Scaffold a fresh workspace directory at
 Signal `user-error' if that directory already exists (the user's
 remedy is the prefix-arg form, which anchors an existing dir).
 Otherwise: scaffold first (creates the directory, git-inits it,
-writes home.org and sessions/<date>-initial.org, commits); only on
+writes home.org and the empty sessions/ directory, commits); only on
 scaffold success do we register the workspace, create a tab, and
 run the home builder.  The home builder runs last so any buffers it
-displays become members of the freshly-registered workspace."
+displays become members of the freshly-registered workspace.  After
+registration (and after the initial commit) we fire
+`workspace--dispatch-create-integrations' with the `fresh' context so
+integrations can react to the new workspace; a failing integration
+never blocks the already-clean workspace (design Decision 4)."
   (let* ((home (expand-file-name
                 name
                 workspaces-default-parent-directory)))
@@ -352,6 +377,12 @@ displays become members of the freshly-registered workspace."
     (when (and (boundp 'workspace-home-builder)
                (functionp workspace-home-builder))
       (funcall workspace-home-builder name))
+    ;; Fire creation-time integration dispatch AFTER registration and
+    ;; AFTER the initial commit: a failing integration cannot block an
+    ;; already-clean workspace, and a mid-pipeline scaffold failure
+    ;; (which propagates above, before this point) leaves no registry
+    ;; entry and runs no :on-create handler (design Decision 4).
+    (workspace--dispatch-create-integrations name home 'fresh)
     (gethash name workspace--registry)))
 
 (defun workspace-new (name &optional anchor-existing)
