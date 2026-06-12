@@ -314,6 +314,15 @@ purge as =:allowed= on broken)."
     ;; Filesystem delete (best-effort; broken-home case has nothing
     ;; to do — :home is already absent).
     (when (file-directory-p home)
+      ;; Additive integration teardown BEFORE the directory is gone:
+      ;; integrations clean up resources anchored under :home (e.g. git
+      ;; worktrees) while the tree still exists (design.md §D3).  The
+      ;; dispatcher is error-guarded and never signals; its outcome
+      ;; alist is ignored for control flow — a (failed . REASON) result
+      ;; is surfaced via `message' but NEVER aborts the purge.  Fires on
+      ;; purge only; `workspace-delete' leaves :home intact and so has
+      ;; nothing to tear down.
+      (workspace--dispatch-purge-integrations name home 'purge)
       (delete-directory home t))
     (message "Workspace %s purged" name)))
 #+end_src

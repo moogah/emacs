@@ -34,6 +34,10 @@
 
 (let ((dir (file-name-directory (or load-file-name buffer-file-name))))
   (load (expand-file-name "../data-model.el" dir))
+  ;; integrations.el defines `workspace--dispatch-purge-integrations',
+  ;; which `workspace-purge' now calls before `delete-directory'.  It
+  ;; depends only on workspace-data-model (loaded above).
+  (load (expand-file-name "../integrations.el" dir))
   (load (expand-file-name "../home-org.el"   dir))
   (load (expand-file-name "../scaffold.el"   dir))
   (load (expand-file-name "../tabs.el"       dir))
@@ -282,6 +286,98 @@ delete-leaves-files-on-disk assertions are meaningful."
       (expect (file-directory-p wdp-spec--tmp-parent) :to-be t)
       ;; - persistence flushed exactly once
       (expect 'workspace--flush-state :to-have-been-called-times 1))))
+
+(describe "workspace-purge integration teardown dispatch"
+  ;; `workspace-purge' fires the integration `:on-purge' surface via
+  ;; `workspace--dispatch-purge-integrations' BEFORE recursively
+  ;; deleting :home, so integrations can clean up resources anchored
+  ;; under the home tree (e.g. git worktrees) while the directory still
+  ;; exists (design.md §D3).  The dispatch is ADDITIVE and NEVER
+  ;; LOAD-BEARING (register/boundary/workspace-integration-registry): a
+  ;; (failed . REASON) outcome is surfaced but never aborts the purge,
+  ;; and `workspace-purge' ignores the returned alist for control flow
+  ;; (register/vocabulary/workspace-integration-outcome).  Teardown
+  ;; fires on purge ONLY — `workspace-delete' keeps :home and its
+  ;; worktrees, so it dispatches nothing.
+  (before-each
+    (wdp-spec--reset)
+    (spy-on 'workspace--flush-state :and-return-value nil))
+  (after-each (wdp-spec--cleanup))
+
+  (it "calls dispatch once with NAME + HOME, BEFORE delete-directory, on purge"
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "myproj" wdp-spec--tmp-parent)))
+           (order nil)
+           ;; `workspace--make' normalises :home to a directory name; the
+           ;; dispatch receives the stored (normalised) value, so assert
+           ;; against that rather than the raw seed path.
+           (stored-home (workspace--home
+                         (wdp-spec--make-workspace "myproj" home))))
+      ;; Record relative ordering: dispatch must run while :home still
+      ;; exists, and delete-directory after.  Both are spied so the
+      ;; ORDER assertion proves dispatch precedes deletion.
+      (spy-on 'workspace--dispatch-purge-integrations
+              :and-call-fake
+              (lambda (&rest _)
+                ;; The home tree is still on disk at dispatch time.
+                (expect (file-directory-p home) :to-be t)
+                (push 'dispatch order)
+                nil))
+      (spy-on 'delete-directory
+              :and-call-fake
+              (lambda (&rest _) (push 'delete order) nil))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+        (workspace-purge "myproj"))
+      ;; Dispatch called exactly once.
+      (expect 'workspace--dispatch-purge-integrations
+              :to-have-been-called-times 1)
+      ;; With the workspace NAME and its on-disk :home, context `purge'.
+      (expect 'workspace--dispatch-purge-integrations
+              :to-have-been-called-with "myproj" stored-home 'purge)
+      ;; And BEFORE the recursive delete (order is reversed push list).
+      (expect (nreverse order) :to-equal '(dispatch delete))))
+
+  (it "does NOT abort the purge when a handler reports (failed . REASON)"
+    ;; Additive contract: a failed teardown outcome is surfaced but the
+    ;; purge still completes — :home is deleted regardless.
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "myproj" wdp-spec--tmp-parent))))
+      (wdp-spec--make-workspace "myproj" home)
+      (spy-on 'workspace--dispatch-purge-integrations
+              :and-return-value '((some-integration . (failed . "boom"))))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+        (workspace-purge "myproj"))
+      ;; Purge completed: dispatch ran, registry clean, home deleted.
+      (expect 'workspace--dispatch-purge-integrations
+              :to-have-been-called-times 1)
+      (expect (gethash "myproj" workspace--registry) :to-be nil)
+      (expect (file-exists-p home) :to-be nil)
+      (expect 'workspace--flush-state :to-have-been-called-times 1)))
+
+  (it "does NOT dispatch when :home is already absent (broken-home purge)"
+    ;; Nothing to tear down when :home is gone — the home-exists guard
+    ;; gates the dispatch alongside delete-directory.
+    (let* ((missing (file-name-as-directory
+                     (expand-file-name "vanished" wdp-spec--tmp-parent))))
+      (expect (file-exists-p missing) :to-be nil)
+      (wdp-spec--make-workspace "vanished" missing t)
+      (spy-on 'workspace--dispatch-purge-integrations)
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+        (workspace-purge "vanished"))
+      (expect 'workspace--dispatch-purge-integrations :not :to-have-been-called)
+      (expect (gethash "vanished" workspace--registry) :to-be nil)))
+
+  (it "does NOT dispatch on workspace-delete (home + worktrees left intact)"
+    ;; `workspace-delete' is the non-destructive command: it never
+    ;; deletes :home and so must never fire :on-purge teardown.
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "keepme" wdp-spec--tmp-parent))))
+      (wdp-spec--make-workspace "keepme" home)
+      (spy-on 'workspace--dispatch-purge-integrations)
+      (workspace-delete "keepme")
+      (expect 'workspace--dispatch-purge-integrations :not :to-have-been-called)
+      ;; Home untouched on disk.
+      (expect (file-directory-p home) :to-be t))))
 
 (describe "workspace-delete and workspace-purge keybindings"
   ;; C-x w was promoted to the `workspace-menu' transient (the chord
