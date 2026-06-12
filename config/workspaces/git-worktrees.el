@@ -46,6 +46,57 @@ source is still reachable.  Returns the chosen directory, expanded."
         (expand-file-name choice)
       (expand-file-name (read-directory-name "Source git repo: ")))))
 
+(defun jf/workspace--worktree-sanitize-branch (name)
+  "Return NAME sanitized into a valid git ref-component default.
+Replaces whitespace and git-illegal ref characters (space, tilde,
+caret, colon, question-mark, asterisk, open-bracket, backslash,
+control chars, and the at-brace sequence) with \"-\", collapses
+repeated \"-\", and trims leading/trailing \"-\".  Intended to seed
+an editable prompt default, not to be authoritative."
+  (let* ((s (or name ""))
+         (s (replace-regexp-in-string "@{" "-" s))
+         (s (replace-regexp-in-string "[[:space:][:cntrl:]~^:?*\\[\\\\]" "-" s))
+         (s (replace-regexp-in-string "-+" "-" s))
+         (s (replace-regexp-in-string "\\`-+\\|-+\\'" "" s)))
+    s))
+
+(defun jf/workspace--add-worktree (payload)
+  "Create a git worktree off main for the workspace described by PAYLOAD.
+PAYLOAD is the workspace-integration anchor plist; this reads `:name'
+\(the workspace name, used as the default shared feature branch) and
+`:home' (the workspace container directory, used as the worktree
+parent).  Operates solely on PAYLOAD, never on the current tab.
+
+Prompts for a source repo (`jf/workspace--worktree-read-repo'),
+detects its main branch (`magit-main-branch' with `default-directory'
+bound to the repo), and prompts for a branch name defaulting to the
+sanitized workspace name.  The worktree directory is a child of
+`:home' named for the source repo's basename.
+
+If the target directory already exists, returns
+\(failed . REASON) and makes NO magit call — never overwriting.
+Otherwise creates the worktree on a NEW branch off main via
+`magit-worktree-branch' (again with `default-directory' bound to the
+repo).  Returns `ok' on success, or (failed . REASON) on any git
+error."
+  (let* ((repo (jf/workspace--worktree-read-repo))
+         (main (let ((default-directory repo))
+                 (magit-main-branch)))
+         (default-branch (jf/workspace--worktree-sanitize-branch
+                          (plist-get payload :name)))
+         (branch (read-string "Worktree branch: " default-branch))
+         (dir (expand-file-name
+               (file-name-nondirectory (directory-file-name repo))
+               (plist-get payload :home))))
+    (if (file-exists-p dir)
+        (cons 'failed (format "worktree dir already exists: %s" dir))
+      (condition-case err
+          (progn
+            (let ((default-directory repo))
+              (magit-worktree-branch dir branch main))
+            'ok)
+        (error (cons 'failed (error-message-string err)))))))
+
 (with-eval-after-load 'workspaces
   (with-eval-after-load 'magit
     (workspace-register-integration 'git-worktree
