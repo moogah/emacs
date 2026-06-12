@@ -18,6 +18,12 @@
   (file-name-directory (or load-file-name buffer-file-name))
   "Directory of this spec file, captured at load time.")
 
+;; The registration-gating describe block drives
+;; `workspace-register-integration' / inspects `workspace--integrations'
+;; directly, so make the registry available regardless of spec load order.
+;; integrations.el depends on `workspace--sessions-dir' from data-model.el.
+(load (expand-file-name "../data-model.el" git-worktrees-spec--this-dir))
+(load (expand-file-name "../integrations.el" git-worktrees-spec--this-dir))
 (load (expand-file-name "../git-worktrees.el" git-worktrees-spec--this-dir))
 
 (describe "workspace git-worktrees repo-candidate seam"
@@ -173,7 +179,71 @@
       (let ((result (jf/workspace--add-worktree
                      '(:name "feat" :home "/ws/home/"))))
         (expect (car result) :to-equal 'failed)
-        (expect (cdr result) :to-match "worktree failure")))))
+        (expect (cdr result) :to-match "worktree failure")))
+
+    (it "derives worktree state — never stores :repo/:branch on the payload"
+      ;; Spec `workspace-git-worktrees': "Worktree state is derived, not
+      ;; stored".  The :menu command operates against the anchor payload
+      ;; (a plain :name/:home plist) and MUST NOT add persistent slots
+      ;; such as :repo or :branch.  After a successful add, the payload
+      ;; carries exactly the keys it was handed — the repo and branch
+      ;; live in git/the filesystem, the single source of truth.
+      (let ((payload (list :name "feat" :home "/ws/home/")))
+        (expect (jf/workspace--add-worktree payload) :to-equal 'ok)
+        (expect (plist-member payload :repo) :to-be nil)
+        (expect (plist-member payload :branch) :to-be nil)
+        ;; The plist is unchanged from what was passed in.
+        (expect payload :to-equal '(:name "feat" :home "/ws/home/"))))))
+
+(describe "workspace-git-worktrees registration gating (droppable / magit-soft)"
+
+  ;; Spec `workspace-git-worktrees': the module attaches SOLELY through
+  ;; `workspace-register-integration', double-gated behind
+  ;; `with-eval-after-load 'workspaces' AND `with-eval-after-load 'magit'.
+  ;; Removing the module leaves workspaces working; absent magit means no
+  ;; git integration is registered (not an error).  We exercise the gate
+  ;; directly with a fresh, isolated registry — magit is never required.
+
+  (before-each (setq workspace--integrations nil))
+
+  (it "is gated behind with-eval-after-load 'workspaces AND 'magit in source"
+    ;; Structural guarantee that absent magit ⇒ no registration (not an
+    ;; error), and removing the module leaves workspaces working: the
+    ;; SOLE registration site is doubly deferred.  Read the tangled source
+    ;; and confirm the registration is nested inside both load guards.
+    (let* ((el (expand-file-name "../git-worktrees.el"
+                                 git-worktrees-spec--this-dir))
+           (src (with-temp-buffer
+                  (insert-file-contents el)
+                  (buffer-string))))
+      ;; The register call exists exactly once (the SOLE attach point).
+      (expect (with-temp-buffer
+                (insert src)
+                (goto-char (point-min))
+                (how-many "(workspace-register-integration"))
+              :to-equal 1)
+      ;; It is reached only via both deferred-load guards.
+      (expect src :to-match
+              (concat "with-eval-after-load[ \t\n]+'workspaces"
+                      "[\0-\377[:nonascii:]]*?"
+                      "with-eval-after-load[ \t\n]+'magit"
+                      "[\0-\377[:nonascii:]]*?"
+                      "workspace-register-integration"))))
+
+  (it "declares exactly the :menu + :on-purge surfaces (no :on-create)"
+    ;; When the gate does fire, the consumer attaches a menu command and a
+    ;; purge-teardown handler and nothing else.  Drive the registration
+    ;; call directly against an isolated registry — no global `provide'.
+    (workspace-register-integration 'git-worktree
+      :label "git worktree"
+      :menu (cons "w" #'jf/workspace--add-worktree)
+      :on-purge #'jf/workspace--worktree-on-purge)
+    (let ((entry (cdr (assq 'git-worktree workspace--integrations))))
+      (expect entry :not :to-be nil)
+      (expect (plist-get entry :on-purge)
+              :to-equal #'jf/workspace--worktree-on-purge)
+      (expect (car (plist-get entry :menu)) :to-equal "w")
+      (expect (plist-get entry :on-create) :to-be nil))))
 
 (describe "jf/workspace--worktree-on-purge"
 
