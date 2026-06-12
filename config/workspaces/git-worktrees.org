@@ -110,6 +110,90 @@ source is still reachable.  Returns the chosen directory, expanded."
       (expand-file-name (read-directory-name "Source git repo: ")))))
 #+end_src
 
+* Branch-name Sanitizer
+
+Turns a workspace name into a valid git ref fragment.  Used only to
+seed the editable default for the branch prompt — the user always sees
+the sanitized result and may edit it further.  Replaces whitespace and
+the characters git forbids in ref components (per =git check-ref-format=,
+plus the at-brace sequence) with a hyphen, collapses runs, and trims
+leading/trailing hyphens.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-sanitize-branch (name)
+  "Return NAME sanitized into a valid git ref-component default.
+Replaces whitespace and git-illegal ref characters (space, tilde,
+caret, colon, question-mark, asterisk, open-bracket, backslash,
+control chars, and the at-brace sequence) with \"-\", collapses
+repeated \"-\", and trims leading/trailing \"-\".  Intended to seed
+an editable prompt default, not to be authoritative."
+  (let* ((s (or name ""))
+         (s (replace-regexp-in-string "@{" "-" s))
+         (s (replace-regexp-in-string "[[:space:][:cntrl:]~^:?*\\[\\\\]" "-" s))
+         (s (replace-regexp-in-string "-+" "-" s))
+         (s (replace-regexp-in-string "\\`-+\\|-+\\'" "" s)))
+    s))
+#+end_src
+
+* Menu Handler
+
+On-demand =:menu= command.  Operates SOLELY on the anchor PAYLOAD (the
+=:menu= calling convention) — never on the current tab.  Reads the
+=:name= (workspace name → shared feature branch) and =:home=
+(container dir → worktree parent) from the payload
+(=register/shape/workspace-integration-anchor-payload=).
+
+It prompts for the source repo, detects that repo's main branch, and
+creates a new worktree off main inside =:home=, named for the source
+repo's basename.  Returns one of the outcome vocabulary values
+=ok= | =(failed . REASON)=
+(=register/vocabulary/workspace-integration-outcome=).
+
+Every =magit-*= call is wrapped in an explicit
+=(let ((default-directory repo)) ...)= so the operation runs against
+the chosen repo and not whatever happens to be current
+(design D1 / Risks — the
+=register/invariant/git-worktree-default-directory-binding= contract).
+
+#+begin_src emacs-lisp
+(defun jf/workspace--add-worktree (payload)
+  "Create a git worktree off main for the workspace described by PAYLOAD.
+PAYLOAD is the workspace-integration anchor plist; this reads `:name'
+\(the workspace name, used as the default shared feature branch) and
+`:home' (the workspace container directory, used as the worktree
+parent).  Operates solely on PAYLOAD, never on the current tab.
+
+Prompts for a source repo (`jf/workspace--worktree-read-repo'),
+detects its main branch (`magit-main-branch' with `default-directory'
+bound to the repo), and prompts for a branch name defaulting to the
+sanitized workspace name.  The worktree directory is a child of
+`:home' named for the source repo's basename.
+
+If the target directory already exists, returns
+\(failed . REASON) and makes NO magit call — never overwriting.
+Otherwise creates the worktree on a NEW branch off main via
+`magit-worktree-branch' (again with `default-directory' bound to the
+repo).  Returns `ok' on success, or (failed . REASON) on any git
+error."
+  (let* ((repo (jf/workspace--worktree-read-repo))
+         (main (let ((default-directory repo))
+                 (magit-main-branch)))
+         (default-branch (jf/workspace--worktree-sanitize-branch
+                          (plist-get payload :name)))
+         (branch (read-string "Worktree branch: " default-branch))
+         (dir (expand-file-name
+               (file-name-nondirectory (directory-file-name repo))
+               (plist-get payload :home))))
+    (if (file-exists-p dir)
+        (cons 'failed (format "worktree dir already exists: %s" dir))
+      (condition-case err
+          (progn
+            (let ((default-directory repo))
+              (magit-worktree-branch dir branch main))
+            'ok)
+        (error (cons 'failed (error-message-string err)))))))
+#+end_src
+
 * Registration
 
 Gated so ABSENT MAGIT = NO integration (not an error).  Registration is

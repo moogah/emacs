@@ -84,4 +84,95 @@
               :to-equal (expand-file-name "/repos/floor/"))
       (expect 'read-directory-name :to-have-been-called))))
 
+(describe "jf/workspace--worktree-sanitize-branch"
+
+  (it "replaces whitespace with hyphens"
+    (expect (jf/workspace--worktree-sanitize-branch "my feature")
+            :to-equal "my-feature"))
+
+  (it "replaces git-illegal ref characters and collapses runs"
+    (expect (jf/workspace--worktree-sanitize-branch "feat: cool^thing")
+            :to-equal "feat-cool-thing"))
+
+  (it "trims leading and trailing hyphens"
+    (expect (jf/workspace--worktree-sanitize-branch "  spaced  ")
+            :to-equal "spaced"))
+
+  (it "leaves an already-valid name untouched"
+    (expect (jf/workspace--worktree-sanitize-branch "valid-name")
+            :to-equal "valid-name"))
+
+  (it "treats nil as the empty string"
+    (expect (jf/workspace--worktree-sanitize-branch nil)
+            :to-equal "")))
+
+(describe "jf/workspace--add-worktree"
+
+  ;; Behavioral specs for the :menu command. Magit is never required;
+  ;; `magit-main-branch' and `magit-worktree-branch' are SPIED, as are
+  ;; the prompts (`jf/workspace--worktree-read-repo', `read-string').
+  ;; `default-directory'-binding correctness is asserted by having the
+  ;; magit spies capture `default-directory' at call time.
+
+  (let (dd-at-main dd-at-branch)
+    (before-each
+      (setq dd-at-main nil dd-at-branch nil)
+      ;; Default: a repo with no pre-existing target dir, main = "main".
+      (spy-on 'jf/workspace--worktree-read-repo
+              :and-return-value "/repos/source-repo/")
+      (spy-on 'magit-main-branch :and-call-fake
+              (lambda () (setq dd-at-main default-directory) "main"))
+      (spy-on 'read-string :and-call-fake
+              (lambda (_prompt &optional initial &rest _) initial))
+      (spy-on 'file-exists-p :and-return-value nil)
+      (spy-on 'magit-worktree-branch :and-call-fake
+              (lambda (&rest _) (setq dd-at-branch default-directory) nil)))
+
+    (it "creates a worktree at <home>/<repo-basename> on a new branch off main"
+      (let ((result (jf/workspace--add-worktree
+                     '(:name "my feature" :home "/ws/home/"))))
+        (expect result :to-equal 'ok)
+        (expect 'magit-worktree-branch :to-have-been-called-with
+                (expand-file-name "source-repo" "/ws/home/")
+                "my-feature" "main")))
+
+    (it "defaults the branch to the sanitized workspace name"
+      (jf/workspace--add-worktree '(:name "Cool Feature!" :home "/ws/home/"))
+      ;; read-string returned its INITIAL (sanitized default) verbatim.
+      (let ((args (spy-calls-args-for 'magit-worktree-branch 0)))
+        (expect (nth 1 args) :to-equal "Cool-Feature!")))
+
+    (it "binds default-directory to the chosen repo for both magit calls"
+      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (expect dd-at-main :to-equal "/repos/source-repo/")
+      (expect dd-at-branch :to-equal "/repos/source-repo/"))
+
+    (it "yields two distinct child worktrees for two different repos"
+      (spy-on 'jf/workspace--worktree-read-repo
+              :and-return-value "/repos/alpha/")
+      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (spy-on 'jf/workspace--worktree-read-repo
+              :and-return-value "/repos/beta/")
+      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (expect (nth 0 (spy-calls-args-for 'magit-worktree-branch 0))
+              :to-equal (expand-file-name "alpha" "/ws/home/"))
+      (expect (nth 0 (spy-calls-args-for 'magit-worktree-branch 1))
+              :to-equal (expand-file-name "beta" "/ws/home/")))
+
+    (it "returns (failed . _) and makes no magit call when the dir exists"
+      (spy-on 'file-exists-p :and-return-value t)
+      (let ((result (jf/workspace--add-worktree
+                     '(:name "feat" :home "/ws/home/"))))
+        (expect (car result) :to-equal 'failed)
+        (expect (cdr result) :to-match "already exists")
+        (expect 'magit-worktree-branch :not :to-have-been-called)))
+
+    (it "returns (failed . _) when the magit worktree call signals"
+      (spy-on 'magit-worktree-branch :and-call-fake
+              (lambda (&rest _) (error "git: fatal worktree failure")))
+      (let ((result (jf/workspace--add-worktree
+                     '(:name "feat" :home "/ws/home/"))))
+        (expect (car result) :to-equal 'failed)
+        (expect (cdr result) :to-match "worktree failure")))))
+
 (provide 'git-worktrees-spec)
