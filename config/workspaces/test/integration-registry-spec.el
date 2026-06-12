@@ -2,11 +2,12 @@
 
 ;; Covers the `workspace-integrations' capability (design.md §Decisions
 ;; 1-4): the ordered-alist registry, `workspace-register-integration'
-;; (register / replace-in-place / order / neither-surface user-error),
-;; the `workspace--integration-payload' constructor (shape +
-;; :sessions-dir derivation + :context passthrough), the
+;; (register / replace-in-place / order / no-surface user-error /
+;; :on-purge surface), the `workspace--integration-payload' constructor
+;; (shape + :sessions-dir derivation + :context passthrough), the
 ;; `workspace--run-one-integration' result protocol + error guard, and
-;; `workspace--dispatch-create-integrations' (in-order, skip no-handler,
+;; `workspace--dispatch-create-integrations' /
+;; `workspace--dispatch-purge-integrations' (in-order, skip no-handler,
 ;; never-signals).
 ;;
 ;; The registry is generic: this spec names NO gptel symbol (the
@@ -49,7 +50,14 @@
         (expect (plist-get (cdr cell) :menu) :to-equal '(?m . some-command))
         (expect (plist-get (cdr cell) :on-create) :to-be nil)))
 
-    (it "signals user-error when neither :on-create nor :menu is given"
+    (it "accepts an :on-purge-only integration"
+      (workspace-register-integration 'p :label "P" :on-purge #'ignore)
+      (let ((cell (assq 'p workspace--integrations)))
+        (expect (plist-get (cdr cell) :on-purge) :to-equal #'ignore)
+        (expect (plist-get (cdr cell) :on-create) :to-be nil)
+        (expect (plist-get (cdr cell) :menu) :to-be nil)))
+
+    (it "signals user-error when none of :on-create, :menu, :on-purge is given"
       (expect (workspace-register-integration 'inert :label "Inert")
               :to-throw 'user-error))
 
@@ -196,6 +204,78 @@
 
     (it "returns nil and never signals with an empty registry"
       (expect (workspace--dispatch-create-integrations "p" "/tmp/p" 'fresh)
+              :to-equal nil)))
+
+  (describe "workspace--dispatch-purge-integrations"
+
+    (it "runs every :on-purge handler once, in registration order"
+      (let ((calls nil))
+        (workspace-register-integration
+         'a :on-purge (lambda (_p) (push 'a calls) 'ok))
+        (workspace-register-integration
+         'b :on-purge (lambda (_p) (push 'b calls) 'ok))
+        (workspace-register-integration
+         'c :on-purge (lambda (_p) (push 'c calls) 'ok))
+        (workspace--dispatch-purge-integrations "proj" "/tmp/proj" 'fresh)
+        (expect (nreverse calls) :to-equal '(a b c))))
+
+    (it "returns the result alist in registration order"
+      (workspace-register-integration 'a :on-purge (lambda (_p) 'ok))
+      (workspace-register-integration 'b :on-purge (lambda (_p) 'skipped))
+      (expect (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+              :to-equal '((a . ok) (b . skipped))))
+
+    (it "skips entries lacking an :on-purge handler"
+      (workspace-register-integration 'create-only :on-create (lambda (_p) 'ok))
+      (workspace-register-integration 'has-purge :on-purge (lambda (_p) 'ok))
+      (let ((results (workspace--dispatch-purge-integrations
+                      "p" "/tmp/p" 'fresh)))
+        (expect (mapcar #'car results) :to-equal '(has-purge))))
+
+    (it "feeds the constructed anchor payload to handlers"
+      (let ((seen nil))
+        (workspace-register-integration
+         'a :on-purge (lambda (p) (setq seen p) 'ok))
+        (workspace--dispatch-purge-integrations "proj" "/tmp/proj" 'fresh)
+        (expect (plist-get seen :name) :to-equal "proj")
+        (expect (plist-get seen :home) :to-equal "/tmp/proj")
+        (expect (plist-get seen :sessions-dir)
+                :to-equal (workspace--sessions-dir "/tmp/proj"))
+        (expect (plist-get seen :context) :to-equal 'fresh)))
+
+    (it "never signals when a handler errors, and surfaces it via message"
+      (workspace-register-integration
+       'boom :on-purge (lambda (_p) (error "explode")))
+      (spy-on 'message)
+      (let (results)
+        (expect (setq results (workspace--dispatch-purge-integrations
+                               "p" "/tmp/p" 'fresh))
+                :not :to-throw)
+        (expect (caar results) :to-equal 'boom)
+        (expect (cadar results) :to-equal 'failed)
+        (expect (cddar results) :to-equal "explode")
+        (expect 'message :to-have-been-called-with
+                "workspace: integration %s purge-teardown failed: %s"
+                'boom "explode")))
+
+    (it "messages each (failed . reason) outcome the handler returns"
+      (workspace-register-integration
+       'f :on-purge (lambda (_p) '(failed . "declined")))
+      (spy-on 'message)
+      (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+      (expect 'message :to-have-been-called-with
+              "workspace: integration %s purge-teardown failed: %s"
+              'f "declined"))
+
+    (it "does not message for ok or skipped outcomes"
+      (workspace-register-integration 'ok-one :on-purge (lambda (_p) 'ok))
+      (workspace-register-integration 'skip-one :on-purge (lambda (_p) 'skipped))
+      (spy-on 'message)
+      (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+      (expect 'message :not :to-have-been-called))
+
+    (it "returns nil and never signals with an empty registry"
+      (expect (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
               :to-equal nil))))
 
 (provide 'integration-registry-spec)
