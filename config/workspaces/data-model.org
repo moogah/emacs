@@ -462,11 +462,12 @@ on the copy."
 * Sessions directory helper
 
 Canonical attachment point for =<HOME>/sessions/= path
-construction.  Multiple call sites (=workspace-sessions-dir=,
-=workspace--scaffold-initial-session=, =workspace-scaffold= stage
-4) all need this exact path; routing through a single helper makes
-the layout vocabulary (subdirectory name) editable in one place
-(cycle 2 architect finding =arch-cycle-20260525-213500-05=).
+construction.  Multiple call sites (=workspace-sessions-dir=, the
+=workspace-scaffold= stage that creates the empty =sessions/=
+directory, and the integration anchor payload's =:sessions-dir=)
+all need this exact path; routing through a single helper makes the
+layout vocabulary (subdirectory name) editable in one place (cycle 2
+architect finding =arch-cycle-20260525-213500-05=).
 
 #+begin_src emacs-lisp
 (defun workspace--sessions-dir (home)
