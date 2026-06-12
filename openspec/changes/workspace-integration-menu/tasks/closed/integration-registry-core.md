@@ -2,7 +2,7 @@
 name: integration-registry-core
 description: New integrations.org — registry, registration fn, anchor payload, result normalizer, and dispatch logic
 change: workspace-integration-menu
-status: ready
+status: done
 relations: []
 ---
 

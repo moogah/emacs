@@ -2,7 +2,7 @@
 name: workspaces-transient-menu
 description: Context-aware workspace-menu transient (three states); promote C-x w to open it; registry-driven Integrations group
 change: workspace-integration-menu
-status: blocked
+status: done
 relations:
   - blocked-by:integration-registry-core
 ---

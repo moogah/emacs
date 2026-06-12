@@ -2,7 +2,7 @@
 name: docs-and-directionality
 description: Update workspaces docs/prose for the menu + integrations + stub removal; confirm the directionality lint still passes
 change: workspace-integration-menu
-status: blocked
+status: done
 relations:
   - blocked-by:wire-create-dispatch
   - blocked-by:workspaces-transient-menu

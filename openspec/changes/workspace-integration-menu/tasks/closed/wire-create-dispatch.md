@@ -2,7 +2,7 @@
 name: wire-create-dispatch
 description: Call integration dispatch from both creation entry points with correct context; delete the broken initial-session stub
 change: workspace-integration-menu
-status: blocked
+status: done
 relations:
   - blocked-by:integration-registry-core
 ---

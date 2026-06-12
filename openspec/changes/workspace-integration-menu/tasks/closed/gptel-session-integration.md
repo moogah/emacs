@@ -2,7 +2,7 @@
 name: gptel-session-integration
 description: gptel consumer — register the gptel-session integration (:on-create scoped session + :menu add-session); load it in gptel.org
 change: workspace-integration-menu
-status: blocked
+status: done
 relations:
   - blocked-by:integration-registry-core
 ---
