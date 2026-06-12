@@ -59,12 +59,17 @@ argument:
 
 =workspace-new NAME= scaffolds a new directory at
 =(expand-file-name NAME workspaces-default-parent-directory)=.  The
-scaffold pipeline runs six stages in order: =make-directory=,
-=git init=, write =home.org= skeleton, =make-directory sessions/=,
-create =sessions/<date>-initial.org=, then =git add . && git commit
--m "Initial workspace"=.  Only after scaffolding succeeds is the
-workspace registered, a tab created, and =workspace-home-builder=
-called.
+scaffold pipeline runs five stages in order: =make-directory=,
+=git init=, write =home.org= skeleton, =make-directory sessions/=
+(created /empty/), then =git add . && git commit -m "Initial
+workspace"=.  =sessions/= is no longer seeded with an eager
+=<date>-initial.org= file; it is populated on demand or at birth by
+registered integrations (see *Integration registry* below — the
+gptel integration's =:on-create= handler writes a real scoped
+session, which lands untracked after the Initial-workspace commit).
+Only after scaffolding succeeds is the workspace registered, a tab
+created, =workspace-home-builder= called, and the integration
+=:on-create= handlers dispatched.
 
 If the target directory already exists, =workspace-new= signals a
 hard =user-error= and tells you to use the prefix-arg form to anchor
@@ -204,28 +209,104 @@ gptel-side code reaches into workspaces behind a =(featurep
 =workspace-sessions-dir= (nil on the three no-route conditions:
 off-workspace, broken workspace, missing =sessions/= dir).
 
+* The =C-x w= menu
+
+=C-x w= opens =workspace-menu=, a single context-aware transient that
+is the front door to every workspace command.  The menu inspects the
+current tab and shows only the groups that apply, so its surface
+changes with context:
+
+- *No current workspace* — only the *Entry* group is shown: =New=
+  (=n=), =Switch= (=s=), =Restore= (=o=).  These are the ways /into/ a
+  workspace; nothing operational applies when you are not in one.
+- *In a healthy workspace* — the full surface: *Entry* plus *Layouts
+  + State* (switch/save layout, recent layout, save/revert workspace),
+  *Manage / Recover* (delete, purge, re-anchor, remove buffer), and a
+  dynamically-populated *Integrations* group (see *Integration
+  registry* below).
+- *In a broken workspace* — recovery only: the *Entry* and *Manage /
+  Recover* groups are shown (the latter offering re-anchor, purge, and
+  delete), while the *Layouts + State* and *Integrations* groups are
+  suppressed.  You cannot operate a workspace whose =:home= is missing;
+  you can only repair or remove it.
+
+=C-x w= now /opens the menu/; the old individual =C-x w <key>= chords
+(=C-x w n=, =C-x w s=, …) are retired.  Every command remains reachable
+through the menu — where the old mnemonics survive as the menu keys —
+and via =M-x=.  Bracketed bindings shown in the *Command reference*
+table below denote the in-menu key, not a standalone global chord.
+
+* Integration registry
+
+External subsystems plug into workspace creation through a small
+registry rather than by being hard-wired into the package.  This keeps
+the dependency direction one-way: workspaces names no integration, and
+each integration reaches in only through the published
+=workspace-register-integration= entry point.
+
+An integration registers itself by calling:
+
+#+begin_src emacs-lisp
+(workspace-register-integration ID
+  :label    "Display name"
+  :on-create #'handler        ; optional — fires at workspace birth
+  :menu      (cons "g" #'cmd)) ; optional — on-demand menu entry
+#+end_src
+
+At least one of =:on-create= or =:menu= must be supplied (a
+registration with neither surface is inert and signals a =user-error=).
+Registration order is significant: both =:on-create= dispatch and
+=Integrations= menu rendering walk the registry in registration order,
+and re-registering an existing ID updates it in place.
+
+- =:on-create= — a non-interactive handler that auto-fires once when a
+  workspace is born (any of the three creation contexts: a fresh
+  scaffold, an anchored-and-scaffolded directory, or an
+  anchored-existing directory).  Workspaces pushes an *anchor payload*
+  — a flat plist of =:name=, =:home=, =:sessions-dir=, and =:context=
+  — to each handler.  The handler reports its result as =ok=,
+  =skipped=, or =(failed . REASON)=.  Failures are *visible but
+  non-fatal*: a =(failed . REASON)= outcome (or a signalled error,
+  which normalizes to one) emits a =*Messages*= notice naming the
+  integration and reason, but *never aborts workspace creation*.
+- =:menu= — an optional =(KEY . COMMAND)= pair contributing an entry to
+  the menu's *Integrations* group, invoked on demand in a healthy
+  workspace.
+
+*gptel-session is the first real client.*  Its =:on-create= handler
+builds a real scoped gptel session under the new workspace's
+=sessions/= directory at birth, and its =:menu= entry =g= ("gptel
+session") adds a further scoped session on demand from the menu.  The
+handler lives under =config/gptel/= and attaches itself via
+=workspace-register-integration=; the workspaces package itself names
+no gptel symbol.
+
 * Command reference
 
-| Binding   | Command                              | What it does                                                 |
-|-----------+--------------------------------------+--------------------------------------------------------------|
-| =C-x w n= | =workspace-new=                      | Scaffold a new workspace; =C-u= to anchor an existing dir    |
-| =C-x w s= | =workspace-switch=                   | Select an existing workspace's tab (refuses broken)          |
-| =C-x w o= | =workspace-restore=                  | Materialize a saved workspace into a tab (refuses broken)    |
-| =C-x w S= | =workspace-save=                     | Capture the current frame into =:saved-state= and flush      |
-| =C-x w r= | =workspace-revert=                   | Discard =:working-state=, restore last =:saved-state=        |
-| =C-x w b= | =workspace-remove-buffer=            | Remove a buffer from the current workspace's membership      |
-| =C-x w l= | =workspace-switch-layout=            | Switch to a named layout in the current workspace            |
-| =C-x w L= | =workspace-save-layout=              | Save current window config as a named layout                 |
-| =C-x w T= | =workspace-switch-to-recent-layout=  | Jump to the workspace's most recently activated layout       |
-| =C-x w R= | =workspace-re-anchor=                | Point a broken workspace at a new =:home=                    |
-| =C-x w D= | =workspace-delete=                   | Unregister a workspace; leave its home directory on disk     |
-| =C-x w P= | =workspace-purge=                    | Unregister AND recursively delete the home directory         |
+Every command is reached from the =C-x w= menu (or by =M-x=).  The
+*Menu key* column is the key pressed /inside/ the menu, not a global
+chord.
+
+| Menu key | Command                              | What it does                                                 |
+|----------+--------------------------------------+--------------------------------------------------------------|
+| =n=      | =workspace-new=                      | Scaffold a new workspace; =C-u= to anchor an existing dir    |
+| =s=      | =workspace-switch=                   | Select an existing workspace's tab (refuses broken)          |
+| =o=      | =workspace-restore=                  | Materialize a saved workspace into a tab (refuses broken)    |
+| =S=      | =workspace-save=                     | Capture the current frame into =:saved-state= and flush      |
+| =r=      | =workspace-revert=                   | Discard =:working-state=, restore last =:saved-state=        |
+| =b=      | =workspace-remove-buffer=            | Remove a buffer from the current workspace's membership      |
+| =l=      | =workspace-switch-layout=            | Switch to a named layout in the current workspace            |
+| =L=      | =workspace-save-layout=              | Save current window config as a named layout                 |
+| =T=      | =workspace-switch-to-recent-layout=  | Jump to the workspace's most recently activated layout       |
+| =R=      | =workspace-re-anchor=                | Point a broken workspace at a new =:home=                    |
+| =D=      | =workspace-delete=                   | Unregister a workspace; leave its home directory on disk     |
+| =P=      | =workspace-purge=                    | Unregister AND recursively delete the home directory         |
 
 The layout-scoped delete command (=workspace-delete-layout=, formerly
-on =C-x w D=) is still available via =M-x= but no longer holds a
-prefix binding — =D= now flags the destructive workspace-level
-delete.  The recent-layout pointer was moved from =R= to =T= so =R=
-could host the broken-state recovery command (mnemonic: re-anchor).
+on the =D= chord) is still available via =M-x= but holds no menu key
+— =D= now flags the destructive workspace-level delete.  The
+recent-layout pointer was moved from =R= to =T= so =R= could host the
+broken-state recovery command (mnemonic: re-anchor).
 
 * Customization
 
@@ -535,8 +616,6 @@ These are designed-for but not implemented in v2.
 - Per-layout-group git observations.  The layout shape carries an
   open-ended =:etc= alist intended to host them, but no producer or
   consumer exists yet.
-- A transient UI for layout / workspace operations.  Today's surface
-  is a single =C-x w= prefix.
 - Restoring an explicit "selected tab at save time" — restoration
   preserves the user's current tab rather than jumping to the
   previously-selected workspace.

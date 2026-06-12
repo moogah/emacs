@@ -51,3 +51,41 @@ gptel; this task confirms the new files honor it.
 ## Context
 design.md § Decision 6 and § Risks; spec `workspace-integrations` (Registry is
 the published boundary); proposal § Impact.
+
+## Observations
+
+- README.org is documentation prose-only: its header carries no `:tangle`
+  property and no `#+auto_tangle`, so no tangle step was required (confirmed by
+  reading the header).
+- data-model.org edit was confined to PROSE outside the babel block
+  (the "Sessions directory helper" descriptive paragraph, above the
+  `#+begin_src`). `git diff config/workspaces/data-model.el` is empty —
+  the generated `.el` is unaffected, so no tangle/commit of the `.el` was
+  needed.
+- Directionality lint already globs: the test at
+  `config/workspaces/test/gptel-integration-spec.el` uses
+  `directory-files-recursively` over `config/workspaces/` (filtering out
+  `/test/`), so it ALREADY covers the new `integrations.el` and
+  `workspaces-transient.el` without enumerating files. No test edit was
+  needed; left unchanged.
+- README inline mnemonic references (e.g. `(=C-x w S=)`) in the body prose
+  were left as-is. The new "The =C-x w= menu" section explicitly states the
+  individual chords are retired and that the old mnemonics survive as the
+  in-menu keys; the Command-reference table was relabelled from "Binding"
+  (=C-x w n=) to "Menu key" (=n=) so the table no longer asserts a stale
+  global chord. Rewriting every inline `(=C-x w X=)` was out of scope for a
+  docs-touch task and risked churn; the menu section frames them correctly.
+- The single remaining `initial.org` grep hit (README:66) is an intentional
+  past-tense note ("`sessions/` is no longer seeded with an eager
+  `<date>-initial.org` file"), describing the removed artifact — permitted by
+  the task ("only an intentional historical note clearly marked as
+  past-tense/removed").
+- All `gptel-sessions-` matches under `config/workspaces/**/*.el` are in test
+  comments only (the lint itself + scaffold-spec comment); zero symbol
+  references in production source.
+- Test suite green at 283 specs / 0 failed (baseline parity), the
+  directionality lint among them.
+
+## Discoveries
+
+None
