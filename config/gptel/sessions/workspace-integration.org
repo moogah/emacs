@@ -1,0 +1,155 @@
+#+title: gptel Session Workspace Integration
+#+property: header-args:emacs-lisp :tangle workspace-integration.el
+#+auto_tangle: y
+
+* Overview
+
+This module makes gptel the first real consumer of the workspace
+integration registry (=config/workspaces/integrations.el=). It is the
+gptel-side attachment point: it MAY name gptel symbols and call into
+=workspace-register-integration=, but workspaces never depends on gptel
+(directionality contract; design Decision 6,
+=register/boundary/gptel-sessions-workspace-consult=).
+
+Two surfaces are registered for the =gptel-session= integration:
+
+- =:on-create= — a non-interactive handler run at workspace birth.
+  Using defaults only (never prompts), it builds ONE real scoped gptel
+  session whose =project-root= is the workspace =:home=, so the session
+  is scoped to the workspace from birth. Adopted workspaces
+  (=:context= = =anchored-existing=) and a nil initial preset both
+  skip — we never inject artifacts into a workspace the user already
+  owned.
+
+- =:menu= — an on-demand handler invoked from the workspace integration
+  transient. It prompts for BOTH a session name and a preset, then
+  files a scoped session under the workspace's =:sessions-dir=.
+
+Registration is wrapped in =with-eval-after-load 'workspaces= so gptel
+still works when workspaces is absent, and registration happens
+whenever both are present regardless of load order.
+
+* Header Block
+
+#+begin_src emacs-lisp :comments no
+;;; workspace-integration.el --- gptel session workspace integration -*- lexical-binding: t; -*-
+#+end_src
+
+* Requires
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+(require 'gptel-session-filesystem)
+(require 'gptel-session-commands)
+#+end_src
+
+* Birth-time Preset Customization
+
+The session auto-created at workspace birth uses this preset. Set to
+nil to disable the birth-time session entirely (the =:on-create=
+handler then returns ='skipped=).
+
+#+begin_src emacs-lisp
+(defcustom jf/gptel-workspace-initial-preset 'executor
+  "Preset for the session auto-created at workspace birth; nil disables it."
+  :type '(choice (const :tag "No auto-session" nil) symbol)
+  :group 'gptel)
+#+end_src
+
+* On-create Handler
+
+Non-interactive (defaults only — MUST NOT prompt). Run once per new
+workspace via =workspace--dispatch-create-integrations=. Builds a real
+scoped session with =project-root = :home=.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--workspace-on-create (payload)
+  "Build a scoped gptel session at workspace birth from PAYLOAD.
+PAYLOAD is the anchor plist (`:name' `:home' `:sessions-dir'
+`:context').  Returns `skipped' for an adopted workspace
+\(`:context' = `anchored-existing') or when
+`jf/gptel-workspace-initial-preset' is nil; otherwise builds one
+real session scoped to the workspace home via
+`jf/gptel--create-session-core' (project-root = home) and returns
+`ok'.  Non-interactive: defaults only, never prompts."
+  (pcase (plist-get payload :context)
+    ('anchored-existing 'skipped)         ; never inject into an adopted workspace
+    (_ (if (null jf/gptel-workspace-initial-preset)
+           'skipped
+         (let* ((home (plist-get payload :home))
+                (sdir (plist-get payload :sessions-dir))
+                (id   (jf/gptel--generate-session-id
+                       (or (plist-get payload :name) "initial")))
+                (sd   (expand-file-name id sdir)))
+           (jf/gptel--create-session-core
+            id sd jf/gptel-workspace-initial-preset nil nil home nil) ; project-root=home → scoped
+           'ok)))))
+#+end_src
+
+* Preset Completion Helper
+
+Mirrors the preset =completing-read= used by the interactive session
+commands (=jf/gptel-persistent-session=): the candidate set is
+=(mapcar #'car gptel--known-presets)=, annotated with each preset's
+=:description=.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--workspace-read-preset ()
+  "Prompt for a registered preset, returning its symbol.
+Candidates and annotation mirror the interactive session command."
+  (let* ((presets (mapcar #'car gptel--known-presets))
+         (annotator (lambda (name)
+                      (let* ((preset (gptel-get-preset (intern name)))
+                             (desc (plist-get preset :description)))
+                        (when desc (format "  -- %s" desc)))))
+         (completion-extra-properties
+          (list :annotation-function annotator)))
+    (intern (completing-read "Select preset: "
+                             (mapcar #'symbol-name presets)
+                             nil t))))
+#+end_src
+
+* Menu Handler
+
+On-demand (prompts for BOTH name and preset). Invoked from the
+workspace integration transient. Files a scoped session under the
+workspace's =:sessions-dir= with =project-root = :home=.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--workspace-add-session (payload)
+  "Create a gptel session in the current workspace from PAYLOAD.
+Prompts for a session name (`read-string') and a preset
+\(`completing-read' over `gptel--known-presets'), then builds a
+scoped session under the workspace's `:sessions-dir' with
+project-root = `:home' via `jf/gptel--create-session-core'.
+Returns `ok'."
+  (let* ((name  (read-string "Session name: "))
+         (preset (jf/gptel--workspace-read-preset))
+         (home  (plist-get payload :home))
+         (sdir  (plist-get payload :sessions-dir))
+         (id    (jf/gptel--generate-session-id
+                 (if (string-empty-p name) "session" name)))
+         (sd    (expand-file-name id sdir)))
+    (jf/gptel--create-session-core
+     id sd preset nil nil home nil)       ; project-root=home → scoped
+    'ok))
+#+end_src
+
+* Registration
+
+Load-order-independent via =with-eval-after-load 'workspaces=. gptel
+attaches to the workspaces registry; workspaces never names gptel.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'workspaces
+  (workspace-register-integration 'gptel-session
+    :label "gptel session"
+    :on-create #'jf/gptel--workspace-on-create
+    :menu (cons "g" #'jf/gptel--workspace-add-session)))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'jf-gptel-workspace-integration)
+#+end_src

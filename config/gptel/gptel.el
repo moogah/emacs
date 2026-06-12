@@ -194,6 +194,13 @@ Run this after preset registration to inject skill content into presets."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
+;; Load workspace integration (gptel-side consumer of the workspace
+;; integration registry; depends on `jf/gptel--create-session-core' /
+;; `jf/gptel--generate-session-id' from commands.el / filesystem.el).
+;; Registration is wrapped in `with-eval-after-load 'workspaces' so it
+;; is load-order-independent and inert when workspaces is absent.
+(jf/load-module (expand-file-name "config/gptel/sessions/workspace-integration.el" jf/emacs-dir))
+
 ;; Load PersistentAgent tool (requires session modules + commands to be loaded first;
 ;; depends on `jf/gptel--create-session-core' from sessions/commands.el)
 (jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
