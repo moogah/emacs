@@ -97,6 +97,83 @@ error."
             'ok)
         (error (cons 'failed (error-message-string err)))))))
 
+(defun jf/workspace--worktree-children (home)
+  "Return a list of linked-worktree descriptors under HOME.
+Scans the immediate child directories of HOME and keeps those whose
+`.git' entry is a FILE (a linked worktree's gitfile), not a directory.
+For each, binds `default-directory' into the child and calls
+`magit-list-worktrees' to resolve the source repo's worktree list,
+whose FIRST element is the source repo's primary worktree.  Returns a
+list of plists (:dir CHILD :branch BRANCH :source SOURCE-REPO), where
+BRANCH is the child worktree's branch and SOURCE-REPO is the source
+repo's primary worktree directory.  Children that do not resolve are
+skipped."
+  (let ((acc '()))
+    (when (and home (file-directory-p home))
+      (dolist (child (directory-files home t directory-files-no-dot-files-regexp))
+        (when (and (file-directory-p child)
+                   (file-regular-p (expand-file-name ".git" child)))
+          (let* ((default-directory (file-name-as-directory child))
+                 (worktrees (magit-list-worktrees))
+                 (source (car (car worktrees)))
+                 (self (seq-find
+                        (lambda (wt)
+                          (file-equal-p (car wt) child))
+                        worktrees))
+                 (branch (and self (nth 2 self))))
+            (when source
+              (push (list :dir child :branch branch :source source) acc))))))
+    (nreverse acc)))
+
+(defun jf/workspace--worktree-on-purge (payload)
+  "Tear down git worktrees living under PAYLOAD's `:home' before purge.
+PAYLOAD is the workspace-integration anchor plist; this reads `:home'
+\(the container whose child worktrees are removed)
+\(register/shape/workspace-integration-anchor-payload).  Runs BEFORE
+the purge deletes `:home', so the worktrees still exist on disk.
+
+Enumerates the linked worktrees under `:home' via
+`jf/workspace--worktree-children'.  For each, binds `default-directory'
+into that worktree's SOURCE repo and calls `magit-worktree-delete' to
+remove it, wrapped in `condition-case'.  If a removal signals (e.g. a
+dirty tree magit refuses), its path is accumulated into a failure
+reason and the remaining worktrees are still processed — never aborts.
+
+After a successful removal, offers GUARDED branch deletion: only when
+`magit-branch-merged-p' reports the branch merged into the source
+repo's main branch is `magit-branch-delete' called, WITHOUT force.
+Unmerged branches are kept and never force-deleted.
+
+Returns `skipped' when there are NO worktrees under `:home', `ok' when
+every worktree was removed cleanly, or (failed . REASON) naming the
+worktree(s) that could not be removed
+\(register/vocabulary/workspace-integration-outcome)."
+  (let ((children (jf/workspace--worktree-children (plist-get payload :home))))
+    (if (null children)
+        'skipped
+      (let ((failures '()))
+        (dolist (wt children)
+          (let ((dir (plist-get wt :dir))
+                (branch (plist-get wt :branch))
+                (source (plist-get wt :source)))
+            (condition-case err
+                (progn
+                  (let ((default-directory source))
+                    (magit-worktree-delete dir))
+                  (when branch
+                    (let* ((default-directory source)
+                           (main (magit-main-branch)))
+                      (when (and main
+                                 (magit-branch-merged-p branch main))
+                        (magit-branch-delete (list branch))))))
+              (error (push (format "%s (%s)" dir (error-message-string err))
+                           failures)))))
+        (if failures
+            (cons 'failed
+                  (concat "could not remove worktree(s): "
+                          (mapconcat #'identity (nreverse failures) "; ")))
+          'ok)))))
+
 (with-eval-after-load 'workspaces
   (with-eval-after-load 'magit
     (workspace-register-integration 'git-worktree
