@@ -4125,8 +4125,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/workspace-integration-registry
    tier: boundary
-   status: confirmed
+   status: reconciled
    status_note: |
+     cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
+     RECONCILED — the registration contract grew from TWO surfaces to
+     THREE. Tasks =registry-on-purge-surface= and =purge-teardown-dispatch=
+     added the =:on-purge= teardown surface, generalised
+     =workspace--run-one-integration= with an optional surface key, and
+     added a sibling =workspace--dispatch-purge-integrations= fired from
+     =workspace-purge= before =delete-directory=. The git-worktree module
+     (the named-but-deferred second client) is now a REAL consumer,
+     attaching =:menu= + =:on-purge=. why_tests_missed: the registration
+     shape below was hand-maintained prose ("at least one of
+     :on-create/:menu"); the surface growth is intended and fully covered
+     by new specs (on-purge-only registration, none-of-three user-error,
+     purge dispatch order/skip/non-fatal), so only the doc contract lagged.
+     Reconciliation note:
+     =.orchestrator/cycles/cycle-20260612-164043/reconciliations/boundary-workspace-integration-registry.md=.
+
      cycle-20260612-143558 (workspace-integration-menu) integrate:
      created as CONFIRMED (not speculated). This change's plan artifacts
      pre-dated orchestrator forward-mode, so the entry is recorded
@@ -4150,12 +4166,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      are pinned so they cannot drift:
 
      1. =REGISTRATION SHAPE=: an integration is registered by
-        =(workspace-register-integration ID &key LABEL ON-CREATE MENU)=.
-        At least one of =:on-create= / =:menu= is required (else
-        =user-error=). Re-registering an ID replaces in place, preserving
-        order. The registry =workspace--integrations= is an ORDERED ALIST
+        =(workspace-register-integration ID &key LABEL ON-CREATE MENU ON-PURGE)=.
+        At least one of =:on-create= / =:menu= / =:on-purge= is required
+        (else =user-error=: "%s has none of :on-create, :menu, :on-purge").
+        Re-registering an ID replaces in place, preserving order. The
+        registry =workspace--integrations= is an ORDERED ALIST
         =((ID . PLIST) ...)= — dispatch order and menu order follow
-        registration order (NOT a hash table).
+        registration order (NOT a hash table). THREE surfaces:
+        =:on-create= (non-interactive, at birth), =:menu= ((KEY . COMMAND),
+        interactive, on-demand), =:on-purge= (non-interactive, at teardown).
      2. =PUSH, NOT CONSULT=: workspaces hands each handler an anchor
         payload (=register/shape/workspace-integration-anchor-payload=);
         handlers never reach for "the current workspace". This keeps the
@@ -4175,18 +4194,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         all three birth contexts. It is NOT a scaffold stage — see the
         cycle-6 reconciliation of =register/boundary/workspace-scaffold-pipeline=
         (the deleted stage 5).
+     5. =TEARDOWN DISPATCH (cycle-7)=: =workspace--dispatch-purge-integrations
+        NAME HOME CONTEXT= is the purge mirror of create-dispatch — same
+        payload constructor, same generalised runner
+        (=workspace--run-one-integration ENTRY PAYLOAD &optional SURFACE-KEY=,
+        SURFACE-KEY defaulting to =:on-create=, passed =:on-purge= here),
+        same additive/never-signals contract. It fires from =workspace-purge=
+        ONLY (never =workspace-delete=), AFTER confirmation, inside the
+        home-exists guard, immediately BEFORE the recursive =delete-directory=
+        of =:home=, so consumers can clean resources anchored under =:home=
+        (git worktrees) while the dir still exists. Its result alist never
+        gates whether the purge proceeds.
 
    producer_side:
      file: config/workspaces/integrations.org
      functions:
-       - workspace-register-integration   # (id &key label on-create menu) -> id
+       - workspace-register-integration   # (id &key label on-create menu on-purge) -> id
        - workspace--integration-payload    # (name home context) -> payload plist
-       - workspace--run-one-integration    # (entry payload) -> (id . outcome)
+       - workspace--run-one-integration    # (entry payload &optional surface-key) -> (id . outcome); surface-key defaults :on-create
        - workspace--dispatch-create-integrations  # (name home context) -> result alist, never signals
+       - workspace--dispatch-purge-integrations   # (name home context) -> result alist, never signals; runs :on-purge in registration order
      storage: "workspace--integrations  (ordered alist (ID . PLIST))"
      contract: |
-       Registration is pure data manipulation. Dispatch NEVER signals.
-       Handlers without :on-create are skipped by creation-dispatch.
+       Registration is pure data manipulation. Both dispatchers NEVER signal.
+       Handlers without :on-create are skipped by creation-dispatch; handlers
+       without :on-purge are skipped by purge-dispatch. ONE normaliser
+       (workspace--run-one-integration) serves every surface via SURFACE-KEY.
        :menu is a (KEY . COMMAND) cons consumed by the transient.
 
    consumer_side:
@@ -4194,9 +4227,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        function: jf/gptel--workspace-on-create / jf/gptel--workspace-add-session
        attaches_via: "(with-eval-after-load 'workspaces (workspace-register-integration 'gptel-session ...))"
        note: |
-         First real client. Load-order-independent registration. The ONLY
-         in-tree consumer this cycle; git-worktree is the named-but-deferred
-         second client that will pressure-test the registry's genericity.
+         First real client (cycle-2/6). Load-order-independent registration.
+     - file: config/workspaces/git-worktrees.org
+       function: jf/workspace--add-worktree (:menu) / jf/workspace--worktree-on-purge (:on-purge)
+       attaches_via: "(with-eval-after-load 'workspaces (with-eval-after-load 'magit (workspace-register-integration 'git-worktree :menu (cons \"w\" ...) :on-purge ...)))"
+       note: |
+         SECOND real client (cycle-7). DOUBLE-gated (workspaces + magit), so
+         absent magit ⇒ no registration (not an error). The first consumer to
+         exercise =:on-purge=; pressure-tested the registry's genericity and
+         it held. See =register/boundary/workspace-git-worktrees-consumer=.
      - file: config/workspaces/workspaces-transient.org
        function: workspace-menu (Integrations group via :setup-children)
        reads: "workspace--integrations entries that carry a :menu"
@@ -4219,14 +4258,112 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/vocabulary/workspace-integration-outcome
      - register/boundary/gptel-sessions-workspace-consult
      - register/boundary/workspace-scaffold-pipeline
+     - register/boundary/workspace-git-worktrees-consumer
      - register/invariant/workspaces-transient-deferred-require
+     - register/invariant/git-worktree-default-directory-binding
 
    cited_by_tasks:
      - integration-registry-core
      - wire-create-dispatch
      - workspaces-transient-menu
      - gptel-session-integration
+     - registry-on-purge-surface     # cycle-7: added :on-purge surface
+     - purge-teardown-dispatch        # cycle-7: wired purge dispatch
+     - git-worktrees-module-scaffold  # cycle-7: second consumer
+     - birth-transient-offer          # cycle-7
+     - verify-change                  # cycle-7
    discovered_from: workspace-integration-menu
+   discovered_by: architect
+   #+end_src
+
+** workspace-git-worktrees-consumer
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-workspace-git-worktrees-consumer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/workspace-git-worktrees-consumer
+   tier: boundary
+   status: confirmed
+   status_note: |
+     cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
+     created CONFIRMED from the merged, clean-reviewed shapes in
+     =config/workspaces/git-worktrees.el= (tasks
+     =git-worktrees-module-scaffold=, =add-worktree-command=,
+     =on-purge-teardown-handler=). The SECOND consumer of the integration
+     registry (after gptel-session), and the first to use =:on-purge=.
+   load_bearing: true
+   title: git-worktrees module — droppable registry consumer (worktrees inside a workspace home)
+   purpose: |
+     The first-party but DROPPABLE module that makes git worktrees a
+     first-class part of the workspace lifecycle, attaching to the
+     workspace integration registry from its own side. Pins:
+
+     1. =DOUBLE-GATED ATTACHMENT=: registration is the SOLE coupling and
+        is nested inside
+        =(with-eval-after-load 'workspaces (with-eval-after-load 'magit ...))=.
+        Absent magit ⇒ no =git-worktree= integration registered (NOT an
+        error). Removing the single =jf/load-module= line for
+        =config/workspaces/git-worktrees.el= in =workspaces.org= leaves
+        workspaces fully functional.
+     2. =MAGIT IS THE GIT BACKEND=: all git operations go through magit
+        plumbing — =magit-worktree-branch= (create on new branch),
+        =magit-worktree-delete= (remove), =magit-list-worktrees= (enumerate
+        + resolve source repo), =magit-main-branch= (main detection),
+        =magit-branch-merged-p= + =magit-branch-delete= (GUARDED, merged-only,
+        never force). Every magit call is bound to the right repo via
+        =register/invariant/git-worktree-default-directory-binding=.
+     3. =SOFT REPO-SOURCE SELECTION=: =jf/workspace--worktree-repo-candidates=
+        consumes only candidate LISTS from =projectile-known-projects=,
+        =(magit-list-repos)=, =project-known-project-roots= — each guarded
+        by =featurep=/=boundp=/=fboundp=, never their workflows — de-duped on
+        expanded absolute paths, filtered to real git repos, with a
+        =read-directory-name= floor (=jf/workspace--worktree-read-repo=) so
+        none is required.
+     4. =NO PERSISTED GIT STATE=: repo/branch/worktree-set are DERIVED on
+        demand from disk + git; the workspace plist gains no =:repo=/=:branch=
+        slot (the closed serialize allow-list cannot leak them).
+     5. =RESULT PROTOCOL=: the =:menu= command (=jf/workspace--add-worktree=)
+        and =:on-purge= handler (=jf/workspace--worktree-on-purge=) return
+        the registry vocabulary =ok= / =skipped= / =(failed . REASON)=
+        (=register/vocabulary/workspace-integration-outcome=); teardown
+        continues past a dirty worktree (records it, never aborts the purge).
+
+   producer_side:
+     file: config/workspaces/git-worktrees.org
+     functions:
+       - jf/workspace--worktree-repo-candidates  # () -> list of expanded git-repo dirs; pure, no prompt
+       - jf/workspace--worktree-read-repo         # () -> one repo dir; the SOLE prompting fn (floor included)
+       - jf/workspace--add-worktree               # (payload) -> ok|(failed . reason); :menu surface
+       - jf/workspace--worktree-on-purge          # (payload) -> ok|skipped|(failed . reason); :on-purge surface
+       - jf/workspace--worktree-children          # (home) -> list of (:dir :branch :source) for child worktrees
+     attaches_via: "(with-eval-after-load 'workspaces (with-eval-after-load 'magit (workspace-register-integration 'git-worktree :label \"git worktree\" :menu (cons \"w\" #'jf/workspace--add-worktree) :on-purge #'jf/workspace--worktree-on-purge)))"
+
+   directionality:
+     permitted: |
+       This module (the CONSUMER side) MAY name magit and git symbols
+       freely. It attaches via =workspace-register-integration=, exactly
+       as gptel does — the PERMITTED direction of
+       =register/boundary/gptel-sessions-workspace-consult=.
+     forbidden: |
+       Workspaces CORE (=data-model=/=integrations=/=workspaces=/=tabs=/
+       =workspaces-transient= .el) MUST NOT name magit/git symbols. Verified
+       cycle-7 by =verify-change=: the only core hit is the loader path
+       STRING "git-worktrees.el", not a live symbol.
+
+   related_entries:
+     - register/boundary/workspace-integration-registry
+     - register/boundary/gptel-sessions-workspace-consult
+     - register/shape/workspace-integration-anchor-payload
+     - register/vocabulary/workspace-integration-outcome
+     - register/invariant/workspaces-transient-deferred-require
+     - register/invariant/git-worktree-default-directory-binding
+
+   cited_by_tasks:
+     - git-worktrees-module-scaffold
+     - add-worktree-command
+     - on-purge-teardown-handler
+   discovered_from: add-workspace-git-worktrees
    discovered_by: architect
    #+end_src
 
@@ -6348,6 +6485,54 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    cited_by_tasks:
      - workspaces-transient-menu
    discovered_from: workspace-integration-menu
+   discovered_by: implementor
+   discovered_class: load-order-hazard
+   #+end_src
+
+** git-worktree-default-directory-binding
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-git-worktree-default-directory-binding
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/git-worktree-default-directory-binding
+   tier: invariant
+   status: confirmed
+   load_bearing: true
+   title: every magit worktree/branch call is bound to its target repo via default-directory
+   statement: |
+     In =config/workspaces/git-worktrees.org=, EVERY =magit-*= call that
+     operates on a specific repository or worktree MUST be wrapped in an
+     explicit =(let ((default-directory REPO-OR-WORKTREE)) ...)=. magit
+     functions act on =default-directory=; an unbound or wrong binding
+     silently operates on the WRONG repo (the orchestrator's repo, or
+     whatever the current buffer points at).
+   why_it_matters: |
+     The module manages worktrees across N independently-rooted source
+     repos in one workspace. =magit-main-branch=, =magit-worktree-branch=,
+     =magit-worktree-delete=, =magit-branch-merged-p=, =magit-branch-delete=
+     and the =magit-list-worktrees= enumeration each need a precise root:
+     creation/branch ops bind to the SOURCE repo; enumeration binds INTO
+     the child worktree. A wrong binding could create a branch in, or
+     delete a worktree from, an unintended repository — a destructive,
+     hard-to-debug class of bug.
+   enforcement_mechanism: test
+   enforcement_detail: |
+     Behavioral buttercup specs in =config/workspaces/test/git-worktrees-spec.el=
+     spy each magit fn and capture =default-directory= at call time,
+     asserting it equals the chosen repo (add-worktree) / each worktree's
+     source repo (on-purge teardown). cycle-7: confirmed by tasks
+     =add-worktree-command= and =on-purge-teardown-handler= (both with
+     call-time default-directory-capture assertions).
+   applies_to:
+     - config/workspaces/git-worktrees.org
+   related_entries:
+     - register/boundary/workspace-git-worktrees-consumer
+     - register/boundary/workspace-integration-registry
+   cited_by_tasks:
+     - add-worktree-command
+     - on-purge-teardown-handler
+   discovered_from: add-workspace-git-worktrees
    discovered_by: implementor
    discovered_class: load-order-hazard
    #+end_src
