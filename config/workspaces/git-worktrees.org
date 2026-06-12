@@ -1,0 +1,137 @@
+#+title: Workspaces — Git Worktrees Integration
+#+property: header-args:emacs-lisp :tangle git-worktrees.el
+#+auto_tangle: y
+
+* Overview
+
+This module makes git worktrees the *second* real consumer of the
+workspace integration registry (=config/workspaces/integrations.el=),
+after gptel-sessions (=config/gptel/sessions/workspace-integration.org=).
+It is the consumer side of the boundary: it MAY name magit symbols and
+calls into =workspace-register-integration=, but the workspaces core
+never depends on magit or git (directionality contract,
+=register/boundary/gptel-sessions-workspace-consult=).
+
+The module hard-depends on magit for the actual worktree operations
+(implemented in dependent tasks), but registration happens *only* under
+=with-eval-after-load 'magit= — so the module stays honestly droppable:
+absent magit means no integration, not an error
+(=register/invariant/workspaces-transient-deferred-require=).  Magit is
+never required at top level; that would be a load-order hazard against a
+straight-overridden package.
+
+** Repo-source seam
+
+=jf/workspace--worktree-repo-candidates= is the "leverage where
+valuable, without a hard dependency" seam (design.md D1, D2).  It
+consumes only candidate *lists* from projectile / magit / project.el —
+never their workflows — and each source is guarded by
+=boundp=/=fboundp=/=featurep=, so none is required.  A
+=read-directory-name= floor (in =jf/workspace--worktree-read-repo=)
+guarantees a repo in *no* list is still reachable, which is why no
+source is a hard dependency.
+
+* Header Block
+
+#+begin_src emacs-lisp :comments no
+;;; git-worktrees.el --- Git worktree workspace integration -*- lexical-binding: t; -*-
+#+end_src
+
+* Requires
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+* Repo-candidate Helper
+
+Collects repository roots from any of the (optionally present) project
+sources, merges and de-dupes them on *expanded absolute* paths, then
+keeps only those that are actual git repositories.  Pure and
+list-returning — it never prompts, so it is directly unit-testable.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-repo-candidates ()
+  "Return a de-duped list of git-repo roots from available project sources.
+Collects candidate directories from `projectile-known-projects'
+\(when projectile is loaded), `(magit-list-repos)' (when magit is
+loaded), and `project-known-project-roots' (when project.el is
+available).  Each source is guarded so none is required.  Paths are
+expanded to absolute form and de-duped with `delete-dups', then
+filtered to directories that are actual git repositories (via
+`locate-dominating-file' on \".git\", or `magit-toplevel' when magit
+is loaded).  Returns the surviving list; does not prompt."
+  (let ((raw '()))
+    (when (and (featurep 'projectile)
+               (boundp 'projectile-known-projects))
+      (setq raw (append raw projectile-known-projects)))
+    (when (and (featurep 'magit) (fboundp 'magit-list-repos))
+      (setq raw (append raw (magit-list-repos))))
+    (when (fboundp 'project-known-project-roots)
+      (setq raw (append raw (project-known-project-roots))))
+    (let ((expanded (delete-dups
+                     (mapcar (lambda (d) (expand-file-name d))
+                             (delq nil raw)))))
+      (seq-filter #'jf/workspace--worktree-git-repo-p expanded))))
+#+end_src
+
+A small predicate isolates the "is this an actual git repo?" test so it
+can be reasoned about (and spied) on its own.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-git-repo-p (dir)
+  "Return non-nil when DIR is the root (or inside) a git repository.
+Prefers `magit-toplevel' when magit is loaded; otherwise falls back to
+`locate-dominating-file' looking for a \".git\" entry."
+  (or (and (featurep 'magit) (fboundp 'magit-toplevel)
+           (magit-toplevel dir))
+      (locate-dominating-file dir ".git")))
+#+end_src
+
+* Repo-read Helper
+
+The ONLY place that prompts.  Offers the candidate list via
+=completing-read= but always allows a free-form entry; if the user
+declines the candidates entirely, a =read-directory-name= floor still
+reaches any repo on disk.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-read-repo ()
+  "Prompt for a source git repository, returning an absolute directory.
+Offers `jf/workspace--worktree-repo-candidates' via `completing-read'
+with `require-match' nil, so a free-form path is always accepted.  If
+the entered path is not an existing directory, falls back to a
+`read-directory-name' floor — guaranteeing a repo present in no project
+source is still reachable.  Returns the chosen directory, expanded."
+  (let* ((cands (jf/workspace--worktree-repo-candidates))
+         (choice (completing-read "Source git repo: " cands nil nil)))
+    (if (and choice (file-directory-p (expand-file-name choice)))
+        (expand-file-name choice)
+      (expand-file-name (read-directory-name "Source git repo: ")))))
+#+end_src
+
+* Registration
+
+Gated so ABSENT MAGIT = NO integration (not an error).  Registration is
+wrapped in =with-eval-after-load 'workspaces= (load-order-independent
+attachment to the registry) and =with-eval-after-load 'magit= (the
+deferred-require invariant for the straight-overridden magit package).
+
+The =:menu= and =:on-purge= handler symbols are implemented in dependent
+tasks; the forward =#'symbol= references are fine because registration
+only *stores* the symbol — it never calls it here.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'workspaces
+  (with-eval-after-load 'magit
+    (workspace-register-integration 'git-worktree
+      :label "git worktree"
+      :menu (cons "w" #'jf/workspace--add-worktree)
+      :on-purge #'jf/workspace--worktree-on-purge)))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspace-git-worktrees)
+#+end_src

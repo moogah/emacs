@@ -122,6 +122,10 @@ layout= from =layouts=) exist at definition time.
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/integrations.el"      jf/emacs-dir))
+;; Consumer of the integration registry (must load after integrations.el).
+;; Droppable: registration is gated behind `with-eval-after-load 'magit',
+;; so removing this one line leaves workspaces fully functional.
+(jf/load-module (expand-file-name "config/workspaces/git-worktrees.el"     jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/home-org.el"          jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/scaffold.el"          jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/tabs.el"              jf/emacs-dir))
