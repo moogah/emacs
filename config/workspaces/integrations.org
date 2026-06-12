@@ -12,13 +12,18 @@ publishes a stable extension surface; consumers (e.g. a gptel-sessions
 attachment) register against it from their own side.  This module names
 *no* consumer symbol — the registry is entirely generic.
 
-Two extension surfaces exist per integration:
+Three extension surfaces exist per integration:
 
 - =:on-create= — a handler invoked once per workspace creation, given a
   flat *anchor payload* plist.  Returns one of =ok= / =skipped= /
   =(failed . REASON)=.
 - =:menu= — a =(KEY . COMMAND)= pair consumed by the (later) transient
   menu task.  Stored here as opaque data; this module does not act on it.
+- =:on-purge= — a handler invoked once per workspace purge (teardown),
+  given the same flat *anchor payload* plist.  Returns one of =ok= /
+  =skipped= / =(failed . REASON)=.  Teardown is a generic lifecycle
+  event, so it lives as a registry surface rather than ad-hoc advice
+  from any one consumer.
 
 Design references: design.md §Decisions 1–4; spec =workspace-integrations=.
 
@@ -46,7 +51,8 @@ existing position (Decision 1).
 (defvar workspace--integrations nil
   "Alist of (ID . PLIST) registered workspace integrations, in order.
 ID is a symbol.  PLIST may carry `:label' (string), `:on-create'
-\(payload -> ok|skipped|(failed . reason)) and `:menu' ((KEY . COMMAND)).
+\(payload -> ok|skipped|(failed . reason)), `:menu' ((KEY . COMMAND)),
+and `:on-purge' (payload -> ok|skipped|(failed . reason)).
 Insertion order is significant: dispatch and menu rendering both
 follow it, and re-registering an existing ID updates in place.")
 #+end_src
@@ -55,28 +61,30 @@ follow it, and re-registering an existing ID updates in place.")
 
 A =cl-defun= (not a macro) so the registry stays pure data and tests can
 register fakes with keyword args.  Requires at least one extension
-surface (=:on-create= or =:menu=); re-registering an ID overwrites its
-plist *in place*, preserving order.
+surface (=:on-create=, =:menu=, or =:on-purge=); re-registering an ID
+overwrites its plist *in place*, preserving order.
 
 #+begin_src emacs-lisp
-(cl-defun workspace-register-integration (id &key label on-create menu)
+(cl-defun workspace-register-integration (id &key label on-create menu on-purge)
   "Register workspace integration ID (a symbol).
 LABEL is a display string.  ON-CREATE is an optional handler called
 with the anchor payload at workspace-creation time, returning `ok',
 `skipped', or (failed . REASON).  MENU is an optional (KEY . COMMAND)
-pair for the integration transient.
+pair for the integration transient.  ON-PURGE is an optional handler
+called with the anchor payload at workspace-purge (teardown) time,
+returning `ok', `skipped', or (failed . REASON).
 
-At least one of ON-CREATE or MENU must be supplied; otherwise signal a
-`user-error' (a registration with neither surface is inert and almost
-certainly a mistake).
+At least one of ON-CREATE, MENU, or ON-PURGE must be supplied;
+otherwise signal a `user-error' (a registration with none of the three
+surfaces is inert and almost certainly a mistake).
 
 Re-registering an already-present ID replaces its plist IN PLACE,
 preserving the entry's position in `workspace--integrations'.  A new
 ID is appended to the end, so registration order == dispatch/menu
 order.  Returns ID."
-  (unless (or on-create menu)
-    (user-error "workspace-register-integration: %s has neither :on-create nor :menu" id))
-  (let ((plist (list :label label :on-create on-create :menu menu))
+  (unless (or on-create menu on-purge)
+    (user-error "workspace-register-integration: %s has none of :on-create, :menu, :on-purge" id))
+  (let ((plist (list :label label :on-create on-create :menu menu :on-purge on-purge))
         (cell (assq id workspace--integrations)))
     (if cell
         (setcdr cell plist)
@@ -108,23 +116,26 @@ plist is flat and extensible: handlers read only the keys they need."
 
 * Per-integration runner
 
-Runs one entry's =:on-create= under an error guard and normalizes the
+Runs one entry's handler (the =:on-create= surface by default, or any
+surface named by SURFACE-KEY) under an error guard and normalizes the
 result (Decision 3).  Returns =(ID . OUTCOME)= where OUTCOME is one of
 =ok=, =skipped=, or =(failed . REASON)=.  Unknown handler return values
 are treated leniently as =ok=; a signalled error normalizes to
-=(failed . MESSAGE)=.
+=(failed . MESSAGE)=.  One normaliser serves every lifecycle surface
+(=:on-create=, =:on-purge=, ...).
 
 #+begin_src emacs-lisp
-(defun workspace--run-one-integration (entry payload)
-  "Run ENTRY's `:on-create' on PAYLOAD; return (ID . OUTCOME).
-ENTRY is a (ID . PLIST) cell.  OUTCOME is `ok', `skipped', or
-\(failed . REASON).  The handler call is wrapped in `condition-case':
-a signalled error normalizes to (failed . ERROR-MESSAGE).  Handler
-return values are mapped as `ok' -> ok, `skipped' -> skipped,
-\(failed . R) -> (failed . R); any other value is treated leniently
-as `ok'."
+(defun workspace--run-one-integration (entry payload &optional surface-key)
+  "Run ENTRY's SURFACE-KEY handler on PAYLOAD; return (ID . OUTCOME).
+ENTRY is a (ID . PLIST) cell.  SURFACE-KEY names the handler slot to
+run and defaults to `:on-create'; pass `:on-purge' to run the purge
+surface.  OUTCOME is `ok', `skipped', or (failed . REASON).  The
+handler call is wrapped in `condition-case': a signalled error
+normalizes to (failed . ERROR-MESSAGE).  Handler return values are
+mapped as `ok' -> ok, `skipped' -> skipped, (failed . R) ->
+\(failed . R); any other value is treated leniently as `ok'."
   (let ((id (car entry))
-        (handler (plist-get (cdr entry) :on-create)))
+        (handler (plist-get (cdr entry) (or surface-key :on-create))))
     (condition-case err
         (cons id
               (pcase (funcall handler payload)
@@ -162,6 +173,41 @@ shared payload.  Entries lacking `:on-create' are skipped.  Each
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))
             (message "workspace: integration %s failed: %s"
+                     (car result) (cdr outcome)))
+          (push result results))))
+    (nreverse results)))
+#+end_src
+
+* Purge-time dispatch
+
+Additive, never signals — the purge mirror of creation-time dispatch
+(design.md §D3).  Builds the same anchor payload via the shared
+constructor, runs every registered =:on-purge= once in registration
+order via the generalised runner, skips entries lacking =:on-purge=,
+=message='s each failure, and returns the result alist.  Teardown is a
+generic lifecycle event (a future consumer might archive sessions on
+it), so it belongs here rather than as advice from one consumer.
+
+#+begin_src emacs-lisp
+(defun workspace--dispatch-purge-integrations (name home context)
+  "Dispatch all integration `:on-purge' handlers for a purged workspace.
+NAME, HOME, CONTEXT describe the workspace being torn down (see
+`workspace--integration-payload').  Each registered integration with
+an `:on-purge' handler is run once, in registration order, on the
+shared payload via `workspace--run-one-integration' (surface key
+`:on-purge').  Entries lacking `:on-purge' are skipped.  Each
+\(failed . REASON) outcome is surfaced via `message' as
+\"workspace: integration %s purge-teardown failed: %s\".  Returns the
+alist of (ID . OUTCOME) results.  NEVER signals: handler errors are
+caught by `workspace--run-one-integration'."
+  (let ((payload (workspace--integration-payload name home context))
+        (results nil))
+    (dolist (entry workspace--integrations)
+      (when (plist-get (cdr entry) :on-purge)
+        (let* ((result (workspace--run-one-integration entry payload :on-purge))
+               (outcome (cdr result)))
+          (when (and (consp outcome) (eq (car outcome) 'failed))
+            (message "workspace: integration %s purge-teardown failed: %s"
                      (car result) (cdr outcome)))
           (push result results))))
     (nreverse results)))

@@ -5,6 +5,7 @@ cache/*
 state/*
 packages/*
 straight/
+straight
 eln-cache/
 persist/
 transient/
@@ -31,6 +32,7 @@ org-roam.db
 
 # Tree-sitter grammars (machine-specific)
 tree-sitter/
+tree-sitter
 tree-sitter-*/
 
 # Keep structure files
