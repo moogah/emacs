@@ -175,4 +175,99 @@
         (expect (car result) :to-equal 'failed)
         (expect (cdr result) :to-match "worktree failure")))))
 
+(describe "jf/workspace--worktree-on-purge"
+
+  ;; Behavioral specs for the :on-purge teardown handler. Magit is never
+  ;; required; the worktree enumeration (`jf/workspace--worktree-children')
+  ;; and the magit operations (`magit-worktree-delete', `magit-main-branch',
+  ;; `magit-branch-merged-p', `magit-branch-delete') are SPIED so the tests
+  ;; are deterministic. `default-directory'-binding correctness is asserted
+  ;; by having `magit-worktree-delete' capture `default-directory' at call
+  ;; time, which must be the worktree's SOURCE repo.
+
+  (let (dd-at-delete)
+    (before-each
+      (setq dd-at-delete nil)
+      ;; Default: two clean linked worktrees under :home, each with a
+      ;; distinct source repo and branch.
+      (spy-on 'jf/workspace--worktree-children :and-return-value
+              (list (list :dir "/ws/home/alpha" :branch "feat-a"
+                          :source "/repos/alpha/")
+                    (list :dir "/ws/home/beta" :branch "feat-b"
+                          :source "/repos/beta/")))
+      (spy-on 'magit-worktree-delete :and-call-fake
+              (lambda (&rest _) (push default-directory dd-at-delete) nil))
+      (spy-on 'magit-main-branch :and-return-value "main")
+      ;; By default branches are merged, so deletion is offered.
+      (spy-on 'magit-branch-merged-p :and-return-value t)
+      (spy-on 'magit-branch-delete :and-return-value nil))
+
+    (it "returns 'skipped when there are no worktrees under :home"
+      (spy-on 'jf/workspace--worktree-children :and-return-value nil)
+      (expect (jf/workspace--worktree-on-purge '(:home "/ws/home/"))
+              :to-equal 'skipped)
+      (expect 'magit-worktree-delete :not :to-have-been-called))
+
+    (it "removes every worktree under :home and returns 'ok"
+      (expect (jf/workspace--worktree-on-purge '(:home "/ws/home/"))
+              :to-equal 'ok)
+      (expect 'magit-worktree-delete :to-have-been-called-times 2)
+      (expect (nth 0 (spy-calls-args-for 'magit-worktree-delete 0))
+              :to-equal "/ws/home/alpha")
+      (expect (nth 0 (spy-calls-args-for 'magit-worktree-delete 1))
+              :to-equal "/ws/home/beta"))
+
+    (it "binds default-directory to each worktree's source repo for the delete"
+      (jf/workspace--worktree-on-purge '(:home "/ws/home/"))
+      ;; dd-at-delete accumulates newest-first.
+      (expect (nreverse dd-at-delete)
+              :to-equal '("/repos/alpha/" "/repos/beta/")))
+
+    (it "deletes a MERGED branch without force after removal"
+      (jf/workspace--worktree-on-purge '(:home "/ws/home/"))
+      (expect 'magit-branch-merged-p :to-have-been-called-with "feat-a" "main")
+      (expect 'magit-branch-delete :to-have-been-called-times 2)
+      (expect (spy-calls-args-for 'magit-branch-delete 0)
+              :to-equal (list (list "feat-a")))
+      ;; No force argument: exactly one arg, the branch list.
+      (expect (length (spy-calls-args-for 'magit-branch-delete 0))
+              :to-equal 1))
+
+    (it "KEEPS an unmerged branch — magit-branch-delete is never called"
+      (spy-on 'magit-branch-merged-p :and-return-value nil)
+      (expect (jf/workspace--worktree-on-purge '(:home "/ws/home/"))
+              :to-equal 'ok)
+      ;; Worktrees still removed.
+      (expect 'magit-worktree-delete :to-have-been-called-times 2)
+      ;; But no branch was deleted, with or without force.
+      (expect 'magit-branch-delete :not :to-have-been-called))
+
+    (it "reports a dirty worktree in (failed . _) while removing the others"
+      ;; alpha's removal signals (dirty tree magit refuses); beta succeeds.
+      (spy-on 'magit-worktree-delete :and-call-fake
+              (lambda (dir &rest _)
+                (push default-directory dd-at-delete)
+                (when (string= dir "/ws/home/alpha")
+                  (error "git: contains modified or untracked files"))
+                nil))
+      (let ((result (jf/workspace--worktree-on-purge '(:home "/ws/home/"))))
+        (expect (car result) :to-equal 'failed)
+        (expect (cdr result) :to-match "/ws/home/alpha")
+        ;; beta was still attempted and removed.
+        (expect (nth 0 (spy-calls-args-for 'magit-worktree-delete 1))
+                :to-equal "/ws/home/beta")
+        ;; alpha's branch is NOT deleted (its removal failed); beta's is.
+        (expect 'magit-branch-delete :to-have-been-called-times 1)
+        (expect (spy-calls-args-for 'magit-branch-delete 0)
+                :to-equal (list (list "feat-b")))))
+
+    (it "does not delete a branch when the worktree has none (detached)"
+      (spy-on 'jf/workspace--worktree-children :and-return-value
+              (list (list :dir "/ws/home/detached" :branch nil
+                          :source "/repos/gamma/")))
+      (expect (jf/workspace--worktree-on-purge '(:home "/ws/home/"))
+              :to-equal 'ok)
+      (expect 'magit-worktree-delete :to-have-been-called-times 1)
+      (expect 'magit-branch-delete :not :to-have-been-called))))
+
 (provide 'git-worktrees-spec)
