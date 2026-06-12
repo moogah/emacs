@@ -82,3 +82,61 @@ return nil for broken workspaces — the menu just makes it visible.
 design.md § Decision 5; spec `workspaces` (ADDED: Workspace transient menu);
 spec `workspace-integrations` (Integrations populate the workspaces transient;
 On-demand integration invocation).
+
+## Observations
+- Confirmed the real signatures: `workspace--current-name` (tabs.el),
+  `workspace--registry` (hash-table defvar in tabs.el), `workspace--broken-p`
+  (data-model.el), and accessors `workspace--name` / `workspace--home`
+  (data-model.el). The predicate skeleton in the task body matched the actual
+  API; `workspace--menu-broken-p` was given an explicit trailing `t` so it
+  returns a boolean rather than the broken-p value.
+- The `:menu` payload command is invoked at *menu-invoke* time, not render
+  time: `workspace--menu-invoke-integration` rebuilds
+  `(workspace--integration-payload name home 'menu-invoke)` from the live
+  current workspace each time the suffix fires. Note
+  `workspace--integration-payload` takes `(name home context)` (3 args) and
+  derives `:sessions-dir` internally — no path logic duplicated in the menu.
+- Factored the dynamic-children logic into a NAMED top-level helper
+  `workspace--menu-integration-children` (returns `(KEY DESC THUNK)` specs),
+  with `workspace--menu-setup-integration-children` as the thin
+  `transient-parse-suffixes` wrapper — so the builder is unit-testable
+  without driving the transient UI (mirrors the skills-transient idiom but
+  extracts the builder for testability).
+- Preserved the pre-existing `C-x w b` -> `workspace-remove-buffer` chord as a
+  `b` suffix in the Manage / Recover group (it was in the retired chord block
+  but not enumerated in the task's group spec; dropping it would have lost a
+  binding).
+- Updated the two stale keybinding assertions in
+  `config/workspaces/test/workspace-delete-purge-spec.el` (they asserted the
+  retired `C-x w D` / `C-x w P` chords). New assertions verify `C-x w` opens
+  `workspace-menu` and that `workspace-delete` / `workspace-purge` remain
+  `commandp` (M-x reachable). This file is owned by the delete/purge work but
+  the assertions test the C-x w contract this task owns.
+- Final: `./bin/run-tests.sh -d config/workspaces` -> 277 specs, 0 failed
+  (baseline on this branch was 276/0; net +1 after replacing 2 chord-binding
+  tests with 3 menu-contract tests and adding the new transient-menu-spec).
+
+## Discoveries
+- discovery_id: disc-workspaces-transient-menu-1
+  class: load-order-hazard
+  description: >
+    `config/workspaces/workspaces` loads BEFORE `config/transient` in
+    init.el's `jf/enabled-modules` (line ~111 vs ~120). `config/transient.el`
+    installs the straight override of the built-in `transient` and relies on
+    `transient` NOT already being loaded (`use-package transient :demand t`).
+    An eager `(require 'transient)` at the top of `workspaces-transient.el`
+    pulls in the stale built-in transient, which then defeats the straight
+    override — concretely causing `transient-showcase` to fail at init with
+    `(void-function transient--set-layout)`, aborting the whole test run
+    (exit 255). The skills-transient module CAN `(require 'transient)` safely
+    only because gptel loads AFTER `config/transient`.
+  affected_register_entry: none (init load-order invariant, not a register entry)
+  recommendation: >
+    Any workspaces-subtree module that uses transient MUST defer transient
+    symbols behind `with-eval-after-load 'transient` and must NOT
+    `(require 'transient)` at load time, until/unless the
+    `workspaces`-before-`transient` ordering in init.el is changed. This task
+    wraps the `transient-define-prefix` and the `transient-parse-suffixes`
+    callback in `with-eval-after-load 'transient`; `C-x w` binds the
+    `workspace-menu` symbol so the keybinding is valid before the prefix is
+    defined (transient loads later in the same init pass).

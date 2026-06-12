@@ -284,12 +284,17 @@ delete-leaves-files-on-disk assertions are meaningful."
       (expect 'workspace--flush-state :to-have-been-called-times 1))))
 
 (describe "workspace-delete and workspace-purge keybindings"
-  (it "C-x w D is bound to workspace-delete"
-    (expect (key-binding (kbd "C-x w D"))
-            :to-equal #'workspace-delete))
-  (it "C-x w P is bound to workspace-purge"
-    (expect (key-binding (kbd "C-x w P"))
-            :to-equal #'workspace-purge)))
+  ;; C-x w was promoted to the `workspace-menu' transient (the chord
+  ;; bindings `C-x w D' / `C-x w P' were retired in favour of the menu's
+  ;; D / P suffixes).  The commands stay reachable through the menu and
+  ;; via M-x.
+  (it "C-x w opens the workspace-menu transient"
+    (expect (key-binding (kbd "C-x w"))
+            :to-equal #'workspace-menu))
+  (it "workspace-delete remains an interactive command (M-x reachable)"
+    (expect (commandp #'workspace-delete) :to-be-truthy))
+  (it "workspace-purge remains an interactive command (M-x reachable)"
+    (expect (commandp #'workspace-purge) :to-be-truthy)))
 
 (provide 'workspace-delete-purge-spec)
 ;;; workspace-delete-purge-spec.el ends here

@@ -51,6 +51,10 @@ The explicit `workspace-save' command never consults this list."
 (jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
 (require 'workspaces-mode)
+;; Front-door transient: needs `workspace--current-name'/`workspace--registry'
+;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
+;; (integrations), so it loads last.
+(jf/load-module (expand-file-name "config/workspaces/workspaces-transient.el" jf/emacs-dir))
 
 (defun workspace-re-anchor (name new-home)
   "Point broken workspace NAME at NEW-HOME on the filesystem.
@@ -172,18 +176,7 @@ purge as =:allowed= on broken)."
       (delete-directory home t))
     (message "Workspace %s purged" name)))
 
-(global-set-key (kbd "C-x w n") #'workspace-new)
-(global-set-key (kbd "C-x w s") #'workspace-switch)
-(global-set-key (kbd "C-x w o") #'workspace-restore)
-(global-set-key (kbd "C-x w S") #'workspace-save)
-(global-set-key (kbd "C-x w l") #'workspace-switch-layout)
-(global-set-key (kbd "C-x w L") #'workspace-save-layout)
-(global-set-key (kbd "C-x w D") #'workspace-delete)
-(global-set-key (kbd "C-x w P") #'workspace-purge)
-(global-set-key (kbd "C-x w R") #'workspace-re-anchor)
-(global-set-key (kbd "C-x w T") #'workspace-switch-to-recent-layout)
-(global-set-key (kbd "C-x w r") #'workspace-revert)
-(global-set-key (kbd "C-x w b") #'workspace-remove-buffer)
+(global-set-key (kbd "C-x w") #'workspace-menu)
 
 (workspace--install-tab-bar-display-name)
 
