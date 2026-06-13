@@ -376,10 +376,10 @@ disambiguated (the workspace might restore in a different working
 directory on a different machine) so dropping them is safer than
 guessing.
 
-=:broken= and =:restore-pending= are /runtime-only/ tags managed by
-helpers (=workspace--mark-broken=, =workspace--mark-restore-pending=,
-=workspace--clear-broken=); they live on the registry plist only and
-are stripped at the persistence boundary so they never appear in
+=:broken= is a /runtime-only/ tag managed by helpers
+(=workspace--mark-broken=, =workspace--clear-broken=); it lives on the
+registry plist only and
+is stripped at the persistence boundary so it never appears in
 =workspaces.eld=.  This means the on-disk format does not need to
 encode transient state, and a missing-home entry recomputes its
 broken status on every load against the current state of the

@@ -475,13 +475,14 @@ new path or `workspace-purge' to remove the registry entry."
 
 * Switch advice
 
-The tab-switch attachment point lives in =persistence.org=
-(=workspace--persistence-after-tab-switch=), which installs an
-=:after= advice on =tab-bar-switch-to-tab= / =tab-bar-select-tab=
-for lazy layout activation.  The critical invariant — early
-return for non-workspace tabs so we do not interfere with
-=activities-tabs-mode= during side-by-side development (design.md
-§D8) — is enforced by that advice's own =(when name ...)= guard.
+Startup no longer creates a tab per workspace, and there is no lazy
+per-workspace layout activation; the =:after= advice that drove it
+(=workspace--persistence-after-tab-switch=) was removed.  The only
+remaining workspaces tab-switch advice lives in =persistence.org=: the
+=:before= autosave (=workspace--persistence-before-tab-switch= on
+=tab-bar-switch-to-tab= / =tab-bar-select-tab=), which snapshots the
+outgoing workspace's =:working-state=.  Layout is now applied only by
+the explicit =workspace-restore= / =workspace-switch-layout= commands.
 
 * Provide
 
