@@ -25,6 +25,40 @@ the round trip through the on-disk eld form."
   :type '(alist :key-type symbol :value-type symbol)
   :group 'workspaces)
 
+(defun workspace--unreadable-object-p (obj)
+  "Return non-nil if OBJ cannot be reconstructed by `read'.
+Covers the live-object classes that `prin1' renders as the
+unreadable =#<…>= syntax: buffers, markers, overlays, frames,
+windows, processes, and non-symbol functions (subrs and closures).
+Symbols that happen to be `functionp' (named functions) are
+readable and return nil.  Total over any input."
+  (or (bufferp obj)
+      (markerp obj)
+      (overlayp obj)
+      (framep obj)
+      (windowp obj)
+      (processp obj)
+      (and (not (symbolp obj)) (functionp obj))))
+
+(defvar workspace-window-parameter-translators
+  `((window-preserved-size
+     (serialize . ,(pcase-lambda (`(,buffer ,dir ,size))
+                     (list (and (bufferp buffer) (buffer-name buffer))
+                           dir size)))
+     (deserialize . ,(pcase-lambda (`(,name ,dir ,size))
+                       (list (and name (get-buffer name)) dir size)))))
+  "Per-window-parameter serialize/deserialize translators.
+An alist `(PARAM . ((serialize . FN) (deserialize . FN)))'.  FN
+receives a single argument — the parameter's value as stored in a
+window-state leaf's `parameters' map — and returns a replacement
+value.  Modelled on `activities-window-parameters-translators' and
+`burly-window-parameters-translators'.
+
+`window-preserved-size' carries a `(BUFFER DIR SIZE)' triple; the
+serializer replaces BUFFER with its name (readable), the deserializer
+resolves the name back to a live buffer.  Add an entry here for any
+future window parameter whose value embeds a live, unreadable object.")
+
 (defun workspace--window-state-walk-leaves (state func)
   "Return a fresh window-state like STATE with FUNC applied to each leaf.
 FUNC is called with a `(leaf . attrs)' form and must return a
@@ -68,17 +102,44 @@ code-level addition.")
   "Return non-nil if STEP names a valid reincarnation-chain step."
   (memq step workspace--valid-reincarnation-steps))
 
+(defun workspace--scrub-bookmark-record (record)
+  "Return RECORD with any unreadable prop value nulled.
+A bookmark record is `(NAME . PROPS)' where PROPS is an alist of
+`(KEY . VALUE)'.  This nulls — keeps the KEY, sets VALUE to nil — any
+VALUE satisfying `workspace--unreadable-object-p' (a marker, buffer,
+overlay, frame, window, process, or non-symbol function a mode may have
+embedded; the `help-mode' bug#56643 class).  The record's KEYS are
+preserved so it remains a valid `bookmark-make-record'-shaped alist;
+only offending values are dropped.  RECORD is mutated in place and
+returned; nil passes through unchanged."
+  (when record
+    (dolist (prop (bookmark-get-bookmark-record record))
+      (when (and (consp prop)
+                 (workspace--unreadable-object-p (cdr prop)))
+        (setcdr prop nil))))
+  record)
+
 (defun workspace--serialize-buffer (buffer)
   "Return a `workspace-buffer' struct capturing BUFFER's state, or nil if dead.
 The struct carries enough to reincarnate the buffer across restart:
 a `bookmark-make-record' result (the standard Emacs primitive for
 major-mode-specific restorable state), the filename if file-backed,
-the buffer name, and the narrowed/indirect flags."
+the buffer name, and the narrowed/indirect flags.
+
+The bookmark record is scrubbed of unreadable objects via
+`workspace--scrub-bookmark-record' before being stored: a mode may
+embed a marker or natively-compiled subr in its record (bug#56643),
+which would make the whole on-disk state unreadable.  Nulling those
+values keeps the record's keys intact, so the bookmark step of the
+reincarnation chain still fires for the common case; a record whose
+load-bearing value was nulled simply falls through to the file/name
+fallback."
   (when (buffer-live-p buffer)
     (with-current-buffer buffer
       (make-workspace-buffer
        :bookmark (condition-case _err
-                     (bookmark-make-record)
+                     (workspace--scrub-bookmark-record
+                      (bookmark-make-record))
                    ;; Non-bookmarkable buffers (e.g. minibuffers, fresh
                    ;; *scratch* without a file) raise; fall through.
                    (error nil))
@@ -181,6 +242,12 @@ builds a `workspace-buffer' struct, and stores it in the leaf's
        (setf (map-elt parameters 'workspace-buffer)
              (workspace--serialize-buffer
               (get-buffer buffer-or-buffer-name)))
+       (pcase-dolist (`(,param . ,translators)
+                      workspace-window-parameter-translators)
+         (when (map-contains-key parameters param)
+           (setf (map-elt parameters param)
+                 (funcall (alist-get 'serialize translators)
+                          (map-elt parameters param)))))
        (setf (map-elt attrs 'parameters) parameters)
        (cons 'leaf attrs)))))
 
@@ -202,6 +269,16 @@ point at the live buffer."
        (when workspace-buffer
          (let ((live (workspace--deserialize-buffer workspace-buffer)))
            (setf (map-elt attrs 'buffer) (cons live buffer-attrs))))
+       (pcase-dolist (`(,param . ,translators)
+                      workspace-window-parameter-translators)
+         (when (map-contains-key parameters param)
+           (condition-case-unless-debug _err
+               (setf (map-elt parameters param)
+                     (funcall (alist-get 'deserialize translators)
+                              (map-elt parameters param)))
+             (error
+              (setq parameters (map-delete parameters param))))))
+       (setf (map-elt attrs 'parameters) parameters)
        (cons 'leaf attrs)))))
 
 (defvar workspace--restore-generation 0
