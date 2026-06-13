@@ -124,3 +124,108 @@ specs/workspaces/spec.md scenarios "A live Emacs object is never written
 to disk", "Preserved window size round-trips across restart";
 research/findings-serialization-and-corruption-safety.md (§A),
 research/findings-activities-persistence-deep-dive.md (translator borrow).
+
+## Observations
+
+- Implemented exactly as the task body / design D1 / D3 specify: shared
+  `workspace--unreadable-object-p` predicate, `workspace-window-parameter-translators`
+  defvar seeded with `window-preserved-size`, serialize/deserialize loops
+  in the two leaf walkers, and a `workspace--scrub-bookmark-record` helper
+  called from `workspace--serialize-buffer`. `window-preserved-size` was
+  LEFT in `workspace-window-persistent-parameters` per step 5.
+- **Teeth check (step 7a / Verification): CONFIRMED.** Temporarily removed
+  the serialize-side translator loop from the tangled `layouts.el` and ran
+  the suite: scenario (a) "killed buffer in window-preserved-size" FAILED on
+  `serialization-robustness-spec--readable-p` (the `#<killed buffer>` token
+  reaches `prin1-to-string`), and (b) also failed (value was the buffer
+  object, not a name). Restored the translator; both pass. The regression
+  test has teeth.
+- **`condition-case-unless-debug` under buttercup.** The deserialize-drop
+  guard uses `condition-case-unless-debug` (per the task / activities
+  pattern). Buttercup's batch runner sets `debug-on-error`, which makes
+  `condition-case-unless-debug` *re-raise*. The first run of the
+  "drops the parameter when its deserializer throws" spec therefore escaped
+  the guard and failed. Resolved by binding `debug-on-error` to nil inside
+  that one spec so it exercises the production catch path. This is a
+  test-environment artifact, not a production behavior change — production
+  runs with `debug-on-error` nil, so the drop fires as intended. Noting it
+  because any future spec that wants to assert a `condition-case-unless-debug`
+  catch must bind `debug-on-error` nil.
+- `bookmark-make-record` returns `(NAME . ALIST)`; `bookmark-get-bookmark-record`
+  on a `consp` record returns it as-is (no `bookmark-alist` lookup, no error
+  path) and normalizes both `(NAME ALIST)` and `(NAME . ALIST)` shapes,
+  returning the live cons cells — so the in-place `setcdr` scrub mutates the
+  real record. Verified against the shipped `bookmark.el`.
+- `layouts-spec.el` was left untouched: its
+  `workspace--window-state-serialize / -deserialize` describe block does not
+  assert the raw `window-preserved-size` shape (it asserts the
+  `workspace-buffer` embed and the buffer-slot rewrite), so step 8's
+  conditional edit did not apply.
+- No departures from the task body. No latent issues found. The write-time
+  assert remains the persistence.el task's responsibility; this serializer is
+  readable by construction.
+
+## Discoveries
+- discovery_id: disc-serialize-window-params-readable-1
+  class: interface-drift
+  description: |
+    register/shape/workspace-buffer-struct describes the `bookmark` slot as
+    "Result of (bookmark-make-record)". After this task that slot holds a
+    SCRUBBED bookmark record: keys are preserved verbatim, but any prop VALUE
+    satisfying workspace--unreadable-object-p (marker/buffer/overlay/frame/
+    window/process/non-symbol-function) is nulled before storage. The record
+    remains a valid bookmark-make-record-shaped alist (a strict subset of the
+    raw record's information), so the bookmark step of the reincarnation chain
+    still fires for the common case. Only a record whose load-bearing value was
+    nulled now falls through to the file/name fallback.
+  affected_register_entry: register/shape/workspace-buffer-struct
+  recommendation: |
+    Add a one-line note to the `bookmark` slot description: "Scrubbed of
+    unreadable prop values (workspace--scrub-bookmark-record) before storage;
+    keys preserved, only unreadable VALUES nulled, so the record stays
+    read-able and bookmark-shaped." No shape/key change — values-only nulling.
+    Confirmed no drift in the required_keys/validator (the slot type
+    `bookmark-record | nil` is unchanged).
+- discovery_id: disc-serialize-window-params-readable-2
+  class: mutation
+  description: |
+    register/shape/layout-v2-plist's :saved-state / :working-state are
+    window-state forms whose leaves carry window parameters. This task adds a
+    serialize→deserialize transform over those leaves: `window-preserved-size`
+    now stores `(BUFFER-NAME DIR SIZE)` on disk (was `(BUFFER DIR SIZE)` with a
+    live buffer object — which was the latent corruption bug). The transform is
+    value-preserving across the round trip for live buffers: serialize maps
+    BUFFER→buffer-name, deserialize maps name→get-buffer, round-tripping to the
+    same buffer by name. A killed/absent buffer round-trips to nil (the slot
+    survives, the buffer reference is dropped). Generalizes to any param added
+    to workspace-window-parameter-translators.
+  affected_register_entry: register/shape/layout-v2-plist
+  recommendation: |
+    Note in the :saved-state/:working-state descriptions that leaf window
+    parameters are now passed through workspace-window-parameter-translators on
+    serialize/deserialize, and that window-preserved-size's first element is a
+    buffer-NAME on disk (not a buffer object). Readability-by-construction is
+    now part of the shape's contract. No key add/remove.
+- discovery_id: disc-serialize-window-params-readable-3
+  class: invariant-gap
+  description: |
+    register/vocabulary/buffer-reincarnation-fallback-chain's first step
+    (bookmark) is unaffected for the common case by the bookmark scrub: the
+    scrub nulls only unreadable VALUES and preserves all keys, so
+    workspace--bookmark-buffer still has a complete, jump-able record whenever
+    the record had no unreadable values (the overwhelming majority). When an
+    unreadable value WAS nulled (e.g. bug#56643 help-mode subr), the bookmark
+    jump may now fail or restore partially — but that record was previously
+    UNREADABLE and would have corrupted the entire save (taking down ALL
+    buffers' restore, not just this one). Post-scrub, the fallback chain's
+    file (step 2) and name (step 3) steps still cover that buffer. Net: the
+    scrub strictly improves the chain's robustness — it converts a
+    whole-file-corruption failure into a single-buffer fall-through.
+  affected_register_entry: register/vocabulary/buffer-reincarnation-fallback-chain
+  recommendation: |
+    Confirmed no drift: the chain's order and membership are unchanged. The
+    scrub is upstream of step 1 (at serialize time) and only ever weakens an
+    already-unreadable record into the file/name fallback. Optionally note in
+    the `bookmark` member's description that the record is pre-scrubbed of
+    unreadable values, so a nulled load-bearing value is an expected
+    fall-through trigger, not a defect.
