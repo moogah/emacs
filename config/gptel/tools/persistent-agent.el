@@ -153,6 +153,62 @@ writing the file, so that the composed
 the user turn block."
   (format "#+begin_user\n%s\n#+end_user\n" prompt))
 
+(defconst jf/gptel-persistent-agent--system-preamble
+  "You are an autonomous sub-agent launched by a parent agent to carry out one task.
+
+Operating rules:
+- Do the task YOURSELF, directly, using the tools available to you. Do
+  NOT delegate it to another agent — never call the PersistentAgent
+  tool to perform your work. You are the agent that does the work.
+- You run headless and cannot ask the user follow-up questions. When
+  something is ambiguous, make a reasonable assumption, state it, and
+  proceed.
+- Stay within the task you were given and the file scope you were
+  granted. If an operation is refused as out of scope and the task
+  genuinely needs it, request a scope expansion rather than abandoning
+  the task.
+- When the task is complete, STOP and write a single final message
+  that fully answers it (results, file paths, and anything the parent
+  needs). That final message is the ONLY thing returned to the parent,
+  so make it self-contained — do not rely on intermediate tool output
+  being visible upstream."
+  "Baseline system-prompt preamble prepended to every persistent agent.
+
+Prepended ahead of the agent preset's `:system' by
+`jf/gptel-persistent-agent--write-system-prompt'.  Tells the spawned
+model that it is a headless sub-agent that must do the work itself
+\(not delegate via `PersistentAgent'), cannot ask follow-up questions,
+and must terminate with one self-contained final message — the only
+text returned to the parent.")
+
+(defun jf/gptel-persistent-agent--write-system-prompt (session-dir preset-name preset-spec)
+  "Write the agent's `system-prompt.<ext>' into SESSION-DIR; return its basename.
+
+Composes the agent's effective system prompt as the baseline
+`jf/gptel-persistent-agent--system-preamble' followed by the preset's
+`:system' body (PRESET-SPEC is the plist from `gptel-get-preset').
+When the preset declares no non-empty `:system', the file is the
+preamble alone.  PRESET-NAME resolves the file extension via
+`jf/gptel--preset-source-file-extension', matching the sibling-file
+convention used by interactive sessions.
+
+Always writes (the preamble is always present) and always returns the
+basename, so the caller always threads a `:GPTEL_SYSTEM_PROMPT_FILE:'
+drawer key — every agent has a system prompt.  Uses `write-region' to
+avoid mutating buffer-local state (mirrors
+`jf/gptel--write-system-prompt-sibling-file' §Decision 3)."
+  (let* ((preset-system (plist-get preset-spec :system))
+         (body (if (and (stringp preset-system)
+                        (not (string-blank-p preset-system)))
+                   (concat jf/gptel-persistent-agent--system-preamble
+                           "\n\n" preset-system)
+                 jf/gptel-persistent-agent--system-preamble))
+         (ext (jf/gptel--preset-source-file-extension preset-name))
+         (basename (concat "system-prompt." ext))
+         (path (expand-file-name basename session-dir)))
+    (write-region body nil path nil 'silent)
+    basename))
+
 (defun jf/gptel-persistent-agent--extract-final-text (agent-buffer)
   "Return trailing text of the last assistant turn in AGENT-BUFFER.
 Returns the empty string when AGENT-BUFFER has been killed before
@@ -273,17 +329,19 @@ for parent overlay feedback and final-text return."
            (preset-spec (and preset-sym
                              (fboundp 'gptel-get-preset)
                              (gptel-get-preset preset-sym)))
-           ;; Materialise the preset's `:system' body as
-           ;; `system-prompt.<ext>' next to `session.org' (design.md
-           ;; §Decision 1 of replace-system-prompt-heading-with-sibling-file).
-           ;; The writer no-ops when `:system' is nil/empty.  The
-           ;; returned basename is threaded into the drawer below.
-           ;; The agent directory has no `branches/' subdirectory
-           ;; (constants.el: agents nest directly under the parent
-           ;; branch-dir), so SESSION-DIR is the directory the
+           ;; Materialise the agent's effective system prompt as
+           ;; `system-prompt.<ext>' next to `session.org': the baseline
+           ;; agent harness preamble followed by the preset's `:system'
+           ;; body (Agent System-Prompt Preamble section).  Unlike the
+           ;; shared interactive writer this ALWAYS writes (the preamble
+           ;; is always present) and always returns a basename, so every
+           ;; agent gets a system prompt and a `:GPTEL_SYSTEM_PROMPT_FILE:'
+           ;; drawer key.  The agent directory has no `branches/'
+           ;; subdirectory (constants.el: agents nest directly under the
+           ;; parent branch-dir), so SESSION-DIR is the directory the
            ;; sibling file lands in.
            (sibling-basename
-            (jf/gptel--write-system-prompt-sibling-file
+            (jf/gptel-persistent-agent--write-system-prompt
              session-dir preset-sym preset-spec))
            (drawer-text
             (jf/gptel-scope-profile--render-drawer-text

@@ -11,7 +11,7 @@ Enables autonomous sub-agents with isolated configuration, full conversation his
 **CRITICAL PRINCIPLE**: Agents have ZERO inheritance from parent sessions.
 
 Agent configuration comes ONLY from the agent's `session.org` `:PROPERTIES:` drawer, populated at agent creation time and read at auto-init time:
-1. **Drawer-declared preset** (`:GPTEL_PRESET:`) supplies backend, model, tools, and system message.
+1. **Drawer-declared preset** (`:GPTEL_PRESET:`) supplies backend, model, and tools. The agent's system message is the baseline agent-harness preamble followed by the preset's `:system` body (see *Agent System-Prompt Preamble* below), materialized in the sibling `system-prompt.<ext>` file.
 2. **Drawer-declared scope keys** (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) supply file-access permissions, populated from the `allowed_paths` parameter plus the codebase's fixed write/deny patterns.
 
 Agents do NOT inherit:
@@ -32,9 +32,10 @@ The `denied_paths` parameter advertised by earlier implementations no longer exi
 <parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/
 ├── session.org          # Agent conversation + :PROPERTIES: drawer
 │                        # (preset, parent id, scope read/write/deny keys,
-│                        #  :GPTEL_SYSTEM_PROMPT_FILE: when the preset has a :system)
-└── system-prompt.md     # Sibling system-prompt file (only when the
-                         # preset declares a non-empty :system)
+│                        #  :GPTEL_SYSTEM_PROMPT_FILE: — always present for agents)
+└── system-prompt.md     # Sibling system-prompt file (always written for
+                         # agents: the agent-harness preamble, plus the
+                         # preset's :system body when it declares one)
 ```
 
 Agents do NOT have:
@@ -61,7 +62,7 @@ sibling file):
 :GPTEL_SCOPE_READ: <pattern> <pattern> ...    # omitted if no read paths
 :GPTEL_SCOPE_WRITE: /tmp/**
 :GPTEL_SCOPE_DENY: **/.git/** **/runtime/** **/.env **/node_modules/**
-:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md   # omitted if the preset has no :system
+:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md   # always present for agents
 :END:
 
 #+begin_user
@@ -69,13 +70,18 @@ sibling file):
 #+end_user
 ```
 
-with the system prompt body, when present, living in the sibling
-`system-prompt.md` next to `session.org`.
+with the agent's system prompt living in the sibling
+`system-prompt.md` next to `session.org`. Unlike interactive sessions
+— whose sibling file is the preset's `:system` verbatim, or absent
+when the preset has none — an agent's sibling file is **always**
+written: the baseline agent-harness preamble, followed by the preset's
+`:system` body when it declares one. Every agent therefore has a
+non-empty system prompt and a `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key.
 
 ### Execution Lifecycle
 
 1. **Validation**: Parent-session check + preset existence — raise user-error before any side effect on validation failure.
-2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys, plus `:GPTEL_SYSTEM_PROMPT_FILE:` when the preset declares a `:system`) followed directly by the initial `#+begin_user` block (no `* System Prompt` or `* Chat` headings). When the preset declares a non-empty `:system`, also write the sibling `system-prompt.<ext>` file holding that text. No sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) are written.
+2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys, plus `:GPTEL_SYSTEM_PROMPT_FILE:`, always present for agents) followed directly by the initial `#+begin_user` block (no `* System Prompt` or `* Chat` headings). Always write the sibling `system-prompt.<ext>` file holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Agent System-Prompt Preamble*). No sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) are written.
 3. **Initialization**: Open the agent file with `find-file-noselect`; the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 4. **Execution**: Compose chat-mode's public API (`gptel-chat-parse-buffer`, `gptel-chat-turns-to-messages`, `gptel-chat-open-assistant-block`, `gptel-chat-stream-callback`, `gptel-chat-fsm-handlers`) to drive the request. The agent supplies its own FSM-handler-chained overlay updates and a parent-feedback overlay as `gptel-request`'s `:context`.
 5. **FSM States**: `WAIT` (overlay: "Waiting…"), `TOOL` (overlay: "Calling Tools… (+N)" with cumulative count).
@@ -129,7 +135,7 @@ PersistentAgent SHALL only operate within persistent session buffers and SHALL a
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and — when the preset declares a non-empty `:system` — `:GPTEL_SYSTEM_PROMPT_FILE:`. The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. When the preset declares a non-empty `:system`, a sibling `system-prompt.<ext>` file holding that text SHALL be written next to `session.org` (see `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
+The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and `:GPTEL_SYSTEM_PROMPT_FILE:` (always present for agents). The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. A sibling `system-prompt.<ext>` file SHALL always be written next to `session.org` holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Requirement: Agent system-prompt preamble* and `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
 
 The session file SHALL be opened with `find-file-noselect` so that the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 
@@ -175,8 +181,35 @@ The agent's directory SHALL live under the parent branch's `agents/` subdirector
 
 #### Scenario: No sidecar config files written
 - **WHEN** creating any agent
-- **THEN** the agent directory contains `session.org` (plus a sibling `system-prompt.<ext>` when the preset declares a non-empty `:system`)
+- **THEN** the agent directory contains `session.org` plus a sibling `system-prompt.<ext>` (always written for agents — the harness preamble, plus the preset's `:system` when it has one)
 - **AND** no `scope.yml`, `metadata.yml`, or `tools.org` is written at any point in the lifecycle
+
+### Requirement: Agent system-prompt preamble
+
+Every persistent agent SHALL receive a fixed agent-harness preamble as the head of its system prompt, independent of which preset it runs. The preamble is injected at the persistent-agent layer (not in the shared sibling-file writer that also serves interactive, human-driven sessions), so only agents receive the harness framing; interactive sessions continue to use the preset's `:system` verbatim.
+
+The agent's effective system prompt SHALL be composed preamble-first: the baseline preamble, followed by the preset's `:system` body when the preset declares a non-empty one. When the preset declares no `:system`, the sibling file SHALL hold the preamble alone. In all cases the sibling `system-prompt.<ext>` file SHALL be written and the drawer's `:GPTEL_SYSTEM_PROMPT_FILE:` key SHALL be present, so every agent has a non-empty system prompt.
+
+The preamble SHALL establish the agent operating contract: (1) the agent does the task **itself** and SHALL NOT delegate it to another agent (it SHALL NOT call the `PersistentAgent` tool to perform its work), preventing self-delegation loops; (2) the agent runs headless and cannot ask the user follow-up questions, so it makes and states reasonable assumptions; (3) the agent stays within its granted task and scope, requesting scope expansion rather than abandoning the task when a needed operation is refused; (4) the agent terminates with a single, self-contained final message — the only text returned to the parent.
+
+#### Scenario: Preamble composed ahead of a preset's :system
+- **WHEN** an agent is created with a preset that declares a non-empty `:system`
+- **THEN** the sibling `system-prompt.<ext>` file content is the agent-harness preamble, then a blank-line separator, then the preset's `:system` body verbatim
+- **AND** the drawer carries `:GPTEL_SYSTEM_PROMPT_FILE:`
+
+#### Scenario: Preamble written alone when the preset has no :system
+- **WHEN** an agent is created with a preset that declares no `:system`
+- **THEN** the sibling `system-prompt.<ext>` file content is exactly the agent-harness preamble
+- **AND** the drawer still carries `:GPTEL_SYSTEM_PROMPT_FILE:` (every agent has a system prompt)
+
+#### Scenario: Preamble forbids self-delegation
+- **WHEN** the agent-harness preamble is materialized into an agent's system prompt
+- **THEN** it instructs the agent to perform the task itself and to NOT call the `PersistentAgent` tool to do its work
+- **AND** it instructs the agent to return a single final message as its only output to the parent
+
+#### Scenario: Interactive sessions do not receive the preamble
+- **WHEN** an interactive (non-agent) session is created from the same preset
+- **THEN** its sibling `system-prompt.<ext>` (if any) holds the preset's `:system` verbatim, with no agent-harness preamble prepended
 
 ### Requirement: Configuration isolation (zero inheritance)
 

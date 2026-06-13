@@ -368,16 +368,18 @@
 
 (describe "PersistentAgent emits sibling system-prompt file"
 
-  ;; The agent creation path mirrors the interactive session path's
-  ;; sibling-file emission: when the preset declares a non-empty
-  ;; `:system', `jf/gptel-persistent-agent--task' writes
-  ;; `system-prompt.<ext>' next to the agent's `session.org' and
-  ;; threads `:GPTEL_SYSTEM_PROMPT_FILE:' into the drawer.  Agent
-  ;; directories are flat (no `branches/' subdirectory — per
+  ;; Unlike the interactive session path (which writes the preset's
+  ;; `:system' verbatim, or no file when there is none), the agent
+  ;; creation path ALWAYS writes `system-prompt.<ext>' via
+  ;; `jf/gptel-persistent-agent--write-system-prompt': the baseline
+  ;; agent-harness preamble followed by the preset's `:system' body
+  ;; when it declares one.  Every agent therefore has a system prompt
+  ;; and a `:GPTEL_SYSTEM_PROMPT_FILE:' drawer key.  Agent directories
+  ;; are flat (no `branches/' subdirectory — per
   ;; `gptel-session-constants'), so the sibling file lands directly
   ;; in the agent-dir.
 
-  (it "writes system-prompt.md next to the agent's session.org when preset has :system"
+  (it "writes system-prompt.md (preamble + preset :system) when preset has :system"
     (jf/persistent-agent-test--with-mock-parent-session
      (let ((preset-name 'sibling-agent-preset))
        (unwind-protect
@@ -405,11 +407,14 @@
                                             (with-temp-buffer
                                               (insert-file-contents sibling)
                                               (buffer-string)))))
-                 ;; Sibling file exists with the preset's :system verbatim.
+                 ;; Sibling file exists; content is the baseline agent
+                 ;; preamble followed by the preset's :system body.
                  (expect (file-exists-p sibling) :to-be t)
                  (expect sibling-content
                          :to-equal
-                         "Agent operating instructions.\nBe terse.")
+                         (concat jf/gptel-persistent-agent--system-preamble
+                                 "\n\n"
+                                 "Agent operating instructions.\nBe terse."))
                  ;; Drawer carries :GPTEL_SYSTEM_PROMPT_FILE:.
                  (jf/persistent-agent-test--with-agent-session-org agent-dir
                    (expect (org-entry-get (point-min) "GPTEL_SYSTEM_PROMPT_FILE")
@@ -424,10 +429,12 @@
          (setq gptel--known-presets
                (assq-delete-all preset-name gptel--known-presets))))))
 
-  (it "writes no sibling file and omits :GPTEL_SYSTEM_PROMPT_FILE: when preset has no :system"
+  (it "writes the preamble alone and still threads :GPTEL_SYSTEM_PROMPT_FILE: when preset has no :system"
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
-       ;; The mock preset has no `:system'; the writer no-ops.
+       ;; The mock preset has no `:system'; the agent writer still
+       ;; emits the baseline harness preamble so every agent has a
+       ;; system prompt (a behaviour change from the preset-only era).
        (let ((captured nil))
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
@@ -437,11 +444,102 @@
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
                 (agent-dir  (expand-file-name agent-name agents-dir))
-                (sibling (expand-file-name "system-prompt.md" agent-dir)))
-           (expect (file-exists-p sibling) :to-be nil)
+                (sibling (expand-file-name "system-prompt.md" agent-dir))
+                (sibling-content (and (file-exists-p sibling)
+                                      (with-temp-buffer
+                                        (insert-file-contents sibling)
+                                        (buffer-string)))))
+           (expect (file-exists-p sibling) :to-be t)
+           (expect sibling-content
+                   :to-equal jf/gptel-persistent-agent--system-preamble)
            (jf/persistent-agent-test--with-agent-session-org agent-dir
              (expect (org-entry-get (point-min) "GPTEL_SYSTEM_PROMPT_FILE")
-                     :to-be nil))))))))
+                     :to-equal "system-prompt.md"))))))))
+
+(describe "PersistentAgent system-prompt preamble"
+
+  ;; openspec/specs/gptel/persistent-agent.md §Requirement: Agent
+  ;; system-prompt preamble.  A fixed harness prepended to every
+  ;; agent's system prompt by
+  ;; `jf/gptel-persistent-agent--write-system-prompt', independent of
+  ;; the preset.  Content-contract + writer-composition unit tests (no
+  ;; gptel-request, no parent-session fixture needed).
+
+  (it "is a non-empty string"
+    (expect (stringp jf/gptel-persistent-agent--system-preamble) :to-be t)
+    (expect (string-blank-p jf/gptel-persistent-agent--system-preamble) :to-be nil))
+
+  (it "forbids self-delegation via the PersistentAgent tool"
+    ;; Scenario: Preamble forbids self-delegation — the delegation-loop fix.
+    (expect jf/gptel-persistent-agent--system-preamble :to-match "PersistentAgent")
+    (expect (downcase jf/gptel-persistent-agent--system-preamble)
+            :to-match "do the task yourself"))
+
+  (it "instructs the agent to return a single final message"
+    (expect (downcase jf/gptel-persistent-agent--system-preamble)
+            :to-match "final message"))
+
+  (it "tells the agent it is headless and cannot ask follow-up questions"
+    (expect (downcase jf/gptel-persistent-agent--system-preamble)
+            :to-match "follow-up question"))
+
+  (describe "jf/gptel-persistent-agent--write-system-prompt"
+
+    (it "composes preamble + preset :system and returns the basename"
+      ;; Scenario: Preamble composed ahead of a preset's :system.
+      (let* ((dir (make-temp-file "pa-preamble-" t))
+             (basename (jf/gptel-persistent-agent--write-system-prompt
+                        dir 'some-preset '(:system "Role body."))))
+        (unwind-protect
+            (let ((content (with-temp-buffer
+                             (insert-file-contents (expand-file-name basename dir))
+                             (buffer-string))))
+              (expect basename :to-equal "system-prompt.md")
+              (expect content :to-equal
+                      (concat jf/gptel-persistent-agent--system-preamble
+                              "\n\n" "Role body.")))
+          (delete-directory dir t))))
+
+    (it "writes the preamble alone when the preset declares no :system"
+      ;; Scenario: Preamble written alone when the preset has no :system.
+      (let* ((dir (make-temp-file "pa-preamble-" t))
+             (basename (jf/gptel-persistent-agent--write-system-prompt
+                        dir 'some-preset '(:description "no system"))))
+        (unwind-protect
+            (let ((content (with-temp-buffer
+                             (insert-file-contents (expand-file-name basename dir))
+                             (buffer-string))))
+              (expect basename :to-equal "system-prompt.md")
+              (expect content :to-equal jf/gptel-persistent-agent--system-preamble))
+          (delete-directory dir t))))
+
+    (it "treats a whitespace-only :system as no :system (preamble alone)"
+      (let* ((dir (make-temp-file "pa-preamble-" t))
+             (basename (jf/gptel-persistent-agent--write-system-prompt
+                        dir 'some-preset '(:system "   \n  "))))
+        (unwind-protect
+            (let ((content (with-temp-buffer
+                             (insert-file-contents (expand-file-name basename dir))
+                             (buffer-string))))
+              (expect content :to-equal jf/gptel-persistent-agent--system-preamble))
+          (delete-directory dir t)))))
+
+  (it "leaves the shared interactive writer's output free of the preamble"
+    ;; Scenario: Interactive sessions do not receive the preamble — the
+    ;; shared writer keeps the preset's :system verbatim.
+    (let* ((dir (make-temp-file "pa-interactive-" t))
+           (basename (jf/gptel--write-system-prompt-sibling-file
+                      dir 'some-preset '(:system "Interactive role body."))))
+      (unwind-protect
+          (let ((content (with-temp-buffer
+                           (insert-file-contents (expand-file-name basename dir))
+                           (buffer-string))))
+            (expect content :to-equal "Interactive role body.")
+            (expect content :not
+                    :to-match (regexp-quote
+                               (substring jf/gptel-persistent-agent--system-preamble
+                                          0 30))))
+        (delete-directory dir t)))))
 
 (provide 'creation-spec)
 ;;; creation-spec.el ends here
