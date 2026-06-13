@@ -2,7 +2,7 @@
 name: corruption-safe-persistence-io
 description: Atomic write + write-time readable assert + never-clobber-on-unreadable (backup + autosave gate) so a corrupt file can never cause data loss
 change: workspaces-persistence-robustness
-status: ready
+status: done
 relations:
   - "blocked-by:serialize-window-params-readable"
 ---

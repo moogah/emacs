@@ -2,7 +2,7 @@
 name: registry-hydrate-only-startup
 description: Startup hydrates the registry without creating tabs; remove the lazy-restore machinery in full
 change: workspaces-startup-no-auto-tab-restore
-status: ready
+status: done
 relations: []
 ---
 

@@ -2,7 +2,7 @@
 name: serialize-window-params-readable
 description: Guarantee window-state serialization is read-able — translate buffer-bearing window params (window-preserved-size) and scrub bookmark records of unreadable objects
 change: workspaces-persistence-robustness
-status: ready
+status: done
 relations: []
 ---
 

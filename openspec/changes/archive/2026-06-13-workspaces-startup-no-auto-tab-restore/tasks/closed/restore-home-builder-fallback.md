@@ -2,7 +2,7 @@
 name: restore-home-builder-fallback
 description: workspace-restore opens home.org for a workspace with no saved layout instead of a bare tab
 change: workspaces-startup-no-auto-tab-restore
-status: ready
+status: done
 relations:
   - "blocked-by:registry-hydrate-only-startup"
 ---
