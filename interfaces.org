@@ -1036,6 +1036,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: shape
    status: reconciled
    status_note: |
+     cycle-20260613-150904 integrate (2026-06-13, task registry-hydrate-
+     only-startup): the =:restore-pending= optional runtime-tag was
+     REMOVED from this shape. prior_form: optional_keys = {:broken,
+     :restore-pending}; new_form: optional_keys = {:broken} only. The
+     lazy-frameset-restoration path that set/read it (startup
+     =workspace--restore-tabs= + the =:after= tab-switch advice
+     =workspace--persistence-after-tab-switch= → =workspace--activate-
+     pending-workspace=) was removed in full (design.md §D1/§D2); startup
+     now hydrates the registry without creating tabs. The persisted-slot
+     whitelist (:name :home :recent-layout-group :buffer-files
+     :layout-groups) and the =:broken= runtime tag are UNCHANGED.
+     why_tests_missed: N/A — planned vocabulary contraction, not a test
+     gap; the persisted slots were always correct and stay covered, and
+     the deserialize/serialize round-trip + no-startup-tabs specs are
+     green (config/workspaces, 334/0). See
+     .orchestrator/cycles/cycle-20260613-150904/reconciliations/shape-workspace-plist-v3.md.
+
      2026-06-06 manual review (reconcile-home-canonical-form-deserialiser-
      promise): resolved the converged advisory finding (on-touch architect
      arch-cycle-20260528-180230-on-touch-canonicalize + reviewer F2) via
@@ -1238,21 +1255,6 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          =arch-cycle-20260525-200459-2= finding (no inline
          =plist-put=). The =broken-home-no-auto-recreate= invariant
          pins the "log and tag, never recreate" semantics.
-     - name: ":restore-pending"
-       type: t | nil
-       description: |
-         Runtime-only tag set by =workspace--deserialize-state= on
-         every successfully-loaded registry entry; cleared by
-         =workspace--apply-saved-layout= after first activation.
-         Drives lazy frameset restoration via the tab-bar-switch
-         hook (=workspace--persistence-after-tab-switch= →
-         =workspace--activate-pending-workspace=). NEVER written to
-         disk — the serializer filters this key by construction.
-         Mutations route through =workspace--mark-restore-pending=
-         and =workspace--clear-restore-pending= per cycle-2's
-         =arch-cycle-20260525-213500-03= finding (no inline
-         =plist-put=). Enumerated here as of cycle-2 integrate
-         (=arch-cycle-20260525-213500-01=).
 
    forbidden_keys: []
 
@@ -3470,6 +3472,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      predicates) ...). workspace-save still enters at stage 2 by
      design. See
      .orchestrator/cycles/cycle-20260525-082618/reconciliations/boundary-autosave-guard-pipeline.md.
+
+     cycle-20260613-150904 integrate (2026-06-13, task registry-hydrate-
+     only-startup): the lazy-restore =:after= advice this note spent a
+     paragraph distinguishing the autosave boundary FROM —
+     =workspace--persistence-after-tab-switch= (+ =workspace--activate-
+     pending-workspace=) — was REMOVED in full (design.md §D2). The
+     autosave stage-1 wrap surface is UNCHANGED and held verbatim: the
+     =:before= advice (=workspace--persistence-before-tab-switch= on
+     tab-bar-select-tab AND tab-bar-switch-to-tab), =workspace--kill-
+     emacs-flush=, and =workspaces-mode--idle-tick=. The boundary is now
+     cleaner — there is no longer a confusable =:after= sibling on the
+     same tab-switch entry points. why_tests_missed: N/A — no test gap;
+     the autosave specs (idle-tick, kill-emacs, before-switch capture)
+     stayed green through the removal, proving the =:before= path intact.
+     Independently confirmed by on-touch architect (0 findings) +
+     author-blind review. See
+     .orchestrator/cycles/cycle-20260613-150904/reconciliations/boundary-autosave-guard-pipeline.md.
    load_bearing: true
    title: Autosave guard pipeline (predicates → capture → slot route → flush)
    purpose: |
