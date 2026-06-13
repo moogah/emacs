@@ -447,9 +447,21 @@ to =:saved-state=.  The =workspace-revert= command (=C-x w r=) is
 the "undo my drift" affordance: it clears =:working-state= and
 re-applies =:saved-state= on demand.
 
-When the persistence file is missing or unreadable, the package
-starts cleanly with no workspaces and emits a =*Messages*= notice
-(no error visible to the user).
+When the persistence file is *missing*, the package starts cleanly
+with no workspaces and emits a =*Messages*= notice (no error visible
+to the user).
+
+When the file is *present but unreadable* (a parse/=read= failure), the
+package does NOT silently start empty and overwrite it.  It preserves
+the file by renaming it to =workspaces.eld.corrupt-<timestamp>=, warns
+(naming the backup path), and suppresses all persistence writes for the
+session so an autosave cannot clobber the backed-up data with an empty
+registry.  Serialization is readable by construction (buffer-bearing
+window parameters such as =window-preserved-size= are translated to
+readable forms and bookmark records are scrubbed of unreadable objects),
+and every write is atomic (temp file + rename) and verified =read=-able
+before it is committed — so the package does not itself produce an
+unreadable file.
 
 ** State format is pre-alpha
 
