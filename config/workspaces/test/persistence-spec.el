@@ -201,6 +201,76 @@
           (delete-directory home-a t)
           (delete-directory home-b t))))))
 
+(describe "workspace-restore home-builder fallback (no saved layout)"
+  ;; Delta scenario "Restore a workspace with no saved layout opens
+  ;; home.org": a recovered/registry-only workspace whose layout-groups
+  ;; carry no effective state must materialize via the home builder, NOT
+  ;; via the layout-applying frameset path (design.md §D3).
+  (before-each (persistence-spec--reset))
+  (after-each (persistence-spec--cleanup))
+
+  (it "runs the home builder and attempts no window-state-put"
+    (persistence-spec--with-state-file
+      ;; Real scaffold pipeline (scaffold is stubbed to mkdir) registers
+      ;; alpha and gives it a default "home" layout group.  Strip the
+      ;; layout groups to simulate a layout-less recovered workspace.
+      (workspace-new "alpha")
+      (let ((ws (gethash "alpha" workspace--registry)))
+        ;; Mirror the spec's `:layout-groups is nil' precondition; also
+        ;; drop the recent-group pointer so no effective state survives.
+        (puthash "alpha"
+                 (workspace--set-recent-group
+                  (plist-put (copy-sequence ws) :layout-groups nil) nil)
+                 workspace--registry))
+      ;; Remove alpha's live tab so workspace-restore takes the create
+      ;; branch rather than switching to the existing tab.
+      (when-let ((idx (workspace--tab-index-for "alpha")))
+        (tab-bar-close-tab idx))
+      (expect (workspace--tab-index-for "alpha") :to-be nil)
+      ;; Sanity: no effective layout state remains.
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (recent (workspace--recent-group ws))
+             (group (and recent (workspace--find-group ws recent)))
+             (layout (and group (workspace--group-recent-layout group))))
+        (expect (and layout (workspace--layout-effective-state layout))
+                :to-be nil))
+      (spy-on 'workspace-default-home-builder)
+      (spy-on 'workspace--restore-frameset)
+      (spy-on 'window-state-put)
+      (let ((workspace-home-builder #'workspace-default-home-builder))
+        (workspace-restore "alpha"))
+      ;; A tab for alpha was created+selected.
+      (expect (workspace--tab-index-for "alpha") :not :to-be nil)
+      ;; The home builder ran with the workspace name; the saved-layout
+      ;; path (frameset restore → deferred window-state-put) did not.
+      (expect 'workspace-default-home-builder :to-have-been-called-with "alpha")
+      (expect 'workspace--restore-frameset :not :to-have-been-called)
+      (expect 'window-state-put :not :to-have-been-called)))
+
+  (it "still applies the saved layout when one exists (branch not inverted)"
+    (persistence-spec--with-state-file
+      ;; alpha WITH a saved layout must go through the layout-applying
+      ;; path, never the home builder — guards against the if/else
+      ;; inverting.
+      (workspace-new "alpha")
+      (workspace-save)
+      (let* ((ws (gethash "alpha" workspace--registry))
+             (recent (workspace--recent-group ws))
+             (group (and recent (workspace--find-group ws recent)))
+             (layout (and group (workspace--group-recent-layout group))))
+        ;; Precondition: an effective layout state is present.
+        (expect (and layout (workspace--layout-effective-state layout))
+                :not :to-be nil))
+      (when-let ((idx (workspace--tab-index-for "alpha")))
+        (tab-bar-close-tab idx))
+      (expect (workspace--tab-index-for "alpha") :to-be nil)
+      (spy-on 'workspace--apply-saved-layout)
+      (spy-on 'workspace-default-home-builder)
+      (let ((workspace-home-builder #'workspace-default-home-builder))
+        (workspace-restore "alpha"))
+      (expect 'workspace--apply-saved-layout :to-have-been-called-with "alpha")
+      (expect 'workspace-default-home-builder :not :to-have-been-called))))
+
 (describe "workspace-save-state debouncing"
   (before-each (persistence-spec--reset))
   (after-each (persistence-spec--cleanup))
