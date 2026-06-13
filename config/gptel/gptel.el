@@ -194,17 +194,19 @@ Run this after preset registration to inject skill content into presets."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
+;; Load workspace integration (gptel-side consumer of the workspace
+;; integration registry; depends on `jf/gptel--create-session-core' /
+;; `jf/gptel--generate-session-id' from commands.el / filesystem.el).
+;; Registration is wrapped in `with-eval-after-load 'workspaces' so it
+;; is load-order-independent and inert when workspaces is absent.
+(jf/load-module (expand-file-name "config/gptel/sessions/workspace-integration.el" jf/emacs-dir))
+
 ;; Load PersistentAgent tool (requires session modules + commands to be loaded first;
 ;; depends on `jf/gptel--create-session-core' from sessions/commands.el)
 (jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
 
 ;; Load scope-aware filesystem tools (read_file_in_scope, write_file_in_scope, edit_file_in_scope)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
-
-;; Load activities integration (optional - only if activities package is loaded)
-;; Enables creating persistent gptel sessions as part of activity creation
-(when (featurep 'activities)
-  (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
 
 ;; Drawer corruption trace — standalone diagnostic for the property
 ;; drawer stacking bug. Commented out to rule out trace hooks as a

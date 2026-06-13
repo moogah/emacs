@@ -764,6 +764,760 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** workspace-buffer-struct
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-workspace-buffer-struct
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/workspace-buffer-struct
+   tier: shape
+   status: reconciled
+   status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task serialize-window-
+     params-readable): the =:bookmark= slot is now SCRUBBED at capture by
+     =workspace--serialize-buffer= → =workspace--scrub-bookmark-record=,
+     which nulls any record-prop VALUE satisfying
+     =workspace--unreadable-object-p= (buffer/marker/overlay/frame/window/
+     process/non-symbol-fn) while preserving keys. Slot type unchanged
+     (bookmark-record | nil); this only guarantees the record is read-able
+     (closes the bug#56643 class: a mode embedding an unreadable object in
+     its bookmark record). The file/name fallback in
+     register/vocabulary/buffer-reincarnation-fallback-chain still covers
+     a nulled-bookmark buffer. why_tests_missed: no prior test serialized
+     a record with an embedded live object; new serialization-robustness-
+     spec.el scenario (f) now does. See .orchestrator/cycles/cycle-
+     20260613-161149/reconciliations/shape-workspace-buffer-struct.md.
+
+     cycle-20260524-200631 integrate (2026-05-24): producer/consumer
+     function names updated to match shipped code
+     (workspace--serialize-buffer / workspace--deserialize-buffer /
+     workspace--bookmark-buffer / workspace--error-buffer /
+     workspace--window-state-{serialize,deserialize}); required_keys /
+     optional_keys / validator unchanged. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/shape-workspace-buffer-struct.md.
+   load_bearing: true
+   title: workspace-buffer cl-defstruct embedded in each window-state leaf's parameters
+   purpose: |
+     The cl-defstruct carried in the =parameters= slot of every leaf in a
+     saved window-state. The capture-side walker (workspace--capture-frameset)
+     constructs it from the live buffer; the restore-side walker
+     (workspace--restore-frameset) consumes it and reincarnates the buffer
+     via the four-step fallback chain (see register/vocabulary/buffer-
+     reincarnation-fallback-chain and register/boundary/buffer-reincarnation-
+     pipeline). The struct is the unit of "what was in this window slot at
+     save time" — it replaces the v1 implicit "buffer-name in window-state"
+     contract.
+
+   required_keys:
+     - name: bookmark
+       type: bookmark-record | nil
+       description: |
+         Result of (bookmark-make-record) on the live buffer at save time.
+         Nil when the buffer's major mode does not register a
+         bookmark-make-record-function (rare; most modes inherit a default).
+         When non-nil, it is the primary reincarnation source — it preserves
+         point, narrowing, and major-mode-specific state, and works for
+         non-file buffers (magit-status, eshell, *Messages*).
+     - name: filename
+       type: string | nil
+       description: |
+         The file path for file-backed buffers; nil otherwise. The
+         second fallback when the bookmark restore errors or returns no
+         buffer (e.g. help-mode bug#56643).
+     - name: name
+       type: string
+       description: |
+         The buffer-name string at save time. The third fallback, only
+         hit when neither bookmark nor filename yields a buffer but a
+         live buffer of the same name happens to exist in the session.
+     - name: narrowed-p
+       type: boolean
+       description: |
+         Recorded for diagnostic / future-use. Narrowing itself is
+         carried by the bookmark record; this flag lets the restore path
+         emit an error-buffer note when narrowing was expected but the
+         bookmark restore did not restore it.
+     - name: indirect-p
+       type: boolean
+       description: |
+         Whether the saved buffer was an indirect (base-buffer) buffer.
+         Indirect buffers cannot be re-created from a bookmark; the flag
+         exists so the restorer can short-circuit to the error-buffer
+         step when it would otherwise restore the base buffer.
+
+   optional_keys:
+     - name: local-variables
+       type: alist | nil
+       description: |
+         Reserved for the buffer-local-variables capture extension
+         (D7 non-goal). Always nil in v2; consumers must tolerate nil.
+     - name: etc
+       type: alist | nil
+       description: |
+         Forward-compat alist for per-leaf metadata that does not
+         warrant a struct field. Matches activities-activity-state-etc.
+
+   producers:
+     - file: config/workspaces/layouts.org
+       function: workspace--capture-frameset (replaces v1 frameset-save path)
+     - file: config/workspaces/layouts.org
+       function: workspace--capture-leaf (new; one workspace-buffer per leaf)
+
+   consumers:
+     - file: config/workspaces/layouts.org
+       function: workspace--restore-frameset
+       reads_keys: [bookmark, filename, name, narrowed-p, indirect-p]
+     - file: config/workspaces/layouts.org
+       function: workspace--restore-leaf
+       reads_keys: [bookmark, filename, name]
+
+   validator: |
+     (defun shape/validate-workspace-buffer (val)
+       "Returns nil on success; error symbol otherwise."
+       (cond ((not (workspace-buffer-p val)) 'not-a-workspace-buffer)
+             ((not (or (null (workspace-buffer-bookmark val))
+                       (consp (workspace-buffer-bookmark val))))
+              'bookmark-not-record-shaped)
+             ((not (or (null (workspace-buffer-filename val))
+                       (stringp (workspace-buffer-filename val))))
+              'filename-not-string-or-nil)
+             ((not (stringp (workspace-buffer-name val))) 'name-not-string)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { bookmark: '(("foo.el" (filename . "/p/foo.el") (position . 234)))',
+           filename: "/p/foo.el", name: "foo.el",
+           narrowed-p: false, indirect-p: false }
+       - { bookmark: nil, filename: nil, name: "*scratch*",
+           narrowed-p: false, indirect-p: false }
+     invalid:
+       - { bookmark: nil, filename: nil, name: nil }   # name required
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   #+end_src
+
+** layout-v2-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-layout-v2-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/layout-v2-plist
+   tier: shape
+   status: reconciled
+   status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task serialize-window-
+     params-readable): the window-state stored in =:saved-state= /
+     =:working-state= is now READABLE BY CONSTRUCTION. Buffer-bearing
+     window parameters are run through
+     =workspace-window-parameter-translators= in
+     =workspace--window-state-serialize= (and reversed in
+     =-deserialize=, with per-param =condition-case-unless-debug=
+     drop-on-fail). Seeded with =window-preserved-size=: its
+     =(BUFFER DIR SIZE)= value is serialized with the buffer's NAME
+     (readable) and rehydrated via =get-buffer=. This fixes the root
+     cause of the =#<killed buffer>= corruption (window-state-get's
+     =writable= flag emits writable-param VALUES verbatim and does NOT
+     sanitize an embedded buffer object). No required/forbidden key
+     change — the slot values are merely guaranteed read-able.
+     why_tests_missed: no prior test captured a killed buffer referenced
+     by window-preserved-size; serialization-robustness-spec.el scenario
+     (a) now does (teeth-confirmed). See .orchestrator/cycles/cycle-
+     20260613-161149/reconciliations/shape-layout-v2-plist.md.
+
+     cycle-20260524-200631 integrate (2026-05-24): required_keys /
+     forbidden_keys exact-match shipped plist; added
+     producer_fragmentation_note for the latent :etc-divergence between
+     workspace-save (copy-and-mutate) and workspace-save-layout /
+     workspace--capture-home-layout (fresh layout-make + upsert). Latent
+     today (:etc universally nil per design.md §D7); follow-up task at
+     integrate. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/shape-layout-v2-plist.md.
+
+     cycle-20260525-082618 integrate (2026-05-25): producer fragmentation
+     RESOLVED. Cycle-2 unify-layout-construction-paths (commit 4d1afee →
+     merged in df89ce2) funnels workspace-save-layout and workspace--
+     capture-home-layout through workspace--autosave-current-layout
+     :saved-state. workspace--layout-make is now called only from within
+     the canonical helper; the three explicit-save variants share one
+     construction path and :etc preservation is uniform. Two follow-up
+     items captured in .tasks/: a re-save :working-state regression
+     test and a workspace--explicit-save-into-group helper extraction.
+     See
+     .orchestrator/cycles/cycle-20260525-082618/reconciliations/shape-layout-v2-plist.md.
+   load_bearing: true
+   title: Two-state layout plist (schema v2)
+   purpose: |
+     The layout shape stored under each workspace's layout-group. Replaces
+     the v1 single-frameset plist (=(:timestamp T :frameset W :git-state G)=)
+     with a two-slot shape that separates explicit-save state from
+     autosave drift, plus a forward-compat =:etc= slot. Restore precedence
+     is encoded in =workspace--layout-effective-state=: =:working-state=
+     wins when non-nil, else =:saved-state=. The shape's invariants
+     (autosave never writes :saved-state; explicit save clears
+     :working-state) live as separate invariant entries.
+
+   required_keys:
+     - name: ":timestamp"
+       type: time-list
+       description: Wall-clock time of the most recent write to this layout.
+     - name: ":saved-state"
+       type: window-state | nil
+       description: |
+         The window-state produced by =window-state-get= on the live
+         frame at workspace-save time (or by workspace-save-layout,
+         workspace-switch-layout, or workspace-new's home stamp). The
+         authoritative across-restart state. Each leaf carries a
+         workspace-buffer in its parameters slot (see register/shape/
+         workspace-buffer-struct).
+     - name: ":working-state"
+       type: window-state | nil
+       description: |
+         The window-state produced by an autosave path (tab-switch
+         advice, idle timer, kill-emacs-hook). May be nil. When
+         non-nil, it is preferred by =workspace--layout-effective-state=
+         on restore. Cleared to nil by every explicit =workspace-save=.
+     - name: ":etc"
+       type: alist | nil
+       description: |
+         Forward-compat alist; replaces the v1 single-purpose
+         =:git-state= placeholder. Consumers must tolerate nil and
+         must tolerate unknown keys.
+
+   forbidden_keys:
+     - name: ":frameset"
+       reason: |
+         v1 key. Removed in v2; reader rejects non-v2 files with an
+         *Messages* notice. Any (plist-get layout :frameset) read in
+         implementation code is a divergence signal.
+     - name: ":git-state"
+       reason: |
+         v1 placeholder. Replaced by :etc. Any read is a divergence
+         signal.
+
+   producers:
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-make (constructs the plist)
+       note: |
+         Post-cycle-2 unify-layout-construction-paths: called ONLY from
+         workspace--autosave-current-layout's cond `t` arm. Not called
+         from any user-facing save command directly.
+     - file: config/workspaces/layouts.org
+       function: workspace--autosave-current-layout
+       note: |
+         The canonical construction point. Three call sites flow into
+         it as :saved-state producers (workspace-save, workspace-save-
+         layout, workspace--capture-home-layout); four as :working-
+         state producers (the four stage-1 autosave entry points of
+         register/boundary/autosave-guard-pipeline).
+   canonical_producer: workspace--autosave-current-layout
+
+   consumers:
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-saved-state (accessor)
+       reads_keys: [":saved-state"]
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-working-state (accessor)
+       reads_keys: [":working-state"]
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-effective-state (precedence: working over saved)
+       reads_keys: [":saved-state", ":working-state"]
+     - file: config/workspaces/persistence.org
+       function: workspace--apply-saved-layout (calls effective-state)
+       reads_keys: [":saved-state", ":working-state"]
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state (serializes the full plist)
+
+   validator: |
+     (defun shape/validate-layout-v2-plist (val)
+       "Returns nil on success; error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((plist-member val :frameset) 'forbidden-v1-frameset)
+             ((plist-member val :git-state) 'forbidden-v1-git-state)
+             ((not (plist-member val :saved-state)) 'missing-saved-state)
+             ((not (plist-member val :working-state)) 'missing-working-state)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { :timestamp: "...", :saved-state: "<window-state>",
+           :working-state: nil, :etc: nil }
+       - { :timestamp: "...", :saved-state: "<S>",
+           :working-state: "<W>", :etc: nil }
+     invalid:
+       - { :timestamp: "...", :frameset: "<W>" }   # v1 shape; rejected
+
+   related_entries:
+     - register/vocabulary/workspace-state-slot
+     - register/invariant/restore-precedence-working-over-saved
+     - register/invariant/explicit-save-clears-working-state
+     - register/invariant/autosave-never-writes-saved-state
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   #+end_src
+
+** workspace-plist-v3
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-workspace-plist-v3
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/workspace-plist-v3
+   tier: shape
+   status: reconciled
+   status_note: |
+     cycle-20260613-150904 integrate (2026-06-13, task registry-hydrate-
+     only-startup): the =:restore-pending= optional runtime-tag was
+     REMOVED from this shape. prior_form: optional_keys = {:broken,
+     :restore-pending}; new_form: optional_keys = {:broken} only. The
+     lazy-frameset-restoration path that set/read it (startup
+     =workspace--restore-tabs= + the =:after= tab-switch advice
+     =workspace--persistence-after-tab-switch= → =workspace--activate-
+     pending-workspace=) was removed in full (design.md §D1/§D2); startup
+     now hydrates the registry without creating tabs. The persisted-slot
+     whitelist (:name :home :recent-layout-group :buffer-files
+     :layout-groups) and the =:broken= runtime tag are UNCHANGED.
+     why_tests_missed: N/A — planned vocabulary contraction, not a test
+     gap; the persisted slots were always correct and stay covered, and
+     the deserialize/serialize round-trip + no-startup-tabs specs are
+     green (config/workspaces, 334/0). See
+     .orchestrator/cycles/cycle-20260613-150904/reconciliations/shape-workspace-plist-v3.md.
+
+     2026-06-06 manual review (reconcile-home-canonical-form-deserialiser-
+     promise): resolved the converged advisory finding (on-touch architect
+     arch-cycle-20260528-180230-on-touch-canonicalize + reviewer F2) via
+     Option A. The :home canonical_form sub-field, the deserialiser
+     producer note, and the validator-block comment previously PROMISED
+     that a non-canonical persisted :home would "surface in *Messages*",
+     but the deserialiser (config/workspaces/persistence.el:94-114) only
+     notices missing/non-string and non-absolute :home — a non-canonical-
+     but-absolute hand-edited path loads verbatim and silently. Prose now
+     describes the actual behaviour: canonical_form is an IN-SESSION
+     guarantee (workspace--make / workspace--set-home); the persistence
+     loader deliberately preserves :home verbatim and the home-not-
+     canonical validator clause is documentation-only, not a load-time
+     check. No code change (verbatim-preservation is intentional and
+     Option B would collide with broken-tag-runtime-only). The same
+     canonical_form-silence shape recurs at spec.md, externalised to
+     .tasks/refresh-workspaces-spec-md-v3-schema-and-canonical-form.
+
+     cycle-5 task canonicalize-workspace-home-path-form (cycle-20260528-
+     180230): proposes reconciled-recommended. Closes cycle-4 reviewer
+     Finding 1 on workspace-new-anchor-existing (representational
+     asymmetry on :home between the three known producers) and absorbs
+     architect arch-cycle-20260526-191802-02 (multi-slot canonical_form
+     extended frame).
+
+     The shape entry is extended with a canonical_form sub-field for
+     every string-typed slot (:name, :home, :buffer-files); the
+     :home pin is enforced structurally at workspace--make (and at
+     workspace--set-home, the post-construction sibling reached by
+     workspace-re-anchor). The validator block now asserts the :home
+     canonical form. The :name canonical form (exact basename of :home,
+     case-sensitive) is the existing de-facto invariant pinned by
+     register/invariant/registry-name-equals-basename. The :buffer-files
+     element form (each absolute, expand-file-name applied) is pinned
+     as documentation of the de-facto behavior; no consumer cross-
+     workspace-equality-compares :buffer-files today so this is a
+     latent-class pin awaiting either a buffer-membership-equality
+     consumer or a constructor-side enforcement pass.
+
+     Integrate-phase architect: please review the new canonical_form
+     fields, particularly whether the :buffer-files pin should be
+     structurally enforced (e.g. via workspace--add-buffer-file) in a
+     follow-up cycle or stay documentation-only.
+
+     Prior status_note (cycle-20260526-171719 integrate, 2026-05-26):
+     reconciled. Cycle-3 added the missing setter-helper sibling:
+     =workspace--set-name= joins =workspace--set-home= in data-model.el
+     (inline-fix c6c1b22 after reviewer F1 on broken-home-tolerance
+     flagged the asymmetry as the root cause of the BLOCKING
+     registry-name-equals-basename violation). Accessor-pair completeness
+     is now structural: every mutable slot has a setter helper. The
+     lockstep constraint with register/invariant/registry-name-equals-
+     basename is enforced at workspace-re-anchor's rename branch via the
+     workspace--clear-broken ∘ workspace--set-name ∘ workspace--set-home
+     chain. See
+     .orchestrator/cycles/cycle-20260526-171719/reconciliations/shape-workspace-plist-v3.md.
+
+     Prior status_note (cycle-20260525-200459 integrate, 2026-05-25):
+     speculation matched implementation. Cycle-1 add-home-slot-to-data-model
+     task introduced workspace--make(name home), accessors workspace--home /
+     workspace--set-home, and the :broken runtime tag with three helpers
+     (workspace--broken-p / workspace--mark-broken / workspace--clear-broken).
+     The wire-home-into-callsites mid-cycle follow-up closed the 76-failure
+     cascade so the contract is bearable across the full test suite.
+     Validator's name-not-basename-of-home check holds at the canonical
+     caller (synthesizes name from basename(home)). Cycle-3 sharp-edge
+     captured: workspace--set-home alone is insufficient for re-anchor's
+     rekey dance; absorbed into cycle-3 broken-home-tolerance refinement
+     (and the inline-fix above).
+   load_bearing: true
+   title: Top-level workspace plist (post-:home extension)
+   purpose: |
+     The plist held in =workspace--registry= under each workspace's
+     registry-name key. v2 (pre-change) carries =:name=,
+     =:recent-layout-group=, =:buffer-files=, =:layout-groups=. v3
+     adds a required =:home= (absolute filesystem path) and a
+     runtime-only =:broken= tag (set by the deserializer when
+     =:home= no longer exists on disk; NEVER serialized back to
+     disk). The =:home= addition is structural — it carries the new
+     filesystem-anchoring identity that every downstream module
+     (scaffold, persistence, tabs, gptel-sessions consult, delete/
+     purge, broken-state handling) reads. The basename of =:home=
+     is the workspace's registry-name; pinning this in the validator
+     prevents the registry from drifting out of sync with the
+     filesystem anchor.
+
+   required_keys:
+     - name: ":name"
+       type: string
+       description: |
+         The workspace's registry-name. MUST equal
+         =(file-name-nondirectory (directory-file-name :home))=.
+         Used as the =workspace--registry= hash key, the
+         =tab-bar-tab-name= for the workspace's tab, and the key in
+         the persistence file. Display name (mode-line, prompts) MAY
+         differ — see =workspace-home-org-title= override and the
+         =home-org-user-authored-after-creation= invariant.
+       canonical_form: |
+         Exact =basename(:home)= (i.e. =(file-name-nondirectory
+         (directory-file-name :home))=); case-sensitive; no
+         whitespace canonicalisation. The de-facto contract since
+         cycle-1; pinned by =register/invariant/registry-name-
+         equals-basename=. Constructor-side enforcement is at the
+         canonical call site (synthesises NAME from
+         basename(HOME)); the data layer does not re-derive on
+         construction.
+     - name: ":home"
+       type: string (absolute filesystem path)
+       description: |
+         The workspace's home directory. Absolute path. Required —
+         a workspace without =:home= cannot be constructed
+         (=workspace--make= signature requires it) and is rejected
+         by the deserializer with a =*Messages*= notice. The
+         directory's contents are the cross-machine portable
+         carrier for the workspace (=home.org=, =sessions/=, =.git=);
+         see =register/shape/home-directory-layout= (cycle-2
+         candidate). NOT optional: pre-alpha floating-workspace
+         support is removed in this change.
+       canonical_form: |
+         Absolute path; trailing slash present; =expand-file-name=
+         applied (tilde and relative prefixes resolved against
+         =default-directory=); no double-slashes (=expand-file-name=
+         collapses internal =//=); symlinks NOT resolved (preserve
+         the user's resolution choice). Pinned at =workspace--make=
+         and =workspace--set-home= via
+         =(file-name-as-directory (expand-file-name HOME))=
+         (cycle-5 task =canonicalize-workspace-home-path-form=).
+         All three in-session producers reach :home through one of
+         these two attachment points: =workspace--new-default-path=
+         and =workspace--new-anchor-existing= via =workspace--make=,
+         =workspace-re-anchor= via =workspace--set-home=. This
+         canonical_form is therefore guaranteed only for plists
+         constructed in-session (or read from a file an in-session
+         producer wrote).
+
+         The persistence-loader path is the deliberate exception:
+         it bypasses both attachment points and preserves =:home=
+         VERBATIM on read. It does NOT re-canonicalise, and it does
+         NOT reject or emit a notice for a non-canonical-but-absolute
+         persisted path (e.g. a hand-edited =:home= with no trailing
+         slash, or an un-expanded =~=). Such a value loads as-is.
+         Only =:home= that is missing/non-string or non-absolute is
+         rejected with a =*Messages*= notice (see the deserialiser
+         producer note below). Verbatim-preservation is intentional:
+         silently rewriting a user's persistence file would mask the
+         drift rather than surface it, and the value the constructor
+         next touches (re-anchor, set-home) re-canonicalises anyway.
+         The =home-not-canonical= validator clause below therefore
+         describes the IN-SESSION shape contract, not a load-time
+         check.
+     - name: ":recent-layout-group"
+       type: string | nil
+       description: |
+         Unchanged from v2. The name of the layout-group most
+         recently activated for this workspace; nil if none.
+       canonical_form: |
+         Non-path; no canonicalisation. The value is a layout-group
+         name (matched by =equal= against
+         =(workspace--group-name g)=); whitespace and case are
+         preserved as user-supplied.
+     - name: ":buffer-files"
+       type: list of strings | nil
+       description: |
+         Unchanged from v2. The workspace's buffer membership
+         (filenames). Reincarnation handled separately per
+         =register/shape/workspace-buffer-struct=.
+       canonical_form: |
+         Each element is an absolute path with =expand-file-name=
+         applied; symlinks NOT resolved. De-facto form across all
+         existing producers (=workspace--add-buffer-file= forwards
+         the caller's path unchanged; callers in
+         =buffer-membership.org= compute via =expand-file-name= or
+         =buffer-file-name=). Documentation-only pin as of cycle-5;
+         no consumer cross-workspace-equality-compares
+         =:buffer-files= today, so the form is latent-class. A
+         future cross-workspace membership query would surface
+         drift here; the architect-recommended structural pin is
+         to canonicalise inside =workspace--add-buffer-file= when
+         that consumer lands (cycle-5
+         architect-extended-frame deferred follow-up).
+     - name: ":layout-groups"
+       type: alist (name . layout-group) | nil
+       description: |
+         Unchanged from v2. The workspace's layout-groups, each
+         carrying v2 two-state layouts per
+         =register/shape/layout-v2-plist=.
+
+   optional_keys:
+     - name: ":broken"
+       type: t | nil
+       description: |
+         Runtime-only tag set by =persistence.org=
+         (=workspace--persistence-deserialize-workspace=) when the
+         workspace's =:home= is not a directory at load time.
+         Activation paths (=workspace-switch=, =workspace-restore=)
+         consult =workspace--broken-p= and signal =user-error= when
+         set. NEVER written to disk — the serializer filters this
+         key. Mutations route through =workspace--mark-broken= and
+         =workspace--clear-broken= per cycle-1's
+         =arch-cycle-20260525-200459-2= finding (no inline
+         =plist-put=). The =broken-home-no-auto-recreate= invariant
+         pins the "log and tag, never recreate" semantics.
+
+   forbidden_keys: []
+
+   producers:
+     - file: config/workspaces/data-model.org
+       function: workspace--make
+       note: |
+         The canonical constructor. Signature changes from
+         =(workspace--make name)= to =(workspace--make name home)=
+         in task =add-home-slot-to-data-model=. As of cycle-5 task
+         =canonicalize-workspace-home-path-form=, =workspace--make=
+         is the canonical :home canonicalisation choke-point:
+         =HOME= is wrapped via
+         =(file-name-as-directory (expand-file-name HOME))= so
+         the registered plist always carries the canonical form
+         pinned in the =:home= =canonical_form= sub-field above.
+     - file: config/workspaces/data-model.org
+       function: workspace--set-home
+       note: |
+         Post-construction :home producer. Reached by
+         =workspace-re-anchor= (cycle-3 third call-site enumerated
+         by architect =arch-cycle-20260526-191802-02=).
+         Canonicalises identically to =workspace--make= so the
+         shape invariant holds through re-anchor.
+     - file: config/workspaces/persistence.org
+       function: workspace--persistence-deserialize-workspace
+       note: |
+         Reconstructs from disk. Rejects (notice + continue) entries
+         whose =:home= is missing/non-string or non-absolute. Tags
+         entries whose =:home= directory does not exist on disk with
+         =:broken t= (also with a notice). Otherwise preserves
+         =:home= VERBATIM from the on-disk form — does NOT
+         re-canonicalise and does NOT notice/reject a non-canonical-
+         but-absolute path (e.g. missing trailing slash, un-expanded
+         =~=); such a value is loaded as-is. This is the deliberate
+         persistence-boundary exception to the =:home=
+         =canonical_form= pin: the loader never rewrites a user's
+         file. A file written by the cycle-5 constructor-side
+         canonicalisation is already canonical on read, so the
+         exception only matters for hand-edited files.
+   canonical_producer: workspace--make
+
+   consumers:
+     - file: config/workspaces/data-model.org
+       function: workspace--name (accessor)
+       reads_keys: [":name"]
+     - file: config/workspaces/data-model.org
+       function: workspace--set-name (setter — added cycle-3 via inline-fix c6c1b22)
+       writes_keys: [":name"]
+       note: |
+         Sibling to workspace--set-home. Lockstep partner at
+         workspace-re-anchor's rename branch per
+         register/invariant/registry-name-equals-basename.
+     - file: config/workspaces/data-model.org
+       function: workspace--home (NEW accessor — this change)
+       reads_keys: [":home"]
+     - file: config/workspaces/data-model.org
+       function: workspace--broken-p (NEW predicate — this change)
+       reads_keys: [":broken"]
+     - file: config/workspaces/data-model.org
+       function: workspace--recent-group (accessor)
+       reads_keys: [":recent-layout-group"]
+     - file: config/workspaces/data-model.org
+       function: workspace--buffer-files (accessor)
+       reads_keys: [":buffer-files"]
+     - file: config/workspaces/data-model.org
+       function: workspace--layout-groups (accessor)
+       reads_keys: [":layout-groups"]
+     - file: config/workspaces/persistence.org
+       function: workspace--persistence-serialize-workspace
+       note: |
+         Writes the plist to disk MINUS the =:broken= tag. See the
+         =broken-home-no-auto-recreate= invariant for the
+         filter-on-write contract.
+     - file: config/workspaces/tabs.org
+       function: workspace-new (default scaffold branch + anchor branch)
+       note: |
+         Wraps =workspace--make= with the scaffolded =HOME=. Cycle-2
+         tasks =workspace-new-default-path= and
+         =workspace-new-anchor-existing=.
+     - file: config/workspaces/scaffold.org (NEW module — cycle-2)
+       function: workspace-scaffold
+       note: |
+         Produces the HOME directory; calls =workspace--make= to
+         register the resulting workspace. Cycle-2 task
+         =scaffold-module=.
+     - file: config/workspaces/workspaces.org
+       function: workspace-sessions-dir (NEW — cycle-2)
+       reads_keys: [":home"]
+       note: |
+         Reads =:home= to compute =<HOME>/sessions/= for the gptel
+         consult. Cycle-2 task =gptel-sessions-workspace-consult=.
+
+   validator: |
+     ;; Shape-tier opted out of scaffolding per overlay
+     ;; (scaffolding.tiers defaults to [invariant, vocabulary,
+     ;; boundary]); the validator lives here as YAML rather than as
+     ;; a scaffolded file. Promote to a scaffold if a second
+     ;; producer turns up during execute.
+     ;;
+     ;; The :home canonical-form check (home-not-canonical) is the
+     ;; cycle-5 addition closing reviewer Finding 1 on cycle-4's
+     ;; workspace-new-anchor-existing. Constructor-side
+     ;; canonicalisation in workspace--make / workspace--set-home
+     ;; means an in-session workspace that fails this check has
+     ;; bypassed both attachment points — a structural-drift signal.
+     ;;
+     ;; SCOPE: this validator describes the IN-SESSION shape contract.
+     ;; It is documentation-only (no production caller) and is NOT run
+     ;; by the persistence deserialiser, which deliberately preserves
+     ;; :home verbatim (see the :home canonical_form note and the
+     ;; deserialiser producer note above). A hand-edited persistence
+     ;; file carrying a non-canonical-but-absolute :home loads as-is
+     ;; with no notice; home-not-canonical would flag it only if some
+     ;; future caller chose to validate a deserialised plist against
+     ;; this shape — the deserialiser intentionally does not.
+     (defun shape/validate-workspace-plist-v3 (ws)
+       "Returns nil on success; error symbol otherwise."
+       (cond ((not (plistp ws)) 'not-a-plist)
+             ((not (stringp (plist-get ws :name))) 'missing-name)
+             ((not (stringp (plist-get ws :home))) 'missing-home)
+             ((not (file-name-absolute-p (plist-get ws :home)))
+              'home-not-absolute)
+             ;; :home canonical-form check (cycle-5
+             ;; canonicalize-workspace-home-path-form): the
+             ;; constructor pins
+             ;; (file-name-as-directory (expand-file-name HOME)).
+             ;; A :home that differs from that form has bypassed
+             ;; workspace--make and workspace--set-home — surface as
+             ;; a distinct error symbol so audits can tell apart
+             ;; "missing :home" from "non-canonical :home".
+             ((not (equal (plist-get ws :home)
+                          (file-name-as-directory
+                           (expand-file-name (plist-get ws :home)))))
+              'home-not-canonical)
+             ((not (equal (plist-get ws :name)
+                          (file-name-nondirectory
+                           (directory-file-name (plist-get ws :home)))))
+              'name-not-basename-of-home)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { :name: "myproj", :home: "/Users/jefffarr/emacs-workspaces/myproj/",
+           :recent-layout-group: nil, :buffer-files: nil, :layout-groups: nil }
+       - { :name: "myproj", :home: "/Users/jefffarr/emacs-workspaces/myproj/",
+           :broken: t, :recent-layout-group: nil, :buffer-files: nil,
+           :layout-groups: nil }
+     invalid:
+       - { :name: "myproj" }                        # missing :home (floating)
+       - { :name: "myproj", :home: "relative/path" } # :home not absolute
+       - { :name: "alpha", :home: "/Users/jefffarr/emacs-workspaces/beta/" }
+                                                    # name ≠ basename(:home)
+       - { :name: "myproj", :home: "/Users/jefffarr/emacs-workspaces/myproj" }
+                                                    # :home not canonical (no trailing slash)
+       - { :name: "myproj", :home: "~/emacs-workspaces/myproj/" }
+                                                    # :home not canonical (tilde not expanded)
+
+   related_entries:
+     - register/invariant/home-required-no-floating-workspaces
+     - register/invariant/registry-name-equals-basename
+     - register/invariant/broken-home-no-auto-recreate  # cycle-2+ entry
+     - register/vocabulary/workspace-broken-disposition
+     - register/shape/layout-v2-plist
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   #+end_src
+
+** workspace-integration-anchor-payload
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-workspace-integration-anchor-payload
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/workspace-integration-anchor-payload
+   tier: shape
+   status: confirmed
+   status_note: |
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     created CONFIRMED from the merged shape in
+     =config/workspaces/integrations.el= (=workspace--integration-payload=).
+     Realised verbatim by every consumer; clean reviews.
+   load_bearing: false
+   title: integration anchor payload (the plist pushed to every handler)
+   purpose: |
+     The flat, extensible plist workspaces PUSHES to each integration
+     handler (both the creation-dispatch site and the transient's menu
+     commands). One private constructor =workspace--integration-payload
+     NAME HOME CONTEXT= is the single source of the shape, so push sites
+     never diverge. A plist (not a cl-defstruct) keeps it open for the
+     deferred β creation-flow keys (e.g. =:integration-choices=) without
+     a struct redefinition.
+   keys:
+     required:
+       - key: ":name"
+         type: string
+         note: the workspace name (registry basename).
+       - key: ":home"
+         type: string (absolute path)
+         note: the workspace home dir; handlers use it as project-root for scoping.
+       - key: ":sessions-dir"
+         type: string (absolute path)
+         note: =(workspace--sessions-dir home)= — derived via the canonical
+               helper, never duplicated. Where a session integration files output.
+       - key: ":context"
+         type: symbol
+         note: one of =register/vocabulary/workspace-creation-context= members
+               (=fresh= / =anchored-scaffolded= / =anchored-existing= at birth;
+               =menu-invoke= from the transient). Handlers branch on it
+               (gptel skips =anchored-existing=).
+     optional_future:
+       - key: ":integration-choices"
+         note: reserved for the deferred β interactive-creation flow; not built.
+   constructed_by:
+     file: config/workspaces/integrations.org
+     function: workspace--integration-payload
+   consumed_by:
+     - config/gptel/sessions/workspace-integration.org (jf/gptel--workspace-on-create / -add-session)
+   related_entries:
+     - register/boundary/workspace-integration-registry
+     - register/vocabulary/workspace-creation-context
+   cited_by_tasks:
+     - integration-registry-core
+     - gptel-session-integration
+   discovered_from: workspace-integration-menu
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -1092,12 +1846,553 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** workspace-state-slot
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-workspace-state-slot
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/workspace-state-slot
+   tier: vocabulary
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24):
+     canonical_mapping_function workspace--slot-for-trigger NOT adopted;
+     routing is caller-side keyword (literal :saved-state / :working-state
+     at each of 5 call sites). Closed-set enforcement landed via
+     workspace--state-slot-p predicate at
+     workspace--autosave-current-layout entry (inline-fix commit b70a5b4).
+     Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/vocabulary-workspace-state-slot.md.
+   load_bearing: true
+   title: Workspace layout state-slot vocabulary and trigger → slot routing
+   purpose: |
+     The closed set of slots that hold a window-state on a v2 layout,
+     plus the canonical mapping from "what triggered this write" to
+     "which slot gets written". The motivating failure (v1 MVP gap D8):
+     re-introducing tab-switch advice in v1 wrote to the single
+     :frameset slot and clobbered explicit saves. With two slots and a
+     fixed trigger → slot map, the clobber is structurally impossible.
+     Mis-mapping a trigger (e.g. writing an autosave to :saved-state)
+     is the load-bearing failure mode.
+
+   members:
+     - value: :saved-state
+       description: |
+         The explicit-save slot. Written only by =workspace-save= and
+         its variants (=workspace-save-layout=, =workspace-switch-
+         layout=, =workspace-new='s home stamp). Authoritative across
+         restarts when no =:working-state= is present.
+     - value: :working-state
+       description: |
+         The autosave slot. Written by tab-switch advice, the
+         workspaces-mode idle timer, and kill-emacs-hook. Cleared to
+         nil by every explicit =workspace-save=. May be nil at any
+         time.
+
+   consumer_mapping:
+     - consumer: workspace-save (explicit)
+       trigger: user gesture
+       slot: :saved-state
+       side_effect: clears :working-state to nil
+     - consumer: workspace-save-layout (explicit; named layout)
+       trigger: user gesture (variant)
+       slot: :saved-state
+       side_effect: clears :working-state to nil on the named layout
+     - consumer: workspace-switch-layout
+       trigger: intra-workspace layout switch
+       slot: :working-state (of outgoing layout)
+       side_effect: none
+     - consumer: workspace-new home stamp
+       trigger: workspace creation
+       slot: :saved-state (of new home group)
+       side_effect: none
+     - consumer: tab-bar-select-tab / tab-bar-switch-to-tab advice
+       trigger: workspace context switch
+       slot: :working-state (of outgoing workspace's recent layout)
+       side_effect: none
+     - consumer: workspaces-mode idle timer
+       trigger: idle past workspaces-mode-idle-frequency
+       slot: :working-state (of current workspace's recent layout)
+       side_effect: none
+     - consumer: workspace--kill-emacs-flush
+       trigger: kill-emacs-hook
+       slot: :working-state (of current workspace's recent layout)
+       side_effect: synchronous flush after capture
+
+   canonical_mapping_function: |
+     ;; The single source of truth for "which slot does this trigger
+     ;; write?". If a pcase / cond translating triggers → slots appears
+     ;; anywhere else, that's a duplication bug. Implementor task
+     ;; two-state-layout owns this function.
+     (defun workspace--slot-for-trigger (trigger)
+       (pcase trigger
+         ((or 'explicit-save 'save-layout 'new-home-stamp) :saved-state)
+         ((or 'switch-layout 'tab-switch 'idle 'kill-emacs) :working-state)))
+
+   validator: |
+     (defun vocabulary/validate-workspace-state-slot (slot)
+       (memq slot '(:saved-state :working-state)))
+
+   closed_set: true
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/invariant/autosave-never-writes-saved-state
+     - register/invariant/explicit-save-clears-working-state
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/vocabularies/workspace-state-slot.el
+   #+end_src
+
+** buffer-reincarnation-fallback-chain
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-buffer-reincarnation-fallback-chain
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/buffer-reincarnation-fallback-chain
+   tier: vocabulary
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): closed ordered chain
+     (bookmark → filename → name → error-buffer) shipped via the `or'
+     inside workspace--deserialize-buffer. Per-step producer functions for
+     filename/name INLINED (not extracted); step 1
+     (workspace--bookmark-buffer) and step 4 (workspace--error-buffer)
+     remain standalone helpers. closed_set: true is documentary; no runtime
+     pcase predicate ships. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/vocabulary-buffer-reincarnation-fallback-chain.md.
+
+     cycle-20260525-082618 integrate (2026-05-25): closed-set discipline
+     is now code-level. workspace--valid-reincarnation-steps defconst +
+     workspace--reincarnation-step-p predicate ship in layouts.org (cycle-
+     2 task add-reincarnation-step-predicate, commit a374f87 → merged in
+     abffa09). The validator below is no longer documentary; it points
+     at the new predicate. closed_set_enforcement is now symmetric with
+     register/vocabulary/workspace-state-slot. See
+     .orchestrator/cycles/cycle-20260525-082618/reconciliations/vocabulary-buffer-reincarnation-fallback-chain.md.
+   load_bearing: true
+   title: Buffer-reincarnation fallback steps (closed, ordered)
+   purpose: |
+     The closed, ordered set of fallback steps that
+     =workspace--restore-leaf= attempts when reincarnating a window's
+     buffer at restore time. Order is load-bearing: bookmark restore
+     comes first because it preserves point, narrowing, and non-file-
+     buffer state; filename is the cheap fast-path when bookmark
+     restore fails (e.g. help-mode bug#56643); name is the
+     session-local last-resort; error-buffer guarantees the window
+     slot is never left empty.
+
+     The vocabulary is closed at four steps; a fifth fallback is a
+     design change, not a code-level addition.
+
+   members:
+     - value: bookmark
+       description: |
+         Call =bookmark-handle-bookmark= on the workspace-buffer's
+         =bookmark= field. Restores point, narrowing, and major-mode
+         state. The only step that works for non-file buffers
+         (magit-status, eshell, *Messages*). Wrapped in
+         =condition-case-unless-debug= so a single read-time failure
+         (Emacs bug#56643) falls through to step 2 instead of
+         aborting the whole restore.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnate-via-bookmark
+     - value: filename
+       description: |
+         Call =find-file-noselect= on the workspace-buffer's
+         =filename= field. Cheap fast path for plain file buffers
+         where the bookmark restore errored or returned nil.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnate-via-filename
+     - value: name
+       description: |
+         Call =get-buffer= on the workspace-buffer's =name= field.
+         Catches the case where a live buffer of the same name happens
+         to exist in the session despite the file no longer existing
+         and no bookmark.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnate-via-name
+     - value: error-buffer
+       description: |
+         Construct and return a named, visible buffer describing the
+         failure. The window slot is never left empty. This step
+         cannot fail; it is the terminating fallback.
+       producer:
+         file: config/workspaces/layouts.org
+         function: workspace--reincarnation-error-buffer
+
+   consumer_mapping:
+     - consumer: workspace--restore-leaf
+       order: [bookmark, filename, name, error-buffer]
+       short_circuit_policy: deliberate
+       short_circuit_on: non-nil buffer returned
+       notes: |
+         First non-nil return wins. The chain MUST be tried in this
+         order; reordering changes the semantics (e.g. trying filename
+         first loses narrowing). The order is asserted by the
+         scaffolded test (see scaffolding/vocabularies/
+         buffer-reincarnation-fallback-chain.el).
+
+   canonical_mapping_function: |
+     ;; The only call site that decides which step to run next. The
+     ;; chain is expressed as an =or= so a non-nil buffer short-circuits.
+     ;; Any other call site iterating these steps is a duplication bug.
+     (defun workspace--reincarnate-leaf (wb)
+       (or (workspace--reincarnate-via-bookmark wb)
+           (workspace--reincarnate-via-filename wb)
+           (workspace--reincarnate-via-name wb)
+           (workspace--reincarnation-error-buffer wb)))
+
+   validator: |
+     ;; cycle-20260525-082618: code-level predicate now ships in
+     ;; config/workspaces/layouts.org. The defconst is the closed set;
+     ;; the predicate is the membership check. Mirrors workspace--state-
+     ;; slot-p / workspace--valid-state-slots from cycle 1.
+     (defconst workspace--valid-reincarnation-steps
+       '(bookmark filename name error-buffer))
+     (defun workspace--reincarnation-step-p (step)
+       (memq step workspace--valid-reincarnation-steps))
+
+   closed_set: true
+   closed_set_enforcement: code-level predicate (workspace--reincarnation-step-p)
+
+   related_entries:
+     - register/shape/workspace-buffer-struct
+     - register/boundary/buffer-reincarnation-pipeline
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/vocabularies/buffer-reincarnation-fallback-chain.el
+   #+end_src
+
+** workspace-broken-disposition
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-workspace-broken-disposition
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/workspace-broken-disposition
+   tier: vocabulary
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): closed-set vocabulary
+     (switch/restore/re-anchor/purge/delete × :refused/:allowed) holds
+     as speculated. Cycle 1 implemented the runtime predicate
+     workspace--broken-p (the structural anchor at the data layer);
+     the user-facing commands and their inline guards land in cycle 3
+     via broken-home-tolerance and workspace-delete-and-purge. The
+     canonical pcase mapping is reference material for the end-of-cycle
+     architect audit (signal-class 2: vocabulary-mismatch), not runtime
+     authority — each command's inline guard is the runtime enforcement.
+     Implementor noted (disc-add-home-slot-3): vocabulary covers
+     user-facing dispositions only, NOT internal helpers
+     (workspace--mark-broken / clear-broken); the scaffolding documents
+     the boundary clearly. Scaffold archived; remains as audit reference.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/vocabulary-workspace-broken-disposition.md.
+   load_bearing: true
+   title: Per-command disposition for broken-state workspaces
+   purpose: |
+     The closed set of user-facing workspace operations, each tagged
+     with how it MUST behave when invoked on a workspace whose =:home=
+     no longer exists on disk (=workspace--broken-p= returns t). The
+     motivating failure mode this vocabulary closes: a new command
+     added later that forgets the broken-state guard silently
+     activates a broken workspace and triggers downstream errors
+     (find-file on a missing path, git invocation in a non-existent
+     dir, etc.). With the vocabulary pinned and a canonical
+     dispatcher, every command that touches a workspace by name is
+     audit-able against this table.
+
+     Two dispositions:
+     - =:refused= — command signals =user-error= naming the missing
+       =:home= and directs the user to =workspace-re-anchor= or
+       =workspace-purge=. NO side effects.
+     - =:allowed= — command operates; for purge/delete this means
+       registry-only cleanup (no filesystem deletion to perform).
+       For re-anchor this means the broken tag is cleared by
+       operation success.
+
+   members:
+     - value: switch
+       description: |
+         =workspace-switch NAME= activates a workspace's tab. On
+         broken: refused. Activation MUST NOT happen on a workspace
+         whose :home is missing — downstream code (=workspace-home-
+         builder= default = =find-file <home>/home.org=) would fail
+         on the missing path.
+       producer:
+         file: config/workspaces/tabs.org
+         function: workspace-switch
+     - value: restore
+       description: |
+         =workspace-restore NAME= reactivates a persisted workspace
+         after restart. On broken: refused. Same reasoning as switch;
+         additionally, layout reincarnation would attempt to open
+         buffer files relative to the missing :home.
+       producer:
+         file: config/workspaces/persistence.org
+         function: workspace-restore
+     - value: re-anchor
+       description: |
+         =workspace-re-anchor NAME PATH= points a broken workspace at
+         a new :home. On broken: allowed (this is the recovery
+         command). Success clears the broken tag and updates :home;
+         if =(file-name-nondirectory (directory-file-name PATH))=
+         differs from NAME, the registry entry is renamed per the
+         =registry-name-equals-basename= invariant.
+       producer:
+         file: config/workspaces/workspaces.org
+         function: workspace-re-anchor
+     - value: purge
+       description: |
+         =workspace-purge NAME= removes a workspace destructively. On
+         broken: allowed (registry-only cleanup — no filesystem
+         deletion to perform; the path is already absent). The
+         default-parent safeguard still applies (refuses to delete
+         dirs outside =workspaces-default-parent-directory= without
+         a prefix-arg opt-in) but is moot when the path is missing.
+       producer:
+         file: config/workspaces/workspaces.org
+         function: workspace-purge
+     - value: delete
+       description: |
+         =workspace-delete NAME= removes a workspace non-destructively
+         (registry-only). On broken: allowed. No filesystem impact in
+         either broken or healthy state — see =workspace-delete-is-
+         non-destructive= invariant (cycle-2+ entry).
+       producer:
+         file: config/workspaces/workspaces.org
+         function: workspace-delete
+
+   consumer_mapping:
+     - consumer: workspace-switch
+       broken_disposition: :refused
+       guard_location: top of function body, after registry-lookup
+     - consumer: workspace-restore
+       broken_disposition: :refused
+       guard_location: top of function body, after registry-lookup
+     - consumer: workspace-re-anchor
+       broken_disposition: :allowed
+       guard_location: N/A (operates ON broken-state by design)
+     - consumer: workspace-purge
+       broken_disposition: :allowed
+       guard_location: skip filesystem-deletion step if broken
+     - consumer: workspace-delete
+       broken_disposition: :allowed
+       guard_location: N/A (no filesystem-touching code path)
+
+   canonical_mapping_function: |
+     ;; The single source of truth for "is this command allowed on a
+     ;; broken workspace?". Used by audit (architect signal-class:
+     ;; vocabulary-mismatch); not necessarily invoked at runtime
+     ;; (each command's guard is inline). If runtime guards drift,
+     ;; this table catches the divergence.
+     (defun vocabulary/workspace-broken-disposition (op)
+       (pcase op
+         ((or 'switch 'restore) :refused)
+         ((or 're-anchor 'purge 'delete) :allowed)))
+
+   validator: |
+     (defun vocabulary/validate-workspace-broken-op (op)
+       (memq op '(switch restore re-anchor purge delete)))
+
+   closed_set: true
+   closed_set_enforcement: |
+     Audit-only at first. Cycle-1 scaffolding generates the
+     pcase-with-error-arms shell; any command added in a later cycle
+     without a corresponding pcase arm will fall through to the
+     generated =(error "vocabulary: unhandled broken-op %s" op)=
+     fallback. If the project later adds enough workspace commands
+     that runtime dispatch is worth the indirection, the canonical
+     mapping function above becomes the runtime authority.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/invariant/broken-home-no-auto-recreate  # cycle-2+
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/vocabularies/workspace-broken-disposition.el
+   #+end_src
+
+** workspace-integration-outcome
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-workspace-integration-outcome
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/workspace-integration-outcome
+   tier: vocabulary
+   status: confirmed
+   status_note: |
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     created CONFIRMED from =workspace--run-one-integration='s pcase in
+     =config/workspaces/integrations.el=. Realised verbatim; clean reviews.
+   load_bearing: false
+   title: integration handler result protocol
+   purpose: |
+     The closed set of outcomes an integration handler reports, by RETURN
+     VALUE, and how the dispatcher normalises them. Two ergonomic failure
+     paths (return =failed=, or just signal) collapse to one.
+   members:
+     - value: "ok"
+       meaning: handler performed its action.
+     - value: "skipped"
+       meaning: handler deliberately no-op'd (e.g. gptel on =anchored-existing=,
+                or nil preset).
+     - value: "(failed . REASON)"
+       meaning: handler tried and failed; REASON is a string. message'd by
+                dispatch, never fatal.
+   normalisation:
+     pcase_site: "config/workspaces/integrations.el — workspace--run-one-integration"
+     rules: |
+       'ok -> (id . ok); 'skipped -> (id . skipped);
+       (failed . r) -> (id . (failed . r));
+       a SIGNALLED error -> (id . (failed . (error-message-string err)));
+       any UNKNOWN return -> (id . ok)  [lenient: benign handler drift not punished].
+   related_entries:
+     - register/boundary/workspace-integration-registry
+   cited_by_tasks:
+     - integration-registry-core
+   discovered_from: workspace-integration-menu
+   discovered_by: architect
+   #+end_src
+
+** workspace-creation-context
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-workspace-creation-context
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/workspace-creation-context
+   tier: vocabulary
+   status: confirmed
+   status_note: |
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     created CONFIRMED. The =:context= label set carried in the anchor
+     payload and dispatched at the three =workspace--new-*= birth sites
+     (=wire-create-dispatch=) plus the transient's invoke site
+     (=workspaces-transient-menu=).
+   load_bearing: false
+   title: workspace creation/invocation context labels
+   purpose: |
+     The closed symbol set that tells an integration handler WHICH birth
+     (or on-demand) context it is firing in, so it can self-gate. Carried
+     as the payload =:context= key.
+   members:
+     - value: "fresh"
+       meaning: brand-new workspace (default-path; anchor non-repo). Full scaffold ran.
+     - value: "anchored-scaffolded"
+       meaning: anchored existing repo that had no home.org; scaffolded, no commit.
+     - value: "anchored-existing"
+       meaning: anchored existing repo WITH home.org (register-only, no scaffold).
+                gptel's :on-create SKIPS this — "don't inject artifacts into an
+                adopted workspace."
+     - value: "menu-invoke"
+       meaning: NOT a birth context — built by the transient when a user invokes
+                an integration's :menu command on the current workspace.
+   dispatched_at:
+     - config/workspaces/tabs.org (workspace--new-default-path -> fresh)
+     - config/workspaces/tabs.org (workspace--new-anchor-existing -> the three anchor cases)
+     - config/workspaces/workspaces-transient.org (menu-invoke)
+   related_entries:
+     - register/shape/workspace-integration-anchor-payload
+     - register/boundary/workspace-integration-registry
+   cited_by_tasks:
+     - wire-create-dispatch
+     - workspaces-transient-menu
+   discovered_from: workspace-integration-menu
+   discovered_by: architect
+   #+end_src
+
 * Boundary
 
   Entries describe canonical mapping functions between subsystems. The
   motivating failure is a reshape (module A's output → module B's input)
   inlined at >1 site instead of going through a single canonical function;
   the inline copies drift over time.
+
+** persistence-robustness-io
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-persistence-robustness-io
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/persistence-robustness-io
+   tier: boundary
+   status: confirmed
+   status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task corruption-safe-
+     persistence-io): created CONFIRMED from the merged, clean-reviewed
+     shape (designed-change mid-stream adoption; entry created at
+     integrate). Captures the corruption-safety contract for the
+     workspaces persistence file.
+   load_bearing: true
+   title: Corruption-safe persistence I/O (atomic write, never-clobber-unreadable, absent-vs-unreadable, autosave gate)
+   purpose: |
+     The boundary between the in-memory registry and the on-disk
+     =workspaces.eld=. Reads and writes MUST NOT lose data: an
+     interrupted write must not truncate the live file, and a file that
+     cannot be parsed must never be silently overwritten with empty/
+     partial state.
+   contract: |
+     Four coupled rules, all enforced in config/workspaces/persistence.el:
+
+     1. ATOMIC WRITE — =workspace--write-state= serializes to a temp file
+        in the state directory and =rename-file='s it over the target.
+        A crash mid-write cannot truncate the existing file.
+
+     2. WRITE-TIME READABLE ASSERT — before committing, the form is
+        round-tripped through =read= (=workspace--state-readable-p=,
+        via =prin1-to-string= → =read=; =readablep= not used because the
+        repo pins no minimum Emacs version). On failure the write is
+        REFUSED (prior good file left intact) with a loud warning. This
+        is the backstop for any unreadable value that slips past the
+        serializer translators (register/invariant/persisted-form-
+        readable-by-construction).
+
+     3. ABSENT vs PRESENT-BUT-UNREADABLE — =workspace--read-state=
+        returns nil for a MISSING file (fresh start, writes permitted)
+        and the sentinel symbol =workspace--unreadable= for an existing
+        file that fails =read=. On the latter it renames the file to
+        =workspaces.eld.corrupt-<ts>=, warns naming both paths, and sets
+        the session flag below. =workspace--restore= never deserializes
+        the sentinel. (Version-mismatch still → nil: a recognized
+        ignore-and-start-fresh, NOT corruption — not backed up, not
+        blocked.)
+
+     4. ONE-WAY AUTOSAVE GATE — =workspace--persistence-blocked= (session
+        flag, set by rule 3) suppresses EVERY writer for the session:
+        =workspace--write-state= (choke point), with explicit
+        early-returns in =workspace--kill-emacs-flush= and
+        =workspace-save-state=. It does not auto-clear within a session
+        (the in-memory registry after a failed load is untrustworthy).
+   producers:
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state
+     - file: config/workspaces/persistence.org
+       function: workspace--read-state
+   consumers:
+     - file: config/workspaces/persistence.org
+       function: workspace--restore
+     - file: config/workspaces/persistence.org
+       function: workspace--kill-emacs-flush
+     - file: config/workspaces/persistence.org
+       function: workspace-save-state
+   enforcement_mechanism: test
+   test_corpus: config/workspaces/test/serialization-robustness-spec.el (Layer B specs + e2e clobber-cascade regression)
+   discovered_from: corruption-safe-persistence-io
+   discovered_by: implementor
+   relates_to:
+     - register/boundary/autosave-guard-pipeline (the autosave gate is an additive precondition on stage-4 flush)
+     - register/invariant/persisted-form-readable-by-construction (rule 2 is the write-side backstop for that invariant)
+   #+end_src
 
 ** scope-config-loader
    :PROPERTIES:
@@ -2139,6 +3434,1086 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** buffer-reincarnation-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-buffer-reincarnation-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/buffer-reincarnation-pipeline
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): 4-stage pipeline ships
+     across existing helpers (capture-frameset → window-state-serialize →
+     window-state-deserialize → restore-frameset). Stage 4 race-guard
+     cl-incf moved INTO workspace--restore-frameset (inline-fix commit
+     bc64784) so workspace--apply-saved-layout AND workspace-switch-layout
+     entry paths uniformly participate. Follow-up task
+     test-switch-layout-race-guard adds the missing switch-layout race
+     test. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/boundary-buffer-reincarnation-pipeline.md.
+   load_bearing: true
+   title: Per-leaf buffer reincarnation pipeline (capture → walk → fallback chain → defer)
+   purpose: |
+     The end-to-end path that converts a live frame's window-state into
+     persisted workspace-buffer structs and back. The boundary is
+     four-staged because each stage owns a distinct contract: capture
+     (live → struct), serialization (struct → eld), restore-walk (eld
+     → leaf-by-leaf reincarnation), deferred apply (sync
+     window-state-put → run-at-time). Stage 3 short-circuits on
+     non-nil return (the fallback chain) and stage 4's deferral is
+     load-bearing because =bookmark--jump-via= calls a buffer-display
+     function as part of its restore protocol; running
+     =window-state-put= in the same tick races against it (catalog
+     pattern 14).
+
+   stages:
+     - n: 1
+       name: capture
+       input: live frame (window-state-get)
+       output: window-state form with workspace-buffer in each leaf's
+         parameters slot
+       can_fail_with: [no-bookmark-handler]
+       notes: |
+         Recursive descent over the window-state form. Detects the
+         one-window-frame edge case (=(leaf . attrs)= at the top
+         level) by =cl-position 'leaf= on the form. For each leaf,
+         calls =workspace--capture-leaf= to build a workspace-buffer.
+         A nil bookmark on the captured struct is non-fatal; restore
+         falls through to the filename step.
+     - n: 2
+       name: serialize
+       input: enriched window-state form
+       output: eld text on disk
+       can_fail_with: [eld-write-error]
+       notes: |
+         The standard =workspace--write-state= pretty-prints the form
+         via =pp=. workspace-buffer structs serialize via
+         =cl-defstruct='s default reader/writer; the embedded bookmark
+         record is itself printable elisp data.
+     - n: 3
+       name: restore-walk
+       input: persisted window-state form
+       output: window-state form with each leaf's buffer replaced by
+         a live reincarnated buffer
+       can_fail_with: [help-mode-subr-read-error, bookmark-handler-error]
+       short_circuit_policy: deliberate
+       notes: |
+         Walks the form (same recursive descent as stage 1). For each
+         leaf, calls =workspace--reincarnate-leaf= (see register/
+         vocabulary/buffer-reincarnation-fallback-chain) and replaces
+         the leaf's buffer reference with the returned live buffer.
+         Per-leaf =condition-case-unless-debug= traps so one
+         unreadable bookmark (Emacs bug#56643) does not abort the
+         tree. The fallback chain itself short-circuits on non-nil
+         buffer.
+     - n: 4
+       name: defer-apply
+       input: reincarnated window-state form
+       output: applied frame layout (=window-state-put= side effect)
+       can_fail_with: [window-state-put-error]
+       short_circuit_policy: none
+       notes: |
+         Calls =(run-at-time nil nil (lambda () (window-state-put ...)
+         frame)))= so the apply happens after the current command
+         loop tick. Necessary because =bookmark--jump-via= calls a
+         buffer-display function synchronously; running
+         window-state-put in the same tick races for the selected
+         window. The form passed to the timer is =copy-tree='d so the
+         in-memory registry is not mutated by
+         =--bufferize-window-state='s side effects. A generation
+         counter (=workspace--restore-generation=, module-level
+         defvar) guards against concurrent restores: the deferred
+         lambda checks =(= gen workspace--restore-generation)= and
+         no-ops on stale runs.
+
+   cross_stage_invariants:
+     - register/invariant/restore-deferred-via-run-at-time
+
+   producers:
+     - file: config/workspaces/layouts.org
+       function: workspace--capture-frameset
+       enters_at_stage: 1
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state
+       enters_at_stage: 2
+
+   consumers:
+     - file: config/workspaces/persistence.org
+       function: workspace--apply-saved-layout
+       reads_output_of_stage: 4
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/boundaries/buffer-reincarnation-pipeline.el
+   #+end_src
+
+** autosave-guard-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-autosave-guard-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/autosave-guard-pipeline
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): stages 2+3 (capture +
+     slot-route) collapsed into workspace--autosave-current-layout. Stage 1
+     (anti-save-check) deferred to sibling task anti-save-predicates;
+     attachment-point pinned (wrap the four autosave entry points, NOT
+     inside workspace--autosave-current-layout — preserves
+     explicit-save-bypasses-anti-save structurally). Stage 4 reuses
+     pre-cycle debounce machinery. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/boundary-autosave-guard-pipeline.md.
+
+     cycle-20260525-082618 integrate (2026-05-25): stage-1 attachment
+     surface filled. The pre-cycle producer list named four stage-1
+     entries; cycle-2 anti-save-predicates implementor surfaced that
+     workspace--persistence-after-tab-switch (originally listed) is
+     actually the lazy-restore path, not an autosave. The actual stage-1
+     wrap surface is THREE persistence entries collapsed to two distinct
+     functions (workspace--persistence-before-tab-switch — :before
+     advice on both tab-bar-select-tab AND tab-bar-switch-to-tab —
+     plus workspace--kill-emacs-flush) and one workspaces-mode entry
+     (workspaces-mode--idle-tick). All four wrap call sites carry
+     (unless (run-hook-with-args-until-success 'workspace-anti-save-
+     predicates) ...). workspace-save still enters at stage 2 by
+     design. See
+     .orchestrator/cycles/cycle-20260525-082618/reconciliations/boundary-autosave-guard-pipeline.md.
+
+     cycle-20260613-150904 integrate (2026-06-13, task registry-hydrate-
+     only-startup): the lazy-restore =:after= advice this note spent a
+     paragraph distinguishing the autosave boundary FROM —
+     =workspace--persistence-after-tab-switch= (+ =workspace--activate-
+     pending-workspace=) — was REMOVED in full (design.md §D2). The
+     autosave stage-1 wrap surface is UNCHANGED and held verbatim: the
+     =:before= advice (=workspace--persistence-before-tab-switch= on
+     tab-bar-select-tab AND tab-bar-switch-to-tab), =workspace--kill-
+     emacs-flush=, and =workspaces-mode--idle-tick=. The boundary is now
+     cleaner — there is no longer a confusable =:after= sibling on the
+     same tab-switch entry points. why_tests_missed: N/A — no test gap;
+     the autosave specs (idle-tick, kill-emacs, before-switch capture)
+     stayed green through the removal, proving the =:before= path intact.
+     Independently confirmed by on-touch architect (0 findings) +
+     author-blind review. See
+     .orchestrator/cycles/cycle-20260613-150904/reconciliations/boundary-autosave-guard-pipeline.md.
+
+     cycle-20260613-161149 integrate (2026-06-13, task corruption-safe-
+     persistence-io): stage-4 (flush) gains an ADDITIVE session-scoped
+     suppression precondition — =workspace--persistence-blocked=. When a
+     startup load found a present-but-unreadable file, the flag is set and
+     EVERY writer no-ops: =workspace--write-state= (the choke point, also
+     covering =workspace--flush-state= and =workspace-save-state=), with
+     explicit early-returns added in =workspace--kill-emacs-flush= and
+     =workspace-save-state= (so no useless idle timer is armed). This is
+     ADDITIVE: the stage-1 anti-save-predicate gate, the four wrap call
+     sites, and the explicit-save stage-2 entry are unchanged. Purpose:
+     prevent an autosave/idle/kill-emacs flush from clobbering a
+     backed-up corrupt file with an empty registry (the data-loss
+     cascade). New invariant register/boundary/persistence-robustness-io
+     captures the full corruption-safety contract. why_tests_missed: the
+     autosave-after-failed-load path was never exercised; serialization-
+     robustness-spec.el now has the e2e clobber-cascade regression. See
+     .orchestrator/cycles/cycle-20260613-161149/reconciliations/boundary-autosave-guard-pipeline.md.
+   load_bearing: true
+   title: Autosave guard pipeline (predicates → capture → slot route → flush)
+   purpose: |
+     The pipeline that every autosave trigger funnels through. The
+     boundary makes anti-save short-circuit a structural feature
+     (stage 1 returns non-nil → halt) rather than a per-trigger check
+     repeated at three call sites. All three autosave triggers
+     (tab-switch advice, idle timer, kill-emacs-hook) call into stage
+     1; explicit =workspace-save= bypasses stage 1 entirely and
+     enters at stage 2 with slot=:saved-state. The slot-routing stage
+     reads from register/vocabulary/workspace-state-slot's canonical
+     mapping function.
+
+   stages:
+     - n: 1
+       name: anti-save-check
+       input: trigger symbol (one of: tab-switch, idle, kill-emacs)
+       output: continue | halt
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         =(run-hook-with-args-until-success 'workspace-anti-save-
+         predicates)=. If any predicate returns non-nil, return halt
+         and the autosave is silent. Explicit =workspace-save= does
+         NOT enter this stage; that path enters at stage 2 directly.
+         The stage is the safety guard re-introducing tab-switch
+         advice required (gap D8 in v1).
+     - n: 2
+       name: capture
+       input: live frame (window-state-get on the outgoing workspace
+         or current frame)
+       output: enriched window-state form (per the capture stage of
+         register/boundary/buffer-reincarnation-pipeline)
+       can_fail_with: [capture-error]
+       notes: |
+         Identical capture path to explicit =workspace-save=; the
+         output is structurally indistinguishable between the two
+         entry points. This is what makes "trigger → slot" the only
+         per-trigger decision; the captured form is one shape.
+     - n: 3
+       name: slot-route
+       input: (captured-state, trigger | :explicit)
+       output: layout plist with the captured state in the correct
+         slot (per register/vocabulary/workspace-state-slot)
+       can_fail_with: []
+       notes: |
+         Calls =workspace--slot-for-trigger= (vocabulary entry's
+         canonical mapping function). =:explicit= → :saved-state and
+         additionally clears :working-state. Any other trigger →
+         :working-state and leaves :saved-state untouched. The
+         "leaves :saved-state untouched" half is the structural
+         enforcement of register/invariant/autosave-never-writes-
+         saved-state.
+     - n: 4
+       name: flush
+       input: layout plist
+       output: bytes on disk
+       can_fail_with: [disk-write-error]
+       notes: |
+         Synchronous for explicit save and kill-emacs flush;
+         debounced for tab-switch and idle-timer triggers (existing
+         debounce in =workspace-save-state=).
+
+   cross_stage_invariants:
+     - register/invariant/explicit-save-bypasses-anti-save
+     - register/invariant/autosave-never-writes-saved-state
+     - register/invariant/explicit-save-clears-working-state
+
+   producers:
+     - file: config/workspaces/persistence.org
+       function: workspace--persistence-before-tab-switch
+       advised_primitive: tab-bar-select-tab, tab-bar-switch-to-tab (:before)
+       enters_at_stage: 1
+     - file: config/workspaces/persistence.org
+       function: workspace--kill-emacs-flush
+       enters_at_stage: 1
+     - file: config/workspaces/workspaces-mode.org
+       function: workspaces-mode--idle-tick
+       enters_at_stage: 1
+     - file: config/workspaces/persistence.org
+       function: workspace-save (explicit)
+       enters_at_stage: 2
+       note: |
+         Bypasses stage 1 structurally — calls
+         workspace--autosave-current-layout :saved-state directly. The
+         absence of a stage-1 wrap on this call site is itself the
+         enforcement of register/invariant/explicit-save-bypasses-anti-
+         save. A future refactor that introduced a shared "guarded
+         helper" feeding both autosave and explicit-save would break
+         that invariant.
+
+   consumers:
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state
+       reads_output_of_stage: 4
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/boundaries/autosave-guard-pipeline.el
+   #+end_src
+
+** home-org-read-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-home-org-read-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/home-org-read-pipeline
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): 5-stage pipeline
+     implemented cleanly in config/workspaces/home-org.el. Two metadata
+     refinements absorbed from the implementor's push-back:
+     (1) producers list now notes loaded_via=workspaces.org submodule
+     loader (not init.org/jf/enabled-modules — workspaces subsystem
+     convention); (2) stage-5 trim-and-emptiness-filter gains explicit
+     examples distinguishing #+TITLE:    \n (stage-5 reject) from bare
+     #+TITLE: (stage-4 short-circuit — regex requires [ \t]+ after colon).
+     Core contracts (5 stages; NO caching; NO org-mode load) hold as
+     speculated. Reviewer (R1-F1) flagged the cross-module writer-allow-list
+     lint from the related invariant scaffold was not ported in cycle 1;
+     follow-up task port-cross-module-home-org-writer-lint filed
+     (blocked-on scaffold-module). Scaffold archived; canonical mapping
+     implemented in config/workspaces/home-org.el and tested in
+     config/workspaces/test/home-org-spec.el (14 specs).
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/boundary-home-org-read-pipeline.md.
+   load_bearing: false
+   title: home.org read-on-demand pipeline (no caching, no org-mode)
+   purpose: |
+     The on-demand read pipeline that resolves =<HOME>/home.org='s
+     =#+TITLE:= keyword for use as a workspace's display name. The
+     pipeline is structured deliberately to keep the per-call cost
+     low enough that no caching layer is required — the spec
+     promises "live read on every call" and that promise must remain
+     cheap. Design D4 explicitly rejected =org-collect-keywords=
+     because it would load =org-mode= for each read; the regex chain
+     here is ~10× faster and adds no module load. The =no caching=
+     and =no org-mode load= properties are themselves contractual:
+     adding a cache or switching to a real parser is a divergence
+     this entry catches.
+
+     Single function: =workspace-home-org-title HOME= (in the new
+     =home-org.org= module). The boundary entry exists to pin the
+     stage contract; the implementation is one =with-temp-buffer=
+     form. Cited from =home-org-reader-module= task.
+
+   stages:
+     - n: 1
+       name: path-resolve
+       input: HOME (absolute directory path)
+       output: absolute path to "<HOME>/home.org"
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         =(expand-file-name "home.org" HOME)=. Pure; cannot fail.
+     - n: 2
+       name: readability-check
+       input: absolute path to home.org
+       output: t (continue) | nil (short-circuit to overall nil)
+       can_fail_with: [file-missing, permission-denied]
+       short_circuit_policy: deliberate
+       notes: |
+         =(file-readable-p path)=. If nil, the overall function
+         returns nil (no title). This is NOT an error condition —
+         a workspace whose home.org has been deleted should still
+         be usable (display name falls back to registry-name per
+         =registry-name-equals-basename=). Bypassing this stage
+         and reading anyway would propagate an error from
+         =insert-file-contents=.
+     - n: 3
+       name: load-to-temp-buffer
+       input: readable home.org path
+       output: temp buffer with file contents
+       can_fail_with: [io-error]
+       short_circuit_policy: none
+       notes: |
+         =(with-temp-buffer (insert-file-contents path) ...)=. NO
+         =org-mode= activation; NO file-handlers that would invoke
+         major-mode. Just =insert-file-contents= and a temp buffer.
+     - n: 4
+       name: regex-scan-title
+       input: temp buffer with file contents
+       output: match-string (raw, possibly with trailing whitespace) | nil
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         =(re-search-forward "^#\\+TITLE:[ \\t]+\\(.*\\)$" nil t)=.
+         Returns nil if no match (no title present); the overall
+         function returns nil. Regex is case-insensitive via
+         =case-fold-search= context inherited from =with-temp-buffer=
+         (defaults to t in Emacs); spec scenario explicitly tests
+         lowercase =#+title:= acceptance. If a future implementor
+         tightens to case-sensitive, the spec scenario catches the
+         regression.
+     - n: 5
+       name: trim-and-emptiness-filter
+       input: raw match-string
+       output: trimmed non-empty string | nil
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         =(let ((title (string-trim (match-string 1)))) (and (not
+         (string-empty-p title)) title))=. A =#+TITLE:= keyword
+         with only whitespace returns nil — equivalent to no title
+         at all per spec intent (the user wrote the keyword but
+         supplied no value).
+
+   cross_stage_invariants:
+     - register/invariant/home-org-user-authored-after-creation
+
+   producers:
+     - file: config/workspaces/home-org.org
+       function: workspace-home-org-title
+       enters_at_stage: 1
+     - file: config/workspaces/home-org.org
+       function: workspace-home-org-exists-p
+       enters_at_stage: 2
+       note: |
+         Sibling helper that runs only stage 2 (readability check)
+         and returns the readability boolean directly. Shares stage
+         1/2 contract; does not run stages 3-5.
+
+   consumers:
+     - file: config/workspaces/tabs.org
+       function: workspace-display-name (per cycle-2+ tasks)
+       reads_output_of_stage: 5
+       note: |
+         Falls back to =(workspace--name ws)= when stage 5 returns
+         nil. The fallback is the =registry-name-equals-basename=
+         path.
+     - file: config/workspaces/scaffold.org (cycle-2)
+       function: scaffold-module checks via =workspace-home-org-exists-p=
+       reads_output_of_stage: 2
+       note: |
+         The anchor-existing flow's case-1 branch (repo + home.org)
+         uses stage-2 output to distinguish from case-2 (repo + no
+         home.org).
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/home-org-read-pipeline.el
+   #+end_src
+
+** workspace-scaffold-pipeline
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-workspace-scaffold-pipeline
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/workspace-scaffold-pipeline
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     reconciled → reconciled (stage-list reconciliation). Task
+     =wire-create-dispatch= deleted the broken
+     =workspace--scaffold-initial-session= stub (and its pipeline
+     call). The pipeline is now FIVE stages, not six: stage 5
+     "create-initial-session" is GONE; =sessions/= is created empty at
+     stage 4 and populated on demand / at birth by registered
+     integrations (the gptel =:on-create= handler now writes the real
+     session, which lands UNTRACKED after the Initial-workspace
+     commit). The gated git-add-and-commit is now stage 5 (was 6);
+     INIT-AND-COMMIT? gates stages 2 and 5. LEAVE-ON-FAILURE and
+     "scaffold failure → no registry entry → no :on-create" semantics
+     are UNCHANGED — only the stage enumeration drifted.
+     why_tests_missed: the register entry is hand-maintained prose, not
+     executed; the scaffold-spec.el behavioural cases were updated in
+     the same task (creates-one-initial-session → sessions/-left-empty)
+     and stayed green, so no test failed — the stage-list contract is
+     documentation that only an Architect/register reconciliation
+     catches. Reconciliation note at
+     =.orchestrator/cycles/cycle-20260612-143558/reconciliations/boundary-workspace-scaffold-pipeline.md=.
+     Prior cycle's note preserved below.
+
+     cycle-20260525-213500 integrate: speculated → reconciled.
+     scaffold-module landed with the canonical signature
+     =(cl-defun workspace-scaffold (home name &key init-and-commit?) ...)=
+     — a realisation of the speculated keyword-arg shape (the
+     scaffold's =&rest plist= form was an intentional placeholder).
+     Six-stage pipeline holds verbatim; INIT-AND-COMMIT? gating
+     unchanged. Behavioural assertions lifted into
+     =config/workspaces/test/scaffold-spec.el= (14 spec cases). The
+     anchor-existing-repo branch (cycle 3+) consumes the same
+     function with INIT-AND-COMMIT? nil. Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/boundary-workspace-scaffold-pipeline.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. The
+     six-stage scaffold pipeline produced by =scaffold-module=
+     (cycle-2 task). Speculation: the pipeline is a single function
+     =workspace-scaffold HOME NAME &key INIT-AND-COMMIT?= with six
+     stages, the git-bracketed stages (2 and 6) controlled by
+     =INIT-AND-COMMIT?=, and a fail-fast contract that does not
+     auto-cleanup partial filesystem effects. Pressure-tested by
+     =scaffold-module= and (next-cycle) =workspace-new-anchor-existing=.
+     The =INIT-AND-COMMIT? nil= shape is the only knob the
+     anchor-existing-repo branch needs; if the anchor flow turns out
+     to require finer per-stage control during execute, this entry
+     reconciles divergent."
+   load_bearing: true
+   title: workspace directory scaffolding pipeline (default-path and anchor-non-repo branches)
+   purpose: |
+     The fixed-order pipeline that scaffolds a workspace's filesystem
+     anchor. The pipeline is the SINGLE producer of a freshly-set-up
+     workspace directory; both =workspace-new= (default path) and
+     =workspace-new= with prefix-arg (anchor existing non-repo) reach
+     a working workspace by way of this function. The contract pins
+     three concerns together so they cannot drift:
+
+     1. =STAGE ORDER=: dirs and files are created in the order below.
+        Re-ordering risks subtle issues (e.g. =git add .= before
+        =home.org= exists would silently miss the file from the initial
+        commit). NOTE (cycle-6): =sessions/= is created EMPTY and is no
+        longer part of the initial commit's tracked content — any
+        integration-written session lands untracked after the commit.
+     2. =INIT-AND-COMMIT? GATE=: the only knob the anchor-existing-repo
+        branch needs to suppress is the git bracketing. The same
+        function handles both branches.
+     3. =LEAVE-ON-FAILURE SEMANTICS=: partial-failure does not delete.
+        Coupled with =register/invariant/scaffold-leave-partial-on-failure=.
+
+   stages:
+     - n: 1
+       name: ensure-home-directory
+       input: HOME (absolute target path)
+       output: directory exists at HOME (=make-directory HOME t=)
+       can_fail_with: [permission-denied, parent-missing, eexist-as-file]
+       gated_by: always
+       notes: |
+         =(make-directory home t)=. The =t= recursive flag creates any
+         missing parents. Fails if HOME exists as a non-directory file
+         or the parent path is unwritable.
+     - n: 2
+       name: git-init
+       input: HOME (existing directory)
+       output: =HOME/.git/= initialized
+       can_fail_with: [git-not-on-path, git-init-failure]
+       gated_by: INIT-AND-COMMIT?
+       notes: |
+         =(workspace--scaffold-git HOME "init")=. Skipped entirely when
+         INIT-AND-COMMIT? is nil (the "anchor existing git repo without
+         home.org" branch — git state is the user's; we do not touch).
+     - n: 3
+       name: write-home-org-skeleton
+       input: HOME, NAME
+       output: =HOME/home.org= created if not pre-existing
+       can_fail_with: [io-error]
+       gated_by: always
+       notes: |
+         =(workspace--scaffold-write-home-org home name)=. The writer
+         is =(unless (file-exists-p path) ...)=-guarded — if the user
+         pre-created =home.org= (case-1 of the anchor flow), the
+         skeleton write is a no-op and the user's content is preserved.
+         This is the ONLY package code path that writes =home.org= —
+         see =register/invariant/home-org-user-authored-after-creation=.
+     - n: 4
+       name: ensure-sessions-directory
+       input: HOME
+       output: =HOME/sessions/= exists
+       can_fail_with: [permission-denied]
+       gated_by: always
+       notes: |
+         =(make-directory (workspace--sessions-dir home) t)=. The
+         spec promises =directory-files= over =HOME/sessions/= is the
+         authoritative session inventory; this stage creates the
+         directory EMPTY. As of cycle-6 (=wire-create-dispatch=) there
+         is no scaffold stage that populates it — sessions are written
+         on demand or at birth by registered integrations
+         (=register/boundary/workspace-integration-registry=), which
+         run AFTER the commit, so their output is untracked. The path
+         is composed via the canonical helper =workspace--sessions-dir=
+         (in data-model.el) per cycle-2's
+         =arch-cycle-20260525-213500-05= finding.
+     - n: 5
+       name: git-add-and-commit
+       input: HOME (with .git/ from stage 2 and files from stages 3-4)
+       output: one initial git commit on HEAD
+       can_fail_with: [git-add-failure, git-commit-failure, no-files-to-commit]
+       gated_by: INIT-AND-COMMIT?
+       notes: |
+         =(workspace--scaffold-git HOME "add" ".")= then
+         =(workspace--scaffold-git HOME "commit" "-m" "Initial workspace")=.
+         Skipped entirely when INIT-AND-COMMIT? is nil. The commit
+         message is exact — the cycle-2+ end-to-end test asserts on it
+         via =git log --oneline=. This is the FINAL fail-fast scaffold
+         step; integration dispatch (cycle-6) runs strictly after it
+         and after registration.
+
+   gated_by:
+     parameter: INIT-AND-COMMIT?
+     when_t: stages 1-5 (default-path; anchor-non-repo)
+     when_nil: stages 1, 3, 4 only (anchor existing repo without home.org)
+     rationale: |
+       The same function handles three of the four workspace-new
+       branches; only the existing-repo-with-home.org case bypasses
+       =workspace-scaffold= entirely (because there's nothing to do).
+
+   on_failure_contract:
+     pipeline_aborts: true
+     subsequent_stages_run: false
+     filesystem_cleanup: |
+       PARTIAL FILES LEFT IN PLACE. The function does NOT delete the
+       partial scaffold on failure. See
+       =register/invariant/scaffold-leave-partial-on-failure= for the
+       full rationale.
+     registry_mutation: |
+       The function itself does NOT touch the registry; the caller
+       (=workspace-new=) handles registration only after this function
+       returns non-nil. A failed scaffold therefore never produces a
+       registry entry, even partially. (The caller MUST honor this —
+       any caller that registers BEFORE awaiting the scaffold's return
+       is a defect.)
+     signal_via: user-error
+     signal_message_includes: [HOME-path, failing-stage-or-git-arg, suggested-remedy]
+
+   producers:
+     - file: config/workspaces/scaffold.org
+       function: workspace-scaffold
+       enters_at_stage: 1
+       note: |
+         The single producer; all scaffold paths route through this
+         function.
+
+   consumers:
+     - file: config/workspaces/tabs.org
+       function: workspace-new (no prefix arg)
+       reads_output_of_stage: 5 (return value: HOME)
+       init_and_commit_value: t
+       note: |
+         Default-path branch. Passes =:init-and-commit? t=. Cycle-2+
+         task =workspace-new-default-path=. Fires integration dispatch
+         (=workspace--dispatch-create-integrations ... 'fresh=) after
+         registration (cycle-6 =wire-create-dispatch=).
+     - file: config/workspaces/tabs.org
+       function: workspace-new (with prefix arg — anchor existing non-repo)
+       reads_output_of_stage: 5 (return value: HOME)
+       init_and_commit_value: t
+       note: |
+         "Not a git repo" sub-case of the anchor flow. Same pipeline as
+         default-path. Cycle-3 task =workspace-new-anchor-existing=.
+         Dispatch context =fresh= (cycle-6).
+     - file: config/workspaces/tabs.org
+       function: workspace-new (with prefix arg — anchor existing repo without home.org)
+       reads_output_of_stage: 4 (return value: HOME)
+       init_and_commit_value: nil
+       note: |
+         "Repo without home.org" sub-case. Skips git init/add/commit so
+         the user's git state is untouched (per design D2's "we never
+         touch repos we did not initialize"). Cycle-3 task
+         =workspace-new-anchor-existing=.
+
+   cross_stage_invariants:
+     - register/invariant/scaffold-leave-partial-on-failure
+     - register/invariant/home-org-user-authored-after-creation
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/boundary/home-org-read-pipeline
+     - register/invariant/home-required-no-floating-workspaces
+
+   related_entries_added_cycle6:
+     - register/boundary/workspace-integration-registry
+   cited_by_tasks:
+     - scaffold-module
+     - wire-create-dispatch
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/workspace-scaffold-pipeline.el
+   #+end_src
+
+** gptel-sessions-workspace-consult
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-gptel-sessions-workspace-consult
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/gptel-sessions-workspace-consult
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     CONFIRMED-HELD (no change). The directionality clause was the
+     load-bearing on-touch trigger for all 5 cycle-6 tasks, which added
+     three new workspaces-side modules (=integrations.el=,
+     =workspaces-transient.el=) and the gptel-side consumer
+     (=config/gptel/sessions/workspace-integration.el=). Post-merge
+     grep =gptel-sessions-\|gptel-sessions/\|require.*gptel-sessions=
+     over =config/workspaces/*.el= returns zero matches (the glob-based
+     lint in =config/workspaces/test/gptel-integration-spec.el= now
+     also covers the two new files automatically). The gptel consumer
+     attaches via =with-eval-after-load 'workspaces= +
+     =workspace-register-integration= (the PERMITTED direction); it
+     adds NO require on workspaces. A SECOND published boundary now sits
+     alongside this one — =register/boundary/workspace-integration-registry=
+     — and is the structural successor: where this entry pins the
+     gptel↔workspaces session-dir consult, the registry pins the
+     generic extension point any subsystem (gptel first, git-worktree
+     next) uses to attach. Contract intact.
+
+     cycle-20260525-213500 integrate: speculated → reconciled.
+     Producer side (=workspace-sessions-dir=) matched speculation
+     verbatim. Consumer-side function drifted from speculated name
+     =gptel-sessions--target-dir= to =jf/gptel--target-sessions-root=
+     in =config/gptel/sessions/filesystem.el= (project =jf/gptel-=
+     prefix convention). Directionality contract held: post-merge
+     grep for =gptel-sessions-\|gptel-sessions/\|require.*gptel-sessions=
+     in =config/workspaces/*.el= returns zero matches (verified after
+     the orchestrator inline-fix at =63d60ec= removed a dead
+     =featurep= branch from =scaffold.el= that triggered the
+     cross-contract collision between two cycle-2 task scaffolds —
+     see PM digest meta-discoveries).
+
+     User-facing escape hatch was implemented as a separate command
+     =jf/gptel-persistent-session-global= rather than rebinding the
+     prefix arg (existing =jf/gptel-persistent-session= already
+     consumes =current-prefix-arg= for preset selection). Function-
+     arg contract (=force-global= routes correctly) preserved; UX
+     surface diverges from =specs/workspaces/spec.md:264-270=. Routed
+     to user as ask =ask-cycle-20260525-213500-2=.
+
+     Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/boundary-gptel-sessions-workspace-consult.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. Cross-
+     subsystem boundary between =workspaces= (producer of
+     =workspace-sessions-dir=) and =gptel/sessions= (consumer via
+     =gptel-sessions--target-dir=). Speculation: the consult is
+     one-way, soft (featurep + fboundp guards), nil-returning when
+     not applicable, and gated by an interactive prefix arg on the
+     user-facing session-creation command. Pressure-tested by
+     =gptel-sessions-workspace-consult= (cycle-2 task). The exact
+     gptel function name being modified is forward-pinned to Q1 in
+     design.md; the boundary contract holds regardless of what that
+     function turns out to be called."
+   load_bearing: true
+   title: gptel sessions ↔ workspaces one-way soft-dependency consult
+   purpose: |
+     The cross-subsystem boundary that lets the =gptel/sessions=
+     module file new session files under =<HOME>/sessions/= when a
+     workspace is active, without making =gptel/sessions= depend on
+     =workspaces= at load time. Three concerns pinned at the boundary:
+
+     1. =DIRECTION=: one-way (gptel → workspaces). Workspaces never
+        references gptel; if =workspaces= ever calls back into gptel,
+        that is a divergence this entry catches.
+     2. =SOFTNESS=: =featurep 'workspaces= + =fboundp
+        'workspace-sessions-dir= guards. Either guard returning nil
+        falls through to the global default cleanly.
+     3. =NIL-DISCIPLINE=: the producer (=workspace-sessions-dir=)
+        returns the directory OR nil; it does NOT signal. The consumer
+        composes with =or= to fall through to the global default. Any
+        future producer revision MUST preserve nil-on-not-applicable.
+
+   producer_side:
+     file: config/workspaces/workspaces.org
+     function: workspace-sessions-dir
+     signature: (workspace-sessions-dir) → string-or-nil
+     return_values:
+       - condition: no workspace is the current tab's owner
+         returns: nil
+         check: (workspace--current-name) returns nil
+       - condition: current workspace is broken
+         returns: nil
+         check: (workspace--broken-p ws) returns t
+       - condition: workspace exists but :home/sessions/ dir is missing
+         returns: nil
+         check: (file-directory-p dir) returns nil
+       - condition: workspace exists, healthy, sessions/ dir exists
+         returns: absolute path to sessions/
+         shape: =(workspace--sessions-dir home)= (canonical helper;
+                resolves to =(expand-file-name "sessions" home)=)
+     contract: |
+       MUST NOT signal. MUST NOT have side effects (no directory
+       creation, no notice). Pure inspection over the current-tab and
+       registry state.
+
+   consumer_side:
+     file: config/gptel/sessions/filesystem.org
+     function: jf/gptel--target-sessions-root
+     signature: (jf/gptel--target-sessions-root &optional force-global) → directory-string
+     fallback_chain:
+       - condition: not force-global AND featurep 'workspaces AND fboundp 'workspace-sessions-dir AND (workspace-sessions-dir) non-nil
+         resolves_to: (workspace-sessions-dir)
+       - condition: any of the above fails (including (workspace-sessions-dir) returning nil)
+         resolves_to: jf/gptel-sessions-directory
+     guard_pattern: |
+       (or (and (not force-global)
+                (featurep 'workspaces)
+                (fboundp 'workspace-sessions-dir)
+                (workspace-sessions-dir))
+           jf/gptel-sessions-directory)
+
+   user_facing_command:
+     function: jf/gptel-persistent-session
+     interactive_form: "P"
+     escape_hatch_command: jf/gptel-persistent-session-global
+     escape_hatch_rationale: |
+       Implemented as a SEPARATE command rather than a prefix-arg
+       rebind because =jf/gptel-persistent-session= already consumes
+       =current-prefix-arg= for preset selection (pre-existing UX
+       that predates this change). The =-global= sibling command
+       binds FORCE-GLOBAL non-nil → skips workspace consult → falls
+       through to global default. Function-arg contract preserved;
+       UX surface diverges from =specs/workspaces/spec.md:264-270=
+       — routed to user as ask =ask-cycle-20260525-213500-2= for
+       spec disposition.
+
+   directionality:
+     forbidden: |
+       =config/workspaces/*.el= MUST NOT reference any =gptel-sessions-*=
+       symbol. If a future change needs workspaces to react to
+       session-creation events, the producer publishes a hook;
+       workspaces does not call gptel directly.
+     permitted: |
+       =config/gptel/sessions/*.el= MAY call =workspace-sessions-dir=
+       guarded by =fboundp=. No other workspaces-side symbol is
+       part of this contract.
+
+   producers:
+     - file: config/workspaces/workspaces.org
+       function: workspace-sessions-dir
+       enters_at_stage: producer-side (sole producer of the dir-or-nil value)
+   consumers:
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--target-sessions-root
+       reads_output_of_stage: consumer-side fallback head
+       note: |
+         Resolved at cycle-2 integrate from design.md Q1.
+         =jf/gptel--ensure-sessions-root= remains global-only (used
+         by registry/listing); only =jf/gptel--target-sessions-root=
+         consults workspaces (creation path).
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/vocabulary/workspace-broken-disposition
+     - register/invariant/registry-name-equals-basename
+
+   cited_by_tasks:
+     - gptel-sessions-workspace-consult
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/boundaries/gptel-sessions-workspace-consult.el
+   #+end_src
+
+** workspace-integration-registry
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-workspace-integration-registry
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/workspace-integration-registry
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
+     RECONCILED — the registration contract grew from TWO surfaces to
+     THREE. Tasks =registry-on-purge-surface= and =purge-teardown-dispatch=
+     added the =:on-purge= teardown surface, generalised
+     =workspace--run-one-integration= with an optional surface key, and
+     added a sibling =workspace--dispatch-purge-integrations= fired from
+     =workspace-purge= before =delete-directory=. The git-worktree module
+     (the named-but-deferred second client) is now a REAL consumer,
+     attaching =:menu= + =:on-purge=. why_tests_missed: the registration
+     shape below was hand-maintained prose ("at least one of
+     :on-create/:menu"); the surface growth is intended and fully covered
+     by new specs (on-purge-only registration, none-of-three user-error,
+     purge dispatch order/skip/non-fatal), so only the doc contract lagged.
+     Reconciliation note:
+     =.orchestrator/cycles/cycle-20260612-164043/reconciliations/boundary-workspace-integration-registry.md=.
+
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     created as CONFIRMED (not speculated). This change's plan artifacts
+     pre-dated orchestrator forward-mode, so the entry is recorded
+     post-implementation from the merged, clean-reviewed shapes in
+     =config/workspaces/integrations.el= (task
+     =integration-registry-core=) and its consumers (=wire-create-dispatch=,
+     =workspaces-transient-menu=, =gptel-session-integration=). All four
+     implementor diffs realised this contract verbatim; all five
+     reviewers returned clean. This is the new published extension point
+     the proposal set out to create — the structural successor to the
+     deleted =workspace--scaffold-initial-session= stub and the sibling
+     of =register/boundary/gptel-sessions-workspace-consult=.
+   load_bearing: true
+   title: workspace integration registry — the published extension point
+   purpose: |
+     The single, generic boundary by which an EXTERNAL subsystem hooks
+     into workspace creation and operation WITHOUT workspaces naming the
+     consumer. Workspaces owns the registry and iterates it; consumers
+     attach from their own side (the PERMITTED direction of
+     =register/boundary/gptel-sessions-workspace-consult=). Four concerns
+     are pinned so they cannot drift:
+
+     1. =REGISTRATION SHAPE=: an integration is registered by
+        =(workspace-register-integration ID &key LABEL ON-CREATE MENU ON-PURGE)=.
+        At least one of =:on-create= / =:menu= / =:on-purge= is required
+        (else =user-error=: "%s has none of :on-create, :menu, :on-purge").
+        Re-registering an ID replaces in place, preserving order. The
+        registry =workspace--integrations= is an ORDERED ALIST
+        =((ID . PLIST) ...)= — dispatch order and menu order follow
+        registration order (NOT a hash table). THREE surfaces:
+        =:on-create= (non-interactive, at birth), =:menu= ((KEY . COMMAND),
+        interactive, on-demand), =:on-purge= (non-interactive, at teardown).
+     2. =PUSH, NOT CONSULT=: workspaces hands each handler an anchor
+        payload (=register/shape/workspace-integration-anchor-payload=);
+        handlers never reach for "the current workspace". This keeps the
+        boundary one-way and lets the menu and the creation-dispatch site
+        build identical payloads via one constructor
+        =workspace--integration-payload=.
+     3. =ADDITIVE, NEVER LOAD-BEARING=: each handler runs inside an error
+        guard (=workspace--run-one-integration=, =condition-case=); a
+        signalled error or a =(failed . reason)= return is surfaced via
+        =message= but NEVER aborts workspace creation. A workspace is
+        valid iff its OWN scaffold succeeded; integration results
+        decorate, they never define. (Result vocabulary:
+        =register/vocabulary/workspace-integration-outcome=.)
+     4. =DISPATCH IS A SIBLING OF SCAFFOLD=: =workspace--dispatch-create-integrations
+        NAME HOME CONTEXT= fires from the =workspace--new-*= entry points
+        AFTER registration (and after the Initial-workspace commit), in
+        all three birth contexts. It is NOT a scaffold stage — see the
+        cycle-6 reconciliation of =register/boundary/workspace-scaffold-pipeline=
+        (the deleted stage 5).
+     5. =TEARDOWN DISPATCH (cycle-7)=: =workspace--dispatch-purge-integrations
+        NAME HOME CONTEXT= is the purge mirror of create-dispatch — same
+        payload constructor, same generalised runner
+        (=workspace--run-one-integration ENTRY PAYLOAD &optional SURFACE-KEY=,
+        SURFACE-KEY defaulting to =:on-create=, passed =:on-purge= here),
+        same additive/never-signals contract. It fires from =workspace-purge=
+        ONLY (never =workspace-delete=), AFTER confirmation, inside the
+        home-exists guard, immediately BEFORE the recursive =delete-directory=
+        of =:home=, so consumers can clean resources anchored under =:home=
+        (git worktrees) while the dir still exists. Its result alist never
+        gates whether the purge proceeds.
+
+   producer_side:
+     file: config/workspaces/integrations.org
+     functions:
+       - workspace-register-integration   # (id &key label on-create menu on-purge) -> id
+       - workspace--integration-payload    # (name home context) -> payload plist
+       - workspace--run-one-integration    # (entry payload &optional surface-key) -> (id . outcome); surface-key defaults :on-create
+       - workspace--dispatch-create-integrations  # (name home context) -> result alist, never signals
+       - workspace--dispatch-purge-integrations   # (name home context) -> result alist, never signals; runs :on-purge in registration order
+     storage: "workspace--integrations  (ordered alist (ID . PLIST))"
+     contract: |
+       Registration is pure data manipulation. Both dispatchers NEVER signal.
+       Handlers without :on-create are skipped by creation-dispatch; handlers
+       without :on-purge are skipped by purge-dispatch. ONE normaliser
+       (workspace--run-one-integration) serves every surface via SURFACE-KEY.
+       :menu is a (KEY . COMMAND) cons consumed by the transient.
+
+   consumer_side:
+     - file: config/gptel/sessions/workspace-integration.org
+       function: jf/gptel--workspace-on-create / jf/gptel--workspace-add-session
+       attaches_via: "(with-eval-after-load 'workspaces (workspace-register-integration 'gptel-session ...))"
+       note: |
+         First real client (cycle-2/6). Load-order-independent registration.
+     - file: config/workspaces/git-worktrees.org
+       function: jf/workspace--add-worktree (:menu) / jf/workspace--worktree-on-purge (:on-purge)
+       attaches_via: "(with-eval-after-load 'workspaces (with-eval-after-load 'magit (workspace-register-integration 'git-worktree :menu (cons \"w\" ...) :on-purge ...)))"
+       note: |
+         SECOND real client (cycle-7). DOUBLE-gated (workspaces + magit), so
+         absent magit ⇒ no registration (not an error). The first consumer to
+         exercise =:on-purge=; pressure-tested the registry's genericity and
+         it held. See =register/boundary/workspace-git-worktrees-consumer=.
+     - file: config/workspaces/workspaces-transient.org
+       function: workspace-menu (Integrations group via :setup-children)
+       reads: "workspace--integrations entries that carry a :menu"
+       note: |
+         The transient walks the registry to populate its Integrations
+         group dynamically; it names no consumer.
+
+   directionality:
+     forbidden: |
+       =config/workspaces/*.el= MUST NOT name any consumer's symbols
+       (e.g. no =gptel-*= in the registry or the transient). Consumers
+       attach; workspaces iterates a generic alist.
+     permitted: |
+       Any subsystem MAY call =workspace-register-integration= from its
+       own side, guarded by =with-eval-after-load 'workspaces= so it is
+       load-order-independent and degrades cleanly when workspaces is absent.
+
+   related_entries:
+     - register/shape/workspace-integration-anchor-payload
+     - register/vocabulary/workspace-integration-outcome
+     - register/boundary/gptel-sessions-workspace-consult
+     - register/boundary/workspace-scaffold-pipeline
+     - register/boundary/workspace-git-worktrees-consumer
+     - register/invariant/workspaces-transient-deferred-require
+     - register/invariant/git-worktree-default-directory-binding
+
+   cited_by_tasks:
+     - integration-registry-core
+     - wire-create-dispatch
+     - workspaces-transient-menu
+     - gptel-session-integration
+     - registry-on-purge-surface     # cycle-7: added :on-purge surface
+     - purge-teardown-dispatch        # cycle-7: wired purge dispatch
+     - git-worktrees-module-scaffold  # cycle-7: second consumer
+     - birth-transient-offer          # cycle-7
+     - verify-change                  # cycle-7
+   discovered_from: workspace-integration-menu
+   discovered_by: architect
+   #+end_src
+
+** workspace-git-worktrees-consumer
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-workspace-git-worktrees-consumer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/workspace-git-worktrees-consumer
+   tier: boundary
+   status: confirmed
+   status_note: |
+     cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
+     created CONFIRMED from the merged, clean-reviewed shapes in
+     =config/workspaces/git-worktrees.el= (tasks
+     =git-worktrees-module-scaffold=, =add-worktree-command=,
+     =on-purge-teardown-handler=). The SECOND consumer of the integration
+     registry (after gptel-session), and the first to use =:on-purge=.
+   load_bearing: true
+   title: git-worktrees module — droppable registry consumer (worktrees inside a workspace home)
+   purpose: |
+     The first-party but DROPPABLE module that makes git worktrees a
+     first-class part of the workspace lifecycle, attaching to the
+     workspace integration registry from its own side. Pins:
+
+     1. =DOUBLE-GATED ATTACHMENT=: registration is the SOLE coupling and
+        is nested inside
+        =(with-eval-after-load 'workspaces (with-eval-after-load 'magit ...))=.
+        Absent magit ⇒ no =git-worktree= integration registered (NOT an
+        error). Removing the single =jf/load-module= line for
+        =config/workspaces/git-worktrees.el= in =workspaces.org= leaves
+        workspaces fully functional.
+     2. =MAGIT IS THE GIT BACKEND=: all git operations go through magit
+        plumbing — =magit-worktree-branch= (create on new branch),
+        =magit-worktree-delete= (remove), =magit-list-worktrees= (enumerate
+        + resolve source repo), =magit-main-branch= (main detection),
+        =magit-branch-merged-p= + =magit-branch-delete= (GUARDED, merged-only,
+        never force). Every magit call is bound to the right repo via
+        =register/invariant/git-worktree-default-directory-binding=.
+     3. =SOFT REPO-SOURCE SELECTION=: =jf/workspace--worktree-repo-candidates=
+        consumes only candidate LISTS from =projectile-known-projects=,
+        =(magit-list-repos)=, =project-known-project-roots= — each guarded
+        by =featurep=/=boundp=/=fboundp=, never their workflows — de-duped on
+        expanded absolute paths, filtered to real git repos, with a
+        =read-directory-name= floor (=jf/workspace--worktree-read-repo=) so
+        none is required.
+     4. =NO PERSISTED GIT STATE=: repo/branch/worktree-set are DERIVED on
+        demand from disk + git; the workspace plist gains no =:repo=/=:branch=
+        slot (the closed serialize allow-list cannot leak them).
+     5. =RESULT PROTOCOL=: the =:menu= command (=jf/workspace--add-worktree=)
+        and =:on-purge= handler (=jf/workspace--worktree-on-purge=) return
+        the registry vocabulary =ok= / =skipped= / =(failed . REASON)=
+        (=register/vocabulary/workspace-integration-outcome=); teardown
+        continues past a dirty worktree (records it, never aborts the purge).
+
+   producer_side:
+     file: config/workspaces/git-worktrees.org
+     functions:
+       - jf/workspace--worktree-repo-candidates  # () -> list of expanded git-repo dirs; pure, no prompt
+       - jf/workspace--worktree-read-repo         # () -> one repo dir; the SOLE prompting fn (floor included)
+       - jf/workspace--add-worktree               # (payload) -> ok|(failed . reason); :menu surface
+       - jf/workspace--worktree-on-purge          # (payload) -> ok|skipped|(failed . reason); :on-purge surface
+       - jf/workspace--worktree-children          # (home) -> list of (:dir :branch :source) for child worktrees
+     attaches_via: "(with-eval-after-load 'workspaces (with-eval-after-load 'magit (workspace-register-integration 'git-worktree :label \"git worktree\" :menu (cons \"w\" #'jf/workspace--add-worktree) :on-purge #'jf/workspace--worktree-on-purge)))"
+
+   directionality:
+     permitted: |
+       This module (the CONSUMER side) MAY name magit and git symbols
+       freely. It attaches via =workspace-register-integration=, exactly
+       as gptel does — the PERMITTED direction of
+       =register/boundary/gptel-sessions-workspace-consult=.
+     forbidden: |
+       Workspaces CORE (=data-model=/=integrations=/=workspaces=/=tabs=/
+       =workspaces-transient= .el) MUST NOT name magit/git symbols. Verified
+       cycle-7 by =verify-change=: the only core hit is the loader path
+       STRING "git-worktrees.el", not a live symbol.
+
+   related_entries:
+     - register/boundary/workspace-integration-registry
+     - register/boundary/gptel-sessions-workspace-consult
+     - register/shape/workspace-integration-anchor-payload
+     - register/vocabulary/workspace-integration-outcome
+     - register/invariant/workspaces-transient-deferred-require
+     - register/invariant/git-worktree-default-directory-binding
+
+   cited_by_tasks:
+     - git-worktrees-module-scaffold
+     - add-worktree-command
+     - on-purge-teardown-handler
+   discovered_from: add-workspace-git-worktrees
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -2160,6 +4535,63 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   - =scope-allow-once-is-single-shot= — an =allow-once= permission grants
     the next invocation only and self-removes. /Not in scope for
     gptel-scope-in-org-properties (untouched by this change)./
+
+** persisted-form-readable-by-construction
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-persisted-form-readable-by-construction
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/persisted-form-readable-by-construction
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task serialize-window-
+     params-readable): created CONFIRMED from merged, clean-reviewed code
+     (designed-change mid-stream adoption). Roots out the =#<killed
+     buffer>= corruption class at its source.
+   load_bearing: true
+   title: No live Emacs object is ever written to the persistence file
+   statement: |
+     The form written to =workspaces.eld= MUST be reconstructible by
+     =read= — it MUST NOT contain any live Emacs object that prints as
+     =#<...>= (buffer, marker, overlay, frame, window, process, or
+     non-symbol function object; see =workspace--unreadable-object-p=).
+     This is enforced at THREE layers, defense-in-depth:
+
+     1. Window-parameter translators — buffer-bearing window parameters
+        (seeded: =window-preserved-size=, value =(BUFFER DIR SIZE)=) are
+        converted to a readable form (buffer → name) by
+        =workspace-window-parameter-translators= in
+        =workspace--window-state-serialize=, and back in =-deserialize=.
+        =window-state-get='s =writable= flag does NOT do this — it emits
+        writable-param VALUES verbatim, which is the original bug.
+
+     2. Bookmark-record scrub — =workspace--serialize-buffer= nulls any
+        =bookmark-make-record= prop VALUE satisfying
+        =workspace--unreadable-object-p= (keys preserved). Closes the
+        bug#56643 class (a mode embedding an unreadable object in its
+        record).
+
+     3. Write-time assert (backstop) — the write boundary
+        (register/boundary/persistence-robustness-io rule 2) refuses to
+        write any form that does not round-trip through =read=, so an
+        unknown future leak past layers 1–2 fails loudly instead of
+        corrupting the file.
+   enforcement_mechanism: test
+   test_corpus: config/workspaces/test/serialization-robustness-spec.el (round-trip readability property tests incl. killed-buffer regression scenario (a), teeth-confirmed)
+   rationale: |
+     Modelled on activities.el / burly.el window-parameter translators
+     (research/findings-*.md in the change). We copied activities'
+     struct-based buffer reincarnation earlier but NOT its translators —
+     that gap was the root cause of the persistence corruption.
+   discovered_from: serialize-window-params-readable
+   discovered_by: implementor
+   relates_to:
+     - register/shape/layout-v2-plist (window-state slots are now readable by construction)
+     - register/shape/workspace-buffer-struct (the scrubbed bookmark slot)
+     - register/boundary/persistence-robustness-io (layer 3, the write-side backstop)
+   #+end_src
 
 ** scope-parse-complete-is-true
    :PROPERTIES:
@@ -3303,6 +5735,1010 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    discovered_from: gptel-chat-heading-scoping
    discovered_by: architect
+   #+end_src
+
+** restore-precedence-working-over-saved
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-restore-precedence-working-over-saved
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/restore-precedence-working-over-saved
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): speculation matched.
+     workspace--layout-effective-state is the single dispatch point;
+     data-model-spec.el pins all three precedence cases (working-wins,
+     saved-fallback, both-nil). Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/invariant-restore-precedence-working-over-saved.md.
+   load_bearing: true
+   title: Restore prefers :working-state when non-nil; falls back to :saved-state
+
+   statement: |
+     For every layout =L= in the registry, the buffer applied on restore
+     by =workspace--apply-saved-layout= MUST be derived from
+     =workspace--layout-effective-state(L)=, defined as: =L:working-state=
+     when non-nil, else =L:saved-state=. There is no code path that
+     restores from =:saved-state= when =:working-state= is non-nil; that
+     would re-introduce the v1 MVP's "explicit save never wins on
+     restart" behavior in inverse.
+
+   why_it_matters: |
+     The two-state layout's user-facing promise is "restart lands you
+     back where you left off, not at your last explicit save". The
+     promise is the precedence rule; violating it (e.g. an =or=
+     reversed in the accessor, or =workspace--apply-saved-layout=
+     bypassing the helper) silently breaks the autosave-on-tab-switch
+     feature even when the slots themselves are correct. No
+     per-action test catches a reversed precedence because both
+     slots contain valid window-state forms; only a test that
+     populates both slots and asserts the chosen one catches this.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/restore-precedence-working-over-saved.test.el —
+       failing-stub spec that constructs a layout with distinct
+       :saved-state and :working-state forms (each carrying a
+       distinguishable marker) and asserts the restored frame matches
+       :working-state. A second case sets :working-state to nil and
+       asserts the restored frame matches :saved-state.
+     notes: |
+       The same precedence is asserted indirectly by
+       =workspace-revert='s scenarios (revert clears :working-state
+       then re-applies effective-state); the direct test is the
+       definitive one because it isolates the precedence from the
+       revert flow.
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/vocabulary/workspace-state-slot
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/restore-precedence-working-over-saved.test.el
+   #+end_src
+
+** explicit-save-clears-working-state
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-explicit-save-clears-working-state
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/explicit-save-clears-working-state
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): scope narrowed to three
+     variants (workspace-save, workspace-save-layout NAME, workspace-new
+     home stamp); workspace-switch-layout dropped (navigation, not
+     explicit-save, per design.md §D4). Three scenarios shipped as tests in
+     layouts-spec.el; scaffolding revised in-place to mark the
+     switch-layout scenario out-of-scope. Inline-fix commit b70a5b4.
+     Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/invariant-explicit-save-clears-working-state.md.
+   load_bearing: true
+   title: Every explicit workspace-save clears the matching :working-state
+
+   statement: |
+     After =workspace-save= (and its variants =workspace-save-layout=,
+     =workspace-switch-layout='s save-on-switch, =workspace-new='s home
+     stamp) completes, the affected layout's =:working-state= slot MUST
+     be nil. The clear is part of the explicit-save semantics, not an
+     optimisation; it makes the user's deliberate gesture the new
+     clean baseline so restore precedence falls through to
+     =:saved-state= rather than resurrecting stale =:working-state=.
+
+   why_it_matters: |
+     Without the clear, a subsequent restart prefers the stale
+     :working-state (which is older than the just-written
+     :saved-state). The explicit save would feel "ignored". A
+     reviewer can read the code and think "set :saved-state, done"
+     without seeing the missing clear; only a test that performs
+     [autosave → workspace-save → restart-simulation] catches it.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/explicit-save-clears-working-state.test.el —
+       failing-stub spec that (1) populates :working-state, (2) calls
+       workspace-save, (3) asserts :working-state is nil. A second
+       scenario exercises the same flow via workspace-save-layout on a
+       named non-recent layout-group.
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/vocabulary/workspace-state-slot
+     - register/boundary/autosave-guard-pipeline
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/explicit-save-clears-working-state.test.el
+   #+end_src
+
+** autosave-never-writes-saved-state
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-autosave-never-writes-saved-state
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/autosave-never-writes-saved-state
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-20260524-200631 integrate (2026-05-24): enforcement strengthened
+     from review-discipline (`&optional slot` defaulted to :saved-state) to
+     structural (required SLOT arg + workspace--state-slot-p closed-set
+     predicate at function entry). Inline-fix commit b70a5b4. Meta-pattern:
+     same shape as bookmark-reincarnation's gen-counter fix
+     (boundary/buffer-reincarnation-pipeline) —
+     invariant-at-wrong-layer-fix. Scaffolding archived. See
+     .orchestrator/cycles/cycle-20260524-200631/reconciliations/invariant-autosave-never-writes-saved-state.md.
+   load_bearing: true
+   title: No autosave path writes :saved-state; clobber-impossible
+
+   statement: |
+     No code path entered from any of the autosave triggers
+     (=tab-bar-select-tab= advice, =tab-bar-switch-to-tab= advice,
+     =workspaces-mode= idle timer, =workspace--kill-emacs-flush=)
+     writes to any layout's =:saved-state= slot. The slot-routing
+     stage of =workspace--autosave-current-layout= (stage 3 of
+     register/boundary/autosave-guard-pipeline) MUST direct every
+     non-explicit-save trigger to =:working-state=.
+
+   why_it_matters: |
+     This is the structural fix for v1 MVP gap D8. The v1 code had
+     a single state slot; the tab-switch advice wrote to it; an
+     explicit save and a tab switch both modified the same slot,
+     producing race-y user-visible clobbering of the explicit save.
+     v2 makes the clobber impossible: distinct slots + the autosave
+     code path has no syntactic ability to address :saved-state. A
+     bug here would be subtle: the slot name is one symbol; a typo
+     in a future contributor's let-binding could silently send
+     autosaves to :saved-state on one trigger but not others.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/autosave-never-writes-saved-state.test.el —
+       property test: for each autosave trigger (mocked at its
+       entry-point boundary), pre-populate :saved-state with a
+       distinguishable marker, fire the trigger, assert :saved-state
+       equals the marker post-trigger. Repeat per trigger.
+     notes: |
+       A complementary lint check (=grep -n ':saved-state'
+       config/workspaces/=) is cheap and catches the "wrong slot
+       referenced from an autosave site" form of the bug at review
+       time; the test catches the runtime-routing form.
+
+   related_entries:
+     - register/shape/layout-v2-plist
+     - register/vocabulary/workspace-state-slot
+     - register/boundary/autosave-guard-pipeline
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/autosave-never-writes-saved-state.test.el
+   #+end_src
+
+** explicit-save-bypasses-anti-save
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-explicit-save-bypasses-anti-save
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/explicit-save-bypasses-anti-save
+   tier: invariant
+   status: reconciled
+   reconciled_in_cycle: cycle-20260525-082618
+   reconciled_at: 2026-05-25T09:30:00Z
+   load_bearing: true
+   title: Explicit workspace-save never consults workspace-anti-save-predicates
+
+   statement: |
+     The =workspace-save= command (and its variants =workspace-save-
+     layout=, =workspace-switch-layout='s save-on-switch, =workspace-
+     new='s home stamp) MUST NOT call =run-hook-with-args-until-
+     success= on =workspace-anti-save-predicates=. The user's
+     deliberate gesture is unconditional; only the autosave triggers
+     are guarded. Structurally, explicit-save paths enter the
+     autosave-guard pipeline at stage 2 (capture), not stage 1
+     (anti-save-check).
+
+   why_it_matters: |
+     Anti-save predicates exist so a debug session or open minibuffer
+     does not have its transient state captured into the workspace.
+     But a user invoking =M-x workspace-save= explicitly has decided
+     "save now"; respecting a predicate at that point traps the user
+     (they cannot escape a misconfigured predicate by saving
+     manually). The bug is also subtle if the same helper function
+     is reused for both code paths without a flag distinguishing
+     them — a future refactor consolidating the two paths is exactly
+     the change most likely to introduce the regression.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/explicit-save-bypasses-anti-save.test.el —
+       failing-stub spec that adds a predicate that always returns
+       non-nil to workspace-anti-save-predicates, then calls
+       workspace-save, then asserts the save completed (state file
+       updated, :saved-state populated). A second scenario asserts
+       that with the same always-non-nil predicate, a tab-switch
+       autosave is suppressed.
+
+   related_entries:
+     - register/boundary/autosave-guard-pipeline
+     - register/vocabulary/workspace-state-slot
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/explicit-save-bypasses-anti-save.test.el
+   #+end_src
+
+** idle-tick-no-op-off-workspace
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-idle-tick-no-op-off-workspace
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/idle-tick-no-op-off-workspace
+   tier: invariant
+   status: reconciled
+   reconciled_in_cycle: cycle-20260525-082618
+   reconciled_at: 2026-05-25T09:30:00Z
+   load_bearing: true
+   title: workspaces-mode idle-tick must short-circuit when no workspace is current
+
+   statement: |
+     The =workspaces-mode= idle-timer callback (the function passed to
+     =run-with-idle-timer=) MUST consult =(workspace--current-name)=
+     and return without side effect when the result is nil. The
+     callback MAY NOT call =workspace--autosave-current-layout= unless
+     a current-workspace name exists. This holds for every entry path
+     into the idle-tick (timer fire, manual =funcall= via M-:, future
+     re-entry from an enhanced =workspaces-mode= toggle).
+
+   why_it_matters: |
+     The idle timer fires globally — it does not know whether the
+     user is in any workspace at all (e.g. transient state after
+     =workspace-close= but before =workspace-switch=, or in a frame
+     that never had any workspace activity). =workspace--autosave-
+     current-layout= consults the workspace registry and the recent
+     layout-group; if it runs against a missing workspace it either
+     errors (best case: noisy *Messages* spew on every idle tick) or
+     writes a degenerate layout under a sentinel key (worst case:
+     corrupts the registry shape and breaks the next restore).
+
+     This is the canonical "silent-fail-on-default-path" shape from
+     cycle 1's highest-confidence meta-discovery (invariant-at-wrong-
+     layer-fix): the enforcement must live inside the callback that
+     fires, not in the timer-registration discipline.
+
+   enforcement_mechanism:
+     kind: test + structural
+     location: |
+       openspec/changes/refine-workspaces-two-state-layout/scaffolding/
+       invariants/idle-tick-no-op-off-workspace.test.el — failing-stub
+       buttercup spec.
+
+     enforcement_locus_check: |
+       Where in the call graph is this enforced? Inside
+       =workspaces-mode--idle-tick= as the FIRST form of its body,
+       structurally a =(when (workspace--current-name) ...)= guard.
+
+       Does that location cover ALL entry paths? Yes if and only if
+       =workspaces-mode--idle-tick= is the single function passed to
+       =run-with-idle-timer= and no other code path calls
+       =workspace--autosave-current-layout= without first checking
+       current-workspace existence. The tab-switch advice and kill-
+       emacs hook are scoped to events that imply workspace context
+       (tab-switch fires on tabs; kill-emacs flushes the registry
+       that was already populated) so the guard is locally redundant
+       on those paths.
+
+       Does the enforcement prevent silent-fail (default values,
+       optional arguments, fallthrough)? Risk vector: if
+       =workspace--autosave-current-layout='s slot argument acquired
+       a default in a future refactor (already explicitly rejected
+       in cycle 1 inline-fix b70a5b4), an off-workspace tick could
+       still call it with a degenerate slot. Mitigated by the
+       required-slot signature being itself an invariant (=register/
+       invariant/autosave-never-writes-saved-state= pins the four
+       autosave entry points; this entry pins the prior guard).
+
+   design_anchor:
+     section: design.md §D6
+     quote: |
+       "Idle save is specifically the 'crash safety' net, not the
+       primary persistence trigger."
+
+   related_entries:
+     - register/boundary/autosave-guard-pipeline
+     - register/invariant/autosave-never-writes-saved-state
+     - register/vocabulary/workspace-state-slot
+
+   discovered_from: refine-workspaces-two-state-layout
+   discovered_by: architect
+   scaffolding_path: openspec/changes/refine-workspaces-two-state-layout/scaffolding/invariants/idle-tick-no-op-off-workspace.test.el
+   #+end_src
+
+** home-required-no-floating-workspaces
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-home-required-no-floating-workspaces
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/home-required-no-floating-workspaces
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-20260526-171719 integrate (2026-05-26): reconciled. Cycle-3
+     broken-home-tolerance absorbed cycle-2 architect finding
+     arch-cycle-20260525-213500-04 by extending the persistence
+     deserializer with a (not (file-name-absolute-p home)) filter arm
+     that emits "Workspaces: skipping persisted entry %S — :home %S
+     is not absolute". The cycle-3 broken-home-runtime-spec.el adds
+     the corresponding it-clause. Enforcement surface now structurally
+     includes absolute-path filtering at the deserialize boundary.
+     OPEN: programmatic construction via workspace--make still admits
+     relative paths (no cl-check-type or error in the constructor) —
+     this is the spec-signal carried as ask-cycle-20260526-171719-2
+     (workspace-default-home-builder's *scratch* fallback reachability).
+     See .orchestrator/cycles/cycle-20260526-171719/reconciliations/invariant-home-required-no-floating-workspaces.md.
+
+     Prior status_note (cycle-20260525-200459 integrate, 2026-05-25):
+     structural enforcement landed at workspace--make's required
+     (name home) signature — single-arg calls signal wrong-number-of-arguments
+     at every caller. Cycle-1 data-model task added the constructor
+     signature; mid-cycle wire-home-into-callsites closed the
+     76-failure cascade. Test-tier enforcement landed in
+     config/workspaces/test/data-model-home-spec.el (:home accessor
+     describe block, 5 specs). Persistence-side enforcement
+     (deserializer's skip-with-notice for malformed entries)
+     forward-pinned to cycle-2 persistence-schema-v3 (which landed
+     the missing-directory arm; cycle-3 above adds the
+     non-absolute-path arm).
+   load_bearing: true
+   title: Every workspace in the registry has :home set to an absolute path
+
+   statement: |
+     For every workspace =ws= present in =workspace--registry= at
+     any time after package initialization completes:
+     =(stringp (workspace--home ws))= AND =(file-name-absolute-p
+     (workspace--home ws))= MUST hold. The package does not
+     represent floating workspaces. No code path SHALL produce or
+     accept a registry entry whose =:home= is nil, missing,
+     non-string, or non-absolute. Constructors that would produce
+     such a workspace MUST signal =user-error=; deserializers that
+     encounter such a serialized entry MUST skip it with a
+     =*Messages*= notice and continue.
+
+   why_it_matters: |
+     The pre-change v2 model permitted floating workspaces — a
+     workspace was a pure in-Emacs construct. Anchoring is the
+     whole point of this change. Without an enforced invariant, a
+     future refactor (or a hand-written persistence file) could
+     reintroduce a floating workspace, and the downstream code that
+     now assumes =:home= is always callable (the scaffold pipeline,
+     the gptel-sessions consult, =workspace-purge='s default-parent
+     check, the broken-state machinery) would either crash on the
+     missing accessor or silently fall through to default behaviour
+     in a way that masks the data corruption. Pinning this
+     invariant at the data-model boundary (=workspace--make='s
+     signature) and at the persistence boundary (=workspace--
+     persistence-deserialize-workspace='s skip-and-notice for
+     malformed entries) gives the system two structural-audit
+     enforcement points; the cycle-1 scaffold also adds a
+     test-tier enforcement that runs against the live registry.
+
+   enforcement_mechanism:
+     kind: structural-audit
+     location: |
+       Primary: =workspace--make='s required =name= and =home=
+       parameters (cannot be invoked with =:home= nil). Secondary:
+       =workspace--persistence-deserialize-workspace='s skip-with-
+       notice path for entries lacking =:home= (cycle-2 task
+       =persistence-schema-v3=) AND for entries whose =:home= is
+       relative (cycle-3 task =broken-home-tolerance=, absorbing
+       cycle-2 finding =arch-cycle-20260525-213500-04=). Architect-audit
+       signal-class: shape-fragmentation — flags any future code
+       path that inserts into =workspace--registry= without going
+       through =workspace--make=.
+     notes: |
+       The =test= enforcement (scaffolded for cycle 1; promoted to
+       =data-model-home-spec.el= and =broken-home-runtime-spec.el=) is a
+       property check that maps over =workspace--registry= and asserts
+       the invariant; the structural-audit catches new code paths the
+       property check would only catch retroactively (after a bug
+       has landed in the registry). Both layers together.
+
+       OPEN (carried as spec-signal ask-cycle-20260526-171719-2):
+       programmatic construction via =workspace--make= still admits
+       relative-path =:home= (no =cl-check-type= in the constructor).
+       If the invariant is treated as load-bearing-and-complete, a
+       constructor-side guard is required; if "deserializer is the
+       single point of entry", the existing deserializer arms are
+       sufficient and the *scratch* fallback in
+       =workspace-default-home-builder= becomes dead code.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/invariant/registry-name-equals-basename
+     - register/invariant/broken-home-no-auto-recreate  # cycle-2+
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/home-required-no-floating-workspaces.el
+   #+end_src
+
+** registry-name-equals-basename
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-registry-name-equals-basename
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/registry-name-equals-basename
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-20260526-171719 integrate (2026-05-26): reconciled. Cycle-3
+     reviewer F1 on broken-home-tolerance (BLOCKING, design-drift)
+     caught that workspace-re-anchor's initial rename branch mutated
+     only :home via workspace--set-home, leaving :name desynchronised
+     — and the rename did not survive save/restore because the
+     serializer writes (workspace--name ws) and the deserializer
+     puthashes under the same. Inline-fix c6c1b22 introduced
+     workspace--set-name (data-model.el:139-147) as the sibling
+     setter to workspace--set-home and re-wrote workspace-re-anchor's
+     rename branch to chain
+     workspace--clear-broken ∘ workspace--set-name ∘ workspace--set-home
+     in a single lockstep update. The divergent spec assertion was
+     flipped from (expect ... :to-equal "foo") to "renamed". The
+     invariant is now structurally enforced at the only mutation site
+     the entry's statement cites: workspace-re-anchor.
+     See .orchestrator/cycles/cycle-20260526-171719/reconciliations/invariant-registry-name-equals-basename.md.
+
+     Prior status_note (cycle-20260525-200459 integrate, 2026-05-25):
+     cycle-1 enforcement is the canonical-pattern test in
+     data-model-home-spec.el (constructed workspace's :name equals
+     basename(directory-file-name(:home))). wire-home-into-callsites
+     synthesized HOME values where basename(:home) == :name by
+     construction in both the production callsite (tabs.org
+     workspace-new placeholder) and the 14 fixture calls in
+     data-model-spec.el. The data layer correctly does NOT enforce
+     equality (spec delegates to the canonical caller).
+     Property-test-over-registry and rename-on-re-anchor enforcement
+     forward-pinned to cycle-3 broken-home-tolerance (where
+     workspace-re-anchor does the remhash/puthash/:home/:name
+     choreography). disc-add-home-slot-1 captures the cycle-3 sharp
+     edge (workspace--set-home alone is insufficient); absorbed via
+     the inline-fix above. Scaffold archived; 4 of 5 it clauses
+     landed in data-model-home-spec.el; 5th clause forward-pinned.
+   load_bearing: true
+   title: Workspace registry-name equals basename of :home
+
+   statement: |
+     For every workspace =ws= present in =workspace--registry= at
+     any time after package initialization completes:
+     =(equal (workspace--name ws) (file-name-nondirectory
+     (directory-file-name (workspace--home ws))))= MUST hold. The
+     registry-name is mechanically derived from the filesystem
+     anchor; the two cannot diverge. Display name (via
+     =workspace-home-org-title=) MAY differ and overrides the
+     registry-name only where the workspace is shown as prose to
+     the user. Out-of-band directory renames (=mv= and restart)
+     SHALL produce a new registry entry under the new basename;
+     the package does not provide in-process rename.
+
+   why_it_matters: |
+     The registry-name is the persistence key, the =tab-bar= tab
+     name, and the =completing-read= prompt key. Allowing it to
+     diverge from =basename(:home)= creates ambiguity at restart:
+     after =mv ~/emacs-workspaces/foo ~/emacs-workspaces/bar=, the
+     workspace's =:home= ends in =bar= but its serialized
+     =:name= would still be =foo=. The persistence-read path would
+     either honour =:name= (registry has =foo=, filesystem says
+     =bar= — confusing) or honour =basename(:home)= (registry
+     gets =bar= silently — what the spec promises). Pinning the
+     invariant forces every code path that mutates either =:name=
+     or =:home= to update the other in lockstep, and the property
+     check catches drift retroactively. The =workspace-re-anchor=
+     command in particular MUST rename the registry key when the
+     new path's basename differs from the old NAME (per task
+     =broken-home-tolerance='s step 3).
+
+   enforcement_mechanism:
+     kind: test + lockstep-helpers
+     location: |
+       Property test (Buttercup) over =workspace--registry= run
+       after each of: =workspace--make=, =workspace-restore=
+       (deserialization), =workspace-re-anchor=. Scaffolded at
+       cycle 1; cycle-2+ tasks that touch any of these paths must
+       keep the property test green or revise the scaffold (and
+       explain in =## Discoveries=).
+
+       Lockstep-helper enforcement (cycle-3 inline-fix c6c1b22):
+       the data-model module exposes =workspace--set-name= and
+       =workspace--set-home= as accessor-pair siblings. Every
+       mutation site that touches either =:name= or =:home=
+       SHALL call BOTH setters in a single non-destructive
+       update — verifiable by grep:
+       =grep -nE "workspace--set-(name|home)" config/workspaces/=
+       at every match site shows both setters used together.
+       =workspace-re-anchor='s rename branch is the canonical
+       enforcement site.
+     notes: |
+       The =structural-audit= enforcement (architect on-touch
+       signal-class: vocabulary-mismatch) is a secondary layer.
+       The primary layer is the test because the invariant is
+       cheap to assert as a property; structural-audit catches
+       new code paths that the test would miss between cycles.
+
+       The cycle-3 reviewer-caught BLOCKING violation
+       (workspace-re-anchor mutating :home without :name) was a
+       case where the data-model exposed an asymmetric helper set
+       (only =workspace--set-home=) and the implementor followed
+       the helpers rather than the invariant. The inline-fix
+       restored symmetry. Future register entries with multi-slot
+       lockstep clauses SHOULD declare the required setter set in
+       this section so the architect can audit helper-completeness
+       at on-touch time.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/invariant/home-required-no-floating-workspaces
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/registry-name-equals-basename.el
+   #+end_src
+
+** home-org-user-authored-after-creation
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-home-org-user-authored-after-creation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/home-org-user-authored-after-creation
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-20260525-200459 integrate (2026-05-25): cycle-1 narrow enforcement
+     landed — config/workspaces/home-org.el has zero file-write primitives,
+     verified by both inspection and the in-spec lint in home-org-spec.el's
+     "Invariant: reader module is read-only" case. The BROADER cross-module
+     lint (walking every .el under config/workspaces/ for write primitives
+     against a permitted-writers allow-list) is deferred to follow-up task
+     port-cross-module-home-org-writer-lint (blocked on cycle-2 scaffold-module
+     so the permitted writer workspace--scaffold-write-home-org exists when
+     the lint lands). Cycle-1's narrower coverage is functionally equivalent
+     today (no other workspaces module currently writes home.org); cycle-2+
+     work makes the invariant DURABLE. Reviewer R1-F1 flagged the omission
+     as advisory (not blocking); follow-up task filed. Scaffold archived;
+     it #2 landed in home-org-spec.el, it #1 in the follow-up task, it #3
+     (byte-for-byte snapshot) naturally lands with scaffold-module.
+     See .orchestrator/cycles/cycle-20260525-200459/reconciliations/invariant-home-org-user-authored-after-creation.md.
+     POST-CYCLE-5 (ask-cycle-20260526-171719-1): the broader cross-module
+     lint (home-org-writer-lint-spec.el) was REMOVED — it passed trivially
+     (forward-only proximity window + cycle-4 helper routing left zero
+     literals to match), giving false coverage. Enforcement reverts to
+     per-module review plus home-org-spec.el's narrow read-only assertion;
+     the invariant remains true (no other module writes home.org).
+   load_bearing: true
+   title: The package writes home.org exactly once (at scaffold time)
+
+   statement: |
+     The workspaces package SHALL write =<HOME>/home.org= exactly
+     one time per workspace: during the scaffolding pipeline (the
+     skeleton write in =workspace--scaffold-write-home-org=). After
+     that single write, NO code path in =config/workspaces/*= SHALL
+     write to, modify, or delete =home.org=. The package MAY read
+     =home.org= at any time (live re-read, no caching). The user
+     owns the file's content after creation; package operations
+     (session create/delete, workspace activation, idle autosave,
+     shutdown, any "refresh" command) MUST leave =home.org=
+     byte-identical.
+
+   why_it_matters: |
+     =home.org= is the user's dashboard / metadata file. Auto-
+     rendering session inventories, syncing display names back from
+     the registry, or "refreshing" the skeleton would destroy
+     user-authored content silently — a class of data-loss bug
+     that is impossible to recover from once the autosave runs.
+     The spec is explicit that the filesystem (=sessions/=)
+     authoritative for session inventory and =home.org= is
+     decorative for any user-curated session listing; the
+     invariant pins that asymmetry at the code boundary. The
+     home-org reader module (cycle 1) is the ONLY module that
+     touches =home.org= post-creation, and it only reads. The
+     scaffold module (cycle 2) is the ONLY producer, and it
+     writes once with an =unless (file-exists-p path)= guard.
+
+   enforcement_mechanism:
+     kind: review
+     location: |
+       Primary: per-module code review. =home.org= has exactly one
+       producer, =workspace--scaffold-write-home-org= in
+       =scaffold.el= (writing once under an =unless (file-exists-p
+       path)= guard); every other module under =config/workspaces/*=
+       only reads. A new writer is a reviewable, single-site change.
+       Narrow automated backstop: =home-org-spec.el='s "reader module
+       is read-only" case asserts =home-org.el= contains zero file-
+       write primitives.
+     notes: |
+       The cross-module grep/proximity lint
+       (=home-org-writer-lint-spec.el=) was REMOVED post-cycle-5
+       (ask-cycle-20260526-171719-1). It passed for two wrong
+       reasons — a forward-only proximity window missed the
+       let-binding-before-write idiom (cycle-3), and after cycle-4
+       routed the writer through =workspace-home-org-path= the
+       writer body contained zero =home.org= literals to match at
+       all — so it gave false "covered" confidence. A lint that
+       passes for the wrong reasons is worse than none; per-module
+       review is the real defense and the invariant remains true
+       (no other module writes =home.org=).
+
+   related_entries:
+     - register/boundary/home-org-read-pipeline
+     - register/shape/workspace-plist-v3
+
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/home-org-user-authored-after-creation.el
+   #+end_src
+
+** scaffold-leave-partial-on-failure
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-scaffold-leave-partial-on-failure
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/scaffold-leave-partial-on-failure
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-20260525-213500 integrate: speculated → confirmed.
+     scaffold-module's mid-pipeline-failure path leaves partial
+     filesystem state in place (no =delete-directory= / =delete-file=
+     in =config/workspaces/scaffold.el='s body — enforced by
+     structural lint in =scaffold-spec.el=), signals =user-error=
+     naming the HOME path, and does not mutate the registry. All
+     four scaffolded assertions lifted into =scaffold-spec.el=:
+     mid-pipeline git-commit failure leaves home.org + sessions/;
+     no-registry-mutation (delegated to caller-side); user-error
+     message names HOME path; structural lint on no-delete primitives.
+     The caller-side complement (workspace-new MUST NOT register on
+     failed scaffold) is owned by =workspace-new-default-path=
+     (cycle 3+). Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/invariant-scaffold-leave-partial-on-failure.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. Pairs with
+     the =register/boundary/workspace-scaffold-pipeline= entry: the
+     pipeline's contract says it can fail; this invariant pins WHAT
+     THE PACKAGE DOES NOT DO when failure happens. Speculation: any
+     pipeline stage's failure leaves the partial filesystem state in
+     place (no =rm -rf=, no =delete-directory= on the partial
+     scaffold), signals =user-error= with the path named, and does
+     not mutate the registry. Pressure-tested by =scaffold-module=
+     (mid-pipeline-failure spec case) and downstream by
+     =workspace-new-default-path= (caller-side: the failed scaffold
+     MUST NOT yield a registry entry)."
+   load_bearing: true
+   title: Scaffold pipeline never deletes partial filesystem state on failure
+
+   statement: |
+     On any failure of any stage of =workspace-scaffold= (see
+     =register/boundary/workspace-scaffold-pipeline=), the package
+     SHALL:
+       1. Abort the pipeline (subsequent stages do not run).
+       2. Signal =user-error= naming the HOME path, the failing stage
+          or git invocation, and a remedy hint ("inspect and remove
+          manually if appropriate").
+       3. LEAVE PARTIAL FILESYSTEM STATE IN PLACE. No call to
+          =delete-directory=, =delete-file=, =rename-file=, or any
+          other deletion primitive against the HOME path or its
+          contents.
+       4. Not mutate =workspace--registry= (the function itself does
+          not touch the registry — but this clause is the contract:
+          callers MAY NOT register a workspace whose scaffold call
+          signalled).
+       5. Not create a tab (the caller's =tab-bar= invocation MUST be
+          gated on a non-signalling scaffold return).
+
+   why_it_matters: |
+     The default path (=~/emacs-workspaces/NAME/=) is safe to retry
+     after manual cleanup. But the anchor-existing branches let the
+     user point =workspace-new= at an arbitrary path via
+     =read-directory-name=. A typo'd anchor target (=/Users/jeff/code/=
+     instead of =/Users/jeff/code/myproj/=) followed by a silent
+     =rm -rf= would catastrophically delete the user's data — not
+     because we touched anything we created, but because we couldn't
+     distinguish "the dir we just made" from "the dir that was
+     already there". The conservative choice is: NEVER delete. The
+     cost is an awkward manual =rm -rf= after a rare mid-pipeline
+     failure; the alternative is unacceptable. Design D2 names this
+     explicitly: "silent rm -rf on partial failure is too risky".
+
+     The "no registry mutation" clause is the consumer-side
+     enforcement: even if a future refactor adds early registration
+     (e.g. to support resume-on-failure), it MUST roll back on any
+     scaffold signal. Otherwise a half-scaffolded workspace appears
+     in completion and the user activates it, with downstream code
+     find-file'ing into a missing =home.org= or running =git= in a
+     repo with no commits.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Primary: =config/workspaces/test/scaffold-spec.el=, mid-pipeline-
+       failure case. Stub =workspace--scaffold-git= via =cl-letf= to
+       signal on the =commit= arg; invoke =workspace-scaffold=; assert
+       =user-error= is raised, and assert =(file-exists-p HOME)=,
+       =(file-exists-p (expand-file-name "home.org" HOME))=, and
+       =(file-directory-p (expand-file-name "sessions" HOME))= ALL
+       still hold after the signal. Then assert there is NO registry
+       entry for the scaffold target (i.e. =(workspace--get name)=
+       returns nil).
+     notes: |
+       The test layer is the primary enforcement — there is no
+       cheap structural-audit for "did this function call
+       delete-directory in its error path?" without behavioural
+       inspection. The architect's signal-class 3 (responsibility-
+       leakage) catches the converse defect (a new delete-call added
+       to scaffold.el), and signal-class 8 (invariant-gap) catches
+       the absence of this test if the spec file is removed.
+
+   related_entries:
+     - register/boundary/workspace-scaffold-pipeline
+     - register/invariant/home-required-no-floating-workspaces
+
+   cited_by_tasks:
+     - scaffold-module
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/scaffold-leave-partial-on-failure.el
+   #+end_src
+
+** broken-tag-runtime-only
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-broken-tag-runtime-only
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/broken-tag-runtime-only
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-20260525-213500 integrate: speculated → reconciled.
+     persistence-schema-v3 implements the contract via explicit-
+     enumeration in =workspace--persistence-serialize-workspace=:
+     the helper returns a fresh plist with exactly
+     =(:name :home :recent-layout-group :buffer-files :layout-groups)=,
+     omitting =:broken= by construction (not by defensive filter).
+     The deserializer re-derives the broken tag via
+     =(file-directory-p :home)= on load.
+
+     Enforcement mechanism revised: the scaffold's fourth assertion
+     (structural lint on writer body — defun named =serialize=,
+     =save=, =write= must not reference =:broken=) was substituted
+     by a byte-equivalence property test (serialize-with-broken vs
+     serialize-clean produce identical on-disk bytes). The
+     byte-equivalence assertion is rename-stable and tests the
+     INVARIANT outcome directly; the structural lint would have
+     asserted a property of the defensive-filter factoring style,
+     which the implementer did not use.
+
+     Three of four scaffolded assertions live in
+     =persistence-v3-spec.el= (serialize-omits-broken, byte-
+     equivalence) and =broken-home-load-spec.el= (deserialize-
+     derives-broken). Reconciliation note at
+     =.orchestrator/cycles/cycle-20260525-213500/reconciliations/invariant-broken-tag-runtime-only.md=.
+
+     Prior status_note (preserved for lineage):
+     "cycle-20260525-213500 plan: populated forward-mode. The
+     =:broken= plist tag introduced by cycle-1 data-model work is
+     documented in =register/shape/workspace-plist-v3= as runtime-
+     only; this invariant pins the PERSISTENCE-SIDE contract that
+     enforces it. Speculation: the cycle-2 persistence serializer
+     filters =:broken= from each workspace plist before writing to
+     disk, and the deserializer re-derives the tag freshly on each
+     load by =(file-directory-p :home)=. Pressure-tested by
+     =persistence-schema-v3= (the round-trip :broken case). If the
+     implementor finds a cheaper way to enforce (e.g. a single helper
+     =workspace--persistence-serialize-workspace= that omits =:broken=
+     by construction), the entry reconciles confirmed with a note on
+     the implementation locus."
+   load_bearing: true
+   title: The :broken plist tag is runtime-only — never serialized to disk
+
+   statement: |
+     For every workspace =ws= written to the persistence file:
+     =(plist-member (workspace--serialize ws) :broken)= MUST return
+     nil. The =:broken= tag SHALL be set only at load time (by the
+     deserializer's =(file-directory-p :home)= check) or by the
+     explicit =workspace--mark-broken= helper, and SHALL be cleared
+     by =workspace--clear-broken= or by =workspace-re-anchor=. The
+     tag is an OBSERVATION about the current filesystem state, not a
+     persistent attribute of the workspace.
+
+     Equivalently: the on-disk representation of a workspace is the
+     same whether the workspace was marked broken at load time or
+     not. Reading a workspace as broken, serializing without change,
+     reading back: produces a non-broken workspace IF the directory
+     has reappeared, broken IF still missing.
+
+   why_it_matters: |
+     If =:broken= were serialized, the system would need a state
+     machine for clearing it — when does a workspace become "no
+     longer broken"? At the next successful activation? At the next
+     restart? On =workspace-re-anchor=? Each choice introduces a
+     drift point. Keeping the tag ephemeral means the answer is
+     trivial: "the next load checks =file-directory-p= afresh".
+
+     The persistence-write path is also the only path that turns
+     in-memory state durable; if it omits =:broken= by construction,
+     no future code path can accidentally persist the tag (e.g. by
+     marking a workspace broken in memory and then immediately
+     calling =workspace-save=). The invariant is therefore a
+     load-bearing property of the serializer's output, not just of
+     the runtime model.
+
+     Pairs with =register/vocabulary/workspace-broken-disposition=:
+     the vocabulary defines what commands DO when invoked on a
+     broken workspace; this invariant defines how the broken state
+     LIVES — at runtime only. The combination makes broken-state
+     handling auditable: every code path that reacts to broken is
+     in the vocabulary; every code path that produces broken state
+     is the deserializer's =file-directory-p= check or an explicit
+     =mark-broken= call.
+
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Primary: =config/workspaces/test/persistence-v3-spec.el=, the
+       =:broken round-trip= case. Construct a workspace in memory,
+       mark broken via =workspace--mark-broken=, serialize to a tmp
+       file, read the file back as plain elisp (=read=), assert that
+       the workspace's plist does NOT contain a =:broken= key.
+       Secondary: =config/workspaces/test/broken-home-load-spec.el=,
+       the load-side: a v3 file whose serialized workspace has
+       =:home= pointing at a missing directory loads as broken
+       (=workspace--broken-p= returns t), demonstrating the
+       deserializer re-derives the tag from filesystem state, not
+       from any persisted bit.
+     notes: |
+       Architect signal-class 8 (invariant-gap) catches the absence
+       of either test if the spec files are removed. Architect
+       signal-class 7 (interface-drift) catches a serializer revision
+       that includes =:broken= in its output plist by inspecting the
+       function body against this entry's statement.
+
+   related_entries:
+     - register/shape/workspace-plist-v3
+     - register/vocabulary/workspace-broken-disposition
+     - register/invariant/home-required-no-floating-workspaces
+
+   cited_by_tasks:
+     - persistence-schema-v3
+   discovered_from: add-workspace-home-directory
+   discovered_by: architect
+   scaffolding_path: openspec/changes/add-workspace-home-directory/scaffolding/invariants/broken-tag-runtime-only.el
+   #+end_src
+
+** workspaces-transient-deferred-require
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-workspaces-transient-deferred-require
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/workspaces-transient-deferred-require
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-20260612-143558 (workspace-integration-menu) integrate:
+     created CONFIRMED from discovery disc-workspaces-transient-menu-1.
+     Surfaced when an eager =(require 'transient)= in
+     =workspaces-transient.el= pulled in the stale BUILT-IN transient and
+     defeated the straight override, causing =transient--set-layout=
+     void-function at init and aborting the whole test run (exit 255).
+     Resolved by deferring all transient symbols behind
+     =with-eval-after-load 'transient=.
+   load_bearing: true
+   title: workspaces-subtree modules must defer transient (load-order constraint)
+   rule: |
+     Any module under =config/workspaces/= that uses =transient= MUST
+     defer its transient forms (=transient-define-prefix=,
+     =transient-parse-suffixes=, etc.) behind
+     =(with-eval-after-load 'transient ...)= and MUST NOT
+     =(require 'transient)= at load time — for as long as
+     =config/workspaces/workspaces= loads BEFORE =config/transient= in
+     =init.el='s =jf/enabled-modules=. An eager require loads the stale
+     built-in transient and defeats =config/transient.el='s straight
+     override (=use-package transient :demand t=, which relies on
+     transient not already being loaded).
+   why_it_matters: |
+     A real, init-breaking incident this cycle: eager require → built-in
+     transient → =transient-showcase= fails with =(void-function
+     transient--set-layout)= → exit 255 across the suite. The
+     skills-transient module gets away with =(require 'transient)= ONLY
+     because gptel loads AFTER =config/transient=; the constraint is
+     load-order-relative, not absolute.
+   enforcement_mechanism: review-discipline
+   enforcement_note: |
+     Currently caught only by a full-init test run going red (the symptom
+     is global, not local). A stronger mechanism (a lint asserting no
+     bare =(require 'transient)= under config/workspaces/, or moving
+     =config/transient= before =workspaces= in the load order) is a
+     candidate follow-up — see .tasks/ externalisation at cycle-6 integrate.
+   applies_to:
+     - config/workspaces/workspaces-transient.org   # honors the rule (deferred)
+   keybinding_note: |
+     =C-x w= binds the =workspace-menu= SYMBOL eagerly; the symbol is a
+     valid keymap target before the prefix is defined, and transient
+     loads later in the same init pass, so the binding works without an
+     eager require.
+   related_entries:
+     - register/boundary/workspace-integration-registry
+   cited_by_tasks:
+     - workspaces-transient-menu
+   discovered_from: workspace-integration-menu
+   discovered_by: implementor
+   discovered_class: load-order-hazard
+   #+end_src
+
+** git-worktree-default-directory-binding
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-git-worktree-default-directory-binding
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/git-worktree-default-directory-binding
+   tier: invariant
+   status: confirmed
+   load_bearing: true
+   title: every magit worktree/branch call is bound to its target repo via default-directory
+   statement: |
+     In =config/workspaces/git-worktrees.org=, EVERY =magit-*= call that
+     operates on a specific repository or worktree MUST be wrapped in an
+     explicit =(let ((default-directory REPO-OR-WORKTREE)) ...)=. magit
+     functions act on =default-directory=; an unbound or wrong binding
+     silently operates on the WRONG repo (the orchestrator's repo, or
+     whatever the current buffer points at).
+   why_it_matters: |
+     The module manages worktrees across N independently-rooted source
+     repos in one workspace. =magit-main-branch=, =magit-worktree-branch=,
+     =magit-worktree-delete=, =magit-branch-merged-p=, =magit-branch-delete=
+     and the =magit-list-worktrees= enumeration each need a precise root:
+     creation/branch ops bind to the SOURCE repo; enumeration binds INTO
+     the child worktree. A wrong binding could create a branch in, or
+     delete a worktree from, an unintended repository — a destructive,
+     hard-to-debug class of bug.
+   enforcement_mechanism: test
+   enforcement_detail: |
+     Behavioral buttercup specs in =config/workspaces/test/git-worktrees-spec.el=
+     spy each magit fn and capture =default-directory= at call time,
+     asserting it equals the chosen repo (add-worktree) / each worktree's
+     source repo (on-purge teardown). cycle-7: confirmed by tasks
+     =add-worktree-command= and =on-purge-teardown-handler= (both with
+     call-time default-directory-capture assertions).
+   applies_to:
+     - config/workspaces/git-worktrees.org
+   related_entries:
+     - register/boundary/workspace-git-worktrees-consumer
+     - register/boundary/workspace-integration-registry
+   cited_by_tasks:
+     - add-worktree-command
+     - on-purge-teardown-handler
+   discovered_from: add-workspace-git-worktrees
+   discovered_by: implementor
+   discovered_class: load-order-hazard
    #+end_src
 
 * Status legend
