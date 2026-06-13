@@ -296,12 +296,11 @@
                    (push fn closures)))
                 ((symbol-function 'window-state-put)
                  (lambda (&rest _) (cl-incf put-count)))
-                ;; `workspace-switch-layout' calls
-                ;; `workspace--autosave-current-layout', which has an
-                ;; :after advice that triggers `workspace-save-state'
-                ;; (disk write).  Stub it out for the duration of the
-                ;; test.
-                ((symbol-function 'workspace-save-state)
+                ;; `workspace-switch-layout' flushes synchronously via
+                ;; `workspace--flush-state' (disk write).  Stub it out for
+                ;; the duration of the test so the frameset-capture path
+                ;; runs without touching disk.
+                ((symbol-function 'workspace--flush-state)
                  (lambda (&rest _) nil)))
         ;; Two switches in rapid succession.  Each one calls
         ;; `workspace--restore-frameset' once, which `cl-incf's the

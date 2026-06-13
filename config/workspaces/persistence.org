@@ -3,12 +3,14 @@
 #+property: header-args:emacs-lisp :tangle persistence.el
 #+auto_tangle: y
 
-Per-machine on-disk persistence for workspaces.  Auto-save on layout
-context switch (debounced), synchronous flush on Emacs shutdown, and
-explicit =workspace-save-state= for manual snapshots.  Restore on
-startup populates the registry and re-creates tabs without disturbing
-the active tab; layout/buffer restore is deferred to the first
-selection of each restored workspace (lazy activation).
+Per-machine on-disk persistence for workspaces.  Every trigger flushes
+synchronously through =workspace--flush-state= — auto-save on layout
+context switch, intra-workspace layout switch, idle tick, and Emacs
+shutdown, plus explicit =workspace-save=.  There is no debounce (see
+"Synchronous save").  Restore on startup populates the registry and
+re-creates tabs without disturbing the active tab; layout/buffer restore
+is deferred to the first selection of each restored workspace (lazy
+activation).
 
 * Lexical Binding
 
@@ -336,56 +338,25 @@ Three outcomes (design.md §D2):
            'workspace--unreadable))))))
 #+end_src
 
-* Debounced save trigger
+* Synchronous save
+
+Every persistence trigger flushes synchronously through this one entry
+point.  There is no debounce: every trigger in the package is a discrete,
+low-frequency, quiescent event (explicit save, layout save/switch, tab
+switch, idle tick, shutdown) with no burst to coalesce, so a debounced
+idle-timer write would only delay the on-disk write for no benefit.  A
+debounce would be warranted only for a high-frequency trigger such as
+autosave on window-configuration change, which is not part of this
+package; should such a trigger be added it would re-introduce a debounce
+scoped to itself.  The block check, readable-by-construction assert, and
+atomic temp-file+rename all live in =workspace--write-state=.
 
 #+begin_src emacs-lisp
-(defcustom workspace-save-idle-delay 2
-  "Idle delay (seconds) before the auto-save trigger writes to disk.
-Coalesces bursts of context switches into a single disk write."
-  :type 'number
-  :group 'workspaces)
-
-(defvar workspace--save-timer nil
-  "Pending idle timer for debounced disk save.")
-
 (defun workspace--flush-state ()
-  "Write the registry to disk now (cancelling any pending debounce)."
-  (when workspace--save-timer
-    (cancel-timer workspace--save-timer)
-    (setq workspace--save-timer nil))
+  "Write the registry to disk synchronously.
+The block check, write-time readable assert, and atomic temp-file +
+rename are enforced in `workspace--write-state'."
   (workspace--write-state (workspace--serialize-registry)))
-
-(defun workspace-save-state ()
-  "Schedule a debounced save of the workspaces registry to disk.
-Cancels any pending timer and re-arms it; the actual disk write
-happens after `workspace-save-idle-delay' seconds of idle time.
-
-No-op while `workspace--persistence-blocked' is set: the eventual
-`workspace--flush-state' → `workspace--write-state' would refuse the
-write anyway, so we do not even arm a useless idle timer."
-  (interactive)
-  (unless workspace--persistence-blocked
-    (when workspace--save-timer
-      (cancel-timer workspace--save-timer)
-      (setq workspace--save-timer nil))
-    (setq workspace--save-timer
-          (run-with-idle-timer workspace-save-idle-delay nil
-                               #'workspace--flush-state))))
-#+end_src
-
-* Wire auto-save into the layout autosave path
-
-Each in-memory snapshot schedules a debounced disk save.  The disk
-write therefore lags the in-memory update by the debounce window,
-which is the intended trade (design.md §D7).
-
-#+begin_src emacs-lisp
-(defun workspace--persistence-after-autosave (&rest _args)
-  "Schedule a debounced disk save after an autosave snapshot."
-  (workspace-save-state))
-
-(advice-add 'workspace--autosave-current-layout :after
-            #'workspace--persistence-after-autosave)
 #+end_src
 
 * Restore on startup
@@ -449,9 +420,9 @@ workspace-revert) to disk before shutdown.
 #+begin_src emacs-lisp
 (defun workspace--kill-emacs-flush ()
   "Capture working-state then write the registry to disk synchronously.
-Cancels any pending debounce.  The working-state capture is wrapped in
-`ignore-errors' so a capture failure (e.g. unusual frame state during
-shutdown) does not prevent the flush itself.
+The working-state capture is wrapped in `ignore-errors' so a capture
+failure (e.g. unusual frame state during shutdown) does not prevent the
+flush itself.
 
 Consults `workspace-anti-save-predicates' before the working-state
 capture; the registry flush itself is unconditional (the user has
@@ -464,9 +435,6 @@ The `workspace--write-state' choke point would refuse the write anyway;
 the explicit early-return avoids the wasted working-state capture and
 documents the boundary at the shutdown path itself."
   (unless workspace--persistence-blocked
-    (when workspace--save-timer
-      (cancel-timer workspace--save-timer)
-      (setq workspace--save-timer nil))
     (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
       (ignore-errors (workspace--autosave-current-layout :working-state)))
     (ignore-errors (workspace--write-state (workspace--serialize-registry)))))
@@ -511,10 +479,15 @@ shape makes the clobber structurally impossible.
   "Snapshot the outgoing workspace's :working-state before the tab switch.
 No-op when the current tab is not a workspace-managed tab.  Consults
 `workspace-anti-save-predicates'; if any predicate returns non-nil,
-the autosave is silently skipped."
+the autosave is silently skipped (and no disk write occurs).
+
+Flushes synchronously after the capture: a workspace context switch is
+a discrete user action, so the outgoing state is pinned to disk the
+moment the user leaves it (no debounce)."
   (when (workspace--current-name)
     (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
-      (workspace--autosave-current-layout :working-state))))
+      (workspace--autosave-current-layout :working-state)
+      (workspace--flush-state))))
 
 (advice-add 'tab-bar-select-tab :before
             #'workspace--persistence-before-tab-switch)

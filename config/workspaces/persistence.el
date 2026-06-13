@@ -242,45 +242,11 @@ Three outcomes (design.md §D2):
             :error)
            'workspace--unreadable))))))
 
-(defcustom workspace-save-idle-delay 2
-  "Idle delay (seconds) before the auto-save trigger writes to disk.
-Coalesces bursts of context switches into a single disk write."
-  :type 'number
-  :group 'workspaces)
-
-(defvar workspace--save-timer nil
-  "Pending idle timer for debounced disk save.")
-
 (defun workspace--flush-state ()
-  "Write the registry to disk now (cancelling any pending debounce)."
-  (when workspace--save-timer
-    (cancel-timer workspace--save-timer)
-    (setq workspace--save-timer nil))
+  "Write the registry to disk synchronously.
+The block check, write-time readable assert, and atomic temp-file +
+rename are enforced in `workspace--write-state'."
   (workspace--write-state (workspace--serialize-registry)))
-
-(defun workspace-save-state ()
-  "Schedule a debounced save of the workspaces registry to disk.
-Cancels any pending timer and re-arms it; the actual disk write
-happens after `workspace-save-idle-delay' seconds of idle time.
-
-No-op while `workspace--persistence-blocked' is set: the eventual
-`workspace--flush-state' → `workspace--write-state' would refuse the
-write anyway, so we do not even arm a useless idle timer."
-  (interactive)
-  (unless workspace--persistence-blocked
-    (when workspace--save-timer
-      (cancel-timer workspace--save-timer)
-      (setq workspace--save-timer nil))
-    (setq workspace--save-timer
-          (run-with-idle-timer workspace-save-idle-delay nil
-                               #'workspace--flush-state))))
-
-(defun workspace--persistence-after-autosave (&rest _args)
-  "Schedule a debounced disk save after an autosave snapshot."
-  (workspace-save-state))
-
-(advice-add 'workspace--autosave-current-layout :after
-            #'workspace--persistence-after-autosave)
 
 (defun workspace--apply-saved-layout (name)
   "Apply NAME's recent effective window-state to the current frame.
@@ -317,9 +283,9 @@ participates in the guard, including direct callers like
 
 (defun workspace--kill-emacs-flush ()
   "Capture working-state then write the registry to disk synchronously.
-Cancels any pending debounce.  The working-state capture is wrapped in
-`ignore-errors' so a capture failure (e.g. unusual frame state during
-shutdown) does not prevent the flush itself.
+The working-state capture is wrapped in `ignore-errors' so a capture
+failure (e.g. unusual frame state during shutdown) does not prevent the
+flush itself.
 
 Consults `workspace-anti-save-predicates' before the working-state
 capture; the registry flush itself is unconditional (the user has
@@ -332,9 +298,6 @@ The `workspace--write-state' choke point would refuse the write anyway;
 the explicit early-return avoids the wasted working-state capture and
 documents the boundary at the shutdown path itself."
   (unless workspace--persistence-blocked
-    (when workspace--save-timer
-      (cancel-timer workspace--save-timer)
-      (setq workspace--save-timer nil))
     (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
       (ignore-errors (workspace--autosave-current-layout :working-state)))
     (ignore-errors (workspace--write-state (workspace--serialize-registry)))))
@@ -345,10 +308,15 @@ documents the boundary at the shutdown path itself."
   "Snapshot the outgoing workspace's :working-state before the tab switch.
 No-op when the current tab is not a workspace-managed tab.  Consults
 `workspace-anti-save-predicates'; if any predicate returns non-nil,
-the autosave is silently skipped."
+the autosave is silently skipped (and no disk write occurs).
+
+Flushes synchronously after the capture: a workspace context switch is
+a discrete user action, so the outgoing state is pinned to disk the
+moment the user leaves it (no debounce)."
   (when (workspace--current-name)
     (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
-      (workspace--autosave-current-layout :working-state))))
+      (workspace--autosave-current-layout :working-state)
+      (workspace--flush-state))))
 
 (advice-add 'tab-bar-select-tab :before
             #'workspace--persistence-before-tab-switch)

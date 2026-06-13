@@ -6,6 +6,12 @@
 (require 'workspace-data-model)
 (require 'workspace-tabs)
 
+;; `workspace--flush-state' lives in persistence.el, which `require's this
+;; module (not the reverse).  The deliberate layout commands below call it
+;; synchronously at runtime, well after both modules are loaded, so the
+;; forward reference is safe; declare it to silence the byte-compiler.
+(declare-function workspace--flush-state "workspace-persistence")
+
 (defcustom workspace-window-persistent-parameters
   '((header-line-format . writable)
     (mode-line-format . writable)
@@ -471,14 +477,17 @@ register/shape/layout-v2-plist producer fragmentation."
            (layout (and group (workspace--group-recent-layout group))))
       (when layout
         (plist-put layout :working-state nil)))
+    ;; Deliberate command — flush synchronously (no debounce).
+    (workspace--flush-state)
     name))
 
 (defun workspace-switch-layout (name)
   "Switch to layout NAME within the current workspace.
 The outgoing layout's `:working-state' is updated with a fresh snapshot
-of the current frame (debounced disk write per the v2 autosave model;
-design.md §D4).  The destination layout's effective state
-(`:working-state' if non-nil else `:saved-state') is restored."
+of the current frame and flushed to disk synchronously (a layout switch
+is a discrete user action; no debounce).  The destination layout's
+effective state (`:working-state' if non-nil else `:saved-state') is
+restored."
   (interactive
    (list
     (completing-read "Switch to layout: "
@@ -496,6 +505,9 @@ design.md §D4).  The destination layout's effective state
       ;; preserves the outgoing layout's last explicit save unaltered
       ;; (register/invariant/autosave-never-writes-saved-state).
       (workspace--autosave-current-layout :working-state)
+      ;; Deliberate command — flush the outgoing layout's snapshot
+      ;; synchronously (no debounce) before restoring the destination.
+      (workspace--flush-state)
       (let ((layout (workspace--group-recent-layout group)))
         (when layout
           (when-let ((state (workspace--layout-effective-state layout)))
@@ -572,7 +584,10 @@ explicit-save variants on first save."
       (let* ((ws (gethash ws-name workspace--registry))
              (with-recent (workspace--set-recent-group ws "home")))
         (puthash ws-name with-recent workspace--registry))
-      (workspace--autosave-current-layout :saved-state))))
+      (workspace--autosave-current-layout :saved-state)
+      ;; `workspace-new' is a deliberate action — flush the home stamp
+      ;; synchronously (no debounce).
+      (workspace--flush-state))))
 
 (advice-add 'workspace-new :after
             (lambda (&rest _)

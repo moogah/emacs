@@ -262,10 +262,16 @@ Interactively, completes over registered workspace names."
                           (workspace--registered-names) nil t)))
   (unless (gethash name workspace--registry)
     (user-error "No workspace named %s" name))
+  ;; Capture the tab index BEFORE the remhash (`workspace--tab-index-for'
+  ;; is registry-gated), then unregister BEFORE closing the tab.  Closing
+  ;; the current tab fires the tab-switch autosave advice; unregistering
+  ;; first makes `workspace--current-name' return nil so the advice
+  ;; no-ops — we neither capture nor flush working-state for a workspace
+  ;; we are deleting, and the only disk write is the explicit flush below.
   (let ((tab-idx (workspace--tab-index-for name)))
+    (remhash name workspace--registry)
     (when tab-idx
       (tab-bar-close-tab tab-idx)))
-  (remhash name workspace--registry)
   (workspace--flush-state)
   (message "Workspace %s unregistered (home directory left on disk)" name))
 
@@ -305,11 +311,16 @@ purge as =:allowed= on broken)."
     (unless (yes-or-no-p (format "Recursively delete %s? " home))
       (user-error "Cancelled"))
     ;; Unregister first; even if delete-directory errors below the
-    ;; registry is already clean.
+    ;; registry is already clean.  Unregistering BEFORE closing the tab
+    ;; also makes the tab-switch autosave advice no-op (the tab is no
+    ;; longer a registered workspace), so the only disk write here is the
+    ;; explicit flush below — not a redundant working-state flush for a
+    ;; workspace being purged.  Tab index is captured before the remhash
+    ;; (`workspace--tab-index-for' is registry-gated).
     (let ((tab-idx (workspace--tab-index-for name)))
+      (remhash name workspace--registry)
       (when tab-idx
         (tab-bar-close-tab tab-idx)))
-    (remhash name workspace--registry)
     (workspace--flush-state)
     ;; Filesystem delete (best-effort; broken-home case has nothing
     ;; to do — :home is already absent).

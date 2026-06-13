@@ -41,11 +41,18 @@ demoting the module to dynamic binding.
 (require 'cl-lib)
 #+end_src
 
-The mode depends on =workspace--current-name= (from =tabs.el=) and
-=workspace--autosave-current-layout= (from =layouts.el=).  Both are
-loaded earlier in the package's submodule sequence; no
-=(require 'workspaces)= is needed here (and would be circular —
-=workspaces.el= loads this module).
+The mode depends on =workspace--current-name= (from =tabs.el=),
+=workspace--autosave-current-layout= (from =layouts.el=), and
+=workspace--flush-state= (from =persistence.el=).  All are loaded
+earlier in the package's submodule sequence; no =(require 'workspaces)=
+is needed here (and would be circular — =workspaces.el= loads this
+module).  The idle tick fires only at runtime, after the full package
+is loaded, so the forward reference to =workspace--flush-state= is safe;
+it is declared to silence the byte-compiler.
+
+#+begin_src emacs-lisp
+(declare-function workspace--flush-state "workspace-persistence")
+#+end_src
 
 * Defcustom
 
@@ -95,15 +102,22 @@ tab switch advice" and "Kill-emacs flush" sections.
 #+begin_src emacs-lisp
 (defun workspaces-mode--idle-tick ()
   "Idle-timer body for `workspaces-mode'.
-Captures the current workspace's :working-state, no-op when no
-workspace is current (e.g. transient state between
-`workspace-close' and `workspace-switch', or a frame that has never
-been on a workspaces-managed tab).  Also no-op when any predicate
+Captures the current workspace's :working-state and flushes it to disk
+synchronously.  No-op when no workspace is current (e.g. transient state
+between `workspace-close' and `workspace-switch', or a frame that has
+never been on a workspaces-managed tab).  Also no-op when any predicate
 in `workspace-anti-save-predicates' returns non-nil — e.g. during
-minibuffer activity or when a *Backtrace* window is visible."
+minibuffer activity or when a *Backtrace* window is visible.
+
+The flush is synchronous (no debounce): the tick fires at most once per
+idle period, so there is no burst to coalesce, and a debounced write
+armed from within an already-long idle period would be deferred to a
+future idle period (the `run-with-idle-timer' already-idle trap),
+defeating the idle save's crash-safety purpose."
   (when (workspace--current-name)
     (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
-      (workspace--autosave-current-layout :working-state))))
+      (workspace--autosave-current-layout :working-state)
+      (workspace--flush-state))))
 #+end_src
 
 * The mode

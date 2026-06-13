@@ -299,9 +299,9 @@ printed form does not signal."
         (workspace--restore)
         (expect workspace--persistence-blocked :to-be t)
         ;; Fire every disk-writing path that the old cascade rode in on.
+        ;; All flush synchronously now; the block must still suppress them.
         (workspace--flush-state)
         (workspace--kill-emacs-flush)
-        (workspace-save-state)
         ;; No live state file was (re)written...
         (expect (file-exists-p file) :to-be nil)
         ;; ...and the corrupt original is still preserved verbatim.
@@ -313,9 +313,7 @@ printed form does not signal."
                            (car backups)
                            serialization-robustness-spec--state-dir))
                          (buffer-string))))
-            (expect bytes :to-equal "(:version 3 :workspaces (#<window 1>))")))
-        ;; No useless idle timer was armed by workspace-save-state.
-        (expect workspace--save-timer :to-be nil))))
+            (expect bytes :to-equal "(:version 3 :workspaces (#<window 1>))"))))))
 
   (describe "autosave gate (blocked → no writes)"
     (it "flush and kill-emacs-flush write nothing while blocked"

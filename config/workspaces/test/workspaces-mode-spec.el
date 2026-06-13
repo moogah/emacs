@@ -105,16 +105,22 @@ calling real `cancel-timer' (the sentinel is not a real timerp)."
         (workspaces-mode--idle-tick)
         (expect autosave-calls :to-equal 0))))
 
-  (it "calls workspace--autosave-current-layout exactly once with :working-state when a workspace is current"
+  (it "calls workspace--autosave-current-layout exactly once with :working-state, then flushes synchronously"
     ;; Scaffold scenario 2: positive-path companion to scenario 1.
-    (let ((calls nil))
+    ;; Also pins the synchronous flush: the idle tick must write to disk
+    ;; itself (no debounce) once the capture is taken.
+    (let ((calls nil)
+          (flush-calls 0))
       (cl-letf (((symbol-function 'workspace--current-name)
                  (lambda () "alpha"))
                 ((symbol-function 'workspace--autosave-current-layout)
-                 (lambda (slot) (push slot calls))))
+                 (lambda (slot) (push slot calls)))
+                ((symbol-function 'workspace--flush-state)
+                 (lambda (&rest _) (cl-incf flush-calls))))
         (workspaces-mode--idle-tick)
         (expect (length calls) :to-equal 1)
-        (expect (car calls) :to-equal :working-state))))
+        (expect (car calls) :to-equal :working-state)
+        (expect flush-calls :to-equal 1))))
 
   (it "passes :working-state explicitly (eq, not just present) — never :saved-state, never a default"
     ;; Scaffold scenario 3: pin the keyword by eq to catch an off-by-
@@ -123,7 +129,9 @@ calling real `cancel-timer' (the sentinel is not a real timerp)."
       (cl-letf (((symbol-function 'workspace--current-name)
                  (lambda () "alpha"))
                 ((symbol-function 'workspace--autosave-current-layout)
-                 (lambda (slot) (setq slot-arg slot))))
+                 (lambda (slot) (setq slot-arg slot)))
+                ((symbol-function 'workspace--flush-state)
+                 (lambda (&rest _) nil)))
         (workspaces-mode--idle-tick)
         (expect (eq slot-arg :working-state) :to-be t)
         (expect (eq slot-arg :saved-state)   :to-be nil))))
@@ -189,6 +197,8 @@ calling real `cancel-timer' (the sentinel is not a real timerp)."
                  (lambda () "alpha"))
                 ((symbol-function 'workspace--autosave-current-layout)
                  (lambda (_slot) (cl-incf calls)))
+                ((symbol-function 'workspace--flush-state)
+                 (lambda (&rest _) nil))
                 (workspace-anti-save-predicates (list (lambda () nil))))
         (workspaces-mode--idle-tick)
         (expect calls :to-equal 1)))))

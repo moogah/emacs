@@ -271,22 +271,36 @@
       (expect 'workspace--apply-saved-layout :to-have-been-called-with "alpha")
       (expect 'workspace-default-home-builder :not :to-have-been-called))))
 
-(describe "workspace-save-state debouncing"
+(describe "synchronous flush (no debounce)"
   (before-each (persistence-spec--reset))
   (after-each (persistence-spec--cleanup))
 
-  (it "coalesces rapid saves into a single disk write"
+  (it "writes to disk synchronously when workspace-new runs"
+    (persistence-spec--with-state-file
+      (let ((write-count 0))
+        (cl-letf (((symbol-function 'workspace--write-state)
+                   (lambda (_form) (cl-incf write-count))))
+          ;; `workspace-new' stamps the home layout via the :after advice,
+          ;; which flushes synchronously — no idle timer, no debounce.
+          (workspace-new "alpha")
+          (expect write-count :to-be-greater-than 0)))))
+
+  (it "each deliberate flush is its own immediate disk write"
     (persistence-spec--with-state-file
       (workspace-new "alpha")
       (let ((write-count 0))
         (cl-letf (((symbol-function 'workspace--write-state)
                    (lambda (_form) (cl-incf write-count))))
-          (workspace-save-state)
-          (workspace-save-state)
-          (workspace-save-state)
-          ;; Force the timer to fire now by flushing directly.
+          ;; No coalescing: three direct flushes are three writes.
           (workspace--flush-state)
-          (expect write-count :to-equal 1))))))
+          (workspace--flush-state)
+          (workspace--flush-state)
+          (expect write-count :to-equal 3)))))
+
+  (it "no debounce machinery remains"
+    (expect (fboundp 'workspace-save-state) :to-be nil)
+    (expect (boundp 'workspace--save-timer) :to-be nil)
+    (expect (boundp 'workspace-save-idle-delay) :to-be nil)))
 
 (describe "kill-emacs hook is installed"
   (it "registers workspace--kill-emacs-flush on kill-emacs-hook"
