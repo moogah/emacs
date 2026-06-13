@@ -55,11 +55,12 @@ v2 files are rejected; delete the file to start fresh, design.md §D5).")
 
 (defun workspace--persistence-serialize-workspace (ws)
   "Return WS reduced to its persistable shape.
-Filters out runtime-only tags — currently =:broken= (set by the
-deserializer on missing-home detection) and =:restore-pending= (set on
-deserialize to gate lazy frameset activation).  Both are observations
-about the *current session* and must be re-derived on next load, never
-persisted (register/invariant/broken-tag-runtime-only, design.md §D5)."
+The persisted-slot whitelist is =(:name :home :recent-layout-group
+:buffer-files :layout-groups)=; any runtime-only tag not in that set is
+stripped at this boundary.  Currently that is =:broken= (set by the
+deserializer on missing-home detection) — an observation about the
+*current session* that must be re-derived on next load, never persisted
+(register/invariant/broken-tag-runtime-only, design.md §D5)."
   (list :name (workspace--name ws)
         :home (workspace--home ws)
         :recent-layout-group (workspace--recent-group ws)
@@ -70,7 +71,7 @@ persisted (register/invariant/broken-tag-runtime-only, design.md §D5)."
   "Walk `workspace--registry' and produce its on-disk plist form.
 Each workspace is reduced to its persistable shape via
 `workspace--persistence-serialize-workspace' — runtime-only tags like
-=:broken= and =:restore-pending= are stripped at this boundary."
+=:broken= are stripped at this boundary."
   (let (workspaces)
     (maphash
      (lambda (_name ws)
@@ -82,7 +83,8 @@ Each workspace is reduced to its persistable shape via
 (defun workspace--deserialize-state (state)
   "Read STATE (the form read from disk) into `workspace--registry'.
 Returns the list of workspaces that were inserted into the registry.
-Does NOT create tabs; `workspace--restore-tabs' does that.  Assumes
+Does NOT create tabs — startup hydrates the registry only; tabs are
+materialized later by the explicit `workspace-restore' command.  Assumes
 STATE has already been version-checked by `workspace--read-state'.
 
 Three filtering rules apply per entry (design.md §D5, §D6; cycle-2
@@ -126,14 +128,13 @@ absolute-path arm):
           (let* ((broken-p (not (file-directory-p home)))
                  (with-broken (if broken-p
                                   (workspace--mark-broken ws)
-                                ws))
-                 (tagged (workspace--mark-restore-pending with-broken)))
+                                ws)))
             (when broken-p
               (message
                "Workspaces: workspace %S has missing :home directory %s — tagged broken"
                name home))
-            (puthash name tagged workspace--registry)
-            (push tagged restored))))))
+            (puthash name with-broken workspace--registry)
+            (push with-broken restored))))))
     (nreverse restored)))
 
 (defun workspace--write-state (form)
@@ -204,29 +205,9 @@ happens after `workspace-save-idle-delay' seconds of idle time."
 (advice-add 'workspace--autosave-current-layout :after
             #'workspace--persistence-after-autosave)
 
-(defun workspace--restore-tabs ()
-  "Create a tab per restored workspace; do not change the active tab.
-
-Each new tab is named after its workspace; that name is the
-discriminator (see `workspace--tab-workspace-name' in tabs.el).
-Layout restore is deferred until the user first selects the tab."
-  (let ((preserved (workspace--current-name)))
-    (maphash
-     (lambda (name _ws)
-       (unless (workspace--tab-for name)
-         (tab-bar-new-tab)
-         (tab-bar-rename-tab name)))
-     workspace--registry)
-    ;; If we just changed the current tab while creating new tabs,
-    ;; navigate back to where we were.
-    (when preserved
-      (let ((idx (workspace--tab-index-for preserved)))
-        (when idx (tab-bar-select-tab idx))))))
-
 (defun workspace--apply-saved-layout (name)
   "Apply NAME's recent effective window-state to the current frame.
-Also clears any `:restore-pending' flag on the workspace.  No-op when
-no saved layout exists.
+No-op when no saved layout exists.
 
 The effective state is `workspace--layout-effective-state', which
 prefers =:working-state= when non-nil, else =:saved-state= (register/
@@ -255,29 +236,7 @@ participates in the guard, including direct callers like
           (condition-case err
               (workspace--restore-frameset state)
             (error (message "Workspaces: layout restore failed: %s"
-                            (error-message-string err))))))
-      (when (workspace--restore-pending-p ws)
-        (puthash name (workspace--clear-restore-pending ws)
-                 workspace--registry)))))
-
-(defun workspace--activate-pending-workspace (name)
-  "Restore NAME's recent layout if the workspace is `:restore-pending'.
-Called from the tab-switch hook on first selection of a restored
-workspace.  No-op when the flag is not set."
-  (let ((ws (gethash name workspace--registry)))
-    (when (and ws (workspace--restore-pending-p ws))
-      (workspace--apply-saved-layout name))))
-
-(defun workspace--persistence-after-tab-switch (&rest _args)
-  "Hook installed after `tab-bar-switch-to-tab' for lazy activation."
-  (let ((name (workspace--current-name)))
-    (when name
-      (workspace--activate-pending-workspace name))))
-
-(advice-add 'tab-bar-switch-to-tab :after
-            #'workspace--persistence-after-tab-switch)
-(advice-add 'tab-bar-select-tab    :after
-            #'workspace--persistence-after-tab-switch)
+                            (error-message-string err)))))))))
 
 (defun workspace--kill-emacs-flush ()
   "Capture working-state then write the registry to disk synchronously.
@@ -312,12 +271,13 @@ the autosave is silently skipped."
             #'workspace--persistence-before-tab-switch)
 
 (defun workspace--restore ()
-  "Read the persistence file and restore tabs (lazy frameset activation).
+  "Read the persistence file and hydrate the registry only (no tabs).
+Restored workspaces are saved-but-not-materialized: reachable via
+`workspace-restore' but with no live tab until the user restores one.
 Safe to call at startup; no-ops cleanly when the file is absent."
   (let ((state (workspace--read-state)))
     (when state
-      (workspace--deserialize-state state)
-      (workspace--restore-tabs))))
+      (workspace--deserialize-state state))))
 
 (defun workspace-save ()
   "Save the current workspace's window configuration to disk.

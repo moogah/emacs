@@ -121,3 +121,93 @@ losslessly; hydrating-without-tabs risks no persisted data.
 design.md § Decisions D1 (drop restore-tabs) and D2 (remove lazy machinery
 in full); specs/workspaces/spec.md MODIFIED "Per-machine persistence and
 restoration".
+
+## Observations
+
+- Implemented exactly as the task body prescribed. No departures from the
+  step list.
+- Net spec delta: baseline 333 -> 332. Removed two specs that encoded
+  now-dead behavior (`tabs-spec.el`'s "after-tab-switch no-ops on
+  non-workspace tabs" — the function and `:after` advice are gone;
+  `persistence-v3-spec.el`'s ":restore-pending runtime tag is also
+  filtered" — the tag no longer exists). Reworked one in place
+  ("Workspaces survive restart": now asserts hydrate-only + no startup
+  tabs + explicit `workspace-restore` materialization). Added one
+  ("startup hydration creates no tabs for healthy workspaces"). Net = -2 +1.
+- The two deleted specs are NOT a behavior-coverage loss: the no-startup-
+  tabs invariant they implicitly leaned on is now asserted directly and
+  more strongly by the reworked + new persistence specs, and the
+  `:broken` serializer-omission contract (the live sibling of the deleted
+  `:restore-pending` byte-filter spec) stays green in `persistence-v3-spec.el`.
+- Wider blast radius was smaller than the design feared. Of the named
+  at-risk specs, only `tabs-spec.el` and `persistence-v3-spec.el`
+  referenced the removed symbols. `broken-home-load-spec`,
+  `broken-home-runtime-spec`, `save-restore-spec`, `buffer-reincarnation-spec`,
+  `workspace-delete-purge-spec`, and `data-model-spec` already drove through
+  `workspace--restore` (registry-only assertions) or `workspace-restore`
+  (explicit materialization) and required no edit — they were already
+  aligned with hydrate-only restore. `save-restore-spec`'s
+  `tab-bar-select-tab 1` calls are plain navigation, not lazy-activation
+  triggers, so they were unaffected by removing the `:after` advice.
+- The `:before` autosave advice (`workspace--persistence-before-tab-switch`)
+  on BOTH `tab-bar-select-tab` and `tab-bar-switch-to-tab` is intact and
+  still fires; verified by grep against the tangled `persistence.el`.
+
+## Discoveries
+- discovery_id: disc-registry-hydrate-only-startup-1
+  class: dead-branch
+  description: |
+    Retired the :restore-pending runtime tag entirely. The persistence
+    loader no longer marks deserialized workspaces restore-pending, the
+    tab-switch :after activation hook (workspace--persistence-after-tab-switch)
+    and its handler (workspace--activate-pending-workspace) are deleted, and
+    the three data-model helpers (workspace--restore-pending-p /
+    --mark-restore-pending / --clear-restore-pending) are removed.
+    workspace--apply-saved-layout no longer clears the flag (it now only
+    applies the effective layout). This is the vocabulary that
+    register/vocabulary/workspace-state-slot enumerates as a runtime tag.
+  affected_register_entry: register/vocabulary/workspace-state-slot
+  recommendation: |
+    At integrate, reconcile workspace-state-slot to drop :restore-pending
+    from its runtime-tag vocabulary. The persisted-slot closed set
+    (:saved-state, :working-state) is unchanged. The :broken runtime tag
+    stays. The candidate invariant
+    register/invariant/runtime-tags-routed-through-helpers (mentioned in the
+    deleted data-model prose) now has a closed set of one (:broken) — note
+    that if the invariant is ever promoted.
+- discovery_id: disc-registry-hydrate-only-startup-2
+  class: dead-branch
+  description: |
+    :restore-pending was a runtime-only tag stripped by the serializer
+    whitelist (:name :home :recent-layout-group :buffer-files :layout-groups).
+    Removing it did NOT alter the persisted-slot whitelist (unchanged) nor
+    the :broken runtime tag (retained, still stripped). The serializer
+    docstring was updated to state the whitelist explicitly and to drop the
+    :restore-pending mention. The byte-equivalence / :broken-omission spec
+    in persistence-v3-spec.el still pins the whitelist behavior.
+  affected_register_entry: register/shape/workspace-plist-v3
+  recommendation: |
+    At integrate, reconcile workspace-plist-v3 to drop :restore-pending from
+    the runtime-tag list. No change to the persisted-slot whitelist.
+- discovery_id: disc-registry-hydrate-only-startup-3
+  class: interface-drift
+  description: |
+    CONFIRMED (no drift): the autosave-guard-pipeline boundary note matched
+    the code exactly. workspace--persistence-after-tab-switch was the
+    lazy-restore path (deleted, with its two :after advice forms on
+    tab-bar-switch-to-tab / tab-bar-select-tab). The autosave stage-1 wrap
+    surface — workspace--persistence-before-tab-switch (:before advice on
+    BOTH tab-bar-select-tab and tab-bar-switch-to-tab) plus
+    workspace--kill-emacs-flush and workspaces-mode--idle-tick — is fully
+    untouched. The :before advice still fires on both tab-switch entry
+    points (verified via grep against tangled persistence.el; idle-tick and
+    kill-emacs specs green). The effective-state derivation in
+    workspace--apply-saved-layout (working-over-saved precedence) was not
+    altered — only the trailing :restore-pending-clearing block was removed;
+    the data-model precedence cases stay green.
+  affected_register_entry: register/boundary/autosave-guard-pipeline
+  recommendation: |
+    No reconciliation needed for the boundary itself — the note was accurate.
+    The :after lazy-restore path it distinguished from the :before autosave
+    path simply no longer exists; the boundary's autosave surfaces are
+    unchanged.

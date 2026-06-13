@@ -246,23 +246,7 @@ synthetic :home directories the tests construct.")
                                       (insert-file-contents-literally
                                        (workspace--state-file))
                                       (buffer-string))))
-            (expect bytes-after-broken :to-equal bytes-clean))))))
-
-  (it "the :restore-pending runtime tag is also filtered"
-    ;; Sibling runtime-only tag, set by the deserializer for lazy
-    ;; activation; same omission contract.
-    (persistence-v3-spec--with-state-file
-      (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
-             (ws (let ((copy (copy-sequence
-                              (workspace--make "alpha" alpha-home))))
-                   (plist-put copy :restore-pending t))))
-        (puthash "alpha" ws workspace--registry)
-        (workspace--write-state (workspace--serialize-registry))
-        (let* ((raw (persistence-v3-spec--read-raw))
-               (workspaces (plist-get raw :workspaces))
-               (alpha-on-disk (car workspaces)))
-          (expect (plist-member alpha-on-disk :restore-pending)
-                  :to-be nil))))))
+            (expect bytes-after-broken :to-equal bytes-clean)))))))
 
 (provide 'persistence-v3-spec)
 ;;; persistence-v3-spec.el ends here

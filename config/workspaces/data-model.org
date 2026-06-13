@@ -415,50 +415,6 @@ Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
     (plist-put copy :broken nil)))
 #+end_src
 
-* Restore-pending runtime tag
-
-The =:restore-pending= tag is a *runtime-only* flag set by the
-persistence loader when a workspace is read into the registry but
-its recent-layout frameset has not yet been applied (lazy
-activation).  It is never serialized — the next save writes the
-workspace without it, since the tag's job is exhausted once the
-tab-switch hook fires =workspace--apply-saved-layout=.
-
-Like =:broken=, mutations of this tag MUST route through the
-named helpers below — never inline =(plist-put copy
-:restore-pending …)=.  The architect's
-=arch-cycle-20260525-200459-2= (cycle 1) established the
-helper-vs-inline contract for =:broken=;
-=arch-cycle-20260525-213500-03= (cycle 2) extended it to
-=:restore-pending=.  Future runtime-only tags follow the same
-pattern (a candidate invariant
-=register/invariant/runtime-tags-routed-through-helpers= will
-enumerate the closed set).
-
-#+begin_src emacs-lisp
-(defun workspace--restore-pending-p (ws)
-  "Return non-nil if WS is awaiting lazy frameset restoration.
-
-The tag is set by the persistence loader and cleared by
-=workspace--apply-saved-layout= after first activation.  Runtime-
-only; never serialized."
-  (plist-get ws :restore-pending))
-
-(defun workspace--mark-restore-pending (ws)
-  "Return a new workspace like WS marked restore-pending.
-Non-destructive: WS is not modified.  Sets =:restore-pending t= on
-the copy."
-  (let ((copy (copy-sequence ws)))
-    (plist-put copy :restore-pending t)))
-
-(defun workspace--clear-restore-pending (ws)
-  "Return a new workspace like WS with the restore-pending tag cleared.
-Non-destructive: WS is not modified.  Sets =:restore-pending nil=
-on the copy."
-  (let ((copy (copy-sequence ws)))
-    (plist-put copy :restore-pending nil)))
-#+end_src
-
 * Sessions directory helper
 
 Canonical attachment point for =<HOME>/sessions/= path

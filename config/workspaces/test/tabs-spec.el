@@ -7,8 +7,8 @@
 (let ((dir (file-name-directory (or load-file-name buffer-file-name))))
   (load (expand-file-name "../data-model.el" dir))
   (load (expand-file-name "../tabs.el"       dir))
-  ;; persistence.el installs the live :after advice
-  ;; `workspace--persistence-after-tab-switch' on tab-bar-select-tab
+  ;; persistence.el installs the live :before autosave advice
+  ;; `workspace--persistence-before-tab-switch' on tab-bar-select-tab
   ;; / tab-bar-switch-to-tab; its dependencies (buffer-membership,
   ;; layouts) must load first.  bufferlo is stubbed if the package
   ;; is not installed in the test environment.
@@ -96,25 +96,6 @@ exercise it).  Must be called from `before-each' — buttercup's
 (describe "tab-switch advice"
   (before-each (workspaces-spec--reset))
   (after-each (workspaces-spec--cleanup))
-
-  (it "workspace--persistence-after-tab-switch no-ops on non-workspace tabs"
-    ;; The cycle-1 two-state-layout task installed
-    ;; `workspace--persistence-after-tab-switch' as the live :after
-    ;; advice on tab-bar-switch-to-tab / tab-bar-select-tab.  Its
-    ;; load-bearing guarantee is that it is a no-op when the current
-    ;; tab is not a workspace tab (i.e. carries no :workspace-name),
-    ;; so it does not interfere with activities-tabs-mode during
-    ;; side-by-side development (design.md §D8).
-    ;; Create a vanilla tab without going through workspace-new.
-    (tab-bar-new-tab)
-    (expect (workspace--current-name) :to-be nil)
-    ;; Selecting the previous (also untagged) tab should not error;
-    ;; the live :after advice runs and must early-return on nil name.
-    (tab-bar-select-tab 1)
-    (expect (workspace--current-name) :to-be nil)
-    ;; Direct invocation: with no workspace tab current, the advice
-    ;; must be a no-op (return nil, no side effects, no error).
-    (expect (workspace--persistence-after-tab-switch) :to-be nil))
 
   (it "survives a tab-bar-select-tab round-trip"
     ;; This is the regression for the dropped-tab-parameter bug.
