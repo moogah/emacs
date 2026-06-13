@@ -376,7 +376,7 @@ When a preset is found, the system SHALL call `gptel--apply-preset` with a buffe
 
 After the preset is applied, the system SHALL overlay every drawer-present configuration property as buffer-local bindings (Requirement: Configuration drawer overlay on restore). The drawer wins over the preset for every key it carries. For keys the drawer does not carry, the preset's value remains in effect.
 
-For `:system` the preset is the lowest tier only. After preset application and the drawer overlay, the system SHALL read the `* System Prompt` heading body (Requirement: System prompt heading is authoritative); when that body is non-blank it supersedes the preset's `:system`. The preset's `:system` is used as the buffer's system prompt only for sessions whose `* System Prompt` heading is absent or blank and whose drawer carries no legacy `:GPTEL_SYSTEM:` entry.
+For `:system` the preset is the lowest tier only. After preset application and the drawer overlay, the system SHALL read `:GPTEL_SYSTEM_PROMPT_FILE:` (Requirement: System prompt sibling file is authoritative); when that property resolves to a readable file with non-empty contents, the file body supersedes the preset's `:system`. The preset's `:system` is used as the buffer's system prompt only for sessions whose sibling file is absent or empty and whose drawer carries no legacy `:GPTEL_SYSTEM:` entry.
 
 When no preset is declared, the mode SHALL take no preset-related action; the buffer inherits whatever global or dir-local configuration is in effect. A drawer that contains only non-preset keys (e.g., a `:GPTEL_MODEL:` and nothing else) SHALL still trigger the overlay.
 
@@ -409,8 +409,8 @@ The system SHALL NOT enable `gptel-mode` (minor mode) as part of preset applicat
 - **THEN** `gptel--apply-preset` is called with `coding` first
 - **THEN** `gptel-model` is then overlaid to `claude-haiku-4-5` from the drawer
 
-#### Scenario: Preset's :system survives for a pre-Addendum session with no heading
-- **WHEN** a buffer opens with `:GPTEL_PRESET: coding`, no `:GPTEL_SYSTEM:` in the drawer, and no `* System Prompt` heading
+#### Scenario: Preset's :system is the bottom of the three-tier precedence
+- **WHEN** a buffer opens with `:GPTEL_PRESET: coding`, no `:GPTEL_SYSTEM:` in the drawer, and no `:GPTEL_SYSTEM_PROMPT_FILE:` line
 - **AND** the `coding` preset resolves `:system` to `"You are a coding assistant."`
 - **AND** the mode is activated
 - **THEN** buffer-local `gptel--system-message` is `"You are a coding assistant."`
@@ -420,6 +420,8 @@ The system SHALL NOT enable `gptel-mode` (minor mode) as part of preset applicat
 The system SHALL support `M-x gptel-menu` for interactive per-buffer configuration (preset selection, model, backend, tools, system message, context). Configuration suffixes SHALL function unchanged from upstream `gptel-menu`.
 
 The system SHALL provide `gptel-chat-menu` — a transient prefix mirroring `gptel-menu`'s configuration layout but with the Send suffix replaced by one that invokes `gptel-chat-send`. The chat-mode keymap SHALL bind this prefix to the same key that upstream users associate with `gptel-menu`.
+
+`gptel-chat-menu` SHALL replace the upstream `gptel-system-prompt` minibuffer-editing infix with an "Edit system prompt" affordance that opens the session's sibling system-prompt file in another window (Requirement: Edit system prompt menu affordance opens the sibling file) — the file is the source of truth, so the menu routes the user to the file rather than offering an in-menu text field. The menu's Send command SHALL route through the chat-mode request submission path, which performs the pre-send sibling-file refresh (Requirement: System prompt sibling file is authoritative).
 
 Upstream `M-x gptel-menu` invoked directly (by key or by `M-x`) SHALL remain available and unmodified; the rebinding affects only the chat-mode keymap's binding.
 
@@ -531,7 +533,7 @@ The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--sa
 
 Session files (those under `branches/<branch>/session.org` or `agents/<agent>/session.org`) SHALL use the chat-mode block format defined by this specification. Saving a session buffer SHALL use plain `save-buffer`; the file's on-disk content is the chat-mode block structure plus a `:PROPERTIES:` configuration drawer at point-min written by the chat-mode save hook (Requirement: Configuration drawer save on buffer save).
 
-The drawer carries a full snapshot of the buffer's upstream-compatible configuration (`GPTEL_PRESET`, `GPTEL_MODEL`, `GPTEL_BACKEND`, `GPTEL_TOOLS`, `GPTEL_TEMPERATURE`, `GPTEL_MAX_TOKENS`, `GPTEL_NUM_MESSAGES_TO_SEND`), the chat-mode extension `GPTEL_PARENT_SESSION_ID` (when set), and the scope keys `GPTEL_SCOPE_*` (managed by the scope subsystem). It does NOT carry `:GPTEL_SYSTEM:` (the system prompt lives in the `* System Prompt` heading body — Requirement: System prompt heading is authoritative) or `:GPTEL_BOUNDS:`.
+The drawer carries a full snapshot of the buffer's upstream-compatible configuration (`GPTEL_PRESET`, `GPTEL_MODEL`, `GPTEL_BACKEND`, `GPTEL_TOOLS`, `GPTEL_TEMPERATURE`, `GPTEL_MAX_TOKENS`, `GPTEL_NUM_MESSAGES_TO_SEND`), the chat-mode extension `GPTEL_PARENT_SESSION_ID` (when set), and the scope keys `GPTEL_SCOPE_*` (managed by the scope subsystem). It carries `:GPTEL_SYSTEM_PROMPT_FILE:` when the session has a system prompt. It does NOT carry `:GPTEL_SYSTEM:` (the system prompt lives in a sibling file referenced by `:GPTEL_SYSTEM_PROMPT_FILE:` — Requirement: System prompt sibling file is authoritative) or `:GPTEL_BOUNDS:`.
 
 The sessions subsystem SHALL NOT write `gptel--bounds` Local Variables, SHALL NOT append `gptel-mode`-style Local Variables blocks, and SHALL NOT invoke `gptel--save-state` or `gptel-org-set-properties`. The chat-mode save hook is the only writer of configuration properties.
 
@@ -563,7 +565,11 @@ The sessions subsystem SHALL NOT maintain `metadata.yml`. `scope.yml` is no long
 
 Additionally, the drawer SHALL contain `GPTEL_PARENT_SESSION_ID` when the buffer-local variable `jf/gptel--parent-session-id` is a non-empty string.
 
-The save hook SHALL NOT write a `:GPTEL_SYSTEM:` drawer line. Long, multi-line, special-character-heavy strings are unwieldy as a single property value, so the system prompt is never persisted as a drawer *property*. Instead the save hook SHALL serialize the current buffer-local `gptel--system-message` into the body of a `* System Prompt` heading (Requirement: System prompt heading is authoritative). The `:GPTEL_SYSTEM:` drawer write-exclusion and the heading-body write compose without conflict — the former governs the drawer, the latter the heading body. If a user authored `:GPTEL_SYSTEM:` in the drawer manually, the read-time overlay still respects it (back-compat); the writer simply never emits or replaces the drawer property.
+The save hook SHALL preserve `:GPTEL_SYSTEM_PROMPT_FILE:` when present — it is written by session creation (and by the "Edit system prompt" menu affordance) and read by the system-prompt restore step (Requirement: System prompt sibling file is authoritative). The save path does not generate or rewrite the property; it simply does not delete it.
+
+The save hook SHALL NOT write a `:GPTEL_SYSTEM:` drawer line. Long, multi-line, special-character-heavy strings are unwieldy as a single property value, so the system prompt is never persisted as a drawer *property*. The system prompt lives in the sibling file referenced by `:GPTEL_SYSTEM_PROMPT_FILE:`, which is canonical and is not written by the save hook (Requirement: System prompt sibling file is authoritative). If a user authored `:GPTEL_SYSTEM:` in the drawer manually, the read-time overlay still respects it (back-compat); the writer simply never emits or replaces the drawer property.
+
+The save hook SHALL NOT serialize the system prompt into a `* System Prompt` heading body. The heading-based authoritative-source contract is removed (see Requirement: System prompt sibling file is authoritative); the sibling file replaces it.
 
 The save hook SHALL NOT write `:GPTEL_BOUNDS:`. `GPTEL_BOUNDS` is incompatible with chat-mode's block-based format and remains explicitly excluded.
 
@@ -600,6 +606,15 @@ The save hook SHALL NOT enable `gptel-mode` (minor mode). Chat-mode owns the maj
 - **WHEN** any chat-mode buffer is saved, regardless of preset or buffer-local `gptel--system-message` content
 - **THEN** the saved drawer contains no `:GPTEL_SYSTEM:` line
 
+#### Scenario: Save preserves sibling-file drawer link
+- **WHEN** a chat-mode buffer's drawer carries `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md` and `save-buffer` is invoked
+- **THEN** the saved drawer still contains `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md`
+
+#### Scenario: Save does not emit `* System Prompt` heading
+- **WHEN** a chat-mode buffer with no `* System Prompt` heading is saved
+- **THEN** the saved file still contains no `* System Prompt` heading
+- **AND** the saved file still contains no `* Chat` heading
+
 #### Scenario: Save path never writes GPTEL_BOUNDS
 - **WHEN** a chat-mode buffer contains any number of assistant blocks and `save-buffer` is invoked
 - **THEN** the saved file contains no `:GPTEL_BOUNDS:` line under any circumstance
@@ -623,7 +638,7 @@ The overlay SHALL be applied with a buffer-local setter so overlaid values do no
 
 When the drawer carries no entry for a given key, the buffer-local value remains whatever the preset installed (or whatever the global default is in the no-preset case).
 
-For `:system` specifically, the drawer overlay is not the final word. After the overlay runs, a separate restore step reads the `* System Prompt` heading body (Requirement: System prompt heading is authoritative) and, when that body is non-blank, installs it as `gptel--system-message` — superseding both a legacy `:GPTEL_SYSTEM:` drawer entry and the preset's `:system`. The restore precedence for the system prompt is therefore: `* System Prompt` heading body > legacy `:GPTEL_SYSTEM:` drawer entry > preset `:system`. The overlay's role for `:system` is the back-compat middle tier: it honors a hand-authored `:GPTEL_SYSTEM:` drawer line for old sessions that have no heading.
+For `:system` specifically, the drawer overlay is the back-compat middle tier. After the overlay runs, a separate restore step reads `:GPTEL_SYSTEM_PROMPT_FILE:` and, when set, installs the sibling file contents as `gptel--system-message` (Requirement: System prompt sibling file is authoritative) — superseding both a legacy `:GPTEL_SYSTEM:` drawer entry and the preset's `:system`. The restore precedence for the system prompt is therefore: sibling file > legacy `:GPTEL_SYSTEM:` drawer entry > preset `:system`. The overlay's role for `:system` is to honor a hand-authored `:GPTEL_SYSTEM:` drawer line for old sessions that have no sibling file.
 
 When the buffer has no drawer at all, neither the preset nor the overlay path fires.
 
@@ -638,17 +653,17 @@ When the buffer has no drawer at all, neither the preset nor the overlay path fi
 - **AND** the `coding` preset resolves `:model` to `claude-sonnet-4-6`
 - **THEN** after mode activation, buffer-local `gptel-model` is `claude-haiku-4-5`
 
-#### Scenario: System prompt comes from preset when drawer omits it and there is no heading
+#### Scenario: System prompt comes from preset when drawer omits it and there is no sibling file
 - **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PRESET: coding` and no `:GPTEL_SYSTEM:` line
-- **AND** the buffer has no `* System Prompt` heading
+- **AND** the buffer has no `:GPTEL_SYSTEM_PROMPT_FILE:` line (or its referenced file is absent)
 - **AND** the `coding` preset resolves `:system` to `"You are a coding assistant."`
 - **THEN** after mode activation, buffer-local `gptel--system-message` is `"You are a coding assistant."`
 
-#### Scenario: Drawer-authored system prompt still respected on restore when there is no heading
+#### Scenario: Drawer-authored system prompt still respected on restore when there is no sibling file
 - **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PRESET: coding` and `:GPTEL_SYSTEM: Custom override prompt.`
-- **AND** the buffer has no `* System Prompt` heading
+- **AND** the buffer has no `:GPTEL_SYSTEM_PROMPT_FILE:` line
 - **THEN** after mode activation, buffer-local `gptel--system-message` is `"Custom override prompt."`
-- **NOTE**: the next save will NOT re-write `:GPTEL_SYSTEM:` (writer never emits it); it serializes the system prompt into a materialized `* System Prompt` heading body instead.
+- **NOTE**: the next save will NOT re-write `:GPTEL_SYSTEM:` (writer never emits it); the legacy property sits in the file untouched.
 
 #### Scenario: Drawer overlay restores parent-session-id for agent sessions
 - **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_PARENT_SESSION_ID: parent-abc-20260424000000`
@@ -664,62 +679,90 @@ When the buffer has no drawer at all, neither the preset nor the overlay path fi
 - **THEN** no preset is applied and no overlay runs
 - **AND** the buffer inherits global or dir-local configuration unchanged
 
-### Requirement: System prompt heading is authoritative
+### Requirement: System prompt sibling file is authoritative
 
-The body of a `* System Prompt` heading in a chat-mode buffer SHALL be the authoritative source of the buffer-local `gptel--system-message`. The system prompt is carried as visible document content — a heading body, which holds multi-line, special-character-heavy text with no escaping — rather than as a drawer property value.
+The buffer-local `gptel--system-message` for a chat-mode session SHALL be sourced from a sibling file in the session's branch directory, referenced from the configuration drawer via a `:GPTEL_SYSTEM_PROMPT_FILE:` property. The system prompt is carried as a separate file — outside `session.org` entirely — so its content (typically markdown with code, XML-like tags, and other special characters) does not interact with org-mode parsing, fontification, or folding.
 
-**Restore.** After preset application and the drawer overlay have run, `gptel-chat-mode` activation SHALL locate the first `* System Prompt` heading, skip its property drawer, and read the remaining heading body up to the next heading. When that body is non-blank, the mode SHALL install it as the buffer-local `gptel--system-message`. The body SHALL be read with a narrow/regexp scan, not `org-element-parse-buffer`.
+**Drawer link.** When session creation persists a system prompt, it SHALL emit `:GPTEL_SYSTEM_PROMPT_FILE:` into the configuration drawer carrying a path. The path is typically a basename (e.g. `system-prompt.md`) resolved relative to `(file-name-directory buffer-file-name)`. The property MAY carry an absolute path (or one with directory components) and the resolver SHALL honor it. The save path SHALL NOT delete this property.
 
-The restore precedence for the system prompt is, highest first:
+**Restore.** On `gptel-chat-mode` activation, after preset application and the drawer overlay have run, the mode SHALL read `:GPTEL_SYSTEM_PROMPT_FILE:` from the configuration drawer, resolve it relative to the session.org file's directory, and — when the resolved file exists and is non-empty — install its contents as the buffer-local `gptel--system-message`. The body SHALL be read verbatim (no trimming, no transformation) so prompts authored with intentional leading/trailing whitespace survive the round trip.
 
-1. `* System Prompt` heading body, when non-blank
-2. legacy `:GPTEL_SYSTEM:` drawer entry, when present (back-compat)
+**Pre-send refresh.** Before dispatching a chat request, the chat-mode request submission path SHALL re-read the sibling file (when `:GPTEL_SYSTEM_PROMPT_FILE:` is set and the file exists) and refresh `gptel--system-message` from its current on-disk contents. The buffer-local value functions as a per-request cache; the file is the source of truth. A user edit to the sibling file is picked up on the next request without explicitly reopening `session.org`.
+
+**Restore precedence.** With the heading tier removed, the system-prompt restore precedence is:
+1. `:GPTEL_SYSTEM_PROMPT_FILE:` sibling file contents (when the property is set and the file exists and is non-empty)
+2. legacy `:GPTEL_SYSTEM:` drawer entry (when present and the property/file above is absent — back-compat)
 3. preset `:system`
 
-A blank (whitespace-only or absent) `* System Prompt` heading body SHALL be treated as "not authored": the restore step is a no-op and the value installed by the lower tiers stands. An empty heading SHALL never silently wipe the system prompt.
+**Save.** The save path SHALL NOT write the sibling file. The sibling file is canonical and is mutated only by the user (typically through the "Edit system prompt" menu affordance, which opens the file in another window). On `before-save-hook`, the chat-mode save path SHALL continue to never emit a `:GPTEL_SYSTEM:` drawer line (the existing write-exclusion stands); the sibling file is independent of the save hook.
 
-**Save.** On `before-save-hook`, after the configuration drawer is written, the mode SHALL serialize the current buffer-local `gptel--system-message` into the `* System Prompt` heading body. When the buffer already has a `* System Prompt` heading, its body SHALL be replaced in place. When the buffer has no `* System Prompt` heading — a pre-Addendum session — the mode SHALL materialize the `* System Prompt` heading (carrying `:VISIBILITY: folded`) and a `* Chat` heading, moving the existing turn blocks under `* Chat`, using the shared heading-construction helper that the session-creation renderer uses. The save path SHALL NOT write a `:GPTEL_SYSTEM:` drawer line under any circumstance.
+**Missing file / missing property.** When `:GPTEL_SYSTEM_PROMPT_FILE:` is unset, or set to a path that does not resolve to a readable file, the restore step SHALL be a no-op — whatever the preset / drawer overlay already installed remains in effect. The mode SHALL NOT signal an error or warning for a missing sibling file (the session may legitimately have no system prompt; or the property may reference a path the user has not yet created).
 
-The round trip create → restore → save → re-restore SHALL be stable: a save that does not change `gptel--system-message` produces no diff to the heading body, and re-restoring yields the same `gptel--system-message`.
+#### Scenario: Restore reads sibling file when property and file are present
+- **WHEN** a chat-mode buffer opens whose drawer contains `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md`
+- **AND** the file `system-prompt.md` in the same directory as `session.org` exists with content `"Custom prompt from the file."`
+- **AND** `:GPTEL_PRESET: coding` resolves `:system` to `"Preset text."`
+- **THEN** `gptel--system-message` is `"Custom prompt from the file."`
 
-#### Scenario: Heading body is the system prompt on restore
-- **WHEN** a chat-mode buffer is opened whose `* System Prompt` heading body is `"Heading body text."` and whose `:GPTEL_PRESET:` resolves `:system` to `"Preset text."`
-- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Heading body text."`
+#### Scenario: Restore falls back to preset when sibling file is absent
+- **WHEN** a chat-mode buffer opens whose drawer contains `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md`
+- **AND** no file named `system-prompt.md` exists in the session's branch directory
+- **AND** `:GPTEL_PRESET: coding` resolves `:system` to `"Preset text."`
+- **THEN** `gptel--system-message` is `"Preset text."`
+- **AND** no error or warning is signaled
 
-#### Scenario: Heading body wins over a legacy drawer entry
-- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_SYSTEM: Legacy drawer prompt.` AND whose `* System Prompt` heading body is `"Heading body text."`
-- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Heading body text."`
+#### Scenario: Restore falls back to preset when property is unset
+- **WHEN** a chat-mode buffer opens whose drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:` line
+- **AND** `:GPTEL_PRESET: coding` resolves `:system` to `"Preset text."`
+- **THEN** `gptel--system-message` is `"Preset text."`
 
-#### Scenario: Legacy drawer entry wins over the preset when there is no heading
-- **WHEN** a chat-mode buffer is opened whose drawer contains `:GPTEL_SYSTEM: Legacy drawer prompt.` and which has no `* System Prompt` heading
-- **AND** the preset resolves `:system` to `"Preset text."`
-- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Legacy drawer prompt."`
+#### Scenario: Restore respects legacy drawer entry when no sibling file
+- **WHEN** a chat-mode buffer opens whose drawer contains `:GPTEL_SYSTEM: Legacy drawer prompt.` and no `:GPTEL_SYSTEM_PROMPT_FILE:` line
+- **THEN** `gptel--system-message` is `"Legacy drawer prompt."` (legacy back-compat tier)
 
-#### Scenario: Preset is the fallback when there is no heading and no drawer entry
-- **WHEN** a chat-mode buffer is opened with no `* System Prompt` heading and no `:GPTEL_SYSTEM:` drawer entry
-- **AND** the preset resolves `:system` to `"Preset text."`
-- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Preset text."`
+#### Scenario: Sibling file wins over legacy drawer entry
+- **WHEN** a chat-mode buffer opens whose drawer contains both `:GPTEL_SYSTEM: Legacy.` and `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md`
+- **AND** the file `system-prompt.md` exists with content `"File wins."`
+- **THEN** `gptel--system-message` is `"File wins."`
 
-#### Scenario: Blank heading body falls through to the preset
-- **WHEN** a chat-mode buffer is opened whose `* System Prompt` heading body is empty or whitespace-only
-- **AND** the preset resolves `:system` to `"Preset text."`
-- **THEN** after mode activation, buffer-local `gptel--system-message` is `"Preset text."` — never nil and never the empty string
+#### Scenario: Empty sibling file is a no-op
+- **WHEN** a chat-mode buffer opens whose drawer contains `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md`
+- **AND** the file `system-prompt.md` exists but is empty (or whitespace-only)
+- **AND** `:GPTEL_PRESET: coding` resolves `:system` to `"Preset text."`
+- **THEN** `gptel--system-message` is `"Preset text."` (empty file falls through, does not wipe the prompt)
 
-#### Scenario: Save writes the system prompt into the heading body
-- **WHEN** a chat-mode buffer with a `* System Prompt` heading has `gptel--system-message` set to `"New prompt."` and `save-buffer` is invoked
-- **THEN** the `* System Prompt` heading body is `"New prompt."`
+#### Scenario: Pre-send refresh picks up file edit
+- **WHEN** a chat-mode buffer is loaded with `gptel--system-message` cached as `"Old prompt."`
+- **AND** the sibling file referenced by `:GPTEL_SYSTEM_PROMPT_FILE:` is modified on disk to `"New prompt."`
+- **AND** the user submits a chat request from the buffer (without reopening or reverting `session.org`)
+- **THEN** the request is dispatched with `gptel--system-message` equal to `"New prompt."`
+
+#### Scenario: Save does not write the sibling file
+- **WHEN** a chat-mode buffer has `gptel--system-message` set to `"In-buffer override."` (e.g., set programmatically) and `save-buffer` is invoked
+- **AND** the sibling file on disk contains `"On-disk prompt."`
+- **THEN** the sibling file on disk is unchanged — still `"On-disk prompt."`
 - **AND** the saved drawer contains no `:GPTEL_SYSTEM:` line
 
-#### Scenario: Save materializes the heading for a pre-Addendum session
-- **WHEN** a chat-mode buffer has a config drawer and turn blocks but no `* System Prompt` / `* Chat` headings, `gptel--system-message` is set, and `save-buffer` is invoked
-- **THEN** the saved file contains exactly one `* System Prompt` heading (carrying `:VISIBILITY: folded`) whose body is the system prompt
-- **AND** exactly one `* Chat` heading, with the original turn blocks beneath it
-- **AND** no `:GPTEL_SYSTEM:` drawer line
+### Requirement: Edit system prompt menu affordance opens the sibling file
 
-#### Scenario: Round-trip save is idempotent
-- **WHEN** a chat-mode buffer is restored, saved, re-restored, and saved again with no change to `gptel--system-message`
-- **THEN** the second save produces no diff relative to the first
-- **AND** the re-restored `gptel--system-message` equals the original
+The chat-mode menu SHALL provide an "Edit system prompt" affordance that opens the session's sibling system-prompt file in another window via `find-file-other-window`. This affordance replaces the upstream `gptel-system-prompt` minibuffer-editing infix in the chat-mode menu — the file is the source of truth for the system prompt, so the menu routes the user to the file rather than offering an in-menu text field.
+
+When the chat-mode buffer's drawer carries `:GPTEL_SYSTEM_PROMPT_FILE:`, the affordance SHALL resolve and open that file. When the property is unset (e.g., the session was created from a preset with no `:system`), the affordance SHALL prompt the user for a filename (defaulting to `system-prompt.md`), write the property into the drawer, create the file (empty), save the session buffer, and open the new file.
+
+Upstream `gptel-system-prompt` (invoked outside the chat-mode menu) is unchanged.
+
+#### Scenario: Edit opens the resolved sibling file
+- **WHEN** a chat-mode buffer's drawer carries `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md`
+- **AND** the file `system-prompt.md` exists in the session's branch directory
+- **AND** the user invokes the "Edit system prompt" menu entry
+- **THEN** `system-prompt.md` is opened in another window via `find-file-other-window`
+
+#### Scenario: Edit creates and opens a file when property is unset
+- **WHEN** a chat-mode buffer's drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:` line
+- **AND** the user invokes the "Edit system prompt" menu entry and confirms the default filename
+- **THEN** `:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md` is added to the configuration drawer
+- **AND** a new empty `system-prompt.md` is created in the session's branch directory
+- **AND** the new file is opened in another window
 
 ### Requirement: Chat-menu defaults configuration scope to buffer-local
 

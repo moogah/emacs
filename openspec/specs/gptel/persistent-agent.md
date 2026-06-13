@@ -30,20 +30,29 @@ The `denied_paths` parameter advertised by earlier implementations no longer exi
 
 ```
 <parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/
-└── session.org          # Agent conversation + :PROPERTIES: drawer
-                         # (preset, parent id, scope read/write/deny keys)
+├── session.org          # Agent conversation + :PROPERTIES: drawer
+│                        # (preset, parent id, scope read/write/deny keys,
+│                        #  :GPTEL_SYSTEM_PROMPT_FILE: when the preset has a :system)
+└── system-prompt.md     # Sibling system-prompt file (only when the
+                         # preset declares a non-empty :system)
 ```
 
 Agents do NOT have:
 - `branches/` subdirectory (no branching support; single-timeline)
 - `current` symlink (no branch tracking)
-- Sidecar files (`metadata.yml`, `scope.yml`, `tools.org`) — all agent
+- Sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) — all agent
   configuration and metadata lives in the session-file `:PROPERTIES:`
   drawer; the conversation (including tool-call/result blocks) lives
-  in the session file's `* Chat` heading.
+  directly under the drawer as `#+begin_user` / `#+begin_assistant`
+  turn blocks (no `* Chat` heading). The system prompt is the one
+  exception to "session content lives in `session.org`": it is carried
+  in a sibling `system-prompt.<ext>` file referenced by the drawer's
+  `:GPTEL_SYSTEM_PROMPT_FILE:` key (see `gptel/chat-mode` Requirement:
+  System prompt sibling file is authoritative).
 
 The agent's `session.org` follows the canonical chat-mode session
-layout (drawer + `* System Prompt` heading + `* Chat` heading):
+layout (drawer + bare turn blocks, no headings; system prompt in a
+sibling file):
 
 ```org
 :PROPERTIES:
@@ -52,26 +61,21 @@ layout (drawer + `* System Prompt` heading + `* Chat` heading):
 :GPTEL_SCOPE_READ: <pattern> <pattern> ...    # omitted if no read paths
 :GPTEL_SCOPE_WRITE: /tmp/**
 :GPTEL_SCOPE_DENY: **/.git/** **/runtime/** **/.env **/node_modules/**
+:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md   # omitted if the preset has no :system
 :END:
-
-* System Prompt
-:PROPERTIES:
-:VISIBILITY: folded
-:END:
-
-<system prompt text, if seeded from preset>
-
-* Chat
 
 #+begin_user
 <prompt>
 #+end_user
 ```
 
+with the system prompt body, when present, living in the sibling
+`system-prompt.md` next to `session.org`.
+
 ### Execution Lifecycle
 
 1. **Validation**: Parent-session check + preset existence — raise user-error before any side effect on validation failure.
-2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the full canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys) followed by the folded `* System Prompt` heading and the `* Chat` heading containing the initial `#+begin_user` block. No sidecar files are written.
+2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys, plus `:GPTEL_SYSTEM_PROMPT_FILE:` when the preset declares a `:system`) followed directly by the initial `#+begin_user` block (no `* System Prompt` or `* Chat` headings). When the preset declares a non-empty `:system`, also write the sibling `system-prompt.<ext>` file holding that text. No sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) are written.
 3. **Initialization**: Open the agent file with `find-file-noselect`; the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 4. **Execution**: Compose chat-mode's public API (`gptel-chat-parse-buffer`, `gptel-chat-turns-to-messages`, `gptel-chat-open-assistant-block`, `gptel-chat-stream-callback`, `gptel-chat-fsm-handlers`) to drive the request. The agent supplies its own FSM-handler-chained overlay updates and a parent-feedback overlay as `gptel-request`'s `:context`.
 5. **FSM States**: `WAIT` (overlay: "Waiting…"), `TOOL` (overlay: "Calling Tools… (+N)" with cumulative count).
@@ -125,7 +129,7 @@ PersistentAgent SHALL only operate within persistent session buffers and SHALL a
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), and the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), followed by a folded `* System Prompt` heading (seeded from the preset's system message when one is present) and a `* Chat` heading containing the initial `#+begin_user` / `#+end_user` block. NO sidecar files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives under `* Chat`.
+The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and — when the preset declares a non-empty `:system` — `:GPTEL_SYSTEM_PROMPT_FILE:`. The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. When the preset declares a non-empty `:system`, a sibling `system-prompt.<ext>` file holding that text SHALL be written next to `session.org` (see `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
 
 The session file SHALL be opened with `find-file-noselect` so that the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 
@@ -142,7 +146,7 @@ The agent's directory SHALL live under the parent branch's `agents/` subdirector
 - **THEN** the agent's `session.org` begins with a `:PROPERTIES:` drawer at `point-min`
 - **AND** the drawer contains `:GPTEL_PRESET: researcher`
 - **AND** the drawer contains `:GPTEL_PARENT_SESSION_ID: parent-20260425100000`
-- **AND** the drawer is followed by a folded `* System Prompt` heading and a `* Chat` heading containing the initial `#+begin_user` / `#+end_user` block
+- **AND** the drawer is followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading
 
 #### Scenario: Drawer scope keys written with explicit allowed paths
 - **WHEN** an agent is created with `allowed_paths ["/path/to/project/**"]`
@@ -169,9 +173,9 @@ The agent's directory SHALL live under the parent branch's `agents/` subdirector
 - **AND** the buffer is registered in `jf/gptel--session-registry`
 - **AND** `jf/gptel-autosave-enabled` is non-nil
 
-#### Scenario: No sidecar files written
+#### Scenario: No sidecar config files written
 - **WHEN** creating any agent
-- **THEN** the agent directory contains exactly one file — `session.org`
+- **THEN** the agent directory contains `session.org` (plus a sibling `system-prompt.<ext>` when the preset declares a non-empty `:system`)
 - **AND** no `scope.yml`, `metadata.yml`, or `tools.org` is written at any point in the lifecycle
 
 ### Requirement: Configuration isolation (zero inheritance)
