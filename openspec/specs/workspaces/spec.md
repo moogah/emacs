@@ -732,14 +732,19 @@ state file before running the v3 code. The reader SHALL emit a
 non-fatal `*Messages*` notice for files whose `:version` is not 3, and
 proceed as if no persistence file exists.
 
-On Emacs startup the package SHALL restore the persisted workspaces by
-recreating their tabs. Workspaces whose `:home` no longer exists on disk
-SHALL be loaded into the registry in a *broken* state per Requirement:
-Broken home directory tolerated on restore — they are still listed but
-cannot be activated. Per-workspace layout application is lazy: it happens
-on the first tab-switch into each restored workspace. The lazy
-application SHALL prefer `:working-state` when present, falling back to
-`:saved-state`.
+On Emacs startup the package SHALL hydrate the in-memory registry from
+the persistence file but SHALL NOT create any tabs. Restored workspaces
+are *saved-but-not-materialized*: they are reachable via
+`workspace-restore` (which completes over the full registry) but no tab
+exists for any of them until the user explicitly restores one. Workspaces
+whose `:home` no longer exists on disk SHALL be loaded into the registry
+in a *broken* state per Requirement: Broken home directory tolerated on
+restore — they are still listed but cannot be activated. The package
+SHALL NOT perform any lazy per-workspace layout application on tab
+selection (no `:restore-pending` flag, no tab-switch activation hook);
+layout is applied only by the explicit restore / switch-layout commands
+(see Requirement: Explicit restore command), which preserve the
+`:working-state`-over-`:saved-state` precedence.
 
 Persistence to disk SHALL be triggered by all of:
 - Explicit `workspace-save` (synchronous flush; writes `:saved-state`).
@@ -748,7 +753,52 @@ Persistence to disk SHALL be triggered by all of:
 - `workspaces-mode` idle timer (debounced flush; writes `:working-state` of the current workspace).
 - `kill-emacs-hook` (synchronous flush; captures `:working-state` of the current workspace once before writing).
 
-When the persistence file is missing or unreadable the package SHALL start with no workspaces and SHALL NOT raise an error visible to the user beyond an `*Messages*` notice.
+In addition to the schema, hydration, and flush-trigger guarantees above,
+persistence SHALL be **readable by construction** and **corruption-safe**:
+
+**Readable-by-construction.** The serialized persistence form SHALL NOT
+contain any live Emacs object that `read` cannot reconstruct (a buffer,
+marker, overlay, frame, window, process, or non-symbol function object).
+
+- Window-state captured for a layout SHALL pass every persistent window
+  parameter whose value embeds such an object through a
+  *serialize/deserialize translator* that converts it to a readable form
+  and back. In particular, the `window-preserved-size` parameter's buffer
+  object SHALL be serialized as the buffer's name and restored via
+  buffer-name lookup, so a preserved size survives restart without
+  writing an unreadable object.
+- The buffer-reincarnation record captured per window leaf (its
+  `bookmark-make-record` result) SHALL be scrubbed of any unreadable
+  value before persistence.
+- Before committing a write, the package SHALL verify the serialized form
+  round-trips through `read`. If it does not, the package SHALL abort the
+  write, SHALL leave the previously persisted file intact, and SHALL emit
+  a warning — it SHALL NOT write an unreadable file.
+
+**Corruption-safe I/O.** Writing the persistence file SHALL be atomic
+with respect to the live file: a write SHALL NOT truncate or partially
+overwrite the existing file if it is interrupted (e.g. serialize to a
+sibling temp file and rename over the target).
+
+A persistence file that exists but cannot be read (parse/`read` failure)
+is **present-but-unreadable**, which the package SHALL distinguish from
+**absent**:
+
+- On a present-but-unreadable file, the package SHALL preserve the file by
+  renaming it to a timestamped sibling (`workspaces.eld.corrupt-<ts>`),
+  SHALL emit a warning naming the backup path, and SHALL NOT overwrite the
+  original path with the (empty) in-memory registry.
+- After a present-but-unreadable load, the package SHALL suppress all
+  persistence writes for the session (every flush trigger no-ops with a
+  one-time warning) — so an autosave, idle flush, or `kill-emacs` flush
+  cannot destroy data by reserializing an empty or partial registry over
+  the path.
+- On an absent file, the package SHALL start fresh and persistence SHALL
+  proceed normally (writes permitted), without raising an error visible to
+  the user beyond an `*Messages*` notice.
+
+The flush triggers listed above are unchanged except that each is gated by
+this suppression rule when the prior load was present-but-unreadable.
 
 #### Scenario: V2 persistence file is rejected with a notice
 - **WHEN** a workspaces persistence file exists with `:version 2`
@@ -766,14 +816,73 @@ When the persistence file is missing or unreadable the package SHALL start with 
 - **AND** that entry is skipped (not added to the registry)
 - **AND** other well-formed entries in the same file ARE restored
 
+#### Scenario: Startup hydrates the registry without creating tabs
+- **WHEN** the persistence file is `:version 3` and contains workspaces
+  `alpha` and `writing`, both with existing `:home` directories
+- **AND** Emacs starts up
+- **THEN** both `alpha` and `writing` are present in the in-memory
+  registry
+- **AND** no tab is created for either workspace at startup (the tab-bar
+  is unchanged by restore)
+- **AND** each is offered as a candidate by `workspace-restore`
+
 #### Scenario: Restart restores working-state, not saved-state, when both present
 - **WHEN** workspace `code` has `:home ~/emacs-workspaces/code/` (which
   exists), `:saved-state` S (last explicit save) and `:working-state` W
   (latest autosave)
-- **AND** Emacs is restarted and the user selects the `code` tab
-- **THEN** the window configuration restored on `code`'s frame is W, not S
+- **AND** Emacs is restarted, so `code` is hydrated into the registry
+  with no tab created
+- **AND** the user invokes `workspace-restore` and chooses `code`
+- **THEN** a new tab named `code` is created and selected
+- **AND** the window configuration applied on `code`'s frame is W, not S
 - **AND** the buffers in W are reincarnated via the bookmark chain
   (Requirement: Buffer reincarnation across restart)
+
+#### Scenario: A live Emacs object is never written to disk
+- **WHEN** a workspace layout is captured whose window tree carries a
+  `window-preserved-size` parameter referencing a buffer (live or killed)
+- **AND** the layout is serialized for persistence
+- **THEN** the serialized form contains no `#<…>` token and is readable
+  by `read`
+- **AND** the `window-preserved-size` value is encoded by buffer name
+
+#### Scenario: Preserved window size round-trips across restart
+- **WHEN** a workspace with a preserved-size window is saved and the
+  persistence file is reloaded in a fresh session
+- **THEN** the persisted form deserializes without error
+- **AND** the preserved-size parameter is rehydrated against the live
+  (reincarnated) buffer by name
+
+#### Scenario: An unreadable persistence file is preserved, not overwritten
+- **WHEN** the persistence file exists but contains an unreadable object
+  (e.g. `#<killed buffer>`) so `read` fails
+- **AND** Emacs starts up
+- **THEN** the file is renamed to `workspaces.eld.corrupt-<timestamp>`
+  and a warning names that path
+- **AND** the in-memory registry is empty (no workspaces hydrated)
+- **AND** the original path is NOT overwritten with `(:version 3
+  :workspaces nil)`
+
+#### Scenario: Autosave is suppressed after a failed load
+- **WHEN** a startup load was present-but-unreadable (persistence blocked
+  for the session)
+- **AND** an autosave, idle flush, or `kill-emacs` flush subsequently fires
+- **THEN** no write to the persistence path occurs (the flush no-ops with
+  a one-time warning)
+
+#### Scenario: A write that would be unreadable is aborted
+- **WHEN** a persistence write is attempted whose serialized form fails the
+  pre-write `read` round-trip (an unknown unreadable value slipped past the
+  translators)
+- **THEN** the write is aborted and a warning is emitted
+- **AND** the previously persisted file is left intact (not truncated or
+  replaced)
+
+#### Scenario: An absent file starts fresh and saves normally
+- **WHEN** no persistence file exists
+- **AND** Emacs starts up and the user creates and saves a workspace
+- **THEN** the registry starts empty, persistence is not blocked, and the
+  save writes the file normally
 
 ---
 
@@ -939,21 +1048,31 @@ The package SHALL provide `workspace-save` as the user-facing explicit save comm
 
 ### Requirement: Explicit restore command
 
-The package SHALL provide `workspace-restore` as the user-facing command to materialize a saved workspace into a tab. Interactively it SHALL `completing-read` over every workspace name currently in the in-memory registry (which includes saved-but-not-materialized workspaces loaded from disk at startup).
+The package SHALL provide `workspace-restore` as the user-facing command to materialize a saved workspace into a tab. Interactively it SHALL `completing-read` over every workspace name currently in the in-memory registry (which includes saved-but-not-materialized workspaces loaded from disk at startup). Because startup no longer creates tabs (see Requirement: Per-machine persistence and restoration), `workspace-restore` is the primary way a persisted workspace re-enters a live session.
 
 For the chosen workspace:
 - If a live tab for that workspace already exists, `workspace-restore` SHALL switch to it (equivalent to `workspace-switch` for that case).
-- Otherwise it SHALL create a new tab, name it after the workspace, pre-load `:buffer-files` via `find-file-noselect`, and then `window-state-put` the saved layout onto the current frame's root window.
+- Otherwise it SHALL create a new tab and name it after the workspace, then:
+  - **When the workspace has a saved layout**, pre-load `:buffer-files` via `find-file-noselect` and `window-state-put` the saved layout onto the current frame's root window.
+  - **When the workspace has NO saved layout** (its `:layout-groups` is nil — e.g. a workspace recovered from its on-disk directory alone, never explicitly saved), it SHALL instead invoke `workspace-home-builder` so the tab opens `<home>/home.org`, matching `workspace-new`'s behavior, rather than leaving a bare tab. No `window-state-put` is attempted in this case.
 
 The `workspace-restore` binding is `C-x w o`. It complements (does not replace) `workspace-switch`, which is scoped to live tabs only.
 
 #### Scenario: Restore an unmaterialized workspace
-- **WHEN** workspace `code` is in the registry but has no live tab (e.g. its tab was closed mid-session, or it was loaded from disk and never selected)
+- **WHEN** workspace `code` is in the registry but has no live tab (e.g. it was loaded from disk at startup and never restored, or its tab was closed mid-session)
+- **AND** workspace `code` has a saved layout
 - **AND** the user invokes `workspace-restore` and chooses `code`
 - **THEN** a new tab named `code` is created and selected
 - **AND** the files in `:buffer-files` are loaded as buffers before the window-state is applied
 - **AND** the saved window-state is applied to the new tab's window tree
 - **AND** the displayed buffers match the saved configuration
+
+#### Scenario: Restore a workspace with no saved layout opens home.org
+- **WHEN** workspace `alpha` is in the registry with `:home ~/emacs-workspaces/alpha/` (which exists) and no saved layout (`:layout-groups` is nil)
+- **AND** the user invokes `workspace-restore` and chooses `alpha`
+- **THEN** a new tab named `alpha` is created and selected
+- **AND** `workspace-home-builder` runs, opening `~/emacs-workspaces/alpha/home.org`
+- **AND** no `window-state-put` is attempted (there is no saved layout to apply)
 
 #### Scenario: Restore a live workspace
 - **WHEN** workspace `notes` already has a live tab in the current Emacs session
