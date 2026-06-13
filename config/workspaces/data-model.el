@@ -255,28 +255,6 @@ Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :broken nil)))
 
-(defun workspace--restore-pending-p (ws)
-  "Return non-nil if WS is awaiting lazy frameset restoration.
-
-The tag is set by the persistence loader and cleared by
-=workspace--apply-saved-layout= after first activation.  Runtime-
-only; never serialized."
-  (plist-get ws :restore-pending))
-
-(defun workspace--mark-restore-pending (ws)
-  "Return a new workspace like WS marked restore-pending.
-Non-destructive: WS is not modified.  Sets =:restore-pending t= on
-the copy."
-  (let ((copy (copy-sequence ws)))
-    (plist-put copy :restore-pending t)))
-
-(defun workspace--clear-restore-pending (ws)
-  "Return a new workspace like WS with the restore-pending tag cleared.
-Non-destructive: WS is not modified.  Sets =:restore-pending nil=
-on the copy."
-  (let ((copy (copy-sequence ws)))
-    (plist-put copy :restore-pending nil)))
-
 (defun workspace--sessions-dir (home)
   "Return =<HOME>/sessions/= as an absolute path.
 Pure function: does not touch the filesystem.  HOME is the

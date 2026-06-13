@@ -130,7 +130,7 @@
   (before-each (persistence-spec--reset))
   (after-each (persistence-spec--cleanup))
 
-  (it "restores tabs from the persisted file"
+  (it "hydrates the registry from the persisted file without creating tabs"
     (persistence-spec--with-state-file
       (workspace-new "alpha")
       (workspace-new "beta")
@@ -141,11 +141,65 @@
         (when (> (length tabs) 1)
           (dotimes (_ (1- (length tabs)))
             (tab-bar-close-tab 2))))
-      (workspace--restore)
-      (let ((names (mapcar (lambda (tab) (workspace--tab-workspace-name tab))
-                           (frame-parameter nil 'tabs))))
-        (expect (member "alpha" names) :to-be-truthy)
-        (expect (member "beta"  names) :to-be-truthy)))))
+      ;; Baseline the tab count after the restart simulation, before restore.
+      (let ((baseline-tabs (length (frame-parameter nil 'tabs))))
+        (workspace--restore)
+        ;; Registry is hydrated: both workspaces present.
+        (expect (gethash "alpha" workspace--registry) :not :to-be nil)
+        (expect (gethash "beta"  workspace--registry) :not :to-be nil)
+        ;; Startup creates NO tabs: tab-bar is unchanged by restore.
+        (expect (length (frame-parameter nil 'tabs)) :to-equal baseline-tabs)
+        (let ((names (mapcar (lambda (tab)
+                               (workspace--tab-workspace-name tab))
+                             (frame-parameter nil 'tabs))))
+          (expect (member "alpha" names) :to-be nil)
+          (expect (member "beta"  names) :to-be nil))
+        ;; An explicit restore materializes a tab for the chosen workspace.
+        (workspace-restore "alpha")
+        (let ((names (mapcar (lambda (tab)
+                               (workspace--tab-workspace-name tab))
+                             (frame-parameter nil 'tabs))))
+          (expect (member "alpha" names) :to-be-truthy)
+          ;; beta was not restored, so it remains unmaterialized.
+          (expect (member "beta" names) :to-be nil)))))
+
+  (it "startup hydration creates no tabs for healthy workspaces"
+    ;; v3 file with two healthy (existing :home) workspaces: assert the
+    ;; registry hydrates, the tab count is unchanged, and both names are
+    ;; offered by `workspace--registered-names' (the restore candidate list).
+    (persistence-spec--with-state-file
+      (let* ((home-a (file-name-as-directory
+                      (make-temp-file "ws-home-a" t)))
+             (home-b (file-name-as-directory
+                      (make-temp-file "ws-home-b" t)))
+             (file (workspace--state-file)))
+        (unwind-protect
+            (progn
+              (make-directory (workspace--state-directory) t)
+              (with-temp-file file
+                (prin1 `(:version 3
+                                  :workspaces
+                                  ((:name "alpha" :home ,home-a
+                                          :recent-layout-group nil
+                                          :buffer-files nil
+                                          :layout-groups nil)
+                                   (:name "beta" :home ,home-b
+                                          :recent-layout-group nil
+                                          :buffer-files nil
+                                          :layout-groups nil)))
+                       (current-buffer)))
+              (clrhash workspace--registry)
+              (let ((baseline-tabs (length (frame-parameter nil 'tabs))))
+                (workspace--restore)
+                (expect (gethash "alpha" workspace--registry) :not :to-be nil)
+                (expect (gethash "beta"  workspace--registry) :not :to-be nil)
+                (expect (length (frame-parameter nil 'tabs))
+                        :to-equal baseline-tabs)
+                (let ((names (workspace--registered-names)))
+                  (expect (member "alpha" names) :to-be-truthy)
+                  (expect (member "beta"  names) :to-be-truthy))))
+          (delete-directory home-a t)
+          (delete-directory home-b t))))))
 
 (describe "workspace-save-state debouncing"
   (before-each (persistence-spec--reset))
