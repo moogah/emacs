@@ -774,6 +774,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: shape
    status: reconciled
    status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task serialize-window-
+     params-readable): the =:bookmark= slot is now SCRUBBED at capture by
+     =workspace--serialize-buffer= → =workspace--scrub-bookmark-record=,
+     which nulls any record-prop VALUE satisfying
+     =workspace--unreadable-object-p= (buffer/marker/overlay/frame/window/
+     process/non-symbol-fn) while preserving keys. Slot type unchanged
+     (bookmark-record | nil); this only guarantees the record is read-able
+     (closes the bug#56643 class: a mode embedding an unreadable object in
+     its bookmark record). The file/name fallback in
+     register/vocabulary/buffer-reincarnation-fallback-chain still covers
+     a nulled-bookmark buffer. why_tests_missed: no prior test serialized
+     a record with an embedded live object; new serialization-robustness-
+     spec.el scenario (f) now does. See .orchestrator/cycles/cycle-
+     20260613-161149/reconciliations/shape-workspace-buffer-struct.md.
+
      cycle-20260524-200631 integrate (2026-05-24): producer/consumer
      function names updated to match shipped code
      (workspace--serialize-buffer / workspace--deserialize-buffer /
@@ -894,6 +909,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: shape
    status: reconciled
    status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task serialize-window-
+     params-readable): the window-state stored in =:saved-state= /
+     =:working-state= is now READABLE BY CONSTRUCTION. Buffer-bearing
+     window parameters are run through
+     =workspace-window-parameter-translators= in
+     =workspace--window-state-serialize= (and reversed in
+     =-deserialize=, with per-param =condition-case-unless-debug=
+     drop-on-fail). Seeded with =window-preserved-size=: its
+     =(BUFFER DIR SIZE)= value is serialized with the buffer's NAME
+     (readable) and rehydrated via =get-buffer=. This fixes the root
+     cause of the =#<killed buffer>= corruption (window-state-get's
+     =writable= flag emits writable-param VALUES verbatim and does NOT
+     sanitize an embedded buffer object). No required/forbidden key
+     change — the slot values are merely guaranteed read-able.
+     why_tests_missed: no prior test captured a killed buffer referenced
+     by window-preserved-size; serialization-robustness-spec.el scenario
+     (a) now does (teeth-confirmed). See .orchestrator/cycles/cycle-
+     20260613-161149/reconciliations/shape-layout-v2-plist.md.
+
      cycle-20260524-200631 integrate (2026-05-24): required_keys /
      forbidden_keys exact-match shipped plist; added
      producer_fragmentation_note for the latent :etc-divergence between
@@ -2284,6 +2318,82 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   inlined at >1 site instead of going through a single canonical function;
   the inline copies drift over time.
 
+** persistence-robustness-io
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-persistence-robustness-io
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/persistence-robustness-io
+   tier: boundary
+   status: confirmed
+   status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task corruption-safe-
+     persistence-io): created CONFIRMED from the merged, clean-reviewed
+     shape (designed-change mid-stream adoption; entry created at
+     integrate). Captures the corruption-safety contract for the
+     workspaces persistence file.
+   load_bearing: true
+   title: Corruption-safe persistence I/O (atomic write, never-clobber-unreadable, absent-vs-unreadable, autosave gate)
+   purpose: |
+     The boundary between the in-memory registry and the on-disk
+     =workspaces.eld=. Reads and writes MUST NOT lose data: an
+     interrupted write must not truncate the live file, and a file that
+     cannot be parsed must never be silently overwritten with empty/
+     partial state.
+   contract: |
+     Four coupled rules, all enforced in config/workspaces/persistence.el:
+
+     1. ATOMIC WRITE — =workspace--write-state= serializes to a temp file
+        in the state directory and =rename-file='s it over the target.
+        A crash mid-write cannot truncate the existing file.
+
+     2. WRITE-TIME READABLE ASSERT — before committing, the form is
+        round-tripped through =read= (=workspace--state-readable-p=,
+        via =prin1-to-string= → =read=; =readablep= not used because the
+        repo pins no minimum Emacs version). On failure the write is
+        REFUSED (prior good file left intact) with a loud warning. This
+        is the backstop for any unreadable value that slips past the
+        serializer translators (register/invariant/persisted-form-
+        readable-by-construction).
+
+     3. ABSENT vs PRESENT-BUT-UNREADABLE — =workspace--read-state=
+        returns nil for a MISSING file (fresh start, writes permitted)
+        and the sentinel symbol =workspace--unreadable= for an existing
+        file that fails =read=. On the latter it renames the file to
+        =workspaces.eld.corrupt-<ts>=, warns naming both paths, and sets
+        the session flag below. =workspace--restore= never deserializes
+        the sentinel. (Version-mismatch still → nil: a recognized
+        ignore-and-start-fresh, NOT corruption — not backed up, not
+        blocked.)
+
+     4. ONE-WAY AUTOSAVE GATE — =workspace--persistence-blocked= (session
+        flag, set by rule 3) suppresses EVERY writer for the session:
+        =workspace--write-state= (choke point), with explicit
+        early-returns in =workspace--kill-emacs-flush= and
+        =workspace-save-state=. It does not auto-clear within a session
+        (the in-memory registry after a failed load is untrustworthy).
+   producers:
+     - file: config/workspaces/persistence.org
+       function: workspace--write-state
+     - file: config/workspaces/persistence.org
+       function: workspace--read-state
+   consumers:
+     - file: config/workspaces/persistence.org
+       function: workspace--restore
+     - file: config/workspaces/persistence.org
+       function: workspace--kill-emacs-flush
+     - file: config/workspaces/persistence.org
+       function: workspace-save-state
+   enforcement_mechanism: test
+   test_corpus: config/workspaces/test/serialization-robustness-spec.el (Layer B specs + e2e clobber-cascade regression)
+   discovered_from: corruption-safe-persistence-io
+   discovered_by: implementor
+   relates_to:
+     - register/boundary/autosave-guard-pipeline (the autosave gate is an additive precondition on stage-4 flush)
+     - register/invariant/persisted-form-readable-by-construction (rule 2 is the write-side backstop for that invariant)
+   #+end_src
+
 ** scope-config-loader
    :PROPERTIES:
    :CUSTOM_ID: register-boundary-scope-config-loader
@@ -3489,6 +3599,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Independently confirmed by on-touch architect (0 findings) +
      author-blind review. See
      .orchestrator/cycles/cycle-20260613-150904/reconciliations/boundary-autosave-guard-pipeline.md.
+
+     cycle-20260613-161149 integrate (2026-06-13, task corruption-safe-
+     persistence-io): stage-4 (flush) gains an ADDITIVE session-scoped
+     suppression precondition — =workspace--persistence-blocked=. When a
+     startup load found a present-but-unreadable file, the flag is set and
+     EVERY writer no-ops: =workspace--write-state= (the choke point, also
+     covering =workspace--flush-state= and =workspace-save-state=), with
+     explicit early-returns added in =workspace--kill-emacs-flush= and
+     =workspace-save-state= (so no useless idle timer is armed). This is
+     ADDITIVE: the stage-1 anti-save-predicate gate, the four wrap call
+     sites, and the explicit-save stage-2 entry are unchanged. Purpose:
+     prevent an autosave/idle/kill-emacs flush from clobbering a
+     backed-up corrupt file with an empty registry (the data-loss
+     cascade). New invariant register/boundary/persistence-robustness-io
+     captures the full corruption-safety contract. why_tests_missed: the
+     autosave-after-failed-load path was never exercised; serialization-
+     robustness-spec.el now has the e2e clobber-cascade regression. See
+     .orchestrator/cycles/cycle-20260613-161149/reconciliations/boundary-autosave-guard-pipeline.md.
    load_bearing: true
    title: Autosave guard pipeline (predicates → capture → slot route → flush)
    purpose: |
@@ -4407,6 +4535,63 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   - =scope-allow-once-is-single-shot= — an =allow-once= permission grants
     the next invocation only and self-removes. /Not in scope for
     gptel-scope-in-org-properties (untouched by this change)./
+
+** persisted-form-readable-by-construction
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-persisted-form-readable-by-construction
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/persisted-form-readable-by-construction
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-20260613-161149 integrate (2026-06-13, task serialize-window-
+     params-readable): created CONFIRMED from merged, clean-reviewed code
+     (designed-change mid-stream adoption). Roots out the =#<killed
+     buffer>= corruption class at its source.
+   load_bearing: true
+   title: No live Emacs object is ever written to the persistence file
+   statement: |
+     The form written to =workspaces.eld= MUST be reconstructible by
+     =read= — it MUST NOT contain any live Emacs object that prints as
+     =#<...>= (buffer, marker, overlay, frame, window, process, or
+     non-symbol function object; see =workspace--unreadable-object-p=).
+     This is enforced at THREE layers, defense-in-depth:
+
+     1. Window-parameter translators — buffer-bearing window parameters
+        (seeded: =window-preserved-size=, value =(BUFFER DIR SIZE)=) are
+        converted to a readable form (buffer → name) by
+        =workspace-window-parameter-translators= in
+        =workspace--window-state-serialize=, and back in =-deserialize=.
+        =window-state-get='s =writable= flag does NOT do this — it emits
+        writable-param VALUES verbatim, which is the original bug.
+
+     2. Bookmark-record scrub — =workspace--serialize-buffer= nulls any
+        =bookmark-make-record= prop VALUE satisfying
+        =workspace--unreadable-object-p= (keys preserved). Closes the
+        bug#56643 class (a mode embedding an unreadable object in its
+        record).
+
+     3. Write-time assert (backstop) — the write boundary
+        (register/boundary/persistence-robustness-io rule 2) refuses to
+        write any form that does not round-trip through =read=, so an
+        unknown future leak past layers 1–2 fails loudly instead of
+        corrupting the file.
+   enforcement_mechanism: test
+   test_corpus: config/workspaces/test/serialization-robustness-spec.el (round-trip readability property tests incl. killed-buffer regression scenario (a), teeth-confirmed)
+   rationale: |
+     Modelled on activities.el / burly.el window-parameter translators
+     (research/findings-*.md in the change). We copied activities'
+     struct-based buffer reincarnation earlier but NOT its translators —
+     that gap was the root cause of the persistence corruption.
+   discovered_from: serialize-window-params-readable
+   discovered_by: implementor
+   relates_to:
+     - register/shape/layout-v2-plist (window-state slots are now readable by construction)
+     - register/shape/workspace-buffer-struct (the scrubbed bookmark slot)
+     - register/boundary/persistence-robustness-io (layer 3, the write-side backstop)
+   #+end_src
 
 ** scope-parse-complete-is-true
    :PROPERTIES:
