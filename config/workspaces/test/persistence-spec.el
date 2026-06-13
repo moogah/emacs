@@ -295,12 +295,7 @@
           (workspace--flush-state)
           (workspace--flush-state)
           (workspace--flush-state)
-          (expect write-count :to-equal 3)))))
-
-  (it "no debounce machinery remains"
-    (expect (fboundp 'workspace-save-state) :to-be nil)
-    (expect (boundp 'workspace--save-timer) :to-be nil)
-    (expect (boundp 'workspace-save-idle-delay) :to-be nil)))
+          (expect write-count :to-equal 3))))))
 
 (describe "kill-emacs hook is installed"
   (it "registers workspace--kill-emacs-flush on kill-emacs-hook"

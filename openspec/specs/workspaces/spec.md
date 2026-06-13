@@ -589,6 +589,14 @@ The package SHALL auto-save the outgoing layout's window configuration on intra-
 
 The package SHALL ALSO auto-save the outgoing workspace's window configuration on workspace context switch (tab change), capturing it into the recent layout's `:working-state` slot. The explicit-save slot (`:saved-state`) is never written by autosave, so the user's `workspace-save` snapshot is never clobbered by transient or post-kill frame state.
 
+Both auto-saves SHALL flush to disk **synchronously** — immediately, with no
+debounce delay. The working-state *capture* on context switch and layout switch
+is unchanged from the prior revision; only the flush *timing* changes from a
+debounced idle-timer write to a synchronous write. Context switches and layout
+switches are discrete, low-frequency user actions, so there is no burst to
+coalesce; a synchronous flush guarantees the outgoing state is on disk the
+moment the user leaves it.
+
 The package SHALL also auto-save periodically via an idle timer when `workspaces-mode` is enabled (see *Idle save mode*), and once on Emacs shutdown via `kill-emacs-hook`.
 
 The MVP-gap scenario (workspace switch does not auto-save) is **removed** by this revision; the requirement is now the inverse.
@@ -599,6 +607,16 @@ The MVP-gap scenario (workspace switch does not auto-save) is **removed** by thi
 - **THEN** `code`'s recent layout's `:working-state` is updated to reflect the rearrangement
 - **AND** `code`'s recent layout's `:saved-state` is unchanged
 - **AND** returning to `code` (and on next Emacs startup) restores the rearrangement, because `:working-state` is preferred over `:saved-state` when present
+
+#### Scenario: Context-switch autosave is flushed synchronously
+- **WHEN** the user rearranges windows on workspace `code` and then switches to workspace `notes`
+- **THEN** the persistence file on disk reflects `code`'s updated `:working-state` immediately after the switch returns
+- **AND** no idle delay or debounce timer is required for the write to land
+
+#### Scenario: Layout-switch autosave is flushed synchronously
+- **WHEN** the current workspace `code` is on layout `home`, the user rearranges windows, and then invokes `workspace-switch-layout` choosing `magit`
+- **THEN** `home`'s `:working-state` is captured and the persistence file on disk reflects it immediately after the command returns
+- **AND** no idle delay or debounce timer is required for the write to land
 
 #### Scenario: Autosave does not clobber an explicit save
 - **WHEN** the user has invoked `workspace-save` on workspace `code` producing a `:saved-state` snapshot S
@@ -746,12 +764,23 @@ layout is applied only by the explicit restore / switch-layout commands
 (see Requirement: Explicit restore command), which preserve the
 `:working-state`-over-`:saved-state` precedence.
 
-Persistence to disk SHALL be triggered by all of:
+Persistence to disk SHALL be triggered by all of, and every trigger SHALL
+flush **synchronously** (immediately, with no debounce delay):
 - Explicit `workspace-save` (synchronous flush; writes `:saved-state`).
-- Workspace context switch (debounced flush; writes `:working-state` of the outgoing workspace).
-- Intra-workspace layout switch (debounced flush; writes `:working-state` of the outgoing layout).
-- `workspaces-mode` idle timer (debounced flush; writes `:working-state` of the current workspace).
+- `workspace-save-layout` and `workspace-new`'s home stamp (synchronous
+  flush; writes `:saved-state`).
+- Workspace context switch (synchronous flush; writes `:working-state` of the outgoing workspace).
+- Intra-workspace layout switch (synchronous flush; writes `:working-state` of the outgoing layout).
+- `workspaces-mode` idle timer (synchronous flush; writes `:working-state` of the current workspace).
 - `kill-emacs-hook` (synchronous flush; captures `:working-state` of the current workspace once before writing).
+
+The package SHALL NOT debounce any of these flushes. Every trigger above is
+a discrete, low-frequency, quiescent event with no burst to coalesce, so a
+debounced (idle-timer) write provides no benefit and only delays the on-disk
+write. (A debounce is warranted only for a high-frequency trigger such as
+autosave on window-configuration change, which is not part of this package;
+should such a trigger be added, it would re-introduce a debounce scoped to
+itself.)
 
 In addition to the schema, hydration, and flush-trigger guarantees above,
 persistence SHALL be **readable by construction** and **corruption-safe**:
@@ -825,6 +854,13 @@ this suppression rule when the prior load was present-but-unreadable.
 - **AND** no tab is created for either workspace at startup (the tab-bar
   is unchanged by restore)
 - **AND** each is offered as a candidate by `workspace-restore`
+
+#### Scenario: A deliberate command flushes synchronously
+- **WHEN** the user invokes `workspace-new`, `workspace-save-layout`, or
+  `workspace-switch-layout`
+- **THEN** the persistence file on disk reflects the resulting registry
+  state immediately after the command returns
+- **AND** the write does not wait on an idle timer or debounce delay
 
 #### Scenario: Restart restores working-state, not saved-state, when both present
 - **WHEN** workspace `code` has `:home ~/emacs-workspaces/code/` (which
@@ -1212,10 +1248,15 @@ The package SHALL provide `workspaces-mode`, a global minor mode that, when enab
 
 `workspaces-mode` SHALL be off by default; the user opts in via `(workspaces-mode 1)` or `M-x workspaces-mode`.
 
-The idle-save trigger SHALL share the same code path as the workspace-context-switch autosave, including:
+The idle-save trigger SHALL share the same capture code path as the workspace-context-switch autosave, including:
 - Respecting `workspace-anti-save-predicates` (Requirement: Anti-save predicates).
 - Writing only to `:working-state` (never `:saved-state`).
-- Coalescing burst-fire via the existing debounce in `workspace-save-state`.
+- Flushing to disk **synchronously** when it captures. The idle tick fires at
+  most once per idle period, so there is no burst to coalesce; a synchronous
+  flush also avoids the `run-with-idle-timer` already-idle trap, in which a
+  debounced (short idle-delay) write armed from within an already-idle period
+  is deferred to a future idle period — which would silently defeat the idle
+  save's crash-safety purpose.
 
 `workspaces-mode` SHALL clean up its idle timer when disabled.
 
@@ -1225,7 +1266,7 @@ The idle-save trigger SHALL share the same code path as the workspace-context-sw
 - **AND** Emacs is idle for ≥ 60 seconds
 - **THEN** `code`'s `:working-state` reflects the rearrangement
 - **AND** `:saved-state` is unchanged
-- **AND** the persistence file on disk reflects the autosave (after the standard debounce delay)
+- **AND** the persistence file on disk reflects the autosave synchronously when the idle tick fires (no further debounce delay)
 
 #### Scenario: Disabling workspaces-mode stops the idle timer
 - **WHEN** `workspaces-mode` is enabled and an idle timer is registered
