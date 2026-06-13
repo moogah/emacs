@@ -137,21 +137,85 @@ absolute-path arm):
             (push with-broken restored))))))
     (nreverse restored)))
 
+(defvar workspace--persistence-blocked nil
+  "Non-nil when the startup load found a present-but-unreadable file.
+Suppresses all persistence writes for the rest of the session so an
+autosave cannot clobber the backed-up corrupt original with an empty
+registry.  Set by `workspace--read-state' on a parse error; never
+auto-cleared (the in-memory registry after a failed load is
+untrustworthy — fix/remove the file and restart).")
+
+(defvar workspace--persistence-blocked-warned nil
+  "Non-nil once the suppressed-write warning has been emitted.
+Keeps the block warning to one message per session rather than one
+per debounce tick.")
+
+(defun workspace--state-readable-p (form)
+  "Return non-nil if FORM round-trips through `prin1' then `read'.
+The write-time readable assert: a single live Emacs object renders as
+the unreadable =#<…>= syntax and would make the whole on-disk file
+unparseable, so we refuse to write any FORM that cannot be read back.
+Total over any input (never signals)."
+  (let ((print-length nil)
+        (print-level nil))
+    (condition-case _err
+        (progn (read (prin1-to-string form)) t)
+      (error nil))))
+
 (defun workspace--write-state (form)
-  "Write FORM to the persistence file.
-Creates the parent directory if missing."
-  (make-directory (workspace--state-directory) t)
-  (with-temp-file (workspace--state-file)
-    (let ((print-length nil)
-          (print-level nil))
-      (prin1 form (current-buffer)))))
+  "Write FORM to the persistence file atomically, or refuse to write.
+No-op (with a one-time warning) while `workspace--persistence-blocked'
+is set, so an autosave cannot clobber a backed-up corrupt file.
+
+Aborts without touching disk when FORM fails the write-time readable
+assert (`workspace--state-readable-p'), leaving any prior good file
+intact.
+
+Otherwise writes FORM to a sibling temp file in the state directory and
+`rename-file's it over the target, so a crash mid-write can never
+truncate the live file.  Creates the parent directory if missing."
+  (cond
+   (workspace--persistence-blocked
+    (unless workspace--persistence-blocked-warned
+      (setq workspace--persistence-blocked-warned t)
+      (display-warning
+       'workspaces
+       (format
+        "Persistence is suppressed this session: the state file %s could not be read at startup and was backed up. Writes are disabled to protect the backup. Fix or remove the file and restart."
+        (workspace--state-file))
+       :warning)))
+   ((not (workspace--state-readable-p form))
+    (display-warning
+     'workspaces
+     (format
+      "Refusing to write workspaces state: the serialized form is not readable back (contains a live/unreadable object). The previous file at %s is left intact. This is a bug in the serializer; please report it."
+      (workspace--state-file))
+     :error))
+   (t
+    (let* ((dir (workspace--state-directory))
+           (target (workspace--state-file))
+           (_ (make-directory dir t))
+           (tmp (make-temp-file
+                 (expand-file-name "workspaces.eld.tmp-" dir))))
+      (with-temp-file tmp
+        (let ((print-length nil)
+              (print-level nil))
+          (prin1 form (current-buffer))))
+      (rename-file tmp target t)))))
 
 (defun workspace--read-state ()
-  "Read and return the persisted state form, or nil if missing/unreadable.
-Emits an *Messages* notice and returns nil for files whose =:version= is
-not =workspace--state-version=.  v1 and v2 files on disk are expected to
-be deleted by the user before running v3 code (design.md §D5 — no
-migration during pre-alpha)."
+  "Read and return the persisted state form.
+Three outcomes (design.md §D2):
+
+- File absent → nil (fresh start; saving stays permitted).
+- File present and readable: a v3 plist → that plist; any other
+  =:version= → nil with a *Messages* notice (recognized \"ignore and
+  start fresh\", not corruption — no backup, no block).
+- File present but unreadable (a `read'/parse error): the corrupt bytes
+  are renamed aside to a =workspaces.eld.corrupt-<ts>= sibling, a loud
+  `display-warning' names both paths, `workspace--persistence-blocked'
+  is set, and the sentinel symbol =workspace--unreadable= is returned
+  (NOT nil) so `workspace--restore' can tell corruption from absence."
   (let ((file (workspace--state-file)))
     (when (file-exists-p file)
       (condition-case err
@@ -166,9 +230,17 @@ migration during pre-alpha)."
                  file v workspace--state-version)
                 nil)))
         (error
-         (message "Workspaces: failed to read state file %s: %s"
-                  file (error-message-string err))
-         nil)))))
+         (let ((backup (concat file ".corrupt-"
+                               (format-time-string "%Y%m%d-%H%M%S"))))
+           (ignore-errors (rename-file file backup t))
+           (setq workspace--persistence-blocked t)
+           (display-warning
+            'workspaces
+            (format
+             "Could not read the workspaces state file %s (%s). It has been backed up to %s and persistence is suppressed for this session to protect it. Fix or remove the backup and restart."
+             file (error-message-string err) backup)
+            :error)
+           'workspace--unreadable))))))
 
 (defcustom workspace-save-idle-delay 2
   "Idle delay (seconds) before the auto-save trigger writes to disk.
@@ -189,14 +261,19 @@ Coalesces bursts of context switches into a single disk write."
 (defun workspace-save-state ()
   "Schedule a debounced save of the workspaces registry to disk.
 Cancels any pending timer and re-arms it; the actual disk write
-happens after `workspace-save-idle-delay' seconds of idle time."
+happens after `workspace-save-idle-delay' seconds of idle time.
+
+No-op while `workspace--persistence-blocked' is set: the eventual
+`workspace--flush-state' → `workspace--write-state' would refuse the
+write anyway, so we do not even arm a useless idle timer."
   (interactive)
-  (when workspace--save-timer
-    (cancel-timer workspace--save-timer)
-    (setq workspace--save-timer nil))
-  (setq workspace--save-timer
-        (run-with-idle-timer workspace-save-idle-delay nil
-                             #'workspace--flush-state)))
+  (unless workspace--persistence-blocked
+    (when workspace--save-timer
+      (cancel-timer workspace--save-timer)
+      (setq workspace--save-timer nil))
+    (setq workspace--save-timer
+          (run-with-idle-timer workspace-save-idle-delay nil
+                               #'workspace--flush-state))))
 
 (defun workspace--persistence-after-autosave (&rest _args)
   "Schedule a debounced disk save after an autosave snapshot."
@@ -246,13 +323,21 @@ shutdown) does not prevent the flush itself.
 
 Consults `workspace-anti-save-predicates' before the working-state
 capture; the registry flush itself is unconditional (the user has
-explicitly initiated shutdown)."
-  (when workspace--save-timer
-    (cancel-timer workspace--save-timer)
-    (setq workspace--save-timer nil))
-  (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
-    (ignore-errors (workspace--autosave-current-layout :working-state)))
-  (ignore-errors (workspace--write-state (workspace--serialize-registry))))
+explicitly initiated shutdown).
+
+Short-circuits entirely when `workspace--persistence-blocked' is set:
+the startup load found a corrupt file (now backed up) and the in-memory
+registry is untrustworthy, so shutdown must NOT write over the backup.
+The `workspace--write-state' choke point would refuse the write anyway;
+the explicit early-return avoids the wasted working-state capture and
+documents the boundary at the shutdown path itself."
+  (unless workspace--persistence-blocked
+    (when workspace--save-timer
+      (cancel-timer workspace--save-timer)
+      (setq workspace--save-timer nil))
+    (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+      (ignore-errors (workspace--autosave-current-layout :working-state)))
+    (ignore-errors (workspace--write-state (workspace--serialize-registry)))))
 
 (add-hook 'kill-emacs-hook #'workspace--kill-emacs-flush)
 
@@ -274,9 +359,19 @@ the autosave is silently skipped."
   "Read the persistence file and hydrate the registry only (no tabs).
 Restored workspaces are saved-but-not-materialized: reachable via
 `workspace-restore' but with no live tab until the user restores one.
-Safe to call at startup; no-ops cleanly when the file is absent."
+Safe to call at startup.
+
+Distinguishes the three `workspace--read-state' outcomes (design.md §D2):
+
+- nil (file absent) → no-op; the registry stays empty and persistence
+  is NOT blocked, so a fresh-start save works normally.
+- the `workspace--unreadable' sentinel (present-but-corrupt file) →
+  no-op; the registry stays empty and `workspace--read-state' has
+  already backed the corrupt file up and set
+  `workspace--persistence-blocked'.  The sentinel is NOT deserialized.
+- a real state plist → deserialize into the registry as usual."
   (let ((state (workspace--read-state)))
-    (when state
+    (when (and state (not (eq state 'workspace--unreadable)))
       (workspace--deserialize-state state))))
 
 (defun workspace-save ()

@@ -19,7 +19,8 @@
     (provide 'bufferlo))
   (load (expand-file-name "../tabs.el"              dir))
   (load (expand-file-name "../buffer-membership.el" dir))
-  (load (expand-file-name "../layouts.el"           dir)))
+  (load (expand-file-name "../layouts.el"           dir))
+  (load (expand-file-name "../persistence.el"       dir)))
 
 (defun serialization-robustness-spec--readable-p (form)
   "Return non-nil if FORM round-trips through `prin1' → `read'.
@@ -209,6 +210,187 @@ printed form does not signal."
         ;; The throwing param is gone; the sibling param survives.
         (expect (map-contains-key params 'window-preserved-size) :to-be nil)
         (expect (map-elt params 'window-side) :to-equal 'left)))))
+
+;; ---------------------------------------------------------------------------
+;; Layer B: corruption-safe persistence I/O
+;;
+;; These specs exercise the write/read boundary in persistence.el:
+;; atomic write, write-time readable assert, backup-on-corrupt read,
+;; absent-vs-unreadable signalling, and the session-wide autosave gate.
+;; Every spec sandboxes I/O via `workspace-state-directory-override' so
+;; nothing touches the developer's real state file.
+;; ---------------------------------------------------------------------------
+
+(defvar serialization-robustness-spec--state-dir nil
+  "Per-test sandbox dir backing `workspace--state-file'.")
+
+(defun serialization-robustness-spec--state-file ()
+  "Absolute path of the sandboxed state file for the current test."
+  (expand-file-name "workspaces.eld" serialization-robustness-spec--state-dir))
+
+(defun serialization-robustness-spec--corrupt-siblings ()
+  "Return the list of `workspaces.eld.corrupt-*' backups in the sandbox."
+  (directory-files serialization-robustness-spec--state-dir nil
+                   "\\`workspaces\\.eld\\.corrupt-"))
+
+(defun serialization-robustness-spec--tmp-siblings ()
+  "Return the list of leftover `workspaces.eld.tmp-*' temp files."
+  (directory-files serialization-robustness-spec--state-dir nil
+                   "\\`workspaces\\.eld\\.tmp-"))
+
+(describe "Layer B persistence I/O"
+  (before-each
+    (setq serialization-robustness-spec--state-dir
+          (file-name-as-directory (make-temp-file "ws-robust-io-" t))
+          workspace-state-directory-override
+          serialization-robustness-spec--state-dir
+          workspace--persistence-blocked nil
+          workspace--persistence-blocked-warned nil)
+    (clrhash workspace--registry))
+
+  (after-each
+    (setq workspace-state-directory-override nil
+          workspace--persistence-blocked nil
+          workspace--persistence-blocked-warned nil)
+    (when (and serialization-robustness-spec--state-dir
+               (file-directory-p serialization-robustness-spec--state-dir))
+      (delete-directory serialization-robustness-spec--state-dir t))
+    (clrhash workspace--registry))
+
+  (describe "corruption-injection / no-clobber"
+    (it "backs up the corrupt file, blocks, returns the sentinel, leaves the registry empty"
+      (let ((file (serialization-robustness-spec--state-file)))
+        ;; Write a literally-unreadable file: a `#<…>' token aborts `read'.
+        (make-directory serialization-robustness-spec--state-dir t)
+        (with-temp-file file
+          (insert "(:version 3 :workspaces (#<killed buffer>))"))
+        (let ((result (workspace--read-state)))
+          ;; (c) the sentinel — distinct from nil (absent).
+          (expect result :to-be 'workspace--unreadable)
+          ;; (b) the session block flag is set.
+          (expect workspace--persistence-blocked :to-be t)
+          ;; (a) the original no longer holds the corrupt bytes, and a
+          ;; corrupt-* sibling preserves them.
+          (expect (file-exists-p file) :to-be nil)
+          (let ((backups (serialization-robustness-spec--corrupt-siblings)))
+            (expect (length backups) :to-equal 1)
+            (let ((bytes (with-temp-buffer
+                           (insert-file-contents-literally
+                            (expand-file-name
+                             (car backups)
+                             serialization-robustness-spec--state-dir))
+                           (buffer-string))))
+              (expect (string-match-p "#<killed buffer>" bytes)
+                      :to-be-truthy))))
+        ;; (d) restore deserializes nothing — the registry stays empty.
+        (workspace--restore)
+        (expect (hash-table-count workspace--registry) :to-equal 0))))
+
+  (describe "end-to-end clobber-cascade regression"
+    (it "a flush after a corrupt load never overwrites the backup with an empty registry"
+      ;; The original cascade: corrupt file → read returns nil (looked
+      ;; absent) → autosave serialises an empty registry over it. Prove
+      ;; it is dead: after restore + a flush, the corrupt bytes survive in
+      ;; the backup and NO live state file is written.
+      (let ((file (serialization-robustness-spec--state-file)))
+        (make-directory serialization-robustness-spec--state-dir t)
+        (with-temp-file file
+          (insert "(:version 3 :workspaces (#<window 1>))"))
+        (workspace--restore)
+        (expect workspace--persistence-blocked :to-be t)
+        ;; Fire every disk-writing path that the old cascade rode in on.
+        (workspace--flush-state)
+        (workspace--kill-emacs-flush)
+        (workspace-save-state)
+        ;; No live state file was (re)written...
+        (expect (file-exists-p file) :to-be nil)
+        ;; ...and the corrupt original is still preserved verbatim.
+        (let ((backups (serialization-robustness-spec--corrupt-siblings)))
+          (expect (length backups) :to-equal 1)
+          (let ((bytes (with-temp-buffer
+                         (insert-file-contents-literally
+                          (expand-file-name
+                           (car backups)
+                           serialization-robustness-spec--state-dir))
+                         (buffer-string))))
+            (expect bytes :to-equal "(:version 3 :workspaces (#<window 1>))")))
+        ;; No useless idle timer was armed by workspace-save-state.
+        (expect workspace--save-timer :to-be nil))))
+
+  (describe "autosave gate (blocked → no writes)"
+    (it "flush and kill-emacs-flush write nothing while blocked"
+      (setq workspace--persistence-blocked t)
+      (let ((file (serialization-robustness-spec--state-file)))
+        (expect (file-exists-p file) :to-be nil)
+        (workspace--flush-state)
+        (workspace--kill-emacs-flush)
+        ;; Neither path created the file as `(:version 3 :workspaces nil)'.
+        (expect (file-exists-p file) :to-be nil)
+        (expect (serialization-robustness-spec--tmp-siblings) :to-equal nil)))
+
+    (it "warns at most once across many suppressed writes"
+      (setq workspace--persistence-blocked t)
+      (let ((warn-count 0))
+        (cl-letf (((symbol-function 'display-warning)
+                   (lambda (&rest _) (cl-incf warn-count))))
+          (workspace--write-state '(:version 3 :workspaces nil))
+          (workspace--write-state '(:version 3 :workspaces nil))
+          (workspace--write-state '(:version 3 :workspaces nil)))
+        (expect warn-count :to-equal 1))))
+
+  (describe "write-time readable assert"
+    (it "refuses a form carrying a raw buffer object and leaves a prior file intact"
+      (let ((file (serialization-robustness-spec--state-file)))
+        ;; Lay down a known-good prior file via the normal write path.
+        (workspace--write-state '(:version 3 :workspaces nil))
+        (expect (file-exists-p file) :to-be-truthy)
+        (let ((good-bytes (with-temp-buffer
+                            (insert-file-contents-literally file)
+                            (buffer-string))))
+          ;; Now attempt to write an unreadable form (a live buffer).
+          (with-temp-buffer
+            (let ((warned nil))
+              (cl-letf (((symbol-function 'display-warning)
+                         (lambda (&rest _) (setq warned t))))
+                (workspace--write-state
+                 `(:version 3 :workspaces (,(current-buffer)))))
+              (expect warned :to-be-truthy)))
+          ;; The prior good file is untouched (byte-for-byte).
+          (let ((after-bytes (with-temp-buffer
+                               (insert-file-contents-literally file)
+                               (buffer-string))))
+            (expect after-bytes :to-equal good-bytes))
+          ;; And the assert is not the same thing as the block: a refused
+          ;; write must NOT poison the session flag.
+          (expect workspace--persistence-blocked :to-be nil)
+          ;; No temp file leaked from the aborted write.
+          (expect (serialization-robustness-spec--tmp-siblings) :to-equal nil)))))
+
+  (describe "atomic write happy path"
+    (it "writes via temp+rename, leaves no temp sibling, and reads back equal"
+      (let ((file (serialization-robustness-spec--state-file))
+            (form '(:version 3 :workspaces ((:name "alpha" :home "/tmp/alpha/")))))
+        (workspace--write-state form)
+        (expect (file-exists-p file) :to-be-truthy)
+        ;; No `workspaces.eld.tmp-*' detritus.
+        (expect (serialization-robustness-spec--tmp-siblings) :to-equal nil)
+        ;; The on-disk form reads back identical (register/shape/
+        ;; workspace-plist-v3: temp+rename changes HOW, not WHAT).
+        (let ((read-back (with-temp-buffer
+                           (insert-file-contents file)
+                           (read (current-buffer)))))
+          (expect read-back :to-equal form)))))
+
+  (describe "absent → fresh start"
+    (it "returns nil, stays unblocked, and a subsequent save writes normally"
+      (let ((file (serialization-robustness-spec--state-file)))
+        (expect (file-exists-p file) :to-be nil)
+        (expect (workspace--read-state) :to-be nil)
+        (expect workspace--persistence-blocked :to-be nil)
+        ;; A fresh-start save is permitted and writes the file.
+        (workspace--write-state '(:version 3 :workspaces nil))
+        (expect (file-exists-p file) :to-be-truthy)
+        (expect (workspace--read-state) :to-equal '(:version 3 :workspaces nil))))))
 
 (provide 'serialization-robustness-spec)
 ;;; serialization-robustness-spec.el ends here

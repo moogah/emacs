@@ -143,3 +143,99 @@ research/findings-activities-persistence-deep-dive.md (why not persist.el).
 Depends on serialize-window-params-readable (the readable-by-construction
 serializer + the shared `workspace--unreadable-object-p` predicate this
 task's write-assert may reuse).
+
+## Observations
+
+- **readablep vs round-trip.** Implemented the write-time readable
+  assert as a `prin1-to-string` → `read` round-trip
+  (`workspace--state-readable-p`), per the task/design fallback. The
+  runtime Emacs in this environment is 30.2 (so `readablep`, available
+  since Emacs 28, would work), but the repo declares no minimum Emacs
+  version anywhere (no `Package-Requires`, no `emacs-min-version`
+  constant; `grep` found none), so the version-safe round-trip is the
+  correct choice and its cost is negligible against the debounced,
+  human-paced write cadence. The round-trip catches the exact failure
+  mode of concern — a `#<…>` token making the printed form unreadable —
+  by construction.
+
+- **make-temp-file ordering.** `make-directory` must precede
+  `make-temp-file` (which fails if the DIR prefix's directory is
+  absent). Sequenced via a `let*` `(_ (make-directory dir t))` binding
+  before the `tmp` binding.
+
+- **Tier precedence under noninteractive.** The new specs sandbox via
+  `workspace-state-directory-override` (tier 1), which takes precedence
+  over the batch-noninteractive sandbox (tier 2). Confirmed: the override
+  dir is where all I/O lands during the specs.
+
+- **End-to-end regression result.** Encoded as the spec "end-to-end
+  clobber-cascade regression": write a `#<window 1>` state file →
+  `workspace--restore` → fire `workspace--flush-state`,
+  `workspace--kill-emacs-flush`, and `workspace-save-state`. Asserts the
+  live state file is NOT (re)written (so never reduced to
+  `(:version 3 :workspaces nil)`), the corrupt original survives
+  verbatim in a `workspaces.eld.corrupt-*` backup, and no useless idle
+  timer was armed. The original clobber cascade is dead.
+
+- **No spec rewrites needed for old read-failure behavior.** Neither
+  `persistence-spec.el` nor `persistence-v3-spec.el` asserted the OLD
+  "read-failure → nil → overwrite" contract — their only failure-arm
+  coverage is version-mismatch → nil (unchanged: still ignored, no
+  backup, no block) and absent → nil (unchanged). So those files needed
+  no edits; the new read-failure contract (backup + sentinel + block) is
+  covered entirely by the new Layer B blocks in
+  `serialization-robustness-spec.el`.
+
+- **Suite:** 352 specs / 0 failed (was 345/0; +7 Layer B specs). No
+  regression.
+
+## Discoveries
+
+- class: interface-drift
+  affected_register_entry: register/boundary/autosave-guard-pipeline
+  summary: |
+    Added a NEW suppression condition — `workspace--persistence-blocked`
+    — to the autosave boundary, ADDITIVE to the existing stage-1
+    anti-save-predicate gate. It is NOT a replacement: the four stage-1
+    wrap call sites (before-tab-switch on tab-bar-select-tab AND
+    tab-bar-switch-to-tab, kill-emacs-flush, idle-tick) and the
+    explicit-save stage-2 entry all keep working unchanged. The new gate
+    sits at stage 4 (flush) via the `workspace--write-state` choke point
+    (covering flush-state, save-state, the idle→autosave→save-state path,
+    and kill-emacs-flush), plus explicit early-returns in
+    `workspace--kill-emacs-flush` and `workspace-save-state` (the latter
+    so a blocked session never arms a useless idle timer). Recommend the
+    integrate-phase architect record this boundary extension on the
+    entry: stage 4 now has a session-scoped suppression precondition
+    (`workspace--persistence-blocked`) in addition to its per-trigger
+    debounce/synchronous routing.
+
+- class: shape-confirmation
+  affected_register_entry: register/shape/workspace-plist-v3
+  summary: |
+    The atomic temp+rename write produces the identical on-disk readable
+    form `(:version 3 :workspaces (...))` — the temp file is written with
+    the same `print-length`/`print-level` nil binding and `prin1` as
+    before; only the destination path changes (sibling temp →
+    rename-file over target). Confirmed by the "atomic write happy path"
+    spec, which reads the file back and asserts `:to-equal` the exact
+    input form. No drift to the v3 shape.
+
+- class: new-boundary
+  affected_register_entry: (none yet — recommend creating one at integrate)
+  summary: |
+    This task establishes a NEW persistence-robustness boundary with four
+    coupled invariants: (1) atomic-write — every write goes temp-in-same-
+    dir then rename-file, never an in-place truncating write; (2) never-
+    clobber-unreadable — a present-but-corrupt file is renamed to
+    `*.corrupt-<ts>` and never overwritten; (3) absent-vs-unreadable —
+    `workspace--read-state` returns nil for absent (fresh start, saving
+    permitted) but the `workspace--unreadable` sentinel for corrupt
+    (registry empty, saving suppressed), and `workspace--restore` honours
+    the distinction; (4) autosave-gate — `workspace--persistence-blocked`
+    is a one-way session flag set by a failed load that suppresses ALL
+    writers, never auto-cleared. Recommend the integrate-phase architect
+    create a `register/boundary/persistence-robustness-io` (or similar)
+    entry capturing these four invariants and their producer
+    (config/workspaces/persistence.org) and consumers
+    (workspace--restore, all writers).
