@@ -63,15 +63,24 @@
        ,@body)))
 
 (describe "Persistence directory is per-machine"
+  ;; These exercise tier 3 of `workspace--state-directory' (the
+  ;; per-machine default).  Tiers 1-2 (override / batch sandbox) take
+  ;; precedence, and the test process itself is `noninteractive', so we
+  ;; bind `noninteractive' to nil and leave the override unset to reach
+  ;; the per-machine computation under test.
   (it "derives the path from `jf/machine-role'"
     (let ((jf/machine-role "personal-mac")
-          (jf/emacs-dir "/tmp/wsdir"))
+          (jf/emacs-dir "/tmp/wsdir")
+          (noninteractive nil)
+          (workspace-state-directory-override nil))
       (expect (workspace--state-directory)
               :to-equal "/tmp/wsdir/state/workspaces/personal-mac/")))
 
   (it "falls back to `default' when jf/machine-role is nil"
     (let ((jf/machine-role nil)
-          (jf/emacs-dir "/tmp/wsdir"))
+          (jf/emacs-dir "/tmp/wsdir")
+          (noninteractive nil)
+          (workspace-state-directory-override nil))
       (expect (workspace--state-directory)
               :to-equal "/tmp/wsdir/state/workspaces/default/"))))
 
@@ -159,6 +168,31 @@
   (it "registers workspace--kill-emacs-flush on kill-emacs-hook"
     (expect (member #'workspace--kill-emacs-flush kill-emacs-hook)
             :to-be-truthy)))
+
+(describe "persistence is sandboxed under batch"
+  ;; Regression guard for the teardown-clobber leak: a batch/test run
+  ;; must never resolve the real per-machine state directory, because the
+  ;; kill-emacs-hook flush fires at process exit — after every spec's
+  ;; `cl-letf' state-dir rebinding has already unwound — and would
+  ;; otherwise serialise a dirty global registry onto the developer's
+  ;; production `state/workspaces/<role>/workspaces.eld'.
+  (it "runs under noninteractive (precondition for the safety net)"
+    (expect noninteractive :to-be-truthy))
+
+  (it "never resolves the real per-machine state dir with no override"
+    (let ((workspace-state-directory-override nil))
+      (expect (workspace--state-directory)
+              :not :to-match "/state/workspaces/")
+      (expect (file-in-directory-p (workspace--state-directory)
+                                   temporary-file-directory)
+              :to-be-truthy)))
+
+  (it "honours workspace-state-directory-override when set"
+    (let ((workspace-state-directory-override "/tmp/ws-override-sentinel"))
+      (expect (workspace--state-directory)
+              :to-equal "/tmp/ws-override-sentinel/")
+      (expect (workspace--state-file)
+              :to-equal "/tmp/ws-override-sentinel/workspaces.eld"))))
 
 (describe "Schema version check"
   ;; Note: v3-specific behavior (v2 rejection, :home skip, broken-home

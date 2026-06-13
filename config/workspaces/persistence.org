@@ -25,17 +25,61 @@ selection of each restored workspace (lazy activation).
 
 * Paths
 
+The state directory resolves in three tiers (checked in order):
+
+1. =workspace-state-directory-override= — an explicit absolute path.
+   The hermetic escape hatch: a sandbox or batch script sets this to
+   redirect *all* persistence I/O.
+
+2. Batch / =noninteractive= with no override — a throwaway per-process
+   sandbox under =temporary-file-directory=.  This is the safety net
+   for the test-leak class of bug: the =kill-emacs-hook= flush fires at
+   process teardown, *after* any spec's =cl-letf= state-dir rebinding
+   has unwound, so without this guard a stray dirty registry would be
+   serialised straight onto the developer's real state file (see the
+   teardown-clobber reproduction; the read-side analogue was already
+   worked around per-spec in =broken-home-runtime-spec.el=).  Specs that
+   need real read-back still =cl-letf= =workspace--state-directory= to
+   their own temp dir, which bypasses this function body entirely.
+
+3. The per-machine default — keyed by =jf/machine-role= (matching the
+   activities.el convention), falling back to a =default= subdirectory
+   when the role is unset.  This is the only tier an ordinary
+   interactive session ever reaches.
+
 #+begin_src emacs-lisp
+(defvar workspace-state-directory-override nil
+  "When non-nil, an absolute directory used for persistence I/O in place
+of the per-machine default.  The explicit hermetic knob: a sandbox or a
+scripted batch session sets this to redirect every read/write away from
+the developer's real state file.  See `workspace--state-directory'.")
+
 (defun workspace--state-directory ()
-  "Return the per-machine directory where workspace state is persisted.
-Keyed by `jf/machine-role' to match the existing convention used by
-activities.el; falls back to a `default' subdirectory when the role is
-unset."
-  (let ((subdir (if (and (boundp 'jf/machine-role) jf/machine-role)
-                    (concat "state/workspaces/" jf/machine-role "/")
-                  "state/workspaces/default/")))
-    (expand-file-name subdir (or (and (boundp 'jf/emacs-dir) jf/emacs-dir)
-                                 user-emacs-directory))))
+  "Return the directory where workspace state is persisted.
+Resolves in three tiers (see the module commentary):
+
+1. `workspace-state-directory-override', when non-nil.
+2. A per-process sandbox under `temporary-file-directory' whenever
+   `noninteractive' is set and no override is given — so a batch/test
+   run can never write the real per-machine state file (the
+   `kill-emacs-hook' flush fires after any `cl-letf' state-dir rebinding
+   has unwound).
+3. The per-machine default, keyed by `jf/machine-role' (falling back to
+   a `default' subdirectory when the role is unset)."
+  (cond
+   (workspace-state-directory-override
+    (file-name-as-directory
+     (expand-file-name workspace-state-directory-override)))
+   (noninteractive
+    (file-name-as-directory
+     (expand-file-name (format "workspaces-batch-state-%d" (emacs-pid))
+                       temporary-file-directory)))
+   (t
+    (let ((subdir (if (and (boundp 'jf/machine-role) jf/machine-role)
+                      (concat "state/workspaces/" jf/machine-role "/")
+                    "state/workspaces/default/")))
+      (expand-file-name subdir (or (and (boundp 'jf/emacs-dir) jf/emacs-dir)
+                                   user-emacs-directory))))))
 
 (defun workspace--state-file ()
   "Return the absolute path of the persistence file."
