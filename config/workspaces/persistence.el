@@ -344,7 +344,19 @@ Errors when not on a workspaces-managed tab."
   "Materialize saved workspace NAME by creating or switching to its tab.
 
 If a tab for NAME already exists, switch to it.  Otherwise create a
-tab and apply the workspace's saved window configuration.
+tab and materialize the workspace.
+
+When the workspace has a saved layout (its recent layout-group has a
+non-nil effective state — `:working-state' if set, else `:saved-state';
+register/invariant/restore-precedence-working-over-saved), apply that
+layout via `workspace--apply-saved-layout'.
+
+When the workspace has NO saved layout (a recovered/registry-only
+workspace whose `:layout-groups' are empty or carry no effective
+state), fall back to the home builder instead — the same
+`workspace-home-builder' indirection `workspace-new' uses — so the new
+tab opens <home>/home.org.  No `window-state-put' is attempted in this
+case (design.md §D3).
 
 Interactively, completes over every workspace in the registry —
 including saved workspaces that have no live tab.
@@ -369,7 +381,21 @@ new path or `workspace-purge' to remove the registry entry."
       (tab-bar-select-tab idx)
     (tab-bar-new-tab)
     (tab-bar-rename-tab name)
-    (workspace--apply-saved-layout name))
+    ;; Decide whether a saved layout exists using the SAME effective-state
+    ;; derivation `workspace--apply-saved-layout' uses, so "has a layout"
+    ;; cannot diverge from the restore-precedence invariant.
+    (let* ((ws (gethash name workspace--registry))
+           (recent (and ws (workspace--recent-group ws)))
+           (group (and recent (workspace--find-group ws recent)))
+           (layout (and group (workspace--group-recent-layout group)))
+           (state (and layout (workspace--layout-effective-state layout))))
+      (if state
+          (workspace--apply-saved-layout name)
+        ;; No saved layout: open <home>/home.org via the home builder,
+        ;; mirroring `workspace-new'.  Do NOT window-state-put.
+        (when (and (boundp 'workspace-home-builder)
+                   (functionp workspace-home-builder))
+          (funcall workspace-home-builder name)))))
   name)
 
 (provide 'workspace-persistence)

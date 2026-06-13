@@ -72,3 +72,68 @@ windows/buffers and running the builder first would flash an extra
 design.md § Decisions D3 (workspace-restore home-builder fallback);
 specs/workspaces/spec.md MODIFIED "Explicit restore command", scenario
 "Restore a workspace with no saved layout opens home.org".
+
+## Observations
+
+- The saved-layout presence test was implemented as the design specified:
+  recent group → `workspace--find-group` → `workspace--group-recent-layout`
+  → `workspace--layout-effective-state`, and gates on that effective state
+  being non-nil. This is the exact derivation `workspace--apply-saved-layout`
+  uses internally, so "has a layout" cannot diverge from the
+  restore-precedence invariant (no fork of `:saved-state`-only checking).
+- The broken-state `user-error` guard remains at the top of the function
+  body (after registry lookup), strictly before the create/switch dispatch
+  and therefore before any tab creation OR home-builder invocation. A broken
+  workspace can never reach the home builder. Verified by the existing
+  broken-restore specs staying green.
+- `window-state-put` is NOT called directly by the layout-applying path —
+  it is deferred via `run-at-time` inside `workspace--restore-frameset`
+  (layouts.el). A synchronous spy on `window-state-put` therefore can never
+  observe a call within the test's dynamic extent regardless of branch. To
+  make the "no layout → no window-state-put attempted" assertion meaningful
+  I additionally spy on `workspace--restore-frameset` (the synchronous choke
+  point that *schedules* the deferred put) and assert it is not called; the
+  literal `window-state-put` spy from the task body is kept as a belt-and-
+  suspenders check. The companion "layout exists" spec asserts
+  `workspace--apply-saved-layout` IS called (synchronous, reliable) rather
+  than relying on the deferred put, guarding against branch inversion.
+- No `workspace--set-layout-groups` setter exists in data-model.el; the
+  test sets `:layout-groups nil` via `plist-put` on a `copy-sequence` of the
+  workspace plist (mirroring the spec's `:layout-groups is nil` precondition)
+  and clears the recent-group pointer via the existing
+  `workspace--set-recent-group`.
+- `workspace--tab-index-for` returns a 1-based index (per its docstring), so
+  the test closes the materialized tab with `(tab-bar-close-tab idx)` (not
+  `(1+ idx)`).
+
+## Discoveries
+
+- discovery_id: disc-restore-home-builder-fallback-1
+  class: invariant-gap
+  description: |
+    The cited register entry register/invariant/restore-precedence-working-
+    over-saved is fully upheld: the new saved-layout-presence check reuses
+    workspace--layout-effective-state, so it cannot diverge from the
+    precedence rule. No invariant gap found — the natural presence-check did
+    NOT diverge, so no push-back was warranted on that axis.
+  affected_register_entry: register/invariant/restore-precedence-working-over-saved
+  recommendation: |
+    Confirm-no-drift. No reconciliation needed.
+- discovery_id: disc-restore-home-builder-fallback-2
+  class: spec-signal
+  description: |
+    The spec scenario "Restore a workspace with no saved layout opens
+    home.org" asserts "no window-state-put is attempted". Because
+    workspace--restore-frameset defers the actual window-state-put via
+    run-at-time, the user-visible contract "no layout is applied" is more
+    precisely "workspace--restore-frameset is never reached" — the deferred
+    put can never fire if its scheduler is never called. The spec wording is
+    fine for a behavioral contract, but the test asserts at the
+    workspace--restore-frameset boundary (the synchronous gate) to be robust;
+    a future reader should not expect a synchronous window-state-put call to
+    exist on either branch.
+  affected_register_entry: register/boundary/home-org-read-pipeline
+  recommendation: |
+    No change required. If the register ever documents the restore-apply
+    path's deferral, note that window-state-put is asynchronous and the
+    synchronous observable is workspace--restore-frameset invocation.
