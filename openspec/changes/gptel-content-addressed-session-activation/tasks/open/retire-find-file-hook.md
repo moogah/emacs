@@ -2,7 +2,8 @@
 name: retire-find-file-hook
 description: Remove the find-file-hook registration, jf/gptel--auto-init-session-buffer, the three layout regexes, and the stale find-file-hook comments across the codebase.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
+merge_commit: e398898
 relations:
   - "blocked-by:magic-mode-alist-activation"
   - "blocked-by:mode-hook-binder"

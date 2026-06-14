@@ -39,3 +39,9 @@ The `current` symlink had no production reader (only a test read it). Once ident
 ## Context
 
 design.md § Decision "D6. Retire the current symlink".
+
+## Cycle 5 updates (cycle-1781463961)
+
+- **Blocker cleared — now READY.** `retire-find-file-hook` merged (e398898). It already removed the **only production caller that wrote the symlink** — the `jf/gptel--update-current-symlink` call inside the deleted `jf/gptel--auto-init-session-buffer`. So this task's remaining work is the symlink machinery itself: the writer `jf/gptel--update-current-symlink`, its other callers (check `jf/gptel--create-session-core` / branch creation per the on-touch architect note), the reader `jf/gptel--get-current-branch-name`, the `jf/gptel--current-symlink-path` helper / `jf/gptel-session--current-link` constant, and the symlink tests.
+- **Cited register entry** `register/invariant/activation-and-identity-are-content-not-path`: still **speculated**. With the find-file-hook/auto-init/regex remnant gone (cycle-5), the symlink is ONE of the two last path-derived remnants (the other is the 2 `session-id-from-directory` identity callers — consumer-migration). Landing this task + that migration + `regression-sweep`'s grep-audit flips the invariant to `confirmed`. See `.orchestrator/cycles/cycle-1781463961/reconciliations/invariant-activation-and-identity-are-content-not-path.md`.
+- File contention: this task edits `filesystem.org` + `constants.org` + `commands.org`. No other task is ready, so it is the natural cycle-6 solo pick.
