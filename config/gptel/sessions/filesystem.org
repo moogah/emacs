@@ -426,28 +426,44 @@ Returns list of plists with:
 
 Only branch directories that pass `jf/gptel--valid-branch-directory-p'
 are included; branches without `session.org' are filtered out here so
-every consumer sees the same valid-branch view."
+every consumer sees the same valid-branch view.
+
+Identity (:session-id / :branch-name) is read from each branch
+`session.org' point-min `:GPTEL_*:' drawer via
+`jf/gptel--read-session-drawer-head' and resolved with
+`jf/gptel--resolve-session-id' / `jf/gptel--resolve-branch-name'
+(drawer-first, basename/segment fallback) — directory NAMES carry no
+identity meaning.  A located `session.org' that carries no `:GPTEL_'
+drawer at all (corrupt / partial) is skipped and logged at debug.  See
+register/boundary/drawer-first-identity-resolution."
   (let ((sessions-root (expand-file-name jf/gptel-sessions-directory))
         (results nil))
     (when (file-directory-p sessions-root)
       ;; Iterate over all session directories
       (dolist (session-dir (directory-files sessions-root t "^[^.]"))
         (when (jf/gptel--valid-session-directory-p session-dir)
-          (let ((session-id (jf/gptel--session-id-from-directory session-dir))
-                (branches (jf/gptel--list-branches session-dir)))
-            ;; Iterate over branches in this session
-            (dolist (branch-name branches)
-              (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name)))
-                (when (jf/gptel--valid-branch-directory-p branch-dir)
-                  (let* ((agents-dir (jf/gptel--agents-dir-path branch-dir))
-                         (agent-dirs (when (file-directory-p agents-dir)
-                                       (jf/gptel--list-agent-directories branch-dir))))
-                    (push (list :session-dir session-dir
-                                :session-id session-id
-                                :branch-dir branch-dir
-                                :branch-name branch-name
-                                :agent-dirs (or agent-dirs nil))
-                          results)))))))))
+          ;; Iterate over branches in this session
+          (dolist (branch-name (jf/gptel--list-branches session-dir))
+            (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name)))
+              (when (jf/gptel--valid-branch-directory-p branch-dir)
+                (let* ((session-file (jf/gptel--context-file-path branch-dir))
+                       (drawer (jf/gptel--read-session-drawer-head session-file)))
+                  (if (null drawer)
+                      (jf/gptel--log
+                       'debug "Skipping branch with no GPTEL drawer: %s" branch-dir)
+                    (let* ((resolved-id (jf/gptel--resolve-session-id
+                                         drawer session-dir))
+                           (resolved-branch (jf/gptel--resolve-branch-name
+                                             drawer session-file))
+                           (agents-dir (jf/gptel--agents-dir-path branch-dir))
+                           (agent-dirs (when (file-directory-p agents-dir)
+                                         (jf/gptel--list-agent-directories branch-dir))))
+                      (push (list :session-dir session-dir
+                                  :session-id resolved-id
+                                  :branch-dir branch-dir
+                                  :branch-name resolved-branch
+                                  :agent-dirs (or agent-dirs nil))
+                            results))))))))))
     (nreverse results)))
 #+end_src
 
