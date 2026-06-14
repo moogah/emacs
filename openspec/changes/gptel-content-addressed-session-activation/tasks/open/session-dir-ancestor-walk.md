@@ -37,3 +37,11 @@ After the `current` symlink is retired (see retire-current-symlink), session-dir
 ## Context
 
 design.md § Decision "D5. session-dir: ancestor-marker walk".
+
+## Cycle 1 updates (cycle-1781448273)
+
+- This task was **deferred from the cycle-1 batch** to avoid a `filesystem.org` collision with
+  `drawer-signature-and-head-read` (now merged, commit 15f76fb). Implement against the **current**
+  `filesystem.org`, which already contains the new "Session Content Signature" section + the
+  `jf/gptel--scan-session-drawer-keys` engine — add the ancestor-walk alongside, do not disturb them.
+- `register/boundary/session-dir-marker-walk` remains **speculated**; this task carries its disposition.

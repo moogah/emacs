@@ -39,3 +39,22 @@ Identity becomes drawer-resident and move-safe for new sessions while old sessio
 ## Context
 
 design.md § Decisions "D2. Identity" and "D3. Agent identity"; specs `sessions-persistence` Requirement "Drawer-resident session identity" and "Buffer-local session state".
+
+## Cycle 1 updates (cycle-1781448273)
+
+> Cycle 1 confirmed the producer + recognition substrate this task consumes.
+
+- **Input shape is now concrete.** `jf/gptel--read-session-drawer-head` (merged) returns an
+  **alist keyed by the bare key string** with string values, e.g.
+  `(("GPTEL_SESSION_ID" . "<id>") ("GPTEL_BRANCH" . "main"))`, nil when no point-min drawer.
+  Resolvers should consume it via `assoc`/`(cdr (assoc "GPTEL_SESSION_ID" alist))`. The buffer
+  predicate path can reuse the engine `jf/gptel--scan-session-drawer-keys` (current buffer).
+- `register/vocabulary/identity-drawer-keys` → **confirmed**; the writers now emit all three keys.
+- `register/boundary/drawer-first-identity-resolution` remains **speculated** — THIS task builds
+  its resolvers (`--resolve-session-id` / `--resolve-branch-name` / `--session-type`); it carries
+  the disposition for that entry next cycle.
+- **Legacy-fallback (meta M2):** under beta/no-migration, the fallback branch (basename / path
+  segment) must handle drawers that carry *no* identity key at all — see
+  `register/invariant/branch-drawer-shares-id-not-branch` (reconciled: set = replace-or-insert).
+- `jf/gptel--session-type` is NOT yet defined in code (the canonical_mapping_function in the
+  register entry is the spec); implement it here as part of the resolvers.

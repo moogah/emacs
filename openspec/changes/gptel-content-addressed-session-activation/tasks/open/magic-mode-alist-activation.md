@@ -40,3 +40,14 @@ magic-mode-alist dispatches by content at mode-selection time (through `set-auto
 ## Context
 
 design.md § Decision "D1. Activation"; specs `chat-mode` Requirement "Mode definition and activation".
+
+## Cycle 1 updates (cycle-1781448273)
+
+- The predicate you register is `jf/gptel--session-signature-p`, implemented as
+  `(and (jf/gptel--scan-session-drawer-keys) t)` (merged in `filesystem.org`). It is **case-sensitive**
+  now (`case-fold-search` bound nil) — a lowercase `:properties:`/`:gptel_*:` drawer does NOT match.
+- `register/boundary/session-content-signature` → **reconciled** (concrete shape + engine);
+  `register/invariant/signature-anchored-to-point-min-drawer` → **confirmed** and strengthened
+  (bounded-scan + case-sensitivity specs landed). Your end-to-end activation/false-match specs can
+  rely on the predicate being load-bearing-correct; focus on the `magic-mode-alist` wiring +
+  precedence (over `auto-mode-alist`) and load-order availability of the predicate symbol.

@@ -38,3 +38,16 @@ The user chose full path-independence over a basename==drawer-id invariant (whic
 ## Context
 
 design.md § Decision "D7. Discovery"; specs `sessions-persistence` Requirement "Session discovery and registry".
+
+## Cycle 1 updates (cycle-1781448273)
+
+- Use `jf/gptel--read-session-drawer-head` (merged) for the per-session head-read: it returns an
+  **alist keyed by the bare key string** (string values), nil on no-drawer — feed it to the
+  resolvers from `drawer-identity-resolver`. Do not re-implement the scan.
+- `register/boundary/session-content-signature` → **reconciled**; `identity-drawer-keys` →
+  **confirmed**; `drawer-first-identity-resolution` still **speculated** (resolvers land in
+  `drawer-identity-resolver`, this task's blocker).
+- The task references `config/gptel/sessions/test/registry/` — that directory does **not** exist yet
+  (only `branching/`, `commands/`, `filesystem/` do); create it for the new spec.
+- **Meta M3 (load order):** `branching.el` loads before `commands.el`; if discovery needs drawer-write
+  helpers keep that constraint in mind (registry init is read-only, so likely n/a).

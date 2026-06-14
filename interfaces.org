@@ -189,6 +189,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      replace-chat-save-with-full-snapshot-writer (5f9d762),
      wire-snapshot-into-session-creation (9f4b5fd),
      update-preset-application-spec-for-snapshot (3a8abaf).
+     cycle-1781448273 integrate (2026-06-14, change
+     gptel-content-addressed-session-activation): CONFIRMED under
+     extension. emit-identity-keys-in-writers (merge b286997) splices the
+     identity keys (:GPTEL_SESSION_ID:, :GPTEL_BRANCH:) into this block at
+     all three writers via the existing jf/gptel--append-drawer-property
+     (sessions) and a buffer-based set helper (branching). The shape is
+     UNCHANGED — identity keys are additional key-lines already permitted by
+     the structural invariants (one :PROPERTIES:/:END:, one key-line each,
+     trailing newline); the reviewer confirmed all four validator checks
+     stay clean across the three writers. A speculative second REPLACE
+     helper (jf/gptel--replace-drawer-property) was added then removed as
+     dead code (review F1, inline-fixed f891d34) so exactly one append
+     primitive and one branch buffer-setter remain.
    load_bearing: true
    title: Drawer-text string returned by render-drawer-text
    purpose: |
@@ -1534,7 +1547,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/identity-drawer-keys
    tier: vocabulary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781448273 integrate (2026-06-14): speculated → confirmed.
+     Writer side (emit-identity-keys-in-writers, merge b286997): all three
+     keys emitted — create-session-core writes GPTEL_SESSION_ID +
+     GPTEL_BRANCH:main; persistent-agent--task writes the agent's OWN id +
+     GPTEL_BRANCH:main + GPTEL_PARENT_SESSION_ID; branch creation shares the
+     parent id and sets its own GPTEL_BRANCH. Reader side
+     (drawer-signature-and-head-read, merge 15f76fb): head-read returns the
+     full OPEN set keyed by bare key string. Both implementors confirmed the
+     vocabulary; reviewers confirmed values match the drawer-first resolver's
+     expectations. The type-inference function jf/gptel--session-type
+     (parent-id present ⇒ agent) is consumed by the not-yet-built resolver
+     task (drawer-identity-resolver).
+     See .orchestrator/cycles/cycle-1781448273/reconciliations/vocabulary-identity-drawer-keys.md.
    load_bearing: true
    enforcement_loci: [reader, writer]
    unmapped_policy: ignore
@@ -2414,8 +2441,27 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/session-content-signature
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1781448273 integrate (2026-06-14): speculated → reconciled.
+     Task drawer-signature-and-head-read (merge 15f76fb) implemented the
+     two functions, both delegating to a private engine
+     jf/gptel--scan-session-drawer-keys (a third symbol, not in the
+     speculation) that GUARANTEES predicate == head-read recognition.
+     why_tests_missed: the speculation left the head-read return shape
+     unspecified; implementation pinned it. CONCRETE SHAPE (now
+     authoritative): jf/gptel--read-session-drawer-head returns an ALIST
+     keyed by the bare key string (e.g. ("GPTEL_SESSION_ID" . "<id>")),
+     string values (trimmed), nil when no point-min drawer or the file is
+     unreadable; the predicate is (and (jf/gptel--scan-session-drawer-keys) t).
+     The scanner binds case-fold-search nil (review F1) so recognition is
+     case-sensitive on the uppercase tokens. Reviewer confirmed the
+     menu.org parsing-shape reuse (org-independent; safe at magic-mode-alist
+     time). Byte-cap structured but not applied (uncapped read correct
+     today; drawer is always at file head).
+     See .orchestrator/cycles/cycle-1781448273/reconciliations/boundary-session-content-signature.md.
    load_bearing: true
+   canonical_engine: jf/gptel--scan-session-drawer-keys (config/gptel/sessions/filesystem.org)
    title: Content recognition of a gptel session by its point-min drawer
    purpose: |
      The single recognition primitive shared by content-addressed
@@ -2477,6 +2523,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    entry_id: register/boundary/drawer-first-identity-resolution
    tier: boundary
    status: speculated
+   status_note: |
+     cycle-1781448273 integrate (2026-06-14): UNCHANGED (still speculated).
+     The resolvers (jf/gptel--resolve-session-id / --resolve-branch-name /
+     --session-type) are NOT yet built — that is the drawer-identity-resolver
+     task (a future cycle). This cycle confirmed only the PRODUCER side:
+     emit-identity-keys-in-writers writes exactly the values the resolvers
+     will expect (canonical id string, bare branch name, parent id string),
+     and drawer-signature-and-head-read supplies the consumption substrate
+     (head-read alist keyed by bare key string). Full disposition deferred
+     to the cycle that implements drawer-identity-resolver.
    load_bearing: true
    title: Drawer-first, basename-fallback resolution of session identity
    purpose: |
@@ -4792,7 +4848,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/signature-anchored-to-point-min-drawer
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781448273 integrate (2026-06-14): speculated → confirmed.
+     jf/gptel--session-signature-p (via jf/gptel--scan-session-drawer-keys)
+     anchors to a real point-min :PROPERTIES: drawer; the :END: bound
+     excludes a :GPTEL_ key after the drawer (tested) and src-block content
+     past :END: (added bounded-scan spec, review F2). Strengthened this
+     cycle: case-fold-search is bound nil (review F1), so the uppercase
+     :GPTEL_[A-Z0-9_]+: contract is enforced — a lowercase :gptel_*: drawer
+     does NOT match (new case-sensitivity spec). Reviewer + implementor both
+     confirmed anchoring under direct probing.
+     See .orchestrator/cycles/cycle-1781448273/reconciliations/invariant-signature-anchored-to-point-min-drawer.md.
    load_bearing: true
    title: The session signature matches only a real point-min drawer, never prose
    statement: |
@@ -4840,7 +4907,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/branch-drawer-shares-id-not-branch
    tier: invariant
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1781448273 integrate (2026-06-14): speculated → reconciled.
+     emit-identity-keys-in-writers (merge b286997) implemented the branch
+     rewrite via jf/gptel--rewrite-branch-identity-keys /
+     jf/gptel--set-drawer-property-in-buffer (branching.org). The Case-3
+     spec proves no-leak (parent's :GPTEL_BRANCH: absent) AND no-duplicate
+     (key count == 1) AND single PROPERTIES/END. why_tests_missed /
+     RECONCILIATION: the speculation said "OVERWRITE values copied verbatim
+     from the parent drawer" — but a LEGACY parent predating identity-key
+     emission carries neither key, so there is nothing to overwrite. The
+     correct semantics is SET = replace-or-insert (the buffer setter replaces
+     an existing key-line, else inserts before :END:). Statement amended
+     below to cover the legacy-parent case (implementor disc-2).
+     See .orchestrator/cycles/cycle-1781448273/reconciliations/invariant-branch-drawer-shares-id-not-branch.md.
    load_bearing: false
    title: A new branch shares the session id but carries its own branch name
    statement: |
@@ -4850,7 +4931,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      new :GPTEL_BRANCH: value. The parent's :GPTEL_BRANCH: value MUST NOT
      leak into the child. Because branch creation copies the parent drawer
      verbatim then overwrites, the overwrite of :GPTEL_BRANCH: must be a
-     drawer-key REPLACE (not append) so no duplicate key survives.
+     drawer-key REPLACE (not append) so no duplicate key survives. For a
+     LEGACY parent that predates identity-key emission (no keys to
+     overwrite), the writer SETs the keys — replace-or-insert: a missing
+     key is inserted before :END: — not overwrite-only. (cycle-1781448273)
    why_it_matters: |
      The registry keys uniformly on "session-id/branch-name". If a branch
      inherits the parent's :GPTEL_BRANCH:, two branches collide on the

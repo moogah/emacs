@@ -44,3 +44,13 @@ The change spans activation, identity, discovery, and two retirements; a final e
 ## Context
 
 design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchpoint map).
+
+## Cycle 1 updates (cycle-1781448273)
+
+- **Baseline caveat:** `./bin/run-tests.sh -d config/gptel` currently reports **21 pre-existing
+  buttercup failures** (async-callback/queue + a few scope assertions) that PREDATE this change and
+  are externalised to `.tasks/gptel-preexisting-async-scope-test-failures.md`. The ERT side is clean.
+  "Fully green" for THIS change means: **no NEW failures vs that baseline** (normalized failset diff)
+  and all three **remnant greps return nothing** — not a literally-zero buttercup failure count.
+- Already landed this cycle: the signature predicate + head-read, and identity-key emission at all
+  three writers (with the case-sensitive anchoring + bounded-scan specs).

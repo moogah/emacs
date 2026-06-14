@@ -44,3 +44,11 @@ Binding belongs to the mode, not to a global file-open hook. The signature guard
 ## Context
 
 design.md § Decision "D4. Binding"; specs `sessions-persistence` Requirement "Content-addressed activation and binding" and "Buffer-local session state".
+
+## Cycle 1 updates (cycle-1781448273)
+
+- The guard is `jf/gptel--session-signature-p` (merged) — drawer-carries-a-:GPTEL_-key, NOT a path
+  test; a scratch chat buffer (no drawer) is a no-op by construction. `register/boundary/session-content-signature`
+  is **reconciled** and safe to depend on.
+- Identity resolution depends on `drawer-identity-resolver` (blocker, not yet built) and session-dir
+  on `session-dir-ancestor-walk` (deferred-ready, not yet built) — both still open.
