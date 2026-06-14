@@ -244,9 +244,6 @@ Returns new branch directory path."
      (jf/gptel--session-id-from-directory session-dir)
      new-branch-name)
 
-    ;; Update current symlink to point to new branch
-    (jf/gptel--update-current-symlink session-dir new-branch-name)
-
     (jf/gptel--log 'info "Branch created successfully: %s" new-branch-name)
     branch-dir))
 
@@ -271,7 +268,6 @@ The new branch is created under the same session with:
   new branch inherits the parent's preset AND `:GPTEL_SCOPE_*:'
   keys automatically — gptel-scope-in-org-properties
   drawer-resident scope)
-- current symlink updated to point to the new branch
 
 After creation, the branch can evolve independently from the parent.
 

@@ -346,7 +346,6 @@ Creates:
   + scope keys + `:GPTEL_SYSTEM_PROMPT_FILE:' when the sibling file
   was written) followed by an empty `#+begin_user' / `#+end_user'
   block
-- current symlink pointing to main branch
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
 The drawer embedded in `session.org' is the authoritative
@@ -429,9 +428,6 @@ Returns plist with:
                             (concat drawer-text
                                     (jf/gptel--initial-session-body)))))
 
-    ;; Create current symlink pointing to main
-    (jf/gptel--update-current-symlink session-dir "main")
-
     ;; Create session file with initial content (file-level config
     ;; drawer followed by an empty `#+begin_user' / `#+end_user'
     ;; block).  The drawer is authoritative — no metadata.yml
@@ -463,7 +459,7 @@ user-facing escape-hatch command is
 Prompts user to select projectile projects (0 or more).
 If projects selected, first project is used as project-root for scope expansion.
 
-Creates session with branches/main/ structure and current symlink.
+Creates session with branches/main/ structure.
 The session activates by content recognition when opened: its
 session.org drawer signature drives `magic-mode-alist' into
 `gptel-chat-mode', whose mode hook binds the session buffer.

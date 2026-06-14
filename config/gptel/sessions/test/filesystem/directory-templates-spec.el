@@ -19,8 +19,6 @@
 ;; - Agent layout: `<session>/branches/<branch>/agents/<agent>/session.org'.
 ;; - `jf/gptel--valid-branch-directory-p' accepts `session.org' and
 ;;   rejects a directory whose only conversation file is `session.md'.
-;; - `current' symlink resolution: `current/session.org' resolves to the
-;;   active branch's `session.org' after `jf/gptel--update-current-symlink'.
 
 ;;; Code:
 
@@ -132,21 +130,6 @@
         ;;   <session-id>/branches/main/session.org
         (expect rel :to-match
                 "\\`demo-20260420000000/branches/main/session\\.org\\'")))
-
-    (it "points current symlink at the active branch so current/session.org resolves there"
-      (let* ((tempdir (jf-gptel-sessions-test--make-tempdir))
-             (jf/gptel-sessions-directory tempdir)
-             (session-dir (jf/gptel--create-session-directory "demo-20260420000000"))
-             (branch-dir (jf/gptel--create-branch-directory session-dir "main"))
-             (ctx-path (jf/gptel--context-file-path branch-dir))
-             (current-link (expand-file-name "current" session-dir))
-             (current-ctx (expand-file-name "session.org" current-link)))
-        ;; Touch session.org so the symlink resolves to a real file.
-        (with-temp-file ctx-path (insert ""))
-        (jf/gptel--update-current-symlink session-dir "main")
-        (expect (file-symlink-p current-link) :to-be-truthy)
-        (expect (file-truename current-ctx)
-                :to-equal (file-truename ctx-path))))
 
     (it "excludes branches without session.org from find-all-branches-with-agents"
       (let* ((tempdir (jf-gptel-sessions-test--make-tempdir))
