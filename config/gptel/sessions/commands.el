@@ -289,6 +289,76 @@ critical."
           (message "Session initialized: %s (branch: %s)"
                    session-id branch-name))))))
 
+(defun jf/gptel--bind-session-buffer ()
+  "Bind buffer-local session state for a content-addressed session buffer.
+
+Intended to run from `gptel-chat-mode-hook'.  No-op unless the current
+buffer visits a file AND carries a session content signature
+\(`jf/gptel--session-signature-p' — a `:GPTEL_*:' key in the point-min
+drawer); a `gptel-chat-new' scratch buffer or an ordinary `.org' file is
+left untouched.
+
+On a signature-bearing buffer:
+  1. Reads the live buffer's drawer alist (`jf/gptel--scan-session-drawer-keys').
+  2. `branch-dir' = the file's own directory (derived, never a `../..' walk).
+  3. Resolves identity drawer-first: session-id / branch-name via the
+     resolvers, session-type via `jf/gptel--session-type'.  The
+     branch-name resolver is fed the session.org FILE path (it carries
+     the trailing `branches/<branch>/' segment the fallback regex needs).
+  4. `session-dir' via `jf/gptel--session-dir-from-branch-dir' (the
+     structural `branches/' ancestor walk; move-safe, depth-independent).
+  5. `setq-local's the four session vars.
+  6. Registers the buffer and enables `jf/gptel-autosave-enabled', wrapped
+     in `condition-case' so a registry failure does not abort var-setting.
+
+Never enables `gptel-mode'; never calls `gptel--save-state' /
+`gptel--restore-state' (Decision 16).  Preset application and
+`GPTEL_PARENT_SESSION_ID' wiring are handled by the independent
+`gptel-chat--apply-declared-preset' hook entry, not here.  See design.md
+§Decision D4 and
+register/invariant/activation-and-identity-are-content-not-path."
+  (when (and (buffer-file-name)
+             (jf/gptel--session-signature-p))
+    (let* ((file-path (buffer-file-name))
+           (drawer-alist (jf/gptel--scan-session-drawer-keys))
+           (branch-dir (file-name-directory file-path))
+           (session-type (jf/gptel--session-type drawer-alist))
+           ;; session-dir: structural marker walk (navigation, not
+           ;; identity).  Pass the resolved TYPE symbol, not the
+           ;; drawer-alist (producer signature is `(branch-dir type)').
+           (session-dir (jf/gptel--session-dir-from-branch-dir
+                         branch-dir session-type))
+           ;; branch-name: feed the resolver the FILE path so its fallback
+           ;; regex sees the trailing `branches/<branch>/' segment (a bare
+           ;; branch-dir lacks the trailing separator the regex needs).
+           (branch-name (jf/gptel--resolve-branch-name drawer-alist file-path))
+           (session-id (jf/gptel--resolve-session-id drawer-alist session-dir)))
+      (jf/gptel--log 'debug "Binding %s session: %s/%s"
+                     session-type session-id branch-name)
+      ;; Buffer-local session vars: set unconditionally once the
+      ;; signature guard passed.  The hook fires after
+      ;; `kill-all-local-variables', so these land correctly.
+      (setq-local jf/gptel--session-id session-id)
+      (setq-local jf/gptel--session-dir session-dir)
+      (setq-local jf/gptel--branch-name branch-name)
+      (setq-local jf/gptel--branch-dir branch-dir)
+      ;; Registry registration + autosave: wrapped so a registry failure
+      ;; cannot abort the var-setting above (mirrors auto-init isolation).
+      (condition-case err
+          (progn
+            (jf/gptel--register-session session-dir
+                                        (current-buffer)
+                                        session-id
+                                        branch-name
+                                        branch-dir)
+            (setq-local jf/gptel-autosave-enabled t))
+        (error
+         (jf/gptel--log 'warn
+                        "Session-bind registry work failed for %s/%s: %s"
+                        session-id branch-name (error-message-string err))))
+      (jf/gptel--log 'info "Bound %s session: %s/%s"
+                     session-type session-id branch-name))))
+
 (defun jf/gptel--preset-source-file-extension (preset-name)
   "Return the file extension (\"md\" or \"org\") of preset PRESET-NAME.
 
@@ -698,6 +768,11 @@ Useful if sessions were created outside Emacs or after startup."
 
 ;; Auto-initialize sessions when opened via find-file, dired, recentf, etc.
 (add-hook 'find-file-hook #'jf/gptel--auto-init-session-buffer)
+
+;; Bind buffer-local session state when chat-mode activates on a
+;; signature-bearing session buffer (content-addressed; scratch chat
+;; buffers are a no-op by construction).
+(add-hook 'gptel-chat-mode-hook #'jf/gptel--bind-session-buffer)
 
 (provide 'gptel-session-commands)
 ;;; commands.el ends here
