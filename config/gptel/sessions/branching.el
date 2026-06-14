@@ -238,10 +238,17 @@ Returns new branch directory path."
     ;; "session-id/branch-name" and no duplicate drawer key survives.
     ;; `:GPTEL_SESSION_ID:' is re-asserted to the shared id (the copy
     ;; already carries it, but a parent drawer predating identity-key
-    ;; emission would not).
+    ;; emission would not).  The shared id is resolved drawer-first from
+    ;; the parent branch's `session.org' (`parent-context') and only
+    ;; falls back to the SESSION-DIR basename when that drawer omits
+    ;; `:GPTEL_SESSION_ID:' (register/boundary/drawer-first-identity-
+    ;; resolution), so a moved/renamed parent session contributes its
+    ;; REAL id rather than its current directory name.
     (jf/gptel--rewrite-branch-identity-keys
      branch-context
-     (jf/gptel--session-id-from-directory session-dir)
+     (jf/gptel--resolve-session-id
+      (jf/gptel--read-session-drawer-head parent-context)
+      session-dir)
      new-branch-name)
 
     (jf/gptel--log 'info "Branch created successfully: %s" new-branch-name)

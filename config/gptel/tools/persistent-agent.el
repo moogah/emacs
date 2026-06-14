@@ -358,9 +358,16 @@ for parent overlay feedback and final-text return."
                           drawer-text))
            ;; Emit the agent's OWN identity keys
            ;; (register/vocabulary/identity-drawer-keys): its own
-           ;; `:GPTEL_SESSION_ID:' (the agent directory's basename, the
-           ;; canonical id resolvers fall back to) and
-           ;; `:GPTEL_BRANCH: main'.  These sit alongside the
+           ;; `:GPTEL_SESSION_ID:' and `:GPTEL_BRANCH: main'.  At
+           ;; creation the agent's `session.org' does not yet exist, so
+           ;; there is no drawer to read; `jf/gptel--resolve-session-id'
+           ;; is called with a nil DRAWER-ALIST and resolves through its
+           ;; sanctioned basename fallback — the agent directory's
+           ;; basename IS the canonical id at mint time
+           ;; (register/boundary/drawer-first-identity-resolution).
+           ;; Routing through the resolver (rather than calling
+           ;; `jf/gptel--session-id-from-directory' directly) keeps this
+           ;; the SINGLE content-first identity seam.  These sit alongside the
            ;; `:GPTEL_PARENT_SESSION_ID:' already rendered by
            ;; `--render-drawer-text' from PARENT-ID above — the uniform
            ;; identity rule (design.md D3) is that an agent carries its
@@ -369,7 +376,7 @@ for parent overlay feedback and final-text return."
            ;; identity-resolution).  Spliced via the append helper to
            ;; preserve the drawer's `:PROPERTIES:' / `:END:' adjacency
            ;; invariant (register/shape/drawer-text-block).
-           (agent-session-id (jf/gptel--session-id-from-directory session-dir))
+           (agent-session-id (jf/gptel--resolve-session-id nil session-dir))
            (drawer-text (jf/gptel--append-drawer-property
                          drawer-text "GPTEL_SESSION_ID" agent-session-id))
            (drawer-text (jf/gptel--append-drawer-property

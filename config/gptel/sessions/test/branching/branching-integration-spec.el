@@ -610,5 +610,92 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
         (remhash registry-key jf/gptel--session-registry)
         (kill-buffer buf)))))
 
+(describe "drawer-first session-id sourcing (move-safe identity)"
+
+  ;; `jf/gptel--create-branch-session' stamps the new branch's
+  ;; `:GPTEL_SESSION_ID:' with the PARENT session's resolved id
+  ;; (register/invariant/branch-drawer-shares-id-not-branch).  The id
+  ;; is resolved drawer-first from the parent branch's `session.org'
+  ;; and only falls back to the SESSION-DIR basename when the parent
+  ;; drawer omits the key (register/boundary/drawer-first-identity-
+  ;; resolution).  These specs pin both branches of that resolution.
+
+  (after-each
+    (dolist (dir jf-branching-integration--tempdirs)
+      (when (and dir (file-directory-p dir))
+        (delete-directory dir t)))
+    (setq jf-branching-integration--tempdirs nil))
+
+  (defun jf-branching-integration--branch-from-first-turn (session-dir branch-name)
+    "Create a branch off `main' at the first user turn (INCLUDE).
+Returns the new branch directory."
+    (let ((branch-pos
+           (with-temp-buffer
+             (insert-file-contents
+              (jf/gptel--context-file-path
+               (jf/gptel--branch-dir-path session-dir "main")))
+             (let ((first (nth 0 (jf/gptel--branching-user-turns))))
+               (jf/gptel--branching-turn-branch-point first t)))))
+      (jf/gptel--create-branch-session session-dir "main" branch-name branch-pos)))
+
+  (it "stamps the parent DRAWER id when it differs from the dir basename"
+    ;; Move-safe case: the parent session was authored/renamed so its
+    ;; directory basename no longer matches its drawer id.  The branch
+    ;; MUST inherit the DRAWER id, not the basename.
+    (let* ((root (jf-branching-integration--make-tempdir))
+           (jf/gptel-sessions-directory root)
+           (drawer-id "moved-real-session-id-20260101000000")
+           (parent-content
+            (concat ":PROPERTIES:\n"
+                    ":GPTEL_PRESET: executor\n"
+                    (format ":GPTEL_SESSION_ID: %s\n" drawer-id)
+                    ":GPTEL_BRANCH: main\n"
+                    ":END:\n"
+                    "#+begin_user\nFirst question?\n#+end_user\n"
+                    "\n#+begin_assistant\nFirst answer.\n#+end_assistant\n"))
+           (bootstrap (jf-branching-integration--bootstrap-parent
+                       root parent-content))
+           (session-dir (plist-get bootstrap :session-dir))
+           (basename (jf/gptel--session-id-from-directory session-dir)))
+      ;; Pre-condition: drawer id and dir basename genuinely differ, so
+      ;; the test distinguishes drawer-first from path-archaeology.
+      (expect drawer-id :not :to-equal basename)
+      (let* ((new-branch-dir
+              (jf-branching-integration--branch-from-first-turn
+               session-dir "moved-branch"))
+             (new-branch-name (file-name-nondirectory new-branch-dir))
+             (branch-drawer (jf/gptel--read-session-drawer-head
+                             (jf/gptel--context-file-path new-branch-dir))))
+        ;; The branch carries the parent's DRAWER session-id...
+        (expect (cdr (assoc "GPTEL_SESSION_ID" branch-drawer))
+                :to-equal drawer-id)
+        ;; ...NOT the parent dir basename.
+        (expect (cdr (assoc "GPTEL_SESSION_ID" branch-drawer))
+                :not :to-equal basename)
+        ;; ...and its OWN new branch name (parent's "main" does not leak).
+        (expect (cdr (assoc "GPTEL_BRANCH" branch-drawer))
+                :to-equal new-branch-name))))
+
+  (it "falls back to the dir basename when the parent drawer omits the id"
+    ;; Legacy / no-migration grace path: a parent authored before
+    ;; drawer-resident identity has no `:GPTEL_SESSION_ID:'.  The branch
+    ;; gets the basename — sibling branches still share an id.
+    (let* ((root (jf-branching-integration--make-tempdir))
+           (jf/gptel-sessions-directory root)
+           (bootstrap (jf-branching-integration--bootstrap-parent
+                       root jf-branching-integration--parent-session))
+           (session-dir (plist-get bootstrap :session-dir))
+           (basename (jf/gptel--session-id-from-directory session-dir))
+           (new-branch-dir
+            (jf-branching-integration--branch-from-first-turn
+             session-dir "legacy-branch"))
+           (new-branch-name (file-name-nondirectory new-branch-dir))
+           (branch-drawer (jf/gptel--read-session-drawer-head
+                           (jf/gptel--context-file-path new-branch-dir))))
+      (expect (cdr (assoc "GPTEL_SESSION_ID" branch-drawer))
+              :to-equal basename)
+      (expect (cdr (assoc "GPTEL_BRANCH" branch-drawer))
+              :to-equal new-branch-name))))
+
 (provide 'branching-integration-spec)
 ;;; branching-integration-spec.el ends here
