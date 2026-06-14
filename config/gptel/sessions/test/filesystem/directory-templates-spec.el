@@ -154,9 +154,15 @@
              (session-dir (jf/gptel--create-session-directory "demo-20260420000000"))
              (valid-branch (jf/gptel--create-branch-directory session-dir "main"))
              (legacy-branch (jf/gptel--create-branch-directory session-dir "legacy")))
-        ;; Valid branch has session.org.
+        ;; Valid branch has session.org carrying an identity drawer:
+        ;; discovery now reads identity from the point-min :GPTEL_*:
+        ;; drawer, so a recognised branch must carry one (a no-drawer
+        ;; session.org is skipped as corrupt/partial).
         (with-temp-file (jf/gptel--context-file-path valid-branch)
-          (insert "#+begin_user\n\n#+end_user\n"))
+          (insert ":PROPERTIES:\n"
+                  ":GPTEL_SESSION_ID: demo-20260420000000\n"
+                  ":GPTEL_BRANCH: main\n"
+                  ":END:\n\n#+begin_user\n\n#+end_user\n"))
         ;; Legacy branch has only session.md; it must not leak through
         ;; enumeration (Decision 19: clean break, no migration).
         (with-temp-file (expand-file-name "session.md" legacy-branch)

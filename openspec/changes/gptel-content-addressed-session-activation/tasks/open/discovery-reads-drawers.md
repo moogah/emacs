@@ -66,3 +66,90 @@ design.md § Decision "D7. Discovery"; specs `sessions-persistence` Requirement 
 
 ### Reminder (carried)
 - `config/gptel/sessions/test/registry/` still does not exist — create it for the new spec.
+
+## Observations
+
+- **Per-branch head-read, not per-session.** The task spoke of "for each located
+  branch `session.org`, call `read-session-drawer-head`", but the OLD code resolved
+  `session-id` ONCE per session-dir (outer loop) and reused it for every branch. Identity
+  is now branch-resident (each branch carries its own `:GPTEL_SESSION_ID:` /
+  `:GPTEL_BRANCH:` drawer), so the head-read necessarily moved INSIDE the branch loop in
+  both `init-registry` and `find-all-branches-with-agents`. The `session-id` for a branch
+  now comes from THAT branch's drawer (resolved against the located `session-dir` as the
+  basename fallback). This matches design D7's intent but is worth flagging: two sibling
+  branches of the same session could in principle now resolve to DIFFERENT `:session-id`
+  values if their drawers disagree — discovery no longer enforces a single session-id per
+  session directory. That is a direct consequence of "directory names carry no identity
+  meaning" and is the correct content-addressed behavior, but it removes an implicit
+  per-directory consistency check the old code had for free.
+
+- **`resolve-branch-name` needs the file/segment-bearing path, not the bare branch-dir.**
+  The resolver's basename fallback regex is `"/branches/\\([^/]+\\)/"` (trailing slash
+  required). `jf/gptel--branch-dir-path` returns `.../branches/<branch>` with NO trailing
+  slash, so passing the bare branch-dir would FAIL the segment fallback for legacy (no
+  `GPTEL_BRANCH`) sessions. I pass the `session.org` file path
+  (`.../branches/<branch>/session.org`) instead, which both head-reads cleanly and gives
+  the regex its trailing `/`. The resolver contract is fine; callers must feed it a path
+  that includes the trailing `branches/<branch>/` segment.
+
+- **Pre-existing fixture broke on the new skip rule (expected).** `directory-templates-spec.el`'s
+  "excludes branches without session.org" test wrote a valid `session.org` whose body had
+  NO `:GPTEL_` drawer (`#+begin_user...`). Under the new skip-on-no-drawer gate that branch
+  is now (correctly) skipped, so `find-all-branches-with-agents` returned nil instead of
+  `("main")`. I updated that fixture to carry a real identity drawer; its INTENT (the
+  `session.md`-only legacy branch must not leak) is preserved. Any other test or production
+  code that creates a branch `session.org` WITHOUT an identity drawer will now find that
+  branch absent from discovery/registry. This is the intended Decision-19/D7 behavior, but
+  is a latent trap for fixtures authored before this change.
+
+- **Skip gate keys on `read-session-drawer-head` returning nil**, i.e. "no point-min
+  `:GPTEL_*:` drawer at all." A branch whose drawer is PRESENT but omits the identity keys
+  (e.g. carries only `:GPTEL_PRESET:`) is NOT skipped — it falls through to the basename /
+  segment fallback. This matches the task's "carries NO `:GPTEL_` drawer at all" wording
+  and the resolvers' grace path, but the distinction (no-drawer ⇒ skip vs. drawer-without-id
+  ⇒ fallback) is subtle and worth an Architect eye.
+
+## Discoveries
+
+- discovery_id: disc-discovery-reads-drawers-1
+  class: deviation
+  description: |
+    The head-read had to move from per-session (outer loop, once) to per-branch (inner
+    loop, once per branch) in both `init-registry` and `find-all-branches-with-agents`,
+    because identity is now branch-resident. A consequence: discovery no longer enforces a
+    single `:session-id` per session DIRECTORY — two branches under the same directory whose
+    drawers carry different `GPTEL_SESSION_ID` values will register under different
+    session-ids. This is the correct content-addressed behavior (paths carry no identity),
+    but it silently drops a per-directory consistency invariant the old basename-keyed code
+    had implicitly.
+  affected_register_entry: register/boundary/drawer-first-identity-resolution
+  recommendation: |
+    Confirm with the Architect that per-branch (not per-directory) identity is intended at
+    discovery time (design D7 implies yes). If a "all branches of a directory share one
+    session-id" invariant is desired, it must be asserted explicitly elsewhere — discovery
+    no longer provides it for free.
+
+- discovery_id: disc-discovery-reads-drawers-2
+  class: interface-drift
+  description: |
+    `jf/gptel--resolve-branch-name`'s basename fallback regex `"/branches/\\([^/]+\\)/"`
+    requires a TRAILING slash, so it only fires on a path that still contains the
+    `branches/<branch>/` segment (e.g. the `session.org` file path), NOT on the bare
+    branch-dir returned by `jf/gptel--branch-dir-path` (which has no trailing slash).
+    Discovery callers must pass the file path, not the directory, or legacy (no-GPTEL_BRANCH)
+    sessions silently get a nil branch-name.
+  affected_register_entry: register/boundary/drawer-first-identity-resolution
+  recommendation: |
+    Document the "pass a path that retains the trailing branches/<branch>/ segment" caller
+    contract on `resolve-branch-name`, or make the regex tolerate a path that ENDS at the
+    branch directory (no trailing slash). I chose the caller-side fix (pass session.org path).
+
+### Cited load_bearing entries — held as written?
+- `register/boundary/session-content-signature` (reconciled): **confirmed-held.**
+  `jf/gptel--read-session-drawer-head` returns the bare-key-string alist (nil on no-drawer)
+  exactly as documented; consumed directly with no adaptation.
+- `register/boundary/drawer-first-identity-resolution` (confirmed): **held, with a caller
+  caveat** — see disc-2. The resolver logic is correct; the trailing-slash requirement of
+  the branch-name fallback is an undocumented caller obligation, not a defect.
+- `register/vocabulary/identity-drawer-keys` (confirmed): **confirmed-held.** Canonical keys
+  `GPTEL_SESSION_ID` / `GPTEL_BRANCH` / `GPTEL_PARENT_SESSION_ID` consumed verbatim.

@@ -25,24 +25,44 @@ Keys are \"session-id/branch-name\" strings, values are session plists.")
 (defun jf/gptel--init-registry ()
   "Initialize the session registry.
 Discovers all sessions and branches, populates registry with essential runtime state.
-Metadata is read from disk on-demand when needed."
+Metadata is read from disk on-demand when needed.
+
+Directory traversal (`list-session-directories' / `list-branches')
+LOCATES the branch `session.org' files; identity is then read from each
+file's point-min `:GPTEL_*:' drawer via `jf/gptel--read-session-drawer-head'
+and resolved with `jf/gptel--resolve-session-id' /
+`jf/gptel--resolve-branch-name' (drawer-first, basename/segment fallback).
+Directory NAMES carry no identity meaning — a session/branch whose
+basename differs from its drawer id keys on the drawer id.  A located
+`session.org' that carries no `:GPTEL_' drawer at all (corrupt / partial)
+is skipped and logged at debug, consistent with `valid-*-directory-p'
+gating.  See register/boundary/drawer-first-identity-resolution."
   (clrhash jf/gptel--session-registry)
   (let ((session-dirs (jf/gptel--list-session-directories)))
     (dolist (session-dir session-dirs)
       (when (jf/gptel--valid-session-directory-p session-dir)
-        (let* ((session-id (jf/gptel--session-id-from-directory session-dir))
-               (branches (jf/gptel--list-branches session-dir)))
-          (dolist (branch-name branches)
-            (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name))
-                   (key (jf/gptel--registry-key session-id branch-name)))
-              (puthash key
-                      (list :session-id session-id
-                            :session-dir session-dir
-                            :branch-name branch-name
-                            :branch-dir branch-dir
-                            :buffer nil)
-                      jf/gptel--session-registry)
-              (jf/gptel--log 'debug "Registered branch: %s/%s" session-id branch-name))))))
+        (dolist (branch-name (jf/gptel--list-branches session-dir))
+          (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name)))
+            (when (jf/gptel--valid-branch-directory-p branch-dir)
+              (let* ((session-file (jf/gptel--context-file-path branch-dir))
+                     (drawer (jf/gptel--read-session-drawer-head session-file)))
+                (if (null drawer)
+                    (jf/gptel--log
+                     'debug "Skipping branch with no GPTEL drawer: %s" branch-dir)
+                  (let* ((resolved-id (jf/gptel--resolve-session-id
+                                       drawer session-dir))
+                         (resolved-branch (jf/gptel--resolve-branch-name
+                                           drawer session-file))
+                         (key (jf/gptel--registry-key resolved-id resolved-branch)))
+                    (puthash key
+                            (list :session-id resolved-id
+                                  :session-dir session-dir
+                                  :branch-name resolved-branch
+                                  :branch-dir branch-dir
+                                  :buffer nil)
+                            jf/gptel--session-registry)
+                    (jf/gptel--log 'debug "Registered branch: %s/%s"
+                                   resolved-id resolved-branch)))))))))
     (jf/gptel--log 'info "Initialized registry with %d branches"
                   (hash-table-count jf/gptel--session-registry))))
 
