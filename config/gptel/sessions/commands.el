@@ -7,7 +7,10 @@
 ;; Interactive commands for gptel session management.
 ;;
 ;; BREAKING CHANGE: Manual resume commands removed as of 2026-01-25
-;; Sessions now auto-initialize when opened via find-file-hook
+;; Sessions now activate by content recognition: a session.org's
+;; point-min :GPTEL_*: drawer signature drives `magic-mode-alist' into
+;; `gptel-chat-mode', whose mode hook binds the buffer-local session
+;; vars (`jf/gptel--bind-session-buffer').
 ;; Users should open session files directly (C-x C-f, dired, recentf, etc.)
 ;; The jf/gptel-resume-session, jf/gptel-list-sessions, and jf/gptel-resume-agent
 ;; commands have been removed. Use standard Emacs file navigation instead.
@@ -68,13 +71,6 @@ Returns the count of gptel--save-state hooks found."
           (insert (format "  - %s\n" hook)))
         (display-buffer (current-buffer))))
     save-state-count))
-
-(defun jf/gptel--ensure-mode-once ()
-  "Ensure `gptel-chat-mode' is the active major mode in the current buffer.
-No-op when chat-mode is already active. Never enables `gptel-mode'
-(minor mode) — session buffers run chat-mode exclusively (Decision 16)."
-  (unless (derived-mode-p 'gptel-chat-mode)
-    (gptel-chat-mode)))
 
 (defun jf/gptel--clean-duplicate-local-vars ()
   "Remove all but the last Local Variables block in current buffer.
@@ -140,155 +136,6 @@ Scans all sessions and removes duplicate blocks without opening buffers."
                     (jf/gptel--log 'info "Cleaned duplicates from: %s" session-file)))))))))
     (message "Cleaned %d of %d session files" cleaned total)))
 
-(defun jf/gptel--auto-init-session-buffer ()
-  "Auto-initialize gptel chat-mode session if current buffer is a session file.
-Detects session files by path pattern:
-  - Branch sessions: */<session-id>/branches/<branch-name>/session.org
-  - Nested agents:   */<session-id>/branches/<branch-name>/agents/<agent-name>/session.org
-  - Flat agents:     */<session-id>/agents/<agent-name>/session.org (legacy)
-
-On match:
-  1. Extracts session-id and branch-name from the path (via
-     dedicated per-layout regexes — never hardcoded).
-  2. Sets the four path-derived buffer-local session variables
-     (`jf/gptel--session-id', `jf/gptel--session-dir',
-     `jf/gptel--branch-name', `jf/gptel--branch-dir').
-  3. Ensures `gptel-chat-mode' is the active major mode.  Activating
-     chat-mode fires `gptel-chat-mode-hook', which runs
-     `gptel-chat--apply-declared-preset' to apply any preset declared
-     in the `:PROPERTIES:' drawer and to install
-     `GPTEL_PARENT_SESSION_ID' as `jf/gptel--parent-session-id'.
-  4. Registers the buffer in `jf/gptel--session-registry'.
-  5. Updates the `current' symlink to point at this branch (skipped
-     for the legacy flat agent layout, which has no `branches/' dir).
-
-Runs on every file open via `find-file-hook', so fast-path guards are
-critical."
-  ;; Fast-path guards (runs on every file open).  The inner
-  ;; `string=' check against "session.org" (in both regex branches
-  ;; below) is stricter than a generic ".org" suffix test, so no
-  ;; outer suffix guard is needed here.
-  (when (and (buffer-file-name)                         ; Has file?
-             (not (bound-and-true-p jf/gptel--session-id))) ; Not already initialized?
-    (let* ((file-path (expand-file-name (buffer-file-name)))
-           (file-name (file-name-nondirectory file-path))
-           (session-id nil)
-           (branch-name nil)
-           (branch-dir nil)
-           (session-dir nil)
-           (session-type nil)
-           ;; Nested agent layout:
-           ;;   .../<session-id>/branches/<branch>/agents/<agent>/session.org
-           ;; Captures:
-           ;;   1 -> session-id
-           ;;   2 -> branch-name
-           ;;   3 -> agent-name
-           (nested-agent-re
-            "/\\([^/]+\\)/branches/\\([^/]+\\)/agents/\\([^/]+\\)/session\\.org\\'")
-           ;; Flat (legacy) agent layout:
-           ;;   .../<session-id>/agents/<agent>/session.org
-           ;; Captures:
-           ;;   1 -> session-id
-           ;;   2 -> agent-name
-           (flat-agent-re
-            "/\\([^/]+\\)/agents/\\([^/]+\\)/session\\.org\\'"))
-
-      (cond
-       ;; Branch session: */branches/<branch>/session.org
-       ;; (No agent component between branches/<branch>/ and session.org.)
-       ((and (string= file-name "session.org")
-             (string-match "/branches/\\([^/]+\\)/session\\.org\\'" file-path))
-        (setq branch-name (match-string 1 file-path)
-              branch-dir (file-name-directory file-path)
-              session-dir (expand-file-name "../.." branch-dir)
-              session-id (jf/gptel--session-id-from-directory session-dir)
-              session-type 'branch))
-
-       ;; Nested agent layout: agent lives under a specific branch.
-       ((and (string= file-name "session.org")
-             (string-match nested-agent-re file-path))
-        (let ((agent-dir (file-name-directory file-path)))
-          (setq session-id (match-string 1 file-path)
-                branch-name (match-string 2 file-path)
-                branch-dir agent-dir
-                ;; Walk up: agents/<agent>/ -> branches/<branch>/ -> <session-id>/
-                session-dir (expand-file-name "../../.." agent-dir)
-                session-type 'agent)))
-
-       ;; Legacy flat agent layout: no branches/ component.
-       ((and (string= file-name "session.org")
-             (string-match flat-agent-re file-path))
-        (let ((agent-dir (file-name-directory file-path)))
-          (setq session-id (match-string 1 file-path)
-                branch-name "main"
-                branch-dir agent-dir
-                ;; Walk up: agents/<agent>/ -> <session-id>/
-                session-dir (expand-file-name "../.." agent-dir)
-                session-type 'agent-flat))))
-
-      (when session-type
-        ;; Validate directories (branch sessions need both checks;
-        ;; agent sessions just need branch-dir).
-        (when (if (eq session-type 'branch)
-                  (and (jf/gptel--valid-session-directory-p session-dir)
-                       (jf/gptel--valid-branch-directory-p branch-dir))
-                (jf/gptel--valid-branch-directory-p branch-dir))
-          (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
-                         session-type session-id branch-name)
-
-          ;; Mode flip is its own concern. A failing preset (e.g. one
-          ;; that references a tool not registered in this build) must
-          ;; not abort the buffer-local state-setting that follows.
-          ;; Activating chat-mode fires `gptel-chat-mode-hook', which
-          ;; runs `gptel-chat--apply-declared-preset' to apply the
-          ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
-          ;; `:PROPERTIES:' drawer (design.md §Decisions 5, 6, 9). If
-          ;; preset application errors (missing tool, schema drift,
-          ;; etc.), the buffer is left in whatever state mode-activation
-          ;; reached — preset NOT applied, session vars still set.
-          ;;
-          ;; Never calls (gptel-mode 1) — Decision 16.
-          (condition-case err
-              (jf/gptel--ensure-mode-once)
-            (error
-             (jf/gptel--log
-              'warn
-              "Mode activation/preset failed for %s/%s: %s; session vars set, preset NOT applied"
-              session-id branch-name (error-message-string err))))
-
-          ;; Buffer-local session vars: always set when validation
-          ;; passed. These do not depend on preset application
-          ;; succeeding. (Mode activation wipes buffer-locals via
-          ;; `kill-all-local-variables', so these run after.)
-          (setq-local jf/gptel--session-id session-id)
-          (setq-local jf/gptel--session-dir session-dir)
-          (setq-local jf/gptel--branch-name branch-name)
-          (setq-local jf/gptel--branch-dir branch-dir)
-
-          ;; Registry registration + current-symlink update: wrapped so
-          ;; a failure cannot abort the other, but independent of
-          ;; preset-application state. Skip the symlink update for
-          ;; legacy flat agent layout (no `branches/' dir).
-          (condition-case err
-              (progn
-                (jf/gptel--register-session session-dir
-                                            (current-buffer)
-                                            session-id
-                                            branch-name
-                                            branch-dir)
-                (setq-local jf/gptel-autosave-enabled t)
-                (unless (eq session-type 'agent-flat)
-                  (jf/gptel--update-current-symlink session-dir branch-name)))
-            (error
-             (jf/gptel--log 'warn
-                            "Post-init registry/symlink work failed for %s/%s: %s"
-                            session-id branch-name (error-message-string err))))
-
-          (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
-                         session-type session-id branch-name)
-          (message "Session initialized: %s (branch: %s)"
-                   session-id branch-name))))))
-
 (defun jf/gptel--bind-session-buffer ()
   "Bind buffer-local session state for a content-addressed session buffer.
 
@@ -343,7 +190,7 @@ register/invariant/activation-and-identity-are-content-not-path."
       (setq-local jf/gptel--branch-name branch-name)
       (setq-local jf/gptel--branch-dir branch-dir)
       ;; Registry registration + autosave: wrapped so a registry failure
-      ;; cannot abort the var-setting above (mirrors auto-init isolation).
+      ;; cannot abort the var-setting above.
       (condition-case err
           (progn
             (jf/gptel--register-session session-dir
@@ -617,10 +464,12 @@ Prompts user to select projectile projects (0 or more).
 If projects selected, first project is used as project-root for scope expansion.
 
 Creates session with branches/main/ structure and current symlink.
-The session auto-initializes when opened (via find-file-hook).
+The session activates by content recognition when opened: its
+session.org drawer signature drives `magic-mode-alist' into
+`gptel-chat-mode', whose mode hook binds the session buffer.
 
 To open existing sessions: Just use find-file (C-x C-f) or dired on ~/.gptel/sessions/
-No special resume command needed - sessions auto-initialize when opened."
+No special resume command needed - sessions activate by content recognition when opened."
   (interactive
    (let* ((name (read-string "Session name: "))
           (preset (if current-prefix-arg
@@ -765,9 +614,6 @@ Useful if sessions were created outside Emacs or after startup."
 ;; Branch session command is provided by branching.el
 ;; This is just a forward declaration for documentation
 (declare-function jf/gptel-branch-session "branching" (&optional branch-name))
-
-;; Auto-initialize sessions when opened via find-file, dired, recentf, etc.
-(add-hook 'find-file-hook #'jf/gptel--auto-init-session-buffer)
 
 ;; Bind buffer-local session state when chat-mode activates on a
 ;; signature-bearing session buffer (content-addressed; scratch chat

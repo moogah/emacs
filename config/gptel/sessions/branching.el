@@ -319,7 +319,10 @@ session uses plain `save-buffer' (no gptel--bounds drawer to manage)."
          (new-branch-file (jf/gptel--context-file-path new-branch-dir))
          (new-branch-name (file-name-nondirectory new-branch-dir)))
 
-    ;; Open new branch session buffer (auto-initializes via find-file-hook).
+    ;; Open new branch session buffer.  The session.org drawer signature
+    ;; drives `magic-mode-alist' into `gptel-chat-mode', whose mode hook
+    ;; (`jf/gptel--bind-session-buffer') binds the buffer-local session
+    ;; vars — activation is content-addressed, not path-triggered.
     (find-file new-branch-file)
 
     (message "Created branch: %s\nFrom parent: %s\nSession: %s"

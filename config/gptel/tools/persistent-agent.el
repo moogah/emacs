@@ -293,8 +293,10 @@ no read access (zero inheritance).
 
 The agent's session.org is created with a self-describing
 `:PROPERTIES:' drawer (preset + parent session id + scope keys),
-opened with `find-file-noselect', and configured by the
-find-file-hook auto-init pipeline. The agent's request runs through
+opened with `find-file-noselect', and configured by content-addressed
+activation: the drawer signature drives `magic-mode-alist' into
+`gptel-chat-mode', whose mode hook binds the buffer-local session vars.
+The agent's request runs through
 chat-mode's public programmatic-send API with FSM handlers composed
 for parent overlay feedback and final-text return."
   (unless jf/gptel--session-dir

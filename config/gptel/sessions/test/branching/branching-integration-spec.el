@@ -17,7 +17,8 @@
 ;;     in the new branch.
 ;;   - Registry-update ordering: `jf/gptel--create-branch-session' does
 ;;     NOT register the new branch; registration is a lazy side effect
-;;     of `find-file' → `jf/gptel--auto-init-session-buffer'.
+;;     of opening the branch's `session.org' — the content-addressed
+;;     `gptel-chat-mode-hook' binder `jf/gptel--bind-session-buffer'.
 ;;
 ;; Coverage (from
 ;; openspec/changes/gptel-chat-mode/specs/gptel/sessions-branching.md):
@@ -379,7 +380,7 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
     ;;
     ;; Test shape: bootstrap a real session directory, attach a
     ;; buffer to `session.org' with the buffer-local session vars
-    ;; that `jf/gptel--auto-init-session-buffer' would set, append
+    ;; that `jf/gptel--bind-session-buffer' would set, append
     ;; a new user turn in-memory only (no save), and invoke
     ;; `jf/gptel-branch-session' with the unsaved user turn
     ;; selected INCLUDE. After branch creation:
@@ -411,18 +412,17 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
               ;; Bind the buffer to the parent session.org file
               ;; without going through `find-file-noselect' (which
               ;; would run `set-auto-mode' and pull in org-mode +
-              ;; the gptel auto-init find-file-hook). We only need
-              ;; a file-visiting buffer that `save-buffer' will
-              ;; write to the expected path.
+              ;; content-addressed `gptel-chat-mode' activation). We
+              ;; only need a file-visiting buffer that `save-buffer'
+              ;; will write to the expected path.
               (setq-local buffer-file-name parent-ctx)
               (insert-file-contents parent-ctx)
               (set-buffer-modified-p nil)
 
               ;; Wire up buffer-local session vars the way
-              ;; `jf/gptel--auto-init-session-buffer' would. We
-              ;; bypass the real auto-init (and its org-mode /
-              ;; yasnippet side-effects) by stubbing the mode check
-              ;; inside the call below.
+              ;; `jf/gptel--bind-session-buffer' would. We bypass the
+              ;; real content-addressed activation (and its org-mode /
+              ;; yasnippet side-effects) by setting the vars directly.
               (setq-local jf/gptel--session-dir session-dir)
               (setq-local jf/gptel--branch-name "main")
               (setq-local jf/gptel--session-id
@@ -524,9 +524,10 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
 
   ;; Finding #4: `jf/gptel--create-branch-session' does NOT register
   ;; the new branch in `jf/gptel--session-registry'. Registration is
-  ;; a side effect of opening the new branch's `session.org' (the
-  ;; `find-file-hook' → `jf/gptel--auto-init-session-buffer' path).
-  ;; These specs pin that asymmetric behaviour.
+  ;; a side effect of opening the new branch's `session.org' — under
+  ;; the content-addressed model, the `gptel-chat-mode-hook' binder
+  ;; (`jf/gptel--bind-session-buffer') registers a signature-bearing
+  ;; buffer.  These specs pin that asymmetric behaviour.
 
   (after-each
     (dolist (dir jf-branching-integration--tempdirs)
@@ -559,7 +560,7 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
       (expect (jf/gptel-session-find session-id new-branch-name)
               :to-be nil)))
 
-  (it "populates the registry lazily on first open via auto-init"
+  (it "populates the registry lazily on first open via the content-addressed binder"
     (let* ((root (jf-branching-integration--make-tempdir))
            (jf/gptel-sessions-directory root)
            (bootstrap (jf-branching-integration--bootstrap-parent
@@ -582,28 +583,22 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
       ;; Pre-condition: create-branch-session did not register.
       (expect (gethash registry-key jf/gptel--session-registry) :to-be nil)
       (unwind-protect
-          ;; Simulate `find-file' → `find-file-hook' → auto-init.
-          ;; We set `buffer-file-name' and invoke the hook directly
-          ;; (same pattern as `session-restoration-spec.el'). Real
-          ;; gptel mode activation and preset application are mocked
-          ;; — this spec cares only about registry side effects.
+          ;; Simulate opening the branch: a real `gptel-chat-mode'
+          ;; activation would fire `gptel-chat-mode-hook' and run the
+          ;; content-addressed binder.  Here we set `buffer-file-name',
+          ;; load the on-disk session.org content (so the buffer carries
+          ;; its `:GPTEL_*:' drawer signature), and invoke the binder
+          ;; directly — this spec cares only about registry side effects.
           (with-current-buffer buf
             (setq buffer-file-name new-ctx)
-            (cl-letf (((symbol-function 'gptel-chat-mode)
-                       (lambda (&optional _) nil))
-                      ((symbol-function 'jf/gptel--ensure-mode-once)
-                       (lambda () nil))
-                      ((symbol-function 'gptel-get-preset)
-                       (lambda (_) nil))
-                      ((symbol-function 'gptel--apply-preset)
-                       (lambda (_name _setter) nil)))
-              (jf/gptel--auto-init-session-buffer))
+            (insert-file-contents new-ctx)
+            (jf/gptel--bind-session-buffer)
             ;; Registry entry now exists for the new branch.
             (let ((entry (gethash registry-key jf/gptel--session-registry)))
               (expect entry :to-be-truthy)
               (expect (plist-get entry :session-id) :to-equal session-id)
               (expect (plist-get entry :branch-name) :to-equal new-branch-name)
-              ;; Auto-init stores branch-dir with a trailing slash
+              ;; The binder stores branch-dir with a trailing slash
               ;; (from `file-name-directory'), while
               ;; `jf/gptel--create-branch-session' returns the path
               ;; without one. Compare as directories so the test
