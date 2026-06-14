@@ -1,0 +1,99 @@
+#+title: Ghostel Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle ghostel.el
+#+auto_tangle: y
+
+* Introduction
+This file configures [[https://github.com/dakra/ghostel][ghostel]], a terminal emulator for Emacs backed by
+=libghostty-vt= — the same VT engine that drives the [[https://ghostty.org][Ghostty]] terminal.
+Architecturally it is a peer to [[file:vterm.org][vterm]]: a native dynamic module handles VT
+parsing and rendering while Elisp manages the shell process, keymap, and
+buffer.
+
+The reason this module exists alongside vterm is *rendering fidelity for
+inline TUIs*, Claude Code in particular. Claude's TUI renders into the main
+screen + scrollback (not the alternate screen), so every update clears and
+redraws the visible region. On terminals without DEC mode 2026 (synchronized
+output) that produces flicker and duplicated frames. Ghostel supports
+synchronized output, plus incremental per-row dirty tracking, so the Claude
+TUI renders far more faithfully than under vterm. It is also roughly 2x
+vterm's raw throughput.
+
+Use =C-c v= for vterm and =C-c g= for ghostel, and compare the same workload
+under both.
+
+* Dependencies
+Unlike vterm, ghostel needs *no* C toolchain or CMake. The native module is a
+prebuilt binary (=aarch64-macos=, =x86_64-macos=, =x86_64-linux=,
+=aarch64-linux=, =x86_64-freebsd=) that is *downloaded automatically on first
+use*. The only practical requirements are Emacs 28.1+ built with dynamic
+module support and network access on first launch.
+
+These blocks are documentation/provisioning only (=:tangle no=); they are
+never loaded into Emacs.
+
+** Confirm dynamic module support
+Ghostel loads a =.so=/=.dylib= via Emacs' module system. This prints =t= when
+the running Emacs can load native modules.
+
+#+begin_src sh :tangle no
+emacs --batch --eval '(princ (if (functionp (quote module-load)) "t" "nil"))'
+#+end_src
+
+** Manual native-module triggers (optional)
+First use auto-downloads the module. If you are offline at first launch, or
+want to fetch/build ahead of time, these interactive commands exist:
+
+- =M-x ghostel-download-module= — fetch the prebuilt binary for this platform.
+- =M-x ghostel-module-compile= — build from source instead (requires [[https://ziglang.org][Zig]]
+  0.15.2 on =PATH=; only needed when no prebuilt binary fits your platform).
+
+* Basic Configuration
+Install ghostel and apply defaults analogous to the vterm module: a larger
+scrollback budget for reviewing long build/test/agent output, and automatic
+buffer cleanup when the shell exits.
+
+Note: =ghostel-max-scrollback= is measured in *bytes* (default ~5 MB), not
+lines as in vterm.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+(use-package ghostel
+  ;; ghostel is not in the recipe repos straight knows about (MELPA et al.),
+  ;; so `:straight t' fails to resolve it. Point at the upstream repo
+  ;; explicitly. The Elisp lives in a `lisp/' subdirectory, so :files is
+  ;; required — straight's default only globs *.el at the repo root.
+  :straight (ghostel :type git :host github :repo "dakra/ghostel"
+                     :files ("lisp/*.el"))
+  :commands (ghostel ghostel-compile)
+  :custom
+  ;; Scrollback retained per terminal, in BYTES (default ~5 MB ≈ 5k lines).
+  ;; Bumped for reviewing long build/test/agent output.
+  (ghostel-max-scrollback (* 20 1024 1024))
+  :config
+  ;; Kill the buffer automatically when the underlying shell process exits,
+  ;; so finished terminals don't linger.
+  (setq ghostel-kill-buffer-on-exit t))
+#+end_src
+
+* Evil Integration
+This config uses Evil. A terminal should accept raw keystrokes, so ghostel
+buffers start in Emacs state. Unlike vterm, =evil-collection= does not (yet)
+ship a ghostel module, so we only set the initial state and do not call
+=evil-collection-init=.
+
+#+begin_src emacs-lisp
+;; Start ghostel buffers in Emacs state so keystrokes pass straight to the shell.
+(with-eval-after-load 'ghostel
+  (when (featurep 'evil)
+    (evil-set-initial-state 'ghostel-mode 'emacs)))
+#+end_src
+
+* Keybindings
+A global launch key. =C-c v= is taken by vterm, so ghostel takes =C-c g=
+(g for ghostel/ghostty).
+
+#+begin_src emacs-lisp
+(global-set-key (kbd "C-c g") #'ghostel)
+#+end_src

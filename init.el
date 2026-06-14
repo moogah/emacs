@@ -129,6 +129,8 @@ resolve to a real file."
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
+    ("major-modes/vterm" "libvterm-based terminal emulator")
+    ("major-modes/ghostel" "libghostty-based terminal emulator (faithful TUI rendering)")
 
     ;; Bash Parser - tree-sitter based bash command parser
     ("bash-parser/bash-parser" "Bash command parser with semantic extraction")
