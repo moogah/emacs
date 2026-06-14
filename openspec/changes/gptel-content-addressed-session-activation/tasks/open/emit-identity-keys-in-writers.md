@@ -37,3 +37,72 @@ Identity travels with the file. Writers own emission; the resolver (drawer-ident
 ## Context
 
 design.md § Decisions "D2. Identity" and "D3. Agent identity"; specs `sessions-persistence` Requirement "Drawer-resident session identity", `persistent-agent` Requirement "Agent identity in the drawer", `sessions-branching` Requirement "Configuration inheritance via drawer".
+
+## Observations
+
+- The identity keys spliced in `jf/gptel--create-session-core` are discarded
+  on the caller-supplied `INITIAL-CONTENT` override path (the `(or
+  initial-content (concat drawer-text ...))` short-circuit), exactly as the
+  pre-existing `:GPTEL_SYSTEM_PROMPT_FILE:` splice already is. The interactive
+  command passes nil, so identity keys are always emitted for real session
+  creation. No caller in tree passes non-nil `initial-content`, so this is
+  latent; flagged only so a future override caller knows it owns the whole
+  drawer (including identity keys) in that case.
+- `jf/gptel--create-branch-session` is NOT the buffer-save path: it rewrites
+  the on-disk `session.org` directly (the new branch's buffer is opened
+  afterward by `jf/gptel-branch-session` via `find-file`). The identity-key
+  rewrite therefore lands before the branch buffer is ever visited — no
+  buffer/disk race.
+
+## Discoveries
+
+- discovery_id: disc-emit-identity-keys-in-writers-1
+  class: duplication
+  description: |
+    The task asked for a drawer-key REPLACE helper. I added TWO:
+    (a) `jf/gptel--replace-drawer-property` (string→string, in
+        `commands.org`, mirroring `jf/gptel--append-drawer-property`)
+        for use by string-shaped drawer producers, and
+    (b) `jf/gptel--set-drawer-property-in-buffer` +
+        `jf/gptel--rewrite-branch-identity-keys` (buffer/file-shaped,
+        in `branching.org`) for the branch rewrite.
+    The branch rewrite does NOT reuse (a) even though it could, because
+    `branching.el` loads BEFORE `commands.el` in the gptel.org session
+    module order (branching at gptel.org:337, commands at :346).
+    `(require 'gptel-session-commands)` from `branching.el` is a
+    load-time failure (confirmed by a red test run). The buffer-shaped
+    helper in branching is self-contained and avoids the cycle.
+    So (a) currently has no production caller — it is the canonical
+    string REPLACE companion to the existing append helper, added for
+    symmetry/discoverability. If the register prefers a single REPLACE
+    primitive, the load-order constraint must be resolved first (e.g.
+    hoist the splice helpers into a lower-level module both `commands`
+    and `branching` can require).
+  affected_register_entry: register/shape/drawer-text-block
+  recommendation: |
+    Either (1) accept the two-helper split as a load-order
+    accommodation and note it on drawer-text-block, or (2) hoist
+    `jf/gptel--append-drawer-property` / `jf/gptel--replace-drawer-
+    property` into a dependency-free module (e.g. a new
+    `gptel-session-drawer.el` required by both commands and branching)
+    so branch rewrite reuses the one string REPLACE primitive.
+- discovery_id: disc-emit-identity-keys-in-writers-2
+  class: invariant-gap
+  description: |
+    register/invariant/branch-drawer-shares-id-not-branch assumes the
+    parent drawer ALREADY carries `:GPTEL_SESSION_ID:`/`:GPTEL_BRANCH:`
+    (verbatim copy then overwrite). For sessions created AFTER this
+    task that holds. But a parent `session.org` predating identity-key
+    emission has neither key. My branch rewrite handles this: the
+    setter is append-if-absent, so a legacy parent gains `:GPTEL_
+    SESSION_ID:` (= shared session id, derived from the session-dir
+    basename) and `:GPTEL_BRANCH:` (= new branch name) on first branch.
+    The invariant statement says "overwriting values copied verbatim
+    from the parent drawer" — for legacy parents there is nothing to
+    overwrite, so the behavior is insert, not replace. Worth noting on
+    the invariant so the migration case is explicit.
+  affected_register_entry: register/invariant/branch-drawer-shares-id-not-branch
+  recommendation: |
+    Amend the invariant to cover the legacy-parent case: the branch
+    writer must SET the keys (replace-or-insert), not assume they are
+    present to overwrite. Current implementation already does this.

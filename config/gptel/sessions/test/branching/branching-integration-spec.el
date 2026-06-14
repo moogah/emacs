@@ -291,11 +291,16 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
   (describe "Preset drawer inheritance (Decision 7)"
 
     ;; The parent's `:PROPERTIES:' drawer at the top of session.org is
-    ;; preserved verbatim by the truncated-context copy, so the new
-    ;; branch inherits the parent's preset without a separate
-    ;; metadata.yml copy step.
+    ;; copied verbatim by the truncated-context copy, so the new branch
+    ;; inherits the parent's preset (and scope keys) without a separate
+    ;; metadata.yml copy step.  After the copy,
+    ;; `jf/gptel--create-branch-session' rewrites the branch's identity
+    ;; keys (`:GPTEL_SESSION_ID:' shared, `:GPTEL_BRANCH:' set to the
+    ;; new branch name — register/invariant/branch-drawer-shares-id-
+    ;; not-branch), so the drawer is NOT byte-identical to the parent's
+    ;; — the non-identity keys (preset) are what carry through verbatim.
 
-    (it "starts the new branch's session.org with the parent's :PROPERTIES: drawer"
+    (it "starts the new branch's session.org with the parent's drawer keys plus its own identity"
       (let* ((root (jf-branching-integration--make-tempdir))
              (jf/gptel-sessions-directory root)
              (bootstrap (jf-branching-integration--bootstrap-parent
@@ -312,17 +317,22 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
         (let* ((new-branch-dir
                 (jf/gptel--create-branch-session
                  session-dir "main" "drawer-inherit" branch-pos))
+               (new-branch-name (file-name-nondirectory new-branch-dir))
                (new-ctx (jf/gptel--context-file-path new-branch-dir))
-               (written (jf-branching-integration--file-contents new-ctx))
-               (parent-drawer jf-branching-integration--parent-drawer))
-          ;; The new session.org starts with exactly the parent's
-          ;; drawer bytes (drawer is at point-min of parent, so
-          ;; truncation preserves it verbatim).
-          (expect (substring written 0 (length parent-drawer))
-                  :to-equal parent-drawer)
-          ;; The GPTEL_PRESET value matches the parent's.
+               (written (jf-branching-integration--file-contents new-ctx)))
+          ;; The new session.org still opens with the `:PROPERTIES:'
+          ;; header (drawer is at point-min of parent, preserved by the
+          ;; truncated copy).
+          (expect (string-prefix-p ":PROPERTIES:\n" written) :to-be t)
+          ;; The GPTEL_PRESET value carries through verbatim from the
+          ;; parent's drawer (non-identity keys are inherited).
           (expect (string-match-p
                    (regexp-quote ":GPTEL_PRESET: executor")
+                   written)
+                  :to-be-truthy)
+          ;; The branch gained its OWN identity keys via the rewrite.
+          (expect (string-match-p
+                   (concat ":GPTEL_BRANCH: " (regexp-quote new-branch-name))
                    written)
                   :to-be-truthy))))
 
