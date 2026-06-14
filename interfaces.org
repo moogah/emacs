@@ -5006,6 +5006,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1781465881 integrate (2026-06-14): still SPECULATED, symlink remnant
+     ELIMINATED. retire-current-symlink (merged 22b528e) removed the `current`
+     symlink machinery in full: the writer jf/gptel--update-current-symlink, the
+     readers jf/gptel--get-current-branch-name AND the previously-unlisted dead
+     jf/gptel--get-current-branch-dir, the helper jf/gptel--current-symlink-path,
+     the constant jf/gptel-session--current-link, both production callers (create
+     + branch paths), and all symlink tests/prose. grep over config/gptel for
+     current-symlink|get-current-branch-name|current-link AND `grep -rni symlink
+     config/gptel/sessions/` are BOTH empty. On-touch architect found 1 BLOCKING
+     (an obsolete symlink test in config/gptel/test/session-creation-spec.el, one
+     dir ABOVE the task's scoped sweep) — inline-fixed (e797a99) before merge;
+     otherwise clean (deletion complete, the dead 4th-reader removal correct, the
+     branching-integration dirty-buffer test's branch-discovery soundly rewritten
+     from the symlink to scanning branches/). Author-blind reviewer: 0 blocking,
+     2 cosmetic advisories (routed to regression-sweep). With the find-file-hook
+     auto-init (cycle-5) AND the symlink (this cycle) gone, the LAST remaining
+     path-derived remnant is the 2 jf/gptel--session-id-from-directory IDENTITY
+     callers: branching.org:399 (reads the PARENT session id to rewrite a new
+     branch's keys — should be drawer-first) and persistent-agent.org:602 (MINTS a
+     new agent's id from its dir basename AT CREATION — nuanced: arguably the
+     legitimate basename source, since no drawer exists yet). These are now
+     scoped as the new `consumer-migration` task (created cycle-6 integrate),
+     which blocks regression-sweep. Flips to CONFIRMED when consumer-migration
+     lands + regression-sweep's repo-wide grep-audit passes.
+     See .orchestrator/cycles/cycle-1781465881/reconciliations/invariant-activation-and-identity-are-content-not-path.md.
+     ----
      cycle-1781463961 integrate (2026-06-14): still SPECULATED, REMOVAL-half
      largest carrier LANDED. retire-find-file-hook (merged e398898) deleted the
      find-file-hook registration, the entire jf/gptel--auto-init-session-buffer

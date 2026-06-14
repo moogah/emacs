@@ -7,6 +7,7 @@ relations:
   - "blocked-by:discovery-reads-drawers"
   - "blocked-by:retire-find-file-hook"
   - "blocked-by:retire-current-symlink"
+  - "blocked-by:consumer-migration"
 ---
 
 ## Files to modify
@@ -79,3 +80,10 @@ design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchp
 - **2nd of 3 blockers cleared:** `retire-find-file-hook` is done (e398898). Remaining blocker: `retire-current-symlink` (now ready). The `find-file-hook`/`auto-init-session-buffer` org grep-gate is ALREADY empty as of this cycle — the sweep's existing greps for those two terms should pass now; what remains to verify at close is the symlink terms and the `session-id-from-directory` identity callers.
 - **T5 — cosmetic path-archaeology scrub (NEW, from 3 converging cycle-5 advisories: implementor disc-3, on-touch architect ontouch-2, reviewer).** Stale "auto-init" / "find-file-hook" wording survives in COMMENTS and one filename with NO live calls: `config/gptel/tools/test/persistent-agent/auto-init-reload-spec.el` (rename), `helpers-spec.el`, and residual describe/comment wording in `preset-application-spec.el` / `workspace-integration-spec.el` / `pre-send-refresh-spec.el`. Fold a comment/string scrub + the file rename into the sweep so path-archaeology wording doesn't read as a surviving mechanism in the final audit. Cosmetic — verify-by-grep, not behavior.
 - Full-suite floor after cycle-5: 2309 buttercup specs, 23 failed (signatures identical to baseline) + ERT 620/9; ZERO failures on sessions/chat/tools. The −8 spec delta vs cycle-4 is the legitimate removal of path-regex test cases. This is the floor the final sweep compares against.
+
+## Cycle 6 updates (cycle-1781465881)
+
+- **Last REMOVAL blocker cleared:** `retire-current-symlink` is done (22b528e). The `current` symlink machinery is entirely gone (`grep current-symlink|get-current-branch-name|current-link config/gptel` empty; `grep -rni symlink config/gptel/sessions/` empty). Combined with cycle-5 (find-file-hook auto-init), both large remnants are removed.
+- **NOW BLOCKED-BY `consumer-migration`** (created cycle-6 integrate): the LAST path-derived remnant is the 2 `jf/gptel--session-id-from-directory` IDENTITY callers (`branching.org:399`, `persistent-agent.org:602`). The invariant `activation-and-identity-are-content-not-path` cannot flip to confirmed until that task lands. Updated blocked-by accordingly.
+- **T6 — grep-audit must be REPO-WIDE (meta-discovery, cycle-6).** The cycle-6 on-touch architect caught a BLOCKING dangling symlink test in `config/gptel/test/session-creation-spec.el` — one directory ABOVE the implementor's `config/gptel/sessions/`-scoped sweep. The final grep-audit MUST run over all of `config/gptel` (not just `config/gptel/sessions/`) for every retired symbol: `find-file-hook`, `auto-init-session-buffer`, `auto-init`, `update-current-symlink`, `get-current-branch-name`, `get-current-branch-dir`, `current-symlink`, `current-link`, and the `"current"` literal path usage.
+- **T5 cosmetic scrub grows (cycle-6 additions):** also remove the vacuous `current` symlink-absence assertion at `config/gptel/tools/test/persistent-agent/creation-spec.el:80` and the now-unused `captured-symlink-target` helper at `config/gptel/test/persistence-test-helpers.el:126` (orphaned after the cycle-6 inline-fix removed its only caller).

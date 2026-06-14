@@ -2,7 +2,8 @@
 name: retire-current-symlink
 description: Remove the current-symlink machinery (writer and its callers, reader, constant, helper, and tests) now that it has no production reader and identity is drawer-resident.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
+merge_commit: 22b528e
 relations:
   - "blocked-by:retire-find-file-hook"
 ---
