@@ -356,6 +356,134 @@ Checks for existence and presence of session.org file."
        (file-exists-p (jf/gptel--context-file-path dir))))
 #+end_src
 
+* Session Content Signature
+
+The single recognition primitive shared by content-addressed
+*activation* (=magic-mode-alist=) and offline *discovery*
+(init-registry).  It answers "is this buffer/file a gptel session?" by
+CONTENT, not path.
+
+Two functions:
+
+- =jf/gptel--session-signature-p= — a buffer predicate (used by
+  =magic-mode-alist= + the mode-hook binder guard).
+- =jf/gptel--read-session-drawer-head= — an on-disk head-read (used by
+  discovery) that runs the same drawer scan over a temp buffer and
+  returns the identity keys found.
+
+Both reuse the native, =org=-independent drawer-parsing shape proven in
+=gptel-chat--declared-preset= (=config/gptel/chat/menu.org=): native
+=re-search-forward= over the buffer head, no dependency on =org-mode=
+being loaded.  This matters because the predicate runs at
+=magic-mode-alist= time, before =org= may be loaded.
+
+** Invariant — anchored to the point-min drawer
+
+=jf/gptel--session-signature-p= returns non-nil ONLY for a buffer whose
+first non-blank content is a genuine =:PROPERTIES:= drawer carrying a
+=:GPTEL_[A-Z0-9_]+:= key line before =:END:=.  It returns nil — without
+signaling — for: an org file that merely mentions =:GPTEL_PRESET:=
+inside a paragraph or a =#+begin_src= block; a file whose first content
+is anything other than =:PROPERTIES:=; a non-org / plain-text buffer.
+The match is anchored to a real drawer at =point-min= — NEVER a bare
+substring search.
+
+This is load-bearing: the predicate is wired into =magic-mode-alist=, so
+a false match would hijack an ordinary user file into =gptel-chat-mode=
+at open time — a user-visible regression.
+
+** Shared drawer scanner
+
+=jf/gptel--scan-session-drawer-keys= is the common engine.  It assumes
+point is at =point-min= of a widened buffer, skips leading blank lines,
+requires a =:PROPERTIES:= line as the first non-blank content, locates
+the drawer's =:END:=, and collects every =:GPTEL_*:= key/value line
+before it.  Returns an alist keyed by the bare key string (e.g.
+="GPTEL_SESSION_ID"=) — or nil when no drawer / no GPTEL key is present.
+Both public functions delegate to it so the recognition logic lives in
+exactly one place.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--scan-session-drawer-keys ()
+  "Scan the head of the current buffer for a gptel session drawer.
+
+Assumes the caller has positioned point and widened as needed.  Skips
+leading blank lines, then requires a `:PROPERTIES:' line as the first
+non-blank content.  If found, collects every `:GPTEL_<KEY>: VALUE' line
+before the drawer's `:END:' and returns them as an alist keyed by the
+bare key string (e.g. \"GPTEL_SESSION_ID\").
+
+Returns nil when the first non-blank content is not a `:PROPERTIES:'
+drawer, when the drawer has no `:END:', or when the drawer carries no
+`:GPTEL_*:' key.  Never signals on a non-org / plain-text buffer.
+
+Uses native `re-search-forward' (no dependency on `org-mode' being
+loaded) so it is safe to call at `magic-mode-alist' time."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      ;; The drawer must be the first non-blank content for us to
+      ;; recognise it; skip leading blank lines only.
+      (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
+        (forward-line 1))
+      (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+        (let ((drawer-end
+               (save-excursion
+                 (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                   (line-beginning-position)))))
+          (when drawer-end
+            (let ((keys nil))
+              ;; Collect every :GPTEL_<KEY>: VALUE line before :END:.
+              ;; VALUE is optional (trailing whitespace allowed); the
+              ;; key match alone is sufficient for the signature.
+              (while (re-search-forward
+                      "^[ \t]*:\\(GPTEL_[A-Z0-9_]+\\):[ \t]*\\(.*?\\)[ \t]*$"
+                      drawer-end t)
+                (push (cons (match-string-no-properties 1)
+                            (match-string-no-properties 2))
+                      keys))
+              (nreverse keys))))))))
+
+(defun jf/gptel--session-signature-p ()
+  "Return non-nil if the current buffer is a gptel session by CONTENT.
+
+Recognizes a buffer iff, scanning only the head: the first non-blank
+content is a `:PROPERTIES:' drawer carrying at least one
+`:GPTEL_[A-Z0-9_]+:' key line before `:END:'.  Returns nil — without
+signaling — for a non-org / plain-text buffer, for an org buffer that
+merely mentions a `:GPTEL_' key in prose or a `#+begin_src' block, and
+for any buffer whose first content is not a `:PROPERTIES:' drawer.
+
+The match is anchored to a real drawer at `point-min' — NEVER a bare
+substring search.  Wired into `magic-mode-alist', so a false match would
+hijack an ordinary user file into `gptel-chat-mode' at open time."
+  (and (jf/gptel--scan-session-drawer-keys) t))
+
+(defun jf/gptel--read-session-drawer-head (file)
+  "Read FILE's head and return its gptel session-drawer keys, or nil.
+
+Reads FILE into a temp buffer and runs the same point-min drawer scan as
+`jf/gptel--session-signature-p', returning an alist of the `:GPTEL_*:'
+keys found, keyed by the bare key string (e.g. \"GPTEL_SESSION_ID\" ->
+\"<id>\").  Includes any identity keys present — at least
+`GPTEL_SESSION_ID', `GPTEL_BRANCH', `GPTEL_PARENT_SESSION_ID', and
+`GPTEL_PRESET' when authored.  Returns nil when FILE has no point-min
+session drawer or does not exist (never signals on a missing file).
+
+The session drawer is small and always at the file head, so reading the
+whole file is correct today.  A byte cap belongs at the
+`insert-file-contents' call below (its 3rd/4th args bound the read) —
+once the cap is added, choose a bound large enough to always contain the
+drawer."
+  (when (and file (file-readable-p file))
+    (with-temp-buffer
+      ;; NOTE: bounded head read — pass BEG/END to `insert-file-contents'
+      ;; here to cap the read at the file head once a byte cap is chosen.
+      (insert-file-contents file)
+      (jf/gptel--scan-session-drawer-keys))))
+#+end_src
+
 * Provide Feature
 
 #+begin_src emacs-lisp
