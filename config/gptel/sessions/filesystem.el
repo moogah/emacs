@@ -77,8 +77,63 @@ Example: 'react-refactoring-20260120153042'"
 
 (defun jf/gptel--session-id-from-directory (session-dir)
   "Extract session ID from SESSION-DIR path.
-Returns the directory name (last path component)."
+Returns the directory name (last path component).
+
+Legacy / back-compat path: this is the BASENAME fallback for
+`jf/gptel--resolve-session-id'.  Prefer the resolver, which reads the
+drawer `GPTEL_SESSION_ID' first and only consults the path (via this
+function) when the drawer omits the key — the no-migration grace path
+for sessions authored before drawer-resident identity.  See
+register/boundary/drawer-first-identity-resolution."
   (file-name-nondirectory (directory-file-name session-dir)))
+
+(defun jf/gptel--resolve-session-id (drawer-alist session-dir)
+  "Resolve a session's id from DRAWER-ALIST, falling back to SESSION-DIR.
+
+Returns the drawer `GPTEL_SESSION_ID' value when present; otherwise
+falls back to `jf/gptel--session-id-from-directory' (the SESSION-DIR
+basename).  When the drawer carries the key the path is never read.
+
+DRAWER-ALIST is the alist returned by
+`jf/gptel--read-session-drawer-head' (bare-string keys, string values;
+nil when the session file has no point-min drawer).  The fallback is the
+no-migration grace path for legacy sessions.  See
+register/boundary/drawer-first-identity-resolution."
+  (or (cdr (assoc "GPTEL_SESSION_ID" drawer-alist))
+      (jf/gptel--session-id-from-directory session-dir)))
+
+(defun jf/gptel--resolve-branch-name (drawer-alist path)
+  "Resolve a session's branch name from DRAWER-ALIST, falling back to PATH.
+
+Returns the drawer `GPTEL_BRANCH' value when present; otherwise extracts
+the enclosing `branches/<branch>/' segment from PATH with a single
+targeted regex.  Returns nil when neither source supplies a branch.
+
+DRAWER-ALIST is the alist returned by
+`jf/gptel--read-session-drawer-head' (bare-string keys, string values;
+nil when the session file has no point-min drawer).  The path-segment
+fallback is the no-migration grace path for legacy sessions; it does NOT
+revive the retired 3-layout matcher — one regex, one layout
+(`branches/<branch>/').  See
+register/boundary/drawer-first-identity-resolution."
+  (or (cdr (assoc "GPTEL_BRANCH" drawer-alist))
+      (and path
+           (string-match "/branches/\\([^/]+\\)/" path)
+           (match-string 1 path))))
+
+(defun jf/gptel--session-type (drawer-alist)
+  "Return the session type inferred from DRAWER-ALIST.
+
+`agent' when the drawer carries `GPTEL_PARENT_SESSION_ID', else
+`branch'.  The PRESENCE of the parent-id key is the SOLE discriminator
+of session type — no path layout (branch / nested-agent / flat-agent)
+is consulted.  If a path-regex `cond' over those layouts reappears in
+activation/identity/discovery code, that is a violation of
+register/invariant/activation-and-identity-are-content-not-path, not a
+second mapping.  See register/vocabulary/identity-drawer-keys."
+  (if (assoc "GPTEL_PARENT_SESSION_ID" drawer-alist)
+      'agent
+    'branch))
 
 (defun jf/gptel--branches-dir-path (session-dir)
   "Get path to branches directory in SESSION-DIR."
