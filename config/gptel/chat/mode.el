@@ -51,6 +51,21 @@
 ;; =gptel-abort= lives upstream in =gptel.el= and is always available
 ;; once =gptel= itself has loaded (design.md §Decision 10).
 
+;; =jf/gptel--session-signature-p= is the content-addressed activation
+;; predicate (=config/gptel/sessions/filesystem.org=;
+;; register/boundary/session-content-signature). =mode.el= registers it
+;; on =magic-mode-alist= at load time (below). It is declared — not
+;; =require='d — for the same call-time-resolution reason: the chat
+;; subsystem (=gptel/chat/chat=) loads *before* the sessions subsystem
+;; (=gptel/gptel=, which loads =sessions/filesystem.el=) in
+;; =jf/enabled-modules=, so the symbol is not yet defined when this file
+;; loads. =add-to-list= only stores the symbol; the predicate is invoked
+;; by =set-auto-mode= at file-open time, long after init has loaded both
+;; subsystems. A =require= here would invert the chat→sessions
+;; dependency the architecture deliberately keeps one-directional. (The
+;; sessions module loads by absolute path, not via =load-path=, so an
+;; =autoload= keyed on a bare feature name would not resolve either.)
+
 
 ;; [[file:mode.org::*Forward declarations][Forward declarations:1]]
 (declare-function gptel-chat-send nil ())
@@ -64,6 +79,8 @@
 (declare-function gptel-chat--point-in-block-body-p "gptel-chat-parser"
                   (&optional pos buffer))
 (declare-function gptel-abort "gptel" (buf))
+(declare-function jf/gptel--session-signature-p "gptel-session-filesystem"
+                  ())
 ;; Forward declarations:1 ends here
 
 ;; Keymap
@@ -945,6 +962,49 @@ file-level config drawer's wall-of-properties so a persisted
 
 (add-hook 'gptel-chat-mode-hook #'gptel-chat--apply-startup-visibility)
 ;; Major mode definition:1 ends here
+
+;; Content-addressed activation
+
+;; Activation is *content-addressed*, not path-addressed. A persisted
+;; =session.org= is recognised by its =point-min= =:PROPERTIES:= drawer
+;; carrying a =:GPTEL_*:= key — not by where it sits on disk. The
+;; single =magic-mode-alist= entry below maps that drawer signature
+;; (=jf/gptel--session-signature-p=) to =gptel-chat-mode= (design.md
+;; §Decision D1; register/invariant/activation-and-identity-are-content-
+;; not-path).
+
+;; *Precedence is what makes this work.* =set-auto-mode= consults
+;; =magic-mode-alist= *before* =auto-mode-alist=, so a drawer-bearing
+;; =.org= selects =gptel-chat-mode= even though the default
+;; =.org → org-mode= mapping in =auto-mode-alist= would otherwise win.
+;; We add **no** =auto-mode-alist= entry — the extension says nothing
+;; about whether a file is a session; only its content does. Because
+;; =gptel-chat-mode= derives from =org-mode=, every org feature
+;; (fontification, folding, inside-block editing) survives the override.
+
+;; *The predicate is the false-match guard.*
+;; =jf/gptel--session-signature-p= matches only a real =point-min=
+;; drawer with an uppercase =:GPTEL_[A-Z0-9_]+:= key line before =:END:=
+;; — never a bare substring. An ordinary =.org= file falls through to
+;; =org-mode=, and an =.org= file that merely *quotes* =:GPTEL_PRESET:=
+;; in prose or a =#+begin_src= block does NOT match (the key is not in a
+;; =point-min= drawer). So =magic-mode-alist= cannot hijack a user's own
+;; notes into chat-mode (register/invariant/signature-anchored-to-point-
+;; min-drawer; design.md §Anchoring / false-match guard).
+
+;; =add-to-list= stores the predicate *symbol*; it is invoked only at
+;; =set-auto-mode= time (file open), by which point both the chat and
+;; sessions subsystems have loaded — see the forward-declaration note
+;; above for why the symbol is declared rather than =require='d. The
+;; default =add-to-list= APPEND is nil, so the entry is prepended; order
+;; among =magic-mode-alist= entries does not matter here since the
+;; predicate is uniquely specific to session drawers.
+
+
+;; [[file:mode.org::*Content-addressed activation][Content-addressed activation:1]]
+(add-to-list 'magic-mode-alist
+             (cons #'jf/gptel--session-signature-p #'gptel-chat-mode))
+;; Content-addressed activation:1 ends here
 
 ;; Pure prepare helper
 
