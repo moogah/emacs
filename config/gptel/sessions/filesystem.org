@@ -204,6 +204,74 @@ second mapping.  See register/vocabulary/identity-drawer-keys."
     'branch))
 #+end_src
 
+** Session Directory from Branch Directory
+
+=jf/gptel--session-dir-from-branch-dir= derives a session's =session-dir=
+(the directory under which =branches/= lives) from the branch-dir — the
+directory of the open buffer's file — and the resolved session TYPE.  It
+is the structural counterpart to the drawer-first /identity/ resolvers
+above: identity (id, branch, type) comes from the drawer; the on-disk
+/container/ comes from this walk.
+
+For a =branch= session it walks UP from branch-dir to the nearest
+ancestor =D= whose child =branches/= exists AND under which branch-dir
+lives (=D/branches/...=), returning =D=.  The walk is DEPTH-INDEPENDENT —
+the structural marker, not a fixed =../..= count, locates the root — so
+the session tree may be moved or nested arbitrarily and still resolve.
+
+For an =agent= session branch-dir is ITSELF the session root: agents live
+under =branches/<b>/agents/<agent>/= and do not branch, so their own
+directory is the answer and no walk is performed.
+
+When no =branches/= ancestor is found (corrupt / standalone layout) the
+function returns branch-dir unchanged and logs at debug — never signals.
+Finding a /container by structural marker/ is legitimate navigation,
+distinct from parsing /identity/ out of path segments
+(register/invariant/activation-and-identity-are-content-not-path).  See
+register/boundary/session-dir-marker-walk and design.md §Decision D5.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--session-dir-from-branch-dir (branch-dir type)
+  "Derive a session's session-dir from BRANCH-DIR and session TYPE.
+
+BRANCH-DIR is the directory of the open session buffer's file.  TYPE is
+the resolved session type (`branch' or `agent', from
+`jf/gptel--session-type').
+
+For an `agent' session, BRANCH-DIR is itself the session root (agents do
+not branch) and is returned unchanged.
+
+For a `branch' session, walk UP from BRANCH-DIR to the nearest ancestor
+D such that (file-directory-p D/branches) AND BRANCH-DIR lives under
+D/branches/; return D.  The walk is depth-independent — no fixed `../..'
+count — so a relocated or arbitrarily nested session tree still resolves.
+
+When no `branches/' ancestor is found (corrupt / standalone layout),
+return BRANCH-DIR unchanged and log at debug; never signals.  See
+register/boundary/session-dir-marker-walk."
+  (let ((branch-dir (file-name-as-directory (expand-file-name branch-dir))))
+    (if (eq type 'agent)
+        branch-dir
+      ;; Nearest ancestor whose child `branches/' both exists AND
+      ;; encloses BRANCH-DIR.  `locate-dominating-file' supplies the
+      ;; depth-independent upward walk; the enclosure check rejects a
+      ;; stray `branches/' that does not actually contain this buffer.
+      (let ((dir (locate-dominating-file
+                  branch-dir
+                  (lambda (d)
+                    (let ((branches (file-name-as-directory
+                                     (expand-file-name "branches" d))))
+                      (and (file-directory-p branches)
+                           (string-prefix-p branches branch-dir)))))))
+        (or dir
+            (progn
+              (jf/gptel--log
+               'debug
+               "session-dir-from-branch-dir: no branches/ ancestor for %s; using branch-dir"
+               branch-dir)
+              branch-dir))))))
+#+end_src
+
 * Branch Structure Functions
 
 Functions for navigating the new branch-inside-session architecture.

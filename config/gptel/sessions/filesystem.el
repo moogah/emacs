@@ -135,6 +135,46 @@ second mapping.  See register/vocabulary/identity-drawer-keys."
       'agent
     'branch))
 
+(defun jf/gptel--session-dir-from-branch-dir (branch-dir type)
+  "Derive a session's session-dir from BRANCH-DIR and session TYPE.
+
+BRANCH-DIR is the directory of the open session buffer's file.  TYPE is
+the resolved session type (`branch' or `agent', from
+`jf/gptel--session-type').
+
+For an `agent' session, BRANCH-DIR is itself the session root (agents do
+not branch) and is returned unchanged.
+
+For a `branch' session, walk UP from BRANCH-DIR to the nearest ancestor
+D such that (file-directory-p D/branches) AND BRANCH-DIR lives under
+D/branches/; return D.  The walk is depth-independent — no fixed `../..'
+count — so a relocated or arbitrarily nested session tree still resolves.
+
+When no `branches/' ancestor is found (corrupt / standalone layout),
+return BRANCH-DIR unchanged and log at debug; never signals.  See
+register/boundary/session-dir-marker-walk."
+  (let ((branch-dir (file-name-as-directory (expand-file-name branch-dir))))
+    (if (eq type 'agent)
+        branch-dir
+      ;; Nearest ancestor whose child `branches/' both exists AND
+      ;; encloses BRANCH-DIR.  `locate-dominating-file' supplies the
+      ;; depth-independent upward walk; the enclosure check rejects a
+      ;; stray `branches/' that does not actually contain this buffer.
+      (let ((dir (locate-dominating-file
+                  branch-dir
+                  (lambda (d)
+                    (let ((branches (file-name-as-directory
+                                     (expand-file-name "branches" d))))
+                      (and (file-directory-p branches)
+                           (string-prefix-p branches branch-dir)))))))
+        (or dir
+            (progn
+              (jf/gptel--log
+               'debug
+               "session-dir-from-branch-dir: no branches/ ancestor for %s; using branch-dir"
+               branch-dir)
+              branch-dir))))))
+
 (defun jf/gptel--branches-dir-path (session-dir)
   "Get path to branches directory in SESSION-DIR."
   (expand-file-name "branches" session-dir))
