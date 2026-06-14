@@ -68,9 +68,9 @@ runs through its full precedence chain (`magic-mode-alist' before
 with the opened buffer current; the buffer is killed and the file
 deleted afterward, even on error.
 
-Binds `magic-mode-alist' to the live value so the registration under
-test is in effect, and binds `enable-local-variables' nil so a stray
-file-local cookie in CONTENT cannot influence mode selection."
+Relies on the live (global) `magic-mode-alist' so the registration
+under test is in effect, and binds `enable-local-variables' nil so a
+stray file-local cookie in CONTENT cannot influence mode selection."
   (declare (indent 1) (debug (form body)))
   `(let* ((file (make-temp-file "gptel-chat-activation-" nil ".org"))
           (enable-local-variables nil)
