@@ -124,9 +124,14 @@ Caller is responsible for cleanup via `delete-directory'."
     (let (lonely)
 
       (before-each
-        ;; A directory with NO branches/ marker anywhere above it.
+        ;; A directory with NO branches/ marker anywhere above it. Guard the
+        ;; inherited precondition: locate-dominating-file walks all the way to
+        ;; root, so a stray branches/ ancestor above TMPDIR would silently void
+        ;; this test. Assert its absence so a pathological environment fails
+        ;; loudly at setup rather than as a confusing assertion mismatch.
         (setq lonely (file-name-as-directory
-                      (make-temp-file "gptel-session-dir-lonely-" t))))
+                      (make-temp-file "gptel-session-dir-lonely-" t)))
+        (expect (locate-dominating-file lonely "branches") :to-be nil))
 
       (after-each
         (delete-directory lonely t))
