@@ -54,3 +54,9 @@ design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchp
   and all three **remnant greps return nothing** — not a literally-zero buttercup failure count.
 - Already landed this cycle: the signature predicate + head-read, and identity-key emission at all
   three writers (with the case-sensitive anchoring + bounded-scan specs).
+
+## Cycle 2 updates (cycle-1781451784)
+
+### Cycle context
+- Cycle-2 added `config/gptel/sessions/test/filesystem/identity-resolution-spec.el` and `config/gptel/chat/test/mode-activation-spec.el` (all green). The config/gptel failure floor is **unchanged at 21 pre-existing** (async/scope; externalised in `.tasks/`); spec count grew 1288 → 1304.
+- This task's grep-audit (no `find-file-hook` / `auto-init-session-buffer` / `current-symlink` remnants in `config/gptel/**/*.org`) is the enforcement mechanism for `register/invariant/activation-and-identity-are-content-not-path` (still speculated). Run it AFTER `retire-find-file-hook` + `retire-current-symlink` land — until then the greps will (correctly) still match the legacy code.

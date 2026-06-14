@@ -52,3 +52,13 @@ design.md § Decision "D4. Binding"; specs `sessions-persistence` Requirement "C
   is **reconciled** and safe to depend on.
 - Identity resolution depends on `drawer-identity-resolver` (blocker, not yet built) and session-dir
   on `session-dir-ancestor-walk` (deferred-ready, not yet built) — both still open.
+
+## Cycle 2 updates (cycle-1781451784)
+
+### Cited register entries
+- `register/boundary/drawer-first-identity-resolution`: speculated → **confirmed** (resolvers merged 1ec479f). Use `jf/gptel--resolve-session-id` / `jf/gptel--resolve-branch-name` / `jf/gptel--session-type` directly; do not re-derive identity.
+- `register/boundary/session-content-signature`: reconciled (cycle-1). The guard `jf/gptel--session-signature-p` is safe to depend on; a scratch chat buffer (no drawer) is a no-op by construction.
+- `register/invariant/activation-and-identity-are-content-not-path`: still speculated; this task supplies the BINDING half (no path test in the guard).
+
+### Blocker status
+- Two of three blockers are now done: `drawer-identity-resolver` (resolvers) and `magic-mode-alist-activation` (the hook fires via content-addressed activation). **Remaining blocker: `session-dir-ancestor-walk`** (provides `jf/gptel--session-dir-from-branch-dir`, cycle-3). This task unblocks once the walk lands.

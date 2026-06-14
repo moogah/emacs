@@ -2,7 +2,8 @@
 name: magic-mode-alist-activation
 description: Register a magic-mode-alist entry that selects gptel-chat-mode when the session signature predicate matches, replacing path-based activation.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
+merge_commit: 7e524af
 relations:
   - "blocked-by:drawer-signature-and-head-read"
 ---

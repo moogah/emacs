@@ -2522,17 +2522,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/drawer-first-identity-resolution
    tier: boundary
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-1781448273 integrate (2026-06-14): UNCHANGED (still speculated).
-     The resolvers (jf/gptel--resolve-session-id / --resolve-branch-name /
-     --session-type) are NOT yet built — that is the drawer-identity-resolver
-     task (a future cycle). This cycle confirmed only the PRODUCER side:
-     emit-identity-keys-in-writers writes exactly the values the resolvers
-     will expect (canonical id string, bare branch name, parent id string),
-     and drawer-signature-and-head-read supplies the consumption substrate
-     (head-read alist keyed by bare key string). Full disposition deferred
-     to the cycle that implements drawer-identity-resolver.
+     cycle-1781451784 integrate (2026-06-14): speculated -> CONFIRMED. The
+     drawer-identity-resolver task (merged 1ec479f) built the three resolvers
+     (jf/gptel--resolve-session-id / --resolve-branch-name / --session-type)
+     and the boundary_contract held 1:1 — independently confirmed by the
+     implementor push-back, the author-blind reviewer (clean), and the
+     on-touch architect (clean, no scan-engine duplication). Resolver shape
+     the code wanted: per-resolver path args (session-id takes session-dir;
+     branch takes any branches/<branch>/-containing path; type takes the
+     drawer-alist alone). Drawer value wins; the single targeted
+     "/branches/\\([^/]+\\)/" regex (NOT the retired 3-layout matcher) and
+     basename are consulted only on the fallback branch; legacy no-key drawers
+     fall back correctly (beta/no-migration grace, asserted). NOTE: the three
+     CONSUMERS (bind-session-buffer, init-registry, discovery callers :209/:291)
+     are NOT yet rewired onto the resolvers — that is downstream integration
+     (discovery-reads-drawers, mode-hook-binder), classified by the architect
+     as planned scope, not drift. The mapping-function contract is confirmed;
+     consumer adoption is tracked by those open tasks.
+     ----
+     cycle-1781448273 integrate (2026-06-14): UNCHANGED (still speculated) —
+     producer side only; resolvers not yet built.
    load_bearing: true
    title: Drawer-first, basename-fallback resolution of session identity
    purpose: |
@@ -4967,6 +4978,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    entry_id: register/invariant/activation-and-identity-are-content-not-path
    tier: invariant
    status: speculated
+   status_note: |
+     cycle-1781451784 integrate (2026-06-14): still SPECULATED, partial
+     positive evidence recorded. The ACTIVATION half is now confirmed
+     end-to-end: magic-mode-alist-activation (merged 7e524af) recognizes a
+     drawer-bearing .org by content via magic-mode-alist precedence over
+     auto-mode-alist, and ordinary / prose-only-:GPTEL_PRESET: org files
+     correctly fall through to org-mode (false-match guard holds through
+     find-file-noselect). No path-based dispatch was introduced. Combined
+     with cycle-1 (producer + signature) and cycle-2 (drawer-first resolver,
+     now confirmed), the NEW content-addressed mechanism is proven for
+     activation and identity resolution. The invariant nonetheless remains
+     speculated BY ITS OWN TERMS ("After this change completes, NO production
+     code path may derive ... from path"): the legacy find-file-hook, the
+     layout regexes, jf/gptel--session-id-from-directory as a primary (in the
+     un-rewired discovery callers), and the `current` symlink all still run.
+     Full disposition lands when retire-find-file-hook + retire-current-symlink
+     + discovery-reads-drawers + mode-hook-binder retire/replace the legacy
+     path and the regression-sweep grep-audit passes.
    load_bearing: true
    title: Activation, identity, and binding derive from content, never path layout
    statement: |

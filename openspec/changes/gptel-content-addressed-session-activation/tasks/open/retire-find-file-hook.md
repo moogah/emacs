@@ -38,3 +38,11 @@ This is the core retirement: activation by content recognition replaces dispatch
 ## Context
 
 design.md § Decisions "D1", "D4", "D6"; specs `sessions-persistence` REMOVED "Auto-initialization enables gptel-chat-mode", `sessions-branching` REMOVED "Auto-initialization of new branches".
+
+## Cycle 2 updates (cycle-1781451784)
+
+### Already-shipped / now-available
+- `magic-mode-alist-activation` merged (7e524af): content-addressed activation is now **live** as the replacement for the find-file-hook path. The mechanism this task retires is now redundant with the new entry point — proceed with removal once `mode-hook-binder` lands (its other blocker).
+
+### Cited register entries
+- `register/invariant/activation-and-identity-are-content-not-path`: still **speculated**. The activation half is confirmed (magic merged); landing THIS task (+ `retire-current-symlink`, consumer migration) is what flips the full invariant to `confirmed`. This task is one of the entry's carriers. See `.orchestrator/cycles/cycle-1781451784/reconciliations/invariant-activation-and-identity-are-content-not-path.md`.

@@ -2,7 +2,8 @@
 name: drawer-identity-resolver
 description: Add drawer-first / basename-fallback resolution of session-id, branch-name, and session-type; demote jf/gptel--session-id-from-directory to the fallback path.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
+merge_commit: 1ec479f
 relations:
   - "blocked-by:drawer-signature-and-head-read"
 ---

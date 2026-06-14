@@ -45,3 +45,12 @@ design.md § Decision "D5. session-dir: ancestor-marker walk".
   `filesystem.org`, which already contains the new "Session Content Signature" section + the
   `jf/gptel--scan-session-drawer-keys` engine — add the ancestor-walk alongside, do not disturb them.
 - `register/boundary/session-dir-marker-walk` remains **speculated**; this task carries its disposition.
+
+## Cycle 2 updates (cycle-1781451784)
+
+### Already-shipped context
+- `drawer-identity-resolver` merged into `config/gptel/sessions/filesystem.org` (commit 1ec479f) — the file now contains the cycle-1 signature engine AND the new resolvers. Implement the ancestor-walk (`jf/gptel--session-dir-from-branch-dir`) **alongside** them; do not disturb existing forms.
+- This task was deferred from the cycle-2 batch precisely to avoid the `filesystem.org` collision with the resolver (now resolved by sequencing). It remains the **cycle-3 critical-path candidate**, pairs cleanly with the now-unblocked `discovery-reads-drawers` (disjoint files: filesystem.org vs registry.org+filesystem.org — note the overlap on filesystem.org, sequence or split as before).
+
+### Cited register entries
+- `register/boundary/session-dir-marker-walk`: still **speculated**; this task carries its disposition.

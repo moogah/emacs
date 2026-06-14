@@ -51,3 +51,18 @@ design.md § Decision "D7. Discovery"; specs `sessions-persistence` Requirement 
   (only `branching/`, `commands/`, `filesystem/` do); create it for the new spec.
 - **Meta M3 (load order):** `branching.el` loads before `commands.el`; if discovery needs drawer-write
   helpers keep that constraint in mind (registry init is read-only, so likely n/a).
+
+## Cycle 2 updates (cycle-1781451784)
+
+### Cited register entries
+- `register/boundary/drawer-first-identity-resolution`: speculated → **confirmed**. The resolvers are merged (commit 1ec479f). See `.orchestrator/cycles/cycle-1781451784/reconciliations/boundary-drawer-first-identity-resolution.md`.
+
+### Already-shipped / now-available
+- The resolvers this task depends on now exist in `config/gptel/sessions/filesystem.el`: `jf/gptel--resolve-session-id` and `jf/gptel--resolve-branch-name` take `(drawer-alist path)`; `jf/gptel--session-type` takes `(drawer-alist)`. Feed them the alist from `jf/gptel--read-session-drawer-head` (bare-key strings, string values, nil on no-drawer). **Do not re-implement the scan or the fallback logic** — call the resolvers.
+- **Unblocked**: both blockers (`drawer-signature-and-head-read`, `drawer-identity-resolver`) are now done. This task is now **ready** — a natural cycle-3 candidate alongside `session-dir-ancestor-walk`.
+
+### Meta-discoveries
+- `cross-subsystem-reference`: registry init is read-only, so the chat→sessions load-order constraint does not bite here; but if any drawer-write helper is ever needed, recall that `branching.el` loads before `commands.el`.
+
+### Reminder (carried)
+- `config/gptel/sessions/test/registry/` still does not exist — create it for the new spec.
