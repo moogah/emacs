@@ -461,40 +461,6 @@ since splicing in the wrong place would corrupt the drawer shape."
             end-marker)))
 #+end_src
 
-** Replace Drawer Property
-
-Branch creation copies the parent's drawer verbatim, so the new
-branch's drawer arrives carrying the parent's =:GPTEL_BRANCH:= value.
-That value must be OVERWRITTEN with the new branch name — appending
-would leave two =:GPTEL_BRANCH:= lines, violating both
-=register/shape/drawer-text-block= (one key-line per property) and
-=register/invariant/branch-drawer-shares-id-not-branch= (no duplicate
-key survives).  This helper performs an in-place value REPLACE on an
-existing key-line inside the =:PROPERTIES:= / =:END:= block, falling
-back to an append (via =jf/gptel--append-drawer-property=) when the
-key is absent so a parent drawer that predates identity-key emission
-still gains the key.
-
-#+begin_src emacs-lisp
-(defun jf/gptel--replace-drawer-property (drawer-text key value)
-  "Return DRAWER-TEXT with KEY's value set to VALUE inside its drawer.
-
-DRAWER-TEXT is a `register/shape/drawer-text-block' string.  KEY is a
-property name without surrounding colons (e.g. `\"GPTEL_BRANCH\"').
-VALUE is the new string value.
-
-When DRAWER-TEXT already contains a `:KEY: ...' line between
-`:PROPERTIES:' and `:END:', that line's value is replaced in place
-(no duplicate key is produced).  When the key is absent, the property
-is appended via `jf/gptel--append-drawer-property', so the result
-always carries exactly one `:KEY:' line.  Preserves the drawer's
-`:PROPERTIES:' / `:END:' adjacency and trailing newline."
-  (let ((line-re (concat "^:" (regexp-quote key) ":[ \t].*$")))
-    (if (string-match line-re drawer-text)
-        (replace-match (format ":%s: %s" key value) t t drawer-text)
-      (jf/gptel--append-drawer-property drawer-text key value))))
-#+end_src
-
 ** Sibling File Writer
 
 #+begin_src emacs-lisp

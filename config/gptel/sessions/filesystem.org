@@ -422,28 +422,35 @@ loaded) so it is safe to call at `magic-mode-alist' time."
   (save-excursion
     (save-restriction
       (widen)
-      (goto-char (point-min))
-      ;; The drawer must be the first non-blank content for us to
-      ;; recognise it; skip leading blank lines only.
-      (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
-        (forward-line 1))
-      (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
-        (let ((drawer-end
-               (save-excursion
-                 (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
-                   (line-beginning-position)))))
-          (when drawer-end
-            (let ((keys nil))
-              ;; Collect every :GPTEL_<KEY>: VALUE line before :END:.
-              ;; VALUE is optional (trailing whitespace allowed); the
-              ;; key match alone is sufficient for the signature.
-              (while (re-search-forward
-                      "^[ \t]*:\\(GPTEL_[A-Z0-9_]+\\):[ \t]*\\(.*?\\)[ \t]*$"
-                      drawer-end t)
-                (push (cons (match-string-no-properties 1)
-                            (match-string-no-properties 2))
-                      keys))
-              (nreverse keys))))))))
+      ;; Case-sensitive throughout: the signature is the *uppercase*
+      ;; :PROPERTIES: / :END: / :GPTEL_[A-Z0-9_]+: tokens, per
+      ;; register/invariant/signature-anchored-to-point-min-drawer.
+      ;; case-fold-search defaults to t, which would recognise a
+      ;; lowercase :properties:/:gptel_*: drawer and widen the surface
+      ;; magic-mode-alist hijacks into gptel-chat-mode; bind it off.
+      (let ((case-fold-search nil))
+        (goto-char (point-min))
+        ;; The drawer must be the first non-blank content for us to
+        ;; recognise it; skip leading blank lines only.
+        (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
+          (forward-line 1))
+        (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+          (let ((drawer-end
+                 (save-excursion
+                   (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                     (line-beginning-position)))))
+            (when drawer-end
+              (let ((keys nil))
+                ;; Collect every :GPTEL_<KEY>: VALUE line before :END:.
+                ;; VALUE is optional (trailing whitespace allowed); the
+                ;; key match alone is sufficient for the signature.
+                (while (re-search-forward
+                        "^[ \t]*:\\(GPTEL_[A-Z0-9_]+\\):[ \t]*\\(.*?\\)[ \t]*$"
+                        drawer-end t)
+                  (push (cons (match-string-no-properties 1)
+                              (match-string-no-properties 2))
+                        keys))
+                (nreverse keys)))))))))
 
 (defun jf/gptel--session-signature-p ()
   "Return non-nil if the current buffer is a gptel session by CONTENT.

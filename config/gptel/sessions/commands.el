@@ -341,24 +341,6 @@ since splicing in the wrong place would corrupt the drawer shape."
             (format ":%s: %s\n" key value)
             end-marker)))
 
-(defun jf/gptel--replace-drawer-property (drawer-text key value)
-  "Return DRAWER-TEXT with KEY's value set to VALUE inside its drawer.
-
-DRAWER-TEXT is a `register/shape/drawer-text-block' string.  KEY is a
-property name without surrounding colons (e.g. `\"GPTEL_BRANCH\"').
-VALUE is the new string value.
-
-When DRAWER-TEXT already contains a `:KEY: ...' line between
-`:PROPERTIES:' and `:END:', that line's value is replaced in place
-(no duplicate key is produced).  When the key is absent, the property
-is appended via `jf/gptel--append-drawer-property', so the result
-always carries exactly one `:KEY:' line.  Preserves the drawer's
-`:PROPERTIES:' / `:END:' adjacency and trailing newline."
-  (let ((line-re (concat "^:" (regexp-quote key) ":[ \t].*$")))
-    (if (string-match line-re drawer-text)
-        (replace-match (format ":%s: %s" key value) t t drawer-text)
-      (jf/gptel--append-drawer-property drawer-text key value))))
-
 (defun jf/gptel--write-system-prompt-sibling-file (session-dir preset-name preset-spec)
   "Write =system-prompt.<ext>= into SESSION-DIR from PRESET-SPEC.
 

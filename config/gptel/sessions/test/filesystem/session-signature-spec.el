@@ -104,6 +104,28 @@
        ":PROPERTIES:\n:ID: abc\n:END:\n:GPTEL_PRESET: coding\n")
       (expect (jf/gptel--session-signature-p) :to-be nil)))
 
+  ;; Pins the bounded drawer-scan path directly (not just the
+  ;; :PROPERTIES: first-line gate): a REAL keyless point-min drawer is
+  ;; the first content, and the GPTEL_ key lives in a src block AFTER
+  ;; :END:. The scan is bounded to the drawer, so this must be nil — a
+  ;; naive substring search would (wrongly) match.
+  (it "does not scan a :GPTEL_ key embedded in a src block after a keyless point-min drawer"
+    (with-temp-buffer
+      (jf-gptel-signature-test--in-buffer
+       (concat ":PROPERTIES:\n:ID: abc\n:END:\n\n"
+               "#+begin_src org\n:GPTEL_PRESET: coding\n#+end_src\n"))
+      (expect (jf/gptel--session-signature-p) :to-be nil)))
+
+  ;; The signature is the UPPERCASE :PROPERTIES:/:END:/:GPTEL_ tokens
+  ;; (register/invariant/signature-anchored-to-point-min-drawer); the
+  ;; scanner binds case-fold-search nil so a lowercase drawer does not
+  ;; widen the magic-mode-alist surface.
+  (it "is case-sensitive: rejects a lowercase :properties: / :gptel_preset: drawer"
+    (with-temp-buffer
+      (jf-gptel-signature-test--in-buffer
+       ":properties:\n:gptel_preset: coding\n:end:\n")
+      (expect (jf/gptel--session-signature-p) :to-be nil)))
+
   (it "returns nil (no error) for a plain-text / non-org buffer"
     (with-temp-buffer
       (fundamental-mode)
