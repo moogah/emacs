@@ -3,6 +3,10 @@ name: drawer-signature-and-head-read
 description: Add the gptel session-signature predicate (point-min drawer with a :GPTEL_ key) and a file head-read helper, the shared foundation for content-addressed activation and drawer-based discovery.
 change: gptel-content-addressed-session-activation
 status: ready
+cites_register_entries:
+  - register/boundary/session-content-signature
+  - register/invariant/signature-anchored-to-point-min-drawer
+  - register/vocabulary/identity-drawer-keys
 relations: []
 ---
 

@@ -1526,6 +1526,94 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   scope section keys: a =pcase= inlined at multiple sites, missing values
   at one of them, silently mis-routing operations.
 
+** identity-drawer-keys
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-identity-drawer-keys
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/identity-drawer-keys
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   enforcement_loci: [reader, writer]
+   unmapped_policy: ignore
+   unmapped_policy_rationale: |
+     Unlike the scope-key set (closed, error-on-unknown), the identity
+     key set is OPEN: a session.org drawer may legitimately carry other
+     :GPTEL_* keys (preset, model snapshot, scope keys). The signature
+     predicate (register/boundary/session-content-signature) keys on the
+     PRESENCE of any :GPTEL_ key, not on a closed identity set; the
+     resolvers read only the three identity keys and ignore the rest.
+   title: The session-identity drawer keys and the type-inference mapping
+   purpose: |
+     The set of :PROPERTIES:-drawer keys that carry a session's IDENTITY
+     (as distinct from its scope configuration, register/vocabulary/
+     drawer-key-set). This change makes these authoritative: writers emit
+     them (emit-identity-keys-in-writers), the resolvers read them
+     (register/boundary/drawer-first-identity-resolution), and discovery
+     keys the registry on them (discovery-reads-drawers). The canonical
+     mapping is drawer-key -> identity-field plus the type inference
+     (parent-id present => agent; absent => branch). Mis-reading branch
+     identity out of the directory path instead of this key set is the
+     path-archaeology coupling this change removes.
+   members:
+     - value: ":GPTEL_SESSION_ID:"
+       cardinality: scalar
+       description: |
+         The session's authoritative id. Drawer value wins; absent =>
+         fall back to jf/gptel--session-id-from-directory (basename).
+         Agents carry their OWN id (register/invariant/
+         branch-drawer-shares-id-not-branch governs branches).
+       identity_field: session-id
+       speculated_since: cycle-1 plan
+     - value: ":GPTEL_BRANCH:"
+       cardinality: scalar
+       description: |
+         The branch name. Drawer value wins; absent => fall back to the
+         enclosing branches/<branch>/ path segment. New (non-agent)
+         sessions write ":GPTEL_BRANCH: main".
+       identity_field: branch-name
+       speculated_since: cycle-1 plan
+     - value: ":GPTEL_PARENT_SESSION_ID:"
+       cardinality: scalar
+       description: |
+         Present on agent sessions only; links the agent to its parent
+         session. Already written today by persistent-agent--task. Its
+         PRESENCE is the sole discriminator of session type — no path
+         layout (branch / nested-agent / flat-agent) is consulted.
+       identity_field: parent-session-id
+       type_discriminator: true
+     - value: ":GPTEL_PRESET:"
+       cardinality: scalar
+       description: |
+         Pre-existing key (NOT new in this change). Listed here because
+         it is the :GPTEL_ key that legacy sessions already carry, so the
+         signature predicate recognizes pre-change sessions and the
+         basename-fallback grace path applies to them.
+       identity_field: none (legacy signature-bearer)
+   canonical_mapping_function: |
+     ;; Type inference — the only allowed discriminator of session type.
+     ;; If a branch/nested-agent/flat-agent path-regex cond reappears
+     ;; anywhere in activation/identity/discovery code, that is the
+     ;; register/invariant/activation-and-identity-are-content-not-path
+     ;; violation, not a second mapping.
+     (defun jf/gptel--session-type (drawer-alist)
+       "Return `agent' when the drawer carries GPTEL_PARENT_SESSION_ID,
+     else `branch'."
+       (if (alist-get "GPTEL_PARENT_SESSION_ID" drawer-alist nil nil #'equal)
+           'agent
+         'branch))
+   closed_set: false
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/boundary/drawer-first-identity-resolution
+     - register/boundary/session-content-signature
+     - register/invariant/branch-drawer-shares-id-not-branch
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
+
 ** drawer-key-set
    :PROPERTIES:
    :CUSTOM_ID: register-vocabulary-drawer-key-set
@@ -2317,6 +2405,166 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   motivating failure is a reshape (module A's output → module B's input)
   inlined at >1 site instead of going through a single canonical function;
   the inline copies drift over time.
+
+** session-content-signature
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-session-content-signature
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/session-content-signature
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Content recognition of a gptel session by its point-min drawer
+   purpose: |
+     The single recognition primitive shared by content-addressed
+     ACTIVATION (magic-mode-alist, register/boundary/chat-mode-session-
+     display) and offline DISCOVERY (init-registry). It answers one
+     question — "is this buffer/file a gptel session?" — by content, not
+     by path. Two functions form the boundary: a buffer predicate
+     (jf/gptel--session-signature-p, used by magic-mode-alist and the
+     mode-hook binder guard) and an on-disk head-read
+     (jf/gptel--read-session-drawer-head, used by discovery) that runs
+     the same drawer scan over a temp buffer. Reuses the native,
+     org-independent drawer-parsing shape proven in
+     gptel-chat--declared-preset (config/gptel/chat/menu.org:152-173) so
+     it is safe to run at magic-mode-alist time before org is loaded.
+   boundary_contract: |
+     RECOGNIZES a buffer/file as a gptel session iff, scanning only the
+     head: the first non-blank content is a ":PROPERTIES:" line, and
+     before the drawer's ":END:" there is at least one line whose key
+     matches "^[ \t]*:GPTEL_[A-Z0-9_]+:". Returns nil (never signals) on
+     a non-org or plain-text buffer. The head-read variant additionally
+     returns an alist of the :GPTEL_* keys found (at least
+     GPTEL_SESSION_ID, GPTEL_BRANCH, GPTEL_PARENT_SESSION_ID,
+     GPTEL_PRESET) for the resolvers to consume.
+   producers:
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--session-signature-p
+       note: buffer predicate (current buffer)
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--read-session-drawer-head
+       note: on-disk head-read -> drawer alist
+   consumers:
+     - file: config/gptel/chat/mode.org
+       function: magic-mode-alist registration
+       usage: select gptel-chat-mode by content
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel--bind-session-buffer
+       usage: guard (no-op without a signature)
+     - file: config/gptel/sessions/registry.org
+       function: jf/gptel--init-registry
+       usage: identity head-read per located session.org
+     - file: config/gptel/sessions/filesystem.org
+       function: discovery callers (:209, :291)
+       usage: identity head-read instead of basename
+   anchored_by: register/invariant/signature-anchored-to-point-min-drawer
+   related_entries:
+     - register/shape/drawer-text-block
+     - register/vocabulary/identity-drawer-keys
+     - register/boundary/chat-mode-session-display
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
+
+** drawer-first-identity-resolution
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-drawer-first-identity-resolution
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/drawer-first-identity-resolution
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: Drawer-first, basename-fallback resolution of session identity
+   purpose: |
+     The canonical mapping from "a session's drawer (+ its file/dir path
+     for fallback)" to its resolved identity: session-id, branch-name,
+     and type. Drawer value wins; absent => fall back to the legacy
+     path-derived value. This is the seam that lets new (self-describing)
+     sessions be move-safe while legacy sessions keep working with zero
+     rewrite — the no-migration grace path the beta constraint requires.
+     jf/gptel--session-id-from-directory is retained but DEMOTED to the
+     fallback branch only.
+   boundary_contract: |
+     resolve-session-id: drawer GPTEL_SESSION_ID, else
+       (jf/gptel--session-id-from-directory <session-dir>).
+     resolve-branch-name: drawer GPTEL_BRANCH, else the enclosing
+       branches/<branch>/ path segment (single targeted regex, NOT the
+       retired 3-layout matcher).
+     session-type: per register/vocabulary/identity-drawer-keys
+       (GPTEL_PARENT_SESSION_ID present => agent; absent => branch).
+     The directory basename/segment is consulted ONLY on the fallback
+     branch; when the drawer carries the key, the path is never read.
+   producers:
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--resolve-session-id
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--resolve-branch-name
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--session-type
+   consumers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel--bind-session-buffer
+     - file: config/gptel/sessions/registry.org
+       function: jf/gptel--init-registry
+     - file: config/gptel/sessions/filesystem.org
+       function: discovery callers (:209, :291)
+   fallback_function:
+     file: config/gptel/sessions/filesystem.org
+     function: jf/gptel--session-id-from-directory
+     status: retained-as-fallback-only
+   related_entries:
+     - register/vocabulary/identity-drawer-keys
+     - register/boundary/session-content-signature
+     - register/invariant/activation-and-identity-are-content-not-path
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
+
+** session-dir-marker-walk
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-session-dir-marker-walk
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/session-dir-marker-walk
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: session-dir derived by ancestor-marker walk, not fixed ../.. count
+   purpose: |
+     After the `current` symlink retires (register entry not needed; see
+     change D6), session-dir's only remaining job is "the directory under
+     which branches/ lives". This boundary computes that as its literal
+     definition via an ancestor-marker walk, replacing the retired fixed
+     ../.. / ../../.. layout walks. Move-safe; stores nothing. Finding a
+     CONTAINER by structural marker is legitimate navigation — distinct
+     from the rejected practice of parsing IDENTITY out of path segments.
+   boundary_contract: |
+     jf/gptel--session-dir-from-branch-dir, given branch-dir (the file's
+     own directory) and session type:
+       branch: nearest ancestor D of branch-dir such that
+         (file-directory-p (expand-file-name "branches" D)) and branch-dir
+         is under D/branches/ — via locate-dominating-file or an explicit
+         parent loop; depth-independent (no fixed ../.. count). Return D.
+       agent: return branch-dir itself (agents do not branch).
+     Robust when no branches/ ancestor exists (corrupt/standalone):
+     return branch-dir and log at debug.
+   producers:
+     - file: config/gptel/sessions/filesystem.org
+       function: jf/gptel--session-dir-from-branch-dir
+   consumers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel--bind-session-buffer
+   related_entries:
+     - register/boundary/drawer-first-identity-resolution
+     - register/invariant/activation-and-identity-are-content-not-path
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
 
 ** persistence-robustness-io
    :PROPERTIES:
@@ -4535,6 +4783,150 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
   - =scope-allow-once-is-single-shot= — an =allow-once= permission grants
     the next invocation only and self-removes. /Not in scope for
     gptel-scope-in-org-properties (untouched by this change)./
+
+** signature-anchored-to-point-min-drawer
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-signature-anchored-to-point-min-drawer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/signature-anchored-to-point-min-drawer
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: The session signature matches only a real point-min drawer, never prose
+   statement: |
+     jf/gptel--session-signature-p (register/boundary/session-content-
+     signature) MUST return non-nil ONLY for a buffer whose first
+     non-blank content is a genuine :PROPERTIES: drawer carrying a
+     :GPTEL_[A-Z0-9_]+: key line before :END:. It MUST return nil for:
+     an org file that merely mentions :GPTEL_PRESET: inside a paragraph
+     or a #+begin_src block; a file whose first content is anything other
+     than :PROPERTIES:; a non-org / plain-text buffer (without signaling).
+     The match is anchored to a real drawer at point-min — never a bare
+     substring search.
+   why_it_matters: |
+     Because the predicate is wired into magic-mode-alist, a false match
+     HIJACKS an ordinary user file into gptel-chat-mode at open time — a
+     user-visible regression that bypasses org-mode on a non-session file.
+     The whole content-addressed design rests on the claim "nothing but a
+     real gptel session presents this signature". A bare substring check
+     (the tempting shortcut) would match documentation of the feature,
+     this very register, and any org notes quoting a drawer key. The
+     anchoring is the load-bearing guard, not an optimization.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Buttercup spec config/gptel/sessions/test/filesystem/
+       session-signature-spec.el MUST cover the four scenarios: positive
+       (point-min drawer with :GPTEL_PRESET: or :GPTEL_SESSION_ID:),
+       false-match (prose / src-block mention), non-org buffer (nil, no
+       error), and old-session (:GPTEL_PRESET: only) positive. The
+       end-to-end false-match-on-open case is additionally asserted in
+       config/gptel/chat/test/mode-activation-spec.el (opening such a
+       file via find-file-noselect leaves it in org-mode).
+   related_entries:
+     - register/boundary/session-content-signature
+     - register/shape/drawer-text-block
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
+
+** branch-drawer-shares-id-not-branch
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-branch-drawer-shares-id-not-branch
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/branch-drawer-shares-id-not-branch
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: A new branch shares the session id but carries its own branch name
+   statement: |
+     When a branch is created from a parent session (branching.org), the
+     new branch's session.org drawer MUST carry the SAME
+     :GPTEL_SESSION_ID: as the parent (the shared session id) and its OWN
+     new :GPTEL_BRANCH: value. The parent's :GPTEL_BRANCH: value MUST NOT
+     leak into the child. Because branch creation copies the parent drawer
+     verbatim then overwrites, the overwrite of :GPTEL_BRANCH: must be a
+     drawer-key REPLACE (not append) so no duplicate key survives.
+   why_it_matters: |
+     The registry keys uniformly on "session-id/branch-name". If a branch
+     inherits the parent's :GPTEL_BRANCH:, two branches collide on the
+     same registry key and the second silently shadows the first — the
+     exact identity-collision class this change moves identity into the
+     drawer to make explicit. A leaked-then-appended key would also
+     violate register/shape/drawer-text-block (duplicated key line).
+   enforcement_mechanism:
+     kind: test
+     location: |
+       Buttercup spec config/gptel/sessions/test/commands/
+       identity-keys-emission-spec.el: a branch created from a parent
+       carries the same GPTEL_SESSION_ID as the parent and its own new
+       GPTEL_BRANCH (parent's branch value absent). Splice via
+       jf/gptel--append-drawer-property / a replace helper, preserving
+       the :PROPERTIES:/:END: adjacency of register/shape/drawer-text-block.
+   related_entries:
+     - register/vocabulary/identity-drawer-keys
+     - register/shape/drawer-text-block
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
+
+** activation-and-identity-are-content-not-path
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-activation-and-identity-are-content-not-path
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/activation-and-identity-are-content-not-path
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: Activation, identity, and binding derive from content, never path layout
+   statement: |
+     After this change completes, NO production code path in the gptel
+     sessions/chat/persistent-agent subsystems may derive session
+     ACTIVATION, IDENTITY, or buffer BINDING from directory-layout
+     reverse-engineering. Specifically there MUST be: no find-file-hook
+     registration that dispatches by path; no jf/gptel--auto-init-session-
+     buffer; no branch/nested-agent/flat-agent layout regexes; no fixed
+     ../.. / ../../.. walks used to recover identity; and no `current`
+     symlink writer/reader/constant. The only path-derived value still
+     permitted is the basename/segment FALLBACK in register/boundary/
+     drawer-first-identity-resolution, used solely when a drawer key is
+     absent. Locating a container directory by structural marker
+     (register/boundary/session-dir-marker-walk) is permitted — that is
+     navigation, not identity.
+   why_it_matters: |
+     This is the change's whole thesis. The pre-change pipeline paid a
+     per-open cost on every unrelated file and coupled identity to where
+     a session happened to sit on disk — fragile to any reorganization
+     (the merged workspaces package being one). Leaving any write-only
+     remnant (a dead symlink writer, a stale regex, a still-registered
+     hook) would mean the coupling was not actually removed, only
+     shadowed — the "complete removal" intent of D1/D4/D6 unmet.
+   enforcement_mechanism:
+     kind: test + grep-audit
+     location: |
+       Static remnant greps (regression-sweep task) MUST all return
+       nothing in config/gptel/**/*.org:
+         grep -rn "find-file-hook" ;
+         grep -rn "auto-init-session-buffer" ;
+         grep -rn "current-symlink\|get-current-branch-name\|current-link".
+       Behavioral coverage: mode-activation-spec.el (content activation),
+       mode-hook-binder-spec.el (binding without path test), and the
+       reworked auto-init-*-spec.el (content-addressed equivalent of the
+       former find-file-hook assertions).
+   related_entries:
+     - register/boundary/session-content-signature
+     - register/boundary/drawer-first-identity-resolution
+     - register/boundary/session-dir-marker-walk
+     - register/boundary/chat-mode-session-display
+   discovered_from: gptel-content-addressed-session-activation
+   discovered_by: architect
+   #+end_src
 
 ** persisted-form-readable-by-construction
    :PROPERTIES:
