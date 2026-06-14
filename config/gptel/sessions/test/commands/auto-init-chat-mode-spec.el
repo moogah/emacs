@@ -51,17 +51,25 @@
   (push (jf/gptel--registry-key session-id branch-name)
         jf-gptel-auto-init-test--registry-keys))
 
-(defun jf-gptel-auto-init-test--write-session-with-drawer
-    (branch-dir preset &optional parent-id)
+(cl-defun jf-gptel-auto-init-test--write-session-with-drawer
+    (branch-dir preset &optional parent-id &key session-id branch)
   "Write a `session.org' with a PROPERTIES drawer into BRANCH-DIR.
 PRESET is a symbol written as `:GPTEL_PRESET:'.  PARENT-ID, when
-non-nil, is written as `:GPTEL_PARENT_SESSION_ID:'.  Returns the
+non-nil, is written as `:GPTEL_PARENT_SESSION_ID:'.  SESSION-ID and
+BRANCH, when non-nil, are written as `:GPTEL_SESSION_ID:' and
+`:GPTEL_BRANCH:' so the content-addressed binder
+\(`jf/gptel--bind-session-buffer', also on `gptel-chat-mode-hook')
+resolves identity drawer-first instead of from the path.  Returns the
 absolute path to the created file."
   (make-directory branch-dir t)
   (let ((session-file (expand-file-name "session.org" branch-dir)))
     (with-temp-file session-file
       (insert ":PROPERTIES:\n")
       (insert (format ":GPTEL_PRESET: %s\n" preset))
+      (when session-id
+        (insert (format ":GPTEL_SESSION_ID: %s\n" session-id)))
+      (when branch
+        (insert (format ":GPTEL_BRANCH: %s\n" branch)))
       (when parent-id
         (insert (format ":GPTEL_PARENT_SESSION_ID: %s\n" parent-id)))
       (insert ":END:\n"
@@ -222,8 +230,19 @@ absolute path to the created file."
                       (expand-file-name
                        "bar-20260420000000/branches/feature-x" temp-root))
                      (session-file
+                      ;; Self-describing drawer: GPTEL_SESSION_ID /
+                      ;; GPTEL_BRANCH present so the content-addressed
+                      ;; binder (`jf/gptel--bind-session-buffer', a
+                      ;; `gptel-chat-mode-hook' entry that fires during
+                      ;; activation) resolves identity drawer-first and
+                      ;; agrees with the path layout.  A bare parent-id
+                      ;; drawer in a `branches/' path would otherwise be
+                      ;; classified `agent' by content (the parent-id key
+                      ;; is the sole type discriminator) and yield the
+                      ;; branch-dir basename as session-id.
                       (jf-gptel-auto-init-test--write-session-with-drawer
-                       branch-dir child-preset "foo-20260420000000")))
+                       branch-dir child-preset "foo-20260420000000"
+                       :session-id "bar-20260420000000" :branch "feature-x")))
                 (setq buf (find-file-noselect session-file))
                 (with-current-buffer buf
                   (jf-gptel-auto-init-test--register-cleanup
@@ -246,7 +265,13 @@ absolute path to the created file."
 
     (it "does not fire auto-init for ~/notes/chat.org"
       (let ((buf (generate-new-buffer "chat.org"))
-            (chat-mode-called nil))
+            (chat-mode-called nil)
+            ;; Assert this call adds NO registry entry, independent of
+            ;; entries other examples may have left behind (the binder
+            ;; that now runs on `gptel-chat-mode-hook' can register
+            ;; real on-disk fixtures in sibling examples).
+            (registry-count-before
+             (hash-table-count jf/gptel--session-registry)))
         (unwind-protect
             (with-current-buffer buf
               (setq buffer-file-name (expand-file-name "~/notes/chat.org"))
@@ -262,10 +287,9 @@ absolute path to the created file."
                 ;; the caller's responsibility; the hook only fires on
                 ;; session-file paths).
                 (expect chat-mode-called :to-be nil)
-                ;; Registry key absent (sanity: registry entries are
-                ;; keyed on session-id/branch-name; nothing was added).
+                ;; No NEW registry entry added by this call.
                 (expect (hash-table-count jf/gptel--session-registry)
-                        :to-equal 0)))
+                        :to-equal registry-count-before)))
           (kill-buffer buf)))))
 
   (describe "persistence side-effects are suppressed"

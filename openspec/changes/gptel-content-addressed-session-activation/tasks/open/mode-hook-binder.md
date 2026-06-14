@@ -74,3 +74,87 @@ design.md § Decision "D4. Binding"; specs `sessions-persistence` Requirement "C
 
 ### Carried meta-discovery (cycle-2, still load-bearing here)
 - **Cross-subsystem reference:** this binder is chat-side code calling sessions symbols. Use a forward `declare-function` + call-time resolution (the hook fires only after both subsystems load), **never** a `require`/autoload of sessions from chat — `jf/load-module` loads by absolute path, so a feature-name autoload won't resolve and it would invert the one-directional chat→sessions dependency.
+
+## Observations
+
+- **The binder LIVES IN sessions (`commands.org`), not chat.** The brief framed this as "chat-side-adjacent code calling sessions symbols," but the file we modify (`config/gptel/sessions/commands.org`) is itself a sessions module that already `require`s `gptel-session-filesystem` / `gptel-session-registry`. So every sessions symbol the binder calls (`jf/gptel--session-signature-p`, the resolvers, `jf/gptel--session-dir-from-branch-dir`, `jf/gptel--register-session`) is directly available at load time — no `declare-function` needed for them. The cross-subsystem `declare-function` rule applies only to `gptel-chat-mode` (the chat symbol), which `commands.org` already declares at the top (line 76). No new forward declaration was required; the carried meta-discovery is satisfied by the pre-existing declaration. The hook is *registered* by a sessions module onto a chat-defined hook variable (`gptel-chat-mode-hook`), which is fine — registering a function on a hook does not require the hook's defining feature to be loaded.
+
+- **Drawer-alist sourced from the LIVE buffer, not a disk re-read.** The brief's reference material was unsure whether to call `jf/gptel--read-session-drawer-head` (on-disk, takes a FILE) or a buffer variant. I used `jf/gptel--scan-session-drawer-keys` (the current-buffer scanner that `jf/gptel--session-signature-p` itself wraps), because the hook runs inside the live session buffer whose content is authoritative and may differ from disk (e.g. unsaved edits, or activation before the visit completes). It returns the identical bare-string-keyed alist `jf/gptel--session-type` / `jf/gptel--resolve-*` expect, so no signature mismatch. `jf/gptel--read-session-drawer-head` would also work but adds a redundant disk read.
+
+- **Adjacent-test breakage from hook coexistence (RESOLVED, surgically).** Installing the binder on `gptel-chat-mode-hook` broke two pre-existing examples in `auto-init-chat-mode-spec.el` that drive `find-file-noselect` against real on-disk session files. Root cause is a genuine model divergence (see Discoveries disc-2), not a binder defect:
+  1. The `parent-session-id` example wrote a drawer with `GPTEL_PARENT_SESSION_ID` but no `GPTEL_SESSION_ID`/`GPTEL_BRANCH`, in a `branches/feature-x/` path. The content classifier (`jf/gptel--session-type`) keys type SOLELY on the presence of `GPTEL_PARENT_SESSION_ID` ⇒ `agent`; the agent branch of `session-dir-from-branch-dir` returns branch-dir itself, so session-id resolved to the dir basename `feature-x` instead of `bar-...`. Because the binder runs first (during mode activation) and sets `jf/gptel--session-id`, the old `find-file-hook` auto-init then early-returns on its `(not (bound-and-true-p jf/gptel--session-id))` guard, so the binder's value is what's observed. **Fix:** made that fixture self-describing (added `:GPTEL_SESSION_ID:`/`:GPTEL_BRANCH:` via new `cl-defun` keyword args) so content and path agree. This is the correct authoring for a real branch session under the new model.
+  2. The `non-session .org` example asserted absolute `hash-table-count == 0`; the binder legitimately registers the real fixture from example (1), leaking one entry past that test's key-scoped cleanup. **Fix:** changed the assertion to "no NEW entry vs. count-before" — a more correct framing that does not depend on global registry emptiness.
+  These are minimal test-fixture corrections in an adjacent (path-layout) spec, documented rather than expanded; no production behavior of the old auto-init was touched.
+
+- **Old `find-file-hook` auto-init was intentionally NOT removed.** It coexists with the new binder for now (the binder runs first and, by setting `jf/gptel--session-id`, suppresses auto-init for signature-bearing buffers). Removing the path-layout auto-init is a separate task's scope; see Discoveries disc-3 for the coexistence/teardown follow-up signal.
+
+## Discoveries
+- discovery_id: disc-mode-hook-binder-1
+  class: invariant-gap
+  description: |
+    register/invariant/activation-and-identity-are-content-not-path
+    (SPECULATED) held 1:1 for the BINDING half. The binder uses NO
+    path-layout test anywhere: the guard is the content signature
+    (jf/gptel--session-signature-p, a :GPTEL_ drawer key), session-type
+    is drawer-only (jf/gptel--session-type), session-id/branch-name come
+    from the drawer-first resolvers, and the ONLY path consumption is
+    branch-dir = (file-name-directory (buffer-file-name)) [derived, not
+    reverse-engineered] and session-dir via the structural branches/
+    marker walk [navigation, not identity parsing]. No path test was
+    needed to make binding work; the invariant did not have to be
+    relaxed.
+  affected_register_entry: register/invariant/activation-and-identity-are-content-not-path
+  recommendation: |
+    Partial-positive evidence for the BINDING half. Promote toward
+    confirmed once the ACTIVATION and IDENTITY halves (other tasks) also
+    land content-only. The binder contributes no path-layout violation.
+
+- discovery_id: disc-mode-hook-binder-2
+  class: interface-drift
+  description: |
+    The content classifier and the legacy path-layout auto-init DISAGREE
+    on the type of a session whose drawer carries GPTEL_PARENT_SESSION_ID
+    but whose ON-DISK PATH is a branch layout (.../branches/<b>/session.org).
+    Content model: GPTEL_PARENT_SESSION_ID present ⇒ 'agent ⇒
+    session-dir = branch-dir, session-id = branch-dir basename. Path
+    model (old auto-init): a branches/ path ⇒ 'branch ⇒ session-dir =
+    ../.. , session-id from the grandparent dir. A test fixture in
+    auto-init-chat-mode-spec.el used exactly this contradictory
+    combination (parent-id drawer in a branch path) and surfaced the
+    drift when the binder began running first on gptel-chat-mode-hook.
+    Per register/vocabulary/identity-drawer-keys and
+    register/boundary/drawer-first-identity-resolution, the content
+    classification is authoritative; the fixture was the bug (a real
+    agent session lives at .../agents/<name>/, and a real branch session
+    omits parent-id or includes its own GPTEL_SESSION_ID). Fixed by
+    making the fixture self-describing.
+  affected_register_entry: register/boundary/session-dir-marker-walk
+  recommendation: |
+    When the legacy path-layout auto-init is retired (separate task),
+    re-audit any session.org fixtures/data that pair a
+    GPTEL_PARENT_SESSION_ID drawer with a branches/ path — under the
+    content model those are agent-typed and resolve to branch-dir. No
+    code change to the marker walk is needed; its (branch-dir type)
+    contract held exactly as pinned.
+
+- discovery_id: disc-mode-hook-binder-3
+  class: duplication
+  description: |
+    Two hooks now derive-and-set the four buffer-local session vars:
+    the new content-addressed jf/gptel--bind-session-buffer on
+    gptel-chat-mode-hook (authoritative, runs first during activation),
+    and the legacy path-layout jf/gptel--auto-init-session-buffer on
+    find-file-hook. They coexist because the binder sets
+    jf/gptel--session-id first, and auto-init early-returns on its
+    (not (bound-and-true-p jf/gptel--session-id)) guard. This is benign
+    today (binder wins for signature-bearing buffers; auto-init only
+    acts on signatureless legacy paths the binder skips) but is
+    redundant machinery and a path-layout dependency that the change as
+    a whole intends to eliminate.
+  affected_register_entry: register/invariant/activation-and-identity-are-content-not-path
+  recommendation: |
+    A follow-up task should retire jf/gptel--auto-init-session-buffer and
+    its find-file-hook registration (config/gptel/sessions/commands.org)
+    once content-addressed ACTIVATION via magic-mode-alist fully
+    supersedes find-file-hook detection, removing the last path-layout
+    cond. Out of scope for mode-hook-binder (additive only).
