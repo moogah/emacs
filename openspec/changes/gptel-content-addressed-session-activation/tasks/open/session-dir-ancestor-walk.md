@@ -54,3 +54,78 @@ design.md § Decision "D5. session-dir: ancestor-marker walk".
 
 ### Cited register entries
 - `register/boundary/session-dir-marker-walk`: still **speculated**; this task carries its disposition.
+
+## Observations
+
+- **`locate-dominating-file` cleanly implements the contract.** The boundary's
+  "via locate-dominating-file or an explicit parent loop" guidance held: a
+  predicate of `(and (file-directory-p D/branches) (string-prefix-p D/branches branch-dir))`
+  is the whole walk. No explicit parent loop was needed. The enclosure check
+  (`string-prefix-p`) is load-bearing: without it, a stray `branches/` directory
+  higher up the tree that does NOT contain the buffer would be falsely matched.
+- **Return value is not truename-normalized.** `locate-dominating-file` returns
+  the ancestor as it walked it (derived from the expanded BRANCH-DIR), not its
+  truename. On macOS the temp tree resolves through `/var -> /private/var`, so
+  the spec compares with `file-equal-p` rather than `string=`/`:to-equal`.
+  Downstream consumers (`jf/gptel--bind-session-buffer`, a later task) should
+  likewise treat the result as a path to compare semantically, not a canonical
+  string. Flagged as a discovery (interface-drift, low severity).
+- **Agent branch never walks.** For `type = agent` the function returns BRANCH-DIR
+  immediately. This is correct per D5, but it means the agent path does NO
+  structural validation — a buffer mis-typed as `agent` whose dir is not actually
+  an `agents/<agent>/` leaf would silently get its own dir as session-dir. Type
+  comes from the drawer (`GPTEL_PARENT_SESSION_ID` presence), so this is only
+  reachable via a corrupt drawer; out of scope here, noted for completeness.
+- **No-op on already-correct input.** Calling with an already-resolved root that
+  has no `branches/` child returns it unchanged (the corrupt/standalone branch),
+  so the function is safe to call defensively. Stores nothing, as specified.
+
+## Discoveries
+
+- discovery_id: disc-session-dir-ancestor-walk-1
+  class: deviation
+  description: |
+    The speculated boundary `register/boundary/session-dir-marker-walk` held
+    1:1 with implementation. Both prongs of the contract are satisfied exactly
+    as written:
+      - branch: nearest ancestor D with (file-directory-p D/branches) AND
+        branch-dir under D/branches/ — implemented via locate-dominating-file
+        with a predicate combining file-directory-p and string-prefix-p; fully
+        depth-independent (no fixed ../.. count), proven by a deeper/relocated
+        layout spec with an extra wrapping directory.
+      - agent: returns branch-dir itself (no walk).
+      - corrupt/standalone: returns branch-dir and logs at debug; never signals.
+    No surprises; the entry should be CONFIRMED. The producer is
+    config/gptel/sessions/filesystem.org :: jf/gptel--session-dir-from-branch-dir
+    with signature (branch-dir type), where `type` is the symbol returned by
+    jf/gptel--session-type (`branch' | `agent').
+  affected_register_entry: register/boundary/session-dir-marker-walk
+  recommendation: |
+    Confirm the entry (speculated -> confirmed). Pin the producer signature as
+    (branch-dir type) — the function takes the already-resolved TYPE symbol, not
+    a drawer-alist, keeping it a pure structural walk decoupled from drawer
+    parsing. The boundary text's "(from jf/gptel--session-type, or the presence
+    of :GPTEL_PARENT_SESSION_ID:)" describes how the CALLER derives type; the
+    function itself receives the resolved symbol.
+
+- discovery_id: disc-session-dir-ancestor-walk-2
+  class: interface-drift
+  description: |
+    The function's return value is NOT truename-normalized. locate-dominating-file
+    returns the ancestor as constructed from the expanded (but not truename'd)
+    BRANCH-DIR. The corrupt-path branch returns the input BRANCH-DIR (passed
+    through file-name-as-directory + expand-file-name). Consumers must compare
+    the result semantically (file-equal-p) rather than by string identity, and
+    must not assume canonicalization (e.g. macOS /var vs /private/var, symlinked
+    session roots).
+  affected_register_entry: register/boundary/session-dir-marker-walk
+  recommendation: |
+    When wiring the downstream consumer
+    (config/gptel/sessions/commands.org :: jf/gptel--bind-session-buffer),
+    use file-equal-p / expand-file-name for any comparison or storage of the
+    session-dir, OR decide that the boundary should specify truename
+    normalization and add (file-truename ...) at the producer. Current
+    implementation deliberately does NOT normalize, to keep the walk a pure
+    structural operation and avoid resolving symlinks the user intentionally
+    placed in the session tree. Low severity; recorded so the integrate phase
+    can pick a normalization policy explicitly.
