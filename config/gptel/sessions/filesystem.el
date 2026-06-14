@@ -263,5 +263,84 @@ Checks for existence and presence of session.org file."
   (and (file-directory-p dir)
        (file-exists-p (jf/gptel--context-file-path dir))))
 
+(defun jf/gptel--scan-session-drawer-keys ()
+  "Scan the head of the current buffer for a gptel session drawer.
+
+Assumes the caller has positioned point and widened as needed.  Skips
+leading blank lines, then requires a `:PROPERTIES:' line as the first
+non-blank content.  If found, collects every `:GPTEL_<KEY>: VALUE' line
+before the drawer's `:END:' and returns them as an alist keyed by the
+bare key string (e.g. \"GPTEL_SESSION_ID\").
+
+Returns nil when the first non-blank content is not a `:PROPERTIES:'
+drawer, when the drawer has no `:END:', or when the drawer carries no
+`:GPTEL_*:' key.  Never signals on a non-org / plain-text buffer.
+
+Uses native `re-search-forward' (no dependency on `org-mode' being
+loaded) so it is safe to call at `magic-mode-alist' time."
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      ;; The drawer must be the first non-blank content for us to
+      ;; recognise it; skip leading blank lines only.
+      (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
+        (forward-line 1))
+      (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+        (let ((drawer-end
+               (save-excursion
+                 (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                   (line-beginning-position)))))
+          (when drawer-end
+            (let ((keys nil))
+              ;; Collect every :GPTEL_<KEY>: VALUE line before :END:.
+              ;; VALUE is optional (trailing whitespace allowed); the
+              ;; key match alone is sufficient for the signature.
+              (while (re-search-forward
+                      "^[ \t]*:\\(GPTEL_[A-Z0-9_]+\\):[ \t]*\\(.*?\\)[ \t]*$"
+                      drawer-end t)
+                (push (cons (match-string-no-properties 1)
+                            (match-string-no-properties 2))
+                      keys))
+              (nreverse keys))))))))
+
+(defun jf/gptel--session-signature-p ()
+  "Return non-nil if the current buffer is a gptel session by CONTENT.
+
+Recognizes a buffer iff, scanning only the head: the first non-blank
+content is a `:PROPERTIES:' drawer carrying at least one
+`:GPTEL_[A-Z0-9_]+:' key line before `:END:'.  Returns nil — without
+signaling — for a non-org / plain-text buffer, for an org buffer that
+merely mentions a `:GPTEL_' key in prose or a `#+begin_src' block, and
+for any buffer whose first content is not a `:PROPERTIES:' drawer.
+
+The match is anchored to a real drawer at `point-min' — NEVER a bare
+substring search.  Wired into `magic-mode-alist', so a false match would
+hijack an ordinary user file into `gptel-chat-mode' at open time."
+  (and (jf/gptel--scan-session-drawer-keys) t))
+
+(defun jf/gptel--read-session-drawer-head (file)
+  "Read FILE's head and return its gptel session-drawer keys, or nil.
+
+Reads FILE into a temp buffer and runs the same point-min drawer scan as
+`jf/gptel--session-signature-p', returning an alist of the `:GPTEL_*:'
+keys found, keyed by the bare key string (e.g. \"GPTEL_SESSION_ID\" ->
+\"<id>\").  Includes any identity keys present — at least
+`GPTEL_SESSION_ID', `GPTEL_BRANCH', `GPTEL_PARENT_SESSION_ID', and
+`GPTEL_PRESET' when authored.  Returns nil when FILE has no point-min
+session drawer or does not exist (never signals on a missing file).
+
+The session drawer is small and always at the file head, so reading the
+whole file is correct today.  A byte cap belongs at the
+`insert-file-contents' call below (its 3rd/4th args bound the read) —
+once the cap is added, choose a bound large enough to always contain the
+drawer."
+  (when (and file (file-readable-p file))
+    (with-temp-buffer
+      ;; NOTE: bounded head read — pass BEG/END to `insert-file-contents'
+      ;; here to cap the read at the file head once a byte cap is chosen.
+      (insert-file-contents file)
+      (jf/gptel--scan-session-drawer-keys))))
+
 (provide 'gptel-session-filesystem)
 ;;; filesystem.el ends here
