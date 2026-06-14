@@ -5006,6 +5006,34 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1781458723 integrate (2026-06-14): still SPECULATED, BINDING-half
+     positive evidence now recorded. mode-hook-binder (merged 919577a) supplied
+     jf/gptel--bind-session-buffer on gptel-chat-mode-hook with a CONTENT-ONLY
+     guard (jf/gptel--session-signature-p — a :GPTEL_ drawer key, NO path-layout
+     test); identity (id/branch/type) is drawer-first via the resolvers, and the
+     only path consumption is branch-dir = (file-name-directory (buffer-file-name))
+     [derived, not reverse-engineered] + session-dir via the structural branches/
+     marker walk [navigation, not identity]. Independently confirmed by the
+     implementor push-back (disc-mode-hook-binder-1), the on-touch architect
+     (arch-cycle-1781458723-ontouch-clean), and the author-blind reviewer (0
+     findings). ACTIVATION (cycle-2, 7e524af) + IDENTITY (cycle-2 resolvers,
+     confirmed) + BINDING (this cycle) are now all proven content-only. The
+     invariant STILL remains speculated by its own terms ("NO production code
+     path may derive ... from path"): the legacy find-file-hook auto-init
+     (jf/gptel--auto-init-session-buffer) still runs (benign — the binder runs
+     first and self-suppresses auto-init via its (not (bound-and-true-p
+     jf/gptel--session-id)) guard; disc-mode-hook-binder-3), the layout regexes,
+     jf/gptel--session-id-from-directory as a primary in the un-rewired
+     commands/branching/persistent-agent callers, and the `current` symlink all
+     still run. Full disposition lands when retire-find-file-hook +
+     retire-current-symlink + the 3 caller migrations retire the legacy path and
+     regression-sweep's grep-audit passes. CARRY (disc-mode-hook-binder-2): when
+     retiring the legacy path-layout auto-init, re-audit any session.org
+     fixtures/data that pair GPTEL_PARENT_SESSION_ID with a branches/ path —
+     under the content model those are agent-typed (parent-id is the sole type
+     discriminator) and resolve to branch-dir, NOT a branch session.
+     See .orchestrator/cycles/cycle-1781458723/reconciliations/invariant-activation-and-identity-are-content-not-path.md.
+     ----
      cycle-1781451784 integrate (2026-06-14): still SPECULATED, partial
      positive evidence recorded. The ACTIVATION half is now confirmed
      end-to-end: magic-mode-alist-activation (merged 7e524af) recognizes a

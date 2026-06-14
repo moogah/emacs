@@ -2,7 +2,8 @@
 name: mode-hook-binder
 description: Add a guarded gptel-chat-mode-hook binder that sets the four buffer-local session vars, registers the buffer, and enables autosave using drawer identity and the ancestor-walk session-dir.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
+merge_commit: 919577a
 relations:
   - "blocked-by:drawer-identity-resolver"
   - "blocked-by:session-dir-ancestor-walk"
