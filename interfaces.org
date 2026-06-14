@@ -2560,7 +2560,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        (jf/gptel--session-id-from-directory <session-dir>).
      resolve-branch-name: drawer GPTEL_BRANCH, else the enclosing
        branches/<branch>/ path segment (single targeted regex, NOT the
-       retired 3-layout matcher).
+       retired 3-layout matcher). CALLER OBLIGATION (cycle-3): the fallback
+       regex "/branches/\\([^/]+\\)/" requires a TRAILING separator after the
+       branch segment, so callers must pass a path that includes the trailing
+       branches/<branch>/ segment — e.g. the session.org FILE path
+       (.../branches/<branch>/session.org), NOT a bare branch-dir
+       (.../branches/<branch>, no trailing slash) which would yield nil on the
+       fallback branch. All current consumers (init-registry, discovery
+       callers) honor this by passing the session-file path.
      session-type: per register/vocabulary/identity-drawer-keys
        (GPTEL_PARENT_SESSION_ID present => agent; absent => branch).
      The directory basename/segment is consulted ONLY on the fallback
@@ -2599,7 +2606,27 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/session-dir-marker-walk
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781453946 integrate (2026-06-14): speculated -> CONFIRMED. The
+     session-dir-ancestor-walk task (merged df3dcf2) built
+     jf/gptel--session-dir-from-branch-dir and the boundary_contract held 1:1
+     — independently confirmed by the implementor push-back ("held 1:1"), the
+     author-blind reviewer (1 test-robustness advisory only, inline-fixed
+     3efea01), the on-touch path (n/a, load_bearing:false) and the end-of-cycle
+     architect (clean; contract matched merged code exactly). Implemented via
+     locate-dominating-file with a predicate combining file-directory-p AND
+     string-prefix-p (the enclosure check is load-bearing: rejects a stray
+     branches/ ancestor that does not enclose the buffer); fully
+     depth-independent (proven by a deeper/relocated-layout spec). PRODUCER
+     SIGNATURE PINNED: (branch-dir type) where `type` is the symbol returned by
+     jf/gptel--session-type (`branch'|`agent') — the function takes the
+     resolved TYPE symbol, not a drawer-alist, keeping it a pure structural
+     walk decoupled from drawer parsing. CONSUMER (bind-session-buffer) is the
+     downstream mode-hook-binder task — planned adoption, not drift. Return
+     value is NOT truename-normalized (locate-dominating-file derives from the
+     expanded branch-dir); consumers must compare paths semantically
+     (file-equal-p), as the spec does — recorded as disc-session-dir-ancestor-walk-2.
    load_bearing: false
    title: session-dir derived by ancestor-marker walk, not fixed ../.. count
    purpose: |

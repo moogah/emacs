@@ -60,3 +60,9 @@ design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchp
 ### Cycle context
 - Cycle-2 added `config/gptel/sessions/test/filesystem/identity-resolution-spec.el` and `config/gptel/chat/test/mode-activation-spec.el` (all green). The config/gptel failure floor is **unchanged at 21 pre-existing** (async/scope; externalised in `.tasks/`); spec count grew 1288 → 1304.
 - This task's grep-audit (no `find-file-hook` / `auto-init-session-buffer` / `current-symlink` remnants in `config/gptel/**/*.org`) is the enforcement mechanism for `register/invariant/activation-and-identity-are-content-not-path` (still speculated). Run it AFTER `retire-find-file-hook` + `retire-current-symlink` land — until then the greps will (correctly) still match the legacy code.
+
+## Cycle 3 updates (cycle-1781453946)
+
+- **1 of 3 blockers cleared:** `discovery-reads-drawers` is done (7dd50b5). Remaining: `retire-find-file-hook`, `retire-current-symlink`.
+- Cycle-3 added 2 spec files (session-dir walk + drawer discovery), all green; full-suite floor unchanged at 23 (async/scope cluster), now 2311 specs (+11 green this cycle).
+- **Extend the grep-audit (T2):** sibling-branch session-id consistency is now delegated to the WRITER invariant `register/invariant/branch-drawer-shares-id-not-branch` (discovery no longer enforces a single session-id per session directory — by design, Decision D7). The sweep should verify the writers still emit the same `:GPTEL_SESSION_ID:` to all branch drawers of a session, since discovery now trusts that rather than re-checking it.

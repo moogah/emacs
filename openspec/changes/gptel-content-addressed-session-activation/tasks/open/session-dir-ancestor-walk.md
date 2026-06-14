@@ -2,7 +2,7 @@
 name: session-dir-ancestor-walk
 description: Derive session-dir for an open buffer by walking up to the nearest ancestor containing a branches/ child (agents use their own dir), replacing fixed ../.. layout walks.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
 relations: []
 ---
 

@@ -46,3 +46,7 @@ design.md § Decisions "D1", "D4", "D6"; specs `sessions-persistence` REMOVED "A
 
 ### Cited register entries
 - `register/invariant/activation-and-identity-are-content-not-path`: still **speculated**. The activation half is confirmed (magic merged); landing THIS task (+ `retire-current-symlink`, consumer migration) is what flips the full invariant to `confirmed`. This task is one of the entry's carriers. See `.orchestrator/cycles/cycle-1781451784/reconciliations/invariant-activation-and-identity-are-content-not-path.md`.
+
+## Cycle 3 updates (cycle-1781453946)
+
+- `discovery-reads-drawers` merged (7dd50b5): `init-registry` and `find-all-branches-with-agents` no longer derive identity from directory names. After cycle-3, `jf/gptel--session-id-from-directory` is reachable for IDENTITY only via the resolver fallback branch. The end-of-cycle architect noted **3 direct `session-id-from-directory` callers still bypass the resolver — in `commands.el`, `branching.el`, and `persistent-agent`** — these are the un-rewired legacy paths this retirement family (this task + `retire-current-symlink` + consumer migration) addresses on the way to flipping `activation-and-identity-are-content-not-path` to confirmed. Blocker remaining: `mode-hook-binder` (now ready).

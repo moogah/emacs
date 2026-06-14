@@ -62,3 +62,15 @@ design.md § Decision "D4. Binding"; specs `sessions-persistence` Requirement "C
 
 ### Blocker status
 - Two of three blockers are now done: `drawer-identity-resolver` (resolvers) and `magic-mode-alist-activation` (the hook fires via content-addressed activation). **Remaining blocker: `session-dir-ancestor-walk`** (provides `jf/gptel--session-dir-from-branch-dir`, cycle-3). This task unblocks once the walk lands.
+
+## Cycle 3 updates (cycle-1781453946)
+
+### Now fully unblocked — top cycle-4 critical-path pick
+- **All three blockers are done:** `drawer-identity-resolver` (cycle-2, 1ec479f), `magic-mode-alist-activation` (cycle-2, 7e524af), and `session-dir-ancestor-walk` (cycle-3, df3dcf2). This task is the natural next critical-path task.
+
+### Cited register entries
+- `register/boundary/session-dir-marker-walk`: speculated → **confirmed** (cycle-3). Consume `jf/gptel--session-dir-from-branch-dir` for `session-dir`. **Producer signature is pinned `(branch-dir type)`** — pass the resolved TYPE symbol from `jf/gptel--session-type` (`branch`|`agent`), NOT a drawer-alist. Return value is NOT truename-normalized; compare paths with `file-equal-p`, never `string=`. See `.orchestrator/cycles/cycle-1781453946/reconciliations/boundary-session-dir-marker-walk.md`.
+- `register/boundary/drawer-first-identity-resolution`: **caller obligation documented** (cycle-3). When you resolve branch-name, feed the resolver a path that carries the trailing `branches/<branch>/` segment (the session.org file path), not a bare branch-dir — else the fallback regex yields nil for legacy (no-`GPTEL_BRANCH`) sessions.
+
+### Carried meta-discovery (cycle-2, still load-bearing here)
+- **Cross-subsystem reference:** this binder is chat-side code calling sessions symbols. Use a forward `declare-function` + call-time resolution (the hook fires only after both subsystems load), **never** a `require`/autoload of sessions from chat — `jf/load-module` loads by absolute path, so a feature-name autoload won't resolve and it would invert the one-directional chat→sessions dependency.

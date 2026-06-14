@@ -2,7 +2,7 @@
 name: discovery-reads-drawers
 description: Make init-registry and filesystem discovery learn identity from each session.org drawer head-read instead of from directory names.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
 relations:
   - "blocked-by:drawer-signature-and-head-read"
   - "blocked-by:drawer-identity-resolver"
