@@ -2524,6 +2524,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: confirmed
    status_note: |
+     cycle-1781468009 integrate (2026-06-14): CONFIRMED (unchanged) + MINT-TIME
+     framing note. consumer-migration (merged 4043ec7) adopted the resolver at
+     two new call sites: branching.org reads the parent branch's drawer and calls
+     jf/gptel--resolve-session-id drawer-first (move-safe), and persistent-agent.org
+     calls (jf/gptel--resolve-session-id nil session-dir) at AGENT-CREATION MINT
+     time — before the agent's session.org (and thus its drawer) exists. The nil
+     DRAWER-ALIST is contract-correct: the resolver's documented "(cdr (assoc KEY
+     nil)) => nil => basename fallback" handles it, so the agent's directory
+     basename is the canonical id at creation. AMENDED CONTRACT FRAMING: this
+     boundary covers not only READ-of-existing-session resolution but also
+     MINT-TIME identity sourcing (called with a nil drawer when no session.org
+     exists yet); resolve-session-id is the SINGLE sanctioned identity seam in both
+     cases, so no caller derives identity from the path outside it. (on-touch
+     architect arch-cycle-1781468009-ontouch-2 + implementor disc-consumer-migration-3;
+     advisory interface-drift = register-wording hygiene, not a code defect.)
+     ----
      cycle-1781451784 integrate (2026-06-14): speculated -> CONFIRMED. The
      drawer-identity-resolver task (merged 1ec479f) built the three resolvers
      (jf/gptel--resolve-session-id / --resolve-branch-name / --session-type)
@@ -5006,6 +5022,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1781468009 integrate (2026-06-14): still SPECULATED, LAST CODE REMNANT
+     ELIMINATED. consumer-migration (merged 4043ec7) migrated the final two
+     jf/gptel--session-id-from-directory IDENTITY callers off the path: branching.org
+     now resolves the shared session-id drawer-first from the parent branch's
+     session.org (jf/gptel--resolve-session-id <parent-drawer> session-dir, move-safe,
+     basename only on fallback), and persistent-agent.org routes the agent-creation
+     mint through (jf/gptel--resolve-session-id nil session-dir). Repo-wide grep over
+     config/gptel for session-id-from-directory now returns ONLY: the filesystem.el
+     definition, two docstrings, the SOLE production use inside jf/gptel--resolve-session-id
+     (the sanctioned fallback), one CODE COMMENT (persistent-agent.el:369), and three
+     TEST-fixture callers — NO production identity-derivation from directory layout
+     outside the resolver fallback. On-touch architect clean (0 blocking; 1 advisory
+     register-wording note folded into drawer-first-identity-resolution); author-blind
+     reviewer PASS (0 findings); regression nil (after-merge failset signature set
+     IDENTICAL to baseline; +2 move-safe specs pass; sessions 150/0, tools 65/0).
+     The invariant's CODE condition ("no path-derived identity except the resolver
+     fallback") is now MET. It remains SPECULATED by its own enforcement_mechanism:
+     the formal repo-wide grep-audit + manual smoke are the regression-sweep task
+     (now READY, last blocker cleared), which has NOT yet run. Flips to CONFIRMED
+     when regression-sweep's grep-audit passes — the final verification gate, not new
+     implementation. See .orchestrator/cycles/cycle-1781468009/reconciliations/invariant-activation-and-identity-are-content-not-path.md.
+     ----
      cycle-1781465881 integrate (2026-06-14): still SPECULATED, symlink remnant
      ELIMINATED. retire-current-symlink (merged 22b528e) removed the `current`
      symlink machinery in full: the writer jf/gptel--update-current-symlink, the

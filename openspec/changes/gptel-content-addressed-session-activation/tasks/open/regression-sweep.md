@@ -87,3 +87,38 @@ design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchp
 - **NOW BLOCKED-BY `consumer-migration`** (created cycle-6 integrate): the LAST path-derived remnant is the 2 `jf/gptel--session-id-from-directory` IDENTITY callers (`branching.org:399`, `persistent-agent.org:602`). The invariant `activation-and-identity-are-content-not-path` cannot flip to confirmed until that task lands. Updated blocked-by accordingly.
 - **T6 — grep-audit must be REPO-WIDE (meta-discovery, cycle-6).** The cycle-6 on-touch architect caught a BLOCKING dangling symlink test in `config/gptel/test/session-creation-spec.el` — one directory ABOVE the implementor's `config/gptel/sessions/`-scoped sweep. The final grep-audit MUST run over all of `config/gptel` (not just `config/gptel/sessions/`) for every retired symbol: `find-file-hook`, `auto-init-session-buffer`, `auto-init`, `update-current-symlink`, `get-current-branch-name`, `get-current-branch-dir`, `current-symlink`, `current-link`, and the `"current"` literal path usage.
 - **T5 cosmetic scrub grows (cycle-6 additions):** also remove the vacuous `current` symlink-absence assertion at `config/gptel/tools/test/persistent-agent/creation-spec.el:80` and the now-unused `captured-symlink-target` helper at `config/gptel/test/persistence-test-helpers.el:126` (orphaned after the cycle-6 inline-fix removed its only caller).
+
+## Cycle 7 updates (cycle-1781468009)
+
+- **LAST blocker cleared — this task is now READY.** `consumer-migration` is done
+  (merged 4043ec7): both `jf/gptel--session-id-from-directory` IDENTITY callers were
+  migrated off the path — `branching.org` resolves the shared session-id drawer-first
+  from the parent branch's `session.org` (move-safe), and `persistent-agent.org` routes
+  the agent-creation mint through `(jf/gptel--resolve-session-id nil session-dir)`. With
+  this, `register/invariant/activation-and-identity-are-content-not-path` has its CODE
+  condition met; **this task's grep-audit is the final verification gate that flips it
+  speculated → confirmed**, after which the change can `/opsx-verify` → `/opsx-archive`.
+- **T7 — `session-id-from-directory` grep-audit guidance (NEW, from consumer-migration
+  disc-2 + on-touch architect).** Add `session-id-from-directory` to the repo-wide
+  grep-audit (T6), but note the EXPECTED legitimate hits so they are not misread as
+  remnants. `grep -rn "session-id-from-directory" config/gptel --include="*.el"` (and
+  `*.org`) should return ONLY:
+    1. the `defun` in `config/gptel/sessions/filesystem.el` (the definition) + its two
+       docstring mentions;
+    2. the SOLE production use inside `jf/gptel--resolve-session-id`
+       (`filesystem.el:~103` — the sanctioned basename fallback);
+    3. one CODE COMMENT in `config/gptel/tools/persistent-agent.el` (naming the function
+       it deliberately does NOT call directly);
+    4. TEST-fixture callers in `config/gptel/sessions/test/branching/branching-integration-spec.el`
+       (which compute an expected id where the fixture has no drawer id — the basename IS
+       the resolved id there; not a production path).
+  Any OTHER hit — a direct production caller outside the resolver — is a remnant and FAILS
+  the audit. (Confirm the `.org` sources tangle-match these `.el` lines.)
+- **Meta-discovery `resolver-as-single-identity-seam` (cycle-7):** the invariant's
+  enforcement is now a simple grep — "no direct `session-id-from-directory` caller outside
+  the resolver" — precisely because the mint-time path was also routed through the resolver.
+  The T7 guidance above operationalises that.
+- Full-suite floor after cycle-7: **2309 buttercup specs, 23 failed** (signatures IDENTICAL
+  to baseline; the async/scope/parallel-tool-callback pre-existing cluster) + the green
+  sessions/chat/tools surfaces (sessions 150/0 incl. the 2 new move-safe specs, tools 65/0).
+  This is the floor the final sweep compares against; a NEW signature is a regression.

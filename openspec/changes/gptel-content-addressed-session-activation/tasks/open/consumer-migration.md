@@ -2,7 +2,7 @@
 name: consumer-migration
 description: Migrate the last two jf/gptel--session-id-from-directory IDENTITY callers (branching, persistent-agent) to drawer-first resolution — or document why the agent-creation mint is the permitted basename source — so no production path derives identity from directory layout.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
 relations:
   - "blocked-by:discovery-reads-drawers"
   - "blocked-by:retire-find-file-hook"
