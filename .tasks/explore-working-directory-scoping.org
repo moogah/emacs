@@ -1,0 +1,501 @@
+#+title: Working-Directory Scoping for gptel Sessions & Agents — Exploration Log
+#+author: Jeff Farr
+#+startup: overview
+#+todo: THREAD(t) PARKED(p) | RESOLVED(d) SEPARABLE(s)
+
+# STATUS:   exploration (NOT a design decision — see "How to use" below)
+# SOURCE:   .tasks/design-working-directory-scoping-for-sessions-and-agents.md
+#           (surfaced 2026-06-13 during first live PersistentAgent test, commit 3f7feee)
+# CREATED:  2026-06-13 explore session
+# RELATES:  .tasks/done/refactor-request-scope-expansion-to-take-operation.md
+#           .tasks/harden-persistent-agent-callback-on-error.md
+#           openspec/specs/gptel/scope.md, openspec/specs/gptel/persistent-agent.md
+
+* How to use this document
+
+This is the captured output of a deep =/opsx-explore= session. It is
+*not* a finalized design and deliberately does not crystallize on one.
+The exploration converged on a guiding *principle* (see [[*Emerging design principle]])
+but also established that we are dealing with *several concurrent
+problems* that should each get their own follow-up session.
+
+Each entry under [[*Threads (follow-up session seeds)]] is written to be
+liftable: copy the thread's heading + body as the opening prompt of a
+new session. Part 1 (current-state findings) is shared context every
+thread will want; reference it rather than re-deriving.
+
+Hard constraint that shapes every thread: *gptel's default-directory /
+work-root setup MUST be operable independently of the workspaces
+package* (one-way dependency; workspaces never names gptel, and gptel
+must work with workspaces absent). See [[*Cross-cutting constraints & invariants]].
+
+A standing reminder from this session: *this gptel codebase is beta.*
+It carries abandoned implementations. Findings below are "behavior as
+it exists today," verified to file:line — but existing behavior is
+*evidence, not canon*. Do not treat any current mechanism as a baseline
+that must be preserved.
+
+* Part 1 — Current-state findings (grounded)
+
+** The three-role model (the core lens)
+
+A "directory" plays three distinct roles in a gptel session. Today only
+one is named explicitly; a second is conflated into it by accident; the
+third is computed and discarded.
+
+#+begin_example
+  Role 1  SESSION / METADATA ROOT   bookkeeping dir (session.org, system-prompt, drawer)
+          - tracked explicitly as buffer-local jf/gptel--branch-dir
+          - scope drawer is LOADED from here
+  Role 2  WORK ROOT                  what cwd / relative paths SHOULD mean (the project)
+          - should be `default-directory`; should be what the model is TOLD
+          - TODAY: unset -> falls through to Role 1 (the bug)
+  Role 3  SCOPE BOUNDARY             GPTEL_SCOPE_READ/WRITE/DENY globs
+          - already cleanly separate, self-describing in the drawer
+#+end_example
+
+The whole bug class reduces to: *Role 2 is never set, so `default-directory`
+silently falls through to Role 1.* Both chat sessions and agents open
+their buffer with =find-file-noselect= on a file under the session tree,
+and nobody sets =default-directory= afterward.
+
+** The cwd bug's true nature: wrong path universe, NOT fail-open
+
+Originally framed (in the .tasks item) as "scope is bypassed / ineffective."
+Closer reading shows the opposite mechanism:
+
+- With =default-directory= = the sandbox/bookkeeping dir, a *relative*
+  path the model emits resolves *inside that dir*, not the project.
+- The validator then judges a path that has nothing to do with what the
+  model meant. The scope decision becomes *meaningless* — sometimes
+  spuriously permissive, sometimes spuriously restrictive — never "about
+  the right file."
+
+#+begin_example
+  model intends:   read project file  config/gptel/presets/minimal.md
+  resolved vs cwd= sandbox:  ~/.gptel/sessions/.../<agent>/config/gptel/presets/minimal.md
+  validator judges THAT path  ->  decision is about a file the model never meant
+#+end_example
+
+Implication: fixing =default-directory= is not a convenience — it is what
+makes "the path the validator judges" equal "the path the model meant."
+Only then is scope validation testable or meaningful. The
+file_not_found-vs-scope_violation ordering question is downstream of this.
+
+** Scope validation is fail-CLOSED in current code (with a branch caveat)
+
+=jf/gptel-scope--load-config= (=config/gptel/scope/scope-validation.org:724-759=):
+nil config, empty drawer, missing =session.org=, *or any thrown error* all
+return =jf/gptel-scope--deny-all-defaults= (every pattern list nil -> every
+path denies). No fail-open path exists. Reads like recent, deliberate hardening.
+
+The agent loads its *own* drawer: =jf/gptel--auto-init-session-buffer=
+(=commands.org:335=) sets buffer-local =jf/gptel--branch-dir= to the agent's
+dir; tool callbacks run inside =(with-current-buffer agent-buffer ...)=
+(=persistent-agent.el:370=), so =load-config= reads the agent's drawer.
+
+*Caveat / discrepancy worth a branch-diff:* the .tasks worked example
+(file_not_found where current code would yield scope_violation) was
+captured in worktree =~/emacs-persistent-agent-review=; we are reading
+=~/emacs-gptel-default-directory=. The fail-closed =deny-all-defaults=
+machinery appears to post-date that test. *Do not trust the worked
+example's four rows as the current baseline without re-running on this branch.*
+
+Relevant decision logic:
+- =jf/gptel-scope--validate-path-operation= (=scope-validation.org:147-219=):
+  =:read= allowed if path matches read OR write patterns; =:write= requires
+  write patterns. Deny patterns checked first.
+- =jf/gptel-scope--glob-match-p= (=scope-validation.org:123=): =string-match-p=
+  over a glob->regex. (Check anchoring if substring false-matches ever suspected.)
+
+** Two surprises confirmed
+
+1. *=tools.org= is dead code.* =jf/gptel-session--tools-log-file= constant
+   (=constants.org:77=) + accessor =jf/gptel--tools-log-path=
+   (=filesystem.org:175=) exist but have *zero call sites*. Never wired up;
+   not a deprecation. Also dead: =system-prompts.org= constant
+   (=constants.org:81=). Clean deletion — see Thread H (janitorial, separable).
+
+2. *There is no ={session_dir}/**= scope glob.* The only profile variable is
+   =${project_root}=; there is no =${session_dir}=. Profiles are project-centric:
+
+   | profile      | READ | WRITE              | DENY                                   |
+   | coding       | /**  | ${project_root}/** | .git, runtime, .env, node_modules      |
+   | bash-enabled | /**  | ${project_root}/** | (same)                                 |
+   | research     | /**  | (none, read-only)  | (same)                                 |
+   | restricted   | (none)| (none)            | (same)                                 |
+   | system-expl  | /**  | (none)             | (same + .ssh, .key, .pem, shadow, ...) |
+
+   Agents don't use a profile: =jf/gptel-persistent-agent--build-scope-plist=
+   hardcodes =read=allowed_paths=, =write=("/tmp/**")=, standard deny.
+
+** What workspaces changes (the target paradigm)
+
+=config/workspaces/= (newly merged) makes the *work root a first-class,
+on-disk concept*. A workspace = a named context, 1:1 with a tab, anchored
+to an absolute =:home= directory. gptel sessions now live *inside* it.
+
+User-confirmed topology: *worktrees are colocated in the workspace dir as
+siblings; the workspace =:home= IS the project dir.*
+
+#+begin_example
+  ~/emacs-workspaces/<name>/                  :home  ==  WORK ROOT (Role 2) == project dir
+  ├── home.org                                dashboard; editable; #+TITLE overrides display name
+  ├── .git/
+  ├── sessions/                               gptel sessions live HERE (Role 1, inside :home)
+  │   └── <id>/branches/main/session.org
+  │       └── agents/<agent>/session.org      agent sandbox, also inside :home
+  ├── <worktree-feature-a>/  (.git is a FILE) ┐ sibling worktrees, enumerable
+  └── <worktree-feature-b>/  (.git is a FILE) ┘
+#+end_example
+
+Key consequences:
+- =${project_root}= now expands to =:home= (=workspace-integration.org:85=
+  passes =project-root=home= into =create-session-core=). So *Role 3 (scope)
+  is correct by construction in this path*: =WRITE: <:home>/**= covers
+  sessions, worktrees, everything. The part feared broken isn't, in this flow.
+- Of the three roles, workspaces solves two (metadata under :home, scope
+  rooted at :home). *Only Role 2 (work root / default-directory) is still
+  on the floor.*
+
+Workspaces seam facts (one-way, decoupled):
+- gptel consults =workspace-sessions-dir= behind =(featurep 'workspaces)= +
+  =fboundp= guards (=filesystem.org:76-91=); =jf/gptel-persistent-session-global=
+  forces global =~/.gptel/sessions/=.
+- Integration registry: =workspace-register-integration= with =:on-create= /
+  =:menu= / =:on-purge=; anchor payload plist =(:name :home :sessions-dir :context)=
+  (=integrations.org=). gptel registers =gptel-session= in
+  =workspace-integration.org= under =with-eval-after-load 'workspaces=.
+- Workspaces ALREADY enumerates sibling worktrees:
+  =jf/workspace--worktree-children= (=git-worktrees.org:235=) returns
+  =(:dir :branch :source)= plists. (NB: that helper is workspaces/magit-coupled;
+  =git worktree list= / =magit-list-worktrees= is the neutral alternative.)
+
+** The path-archaeology problem (the rotten core)
+
+Session identity + binding is reverse-engineered from the filesystem path
+on every file open. User strongly dislikes this; it is fragile to any
+reorg (workspaces is one of many).
+
+- =jf/gptel--auto-init-session-buffer= on =find-file-hook= — runs on *every
+  file open* (=commands.org:932=, comment at =:247=). Checks filename ==
+  "session.org", then tries 3 hardcoded layout regexes (branch / nested-agent
+  / flat-agent, =commands.org:270-309=), walks up with =../..= / =../../..=.
+- Identity IS the directory basename: =jf/gptel--session-id-from-directory=
+  = =(file-name-nondirectory dir)= (=filesystem.org:124-127=). Nothing stored;
+  rename/move the dir -> identity silently changes.
+- This hook does two jobs badly (binding + identity) and ignores a third
+  (work root). Scope (Role 3) already avoids archaeology by being
+  drawer-resident — the model A and B should copy.
+
+** Activation mechanics already lean toward idiomatic (grounding for Thread A)
+
+- =gptel-chat-mode= is a real major mode: =(define-derived-mode gptel-chat-mode
+  org-mode ...)= (=mode.org:963=).
+- =jf/gptel--ensure-mode-once= (=commands.org:113-122=) already anticipates
+  external activation: comment says "when =auto-mode-alist= or a mode cookie
+  already brought it up." The global find-file-hook is treated as a *redundant
+  fallback*.
+- =gptel-chat-mode-hook= already owns substantial buffer setup (drawer fold,
+  startup visibility, display activate, preset application) and there is
+  already a =hack-local-variables-hook= pass for file-local preset declaration
+  (=menu.org:895=; dir-locals discussed =menu.org:113-148=). So local-variables
+  / dir-locals is *not foreign* here — it is partially present.
+
+* Emerging design principle (converged, not yet ratified)
+
+A single rule resolves the storage/activation questions and honors the
+workspaces-decoupling constraint:
+
+#+begin_example
+  DRAWER (:PROPERTIES:)   per-ENTITY · varies · authoritative · co-located
+    GPTEL_WORK_ROOT (cwd)      -> set default-directory from this in the mode hook
+    GPTEL_SCOPE_* (already)    -> MUST agree with cwd, so keep them together
+    [identity, if promoted off the path]
+    written by whoever creates the session/agent (workspace OR plain cmd OR manual)
+
+  DIR-LOCALS (.dir-locals.el)  per-TREE · shared · external-producer-writable
+    jf/gptel--preamble-source  -> workspace points it at home.org; cascades down
+    (optionally) mode activation for a whole tree
+    inheritance is a FEATURE here (all sessions in a workspace share it)
+
+  MAGIC-MODE-ALIST             activation only · content-addressed
+    recognize the drawer signature (:GPTEL_PRESET: ...) -> gptel-chat-mode
+    -> mode hook does all setup; RETIRES the global find-file-hook + path regexes
+#+end_example
+
+Principle in one line: *dir-locals where inheritance helps (shared tree
+config), drawer where inheritance hurts (per-entity values that vary),
+content-addressing for recognition (so filesystem layout stops mattering).*
+
+Why each:
+- *Work root in the drawer, not dir-locals:* dir-locals cascade downward, and
+  agents live *under* the parent session dir — they would inherit the parent's
+  cwd, but agents need a *different* cwd (a specific worktree). Per-entity
+  values that must agree (cwd <-> scope) belong together in the drawer, which is
+  already per-agent and authoritative for scope.
+- *Preamble source in dir-locals:* the value is set by an external producer
+  (workspace drops =.dir-locals.el= at =:home= pointing at =home.org=) and
+  inherited by the whole tree. gptel reads buffer-local =jf/gptel--preamble-source=
+  and never names a workspace symbol — textbook inversion of control,
+  satisfying the decoupling constraint. Absent workspaces -> default preamble.
+  (Mark vars =safe-local-variable= to avoid prompts.)
+- *magic-mode-alist for recognition:* a session is recognized because it
+  *contains* a gptel drawer, not by path or name. Same self-describing
+  principle scope already uses, extended to activation. Once the mode activates
+  by any means, the mode hook is the single setup point (and can set
+  =default-directory= after find-file has run, sidestepping the "dir-locals
+  can't set default-directory" edge).
+
+* Threads (follow-up session seeds)
+
+Each is a candidate standalone session. Status keywords: THREAD = open
+design work; PARKED = deferred; SEPARABLE = independent / janitorial.
+Several are cross-cutting and may collectively warrant promotion to an
+openspec change once their shapes settle.
+
+** THREAD A — Binding & activation: retire the find-file-hook archaeology
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/sessions (chat mode activation, buffer binding)
+   :END:
+
+Replace the global =find-file-hook= + 3 path regexes + =../..= walks with
+content-addressed activation, so identity/binding stop depending on
+filesystem layout.
+
+Direction: =magic-mode-alist= keyed on the drawer signature (e.g.
+=:GPTEL_PRESET:= near buffer head) -> =gptel-chat-mode=; the mode hook
+establishes all buffer context. File-local =-*- mode: gptel-chat -*-= cookie
+and dir-locals mode-for-tree are secondary options.
+
+Open questions:
+- Does =magic-mode-alist= co-exist cleanly with org-mode for =.org= files
+  carrying the signature? (gptel-chat-mode *is* org-mode +, so likely fine —
+  confirm.) Can the signature regex false-match a normal org file that merely
+  *quotes* =:GPTEL_PRESET:=? Anchor it to a real drawer.
+- Keep "open session.org in dired and it just works" (auto-adoption), or accept
+  that activation now requires the signature/cookie? User's appetite for
+  dropping global auto-adoption is the key unknown.
+- Safety prompts: dir-locals =eval=/mode and non-safe vars prompt unless marked
+  =safe-local-variable=. File-local =mode:= cookie is generally smooth.
+
+Code: =commands.org:225,247,270-309,932= (hook+regexes), =commands.org:113-122=
+(=ensure-mode-once=, already anticipates cookies), =mode.org:963= (derived mode),
+=mode.org / display.org / menu.org= (=gptel-chat-mode-hook= setups),
+=menu.org:895= (=hack-local-variables-hook=).
+
+** THREAD B — Work root in the drawer; set default-directory in the mode hook
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/sessions + gptel/scope (Role 2)
+   :END:
+
+Give Role 2 an explicit home: a =GPTEL_WORK_ROOT= drawer key, set
+=default-directory= from it in the mode hook (after find-file). Co-locate
+with =GPTEL_SCOPE_*= because cwd and scope must agree. This is the *core*
+fix for the cwd bug and what makes scope validation meaningful/testable.
+
+Open questions:
+- Exact mode-hook *ordering*: work-root + default-directory must be set
+  *before* anything that resolves paths or builds the preamble. Slot it into
+  the existing careful order (fold, visibility, preset-after-hack-local-vars).
+- Provenance of the value (decoupled): workspace =:on-create= writes
+  =:home=; plain =jf/gptel-persistent-session= writes the selected project;
+  manual sessions get a default. Same slot, different writers.
+- Smallest first step (from .tasks item): set the *agent's* default-directory
+  in =--task= to a deliberately chosen root and confirm relative paths then
+  hit the real scope boundary (re-run scope scenarios with absolute paths too).
+
+Code: =commands.org:544= (=create-session-core= — takes =project-root=, never
+sets default-directory), =persistent-agent.org:514+= /=.el:284-386= (=--task=,
+=find-file-noselect= at =.org:597=), =scope-validation.org:147-219= (path
+resolution against directory), =scope-filesystem-tools.org:81,124,172=,
+=scope-shell-tools.org:127,215=.
+
+** THREAD C — dir-locals as the workspaces↔gptel decoupling seam
+   :PROPERTIES:
+   :THREAD_SCOPE: workspaces + gptel/sessions (preamble source, IoC)
+   :END:
+
+Workspaces drops a =.dir-locals.el= at =:home= setting
+=jf/gptel--preamble-source= (and possibly other tree-shared hints) to
+=home.org=; the value cascades to every session/worktree under the tree.
+gptel reads a buffer-local and never names a workspace symbol. Satisfies
+the "operable independently of workspaces" constraint by construction.
+
+Open questions:
+- Which values are genuinely *tree-shared* (belong in dir-locals) vs
+  *per-entity* (belong in the drawer)? Current take: preamble-source = tree;
+  cwd/scope = drawer. Validate there are no others.
+- =safe-local-variable= predicates for each var so sessions never prompt.
+- Global (=~/.gptel=) sessions have no such dir-local -> default preamble.
+  Confirm the fallback layering is clean.
+- Producer side: where in the workspaces scaffold pipeline does the
+  =.dir-locals.el= get written, and does anchoring an *existing* repo
+  (=anchored-existing=, which skips artifact injection) get it or not?
+
+Code: =integrations.org= (registry, anchor payload), =workspace-integration.org=
+(gptel =:on-create= / =:menu=), README "gptel sessions" + "Integration registry",
+=menu.org:113-148= (existing dir-locals cooperation).
+
+** THREAD D — Dynamic preamble (base + home.org override); worktree manifest
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/sessions or gptel/chat (system prompt / preamble)
+   :END:
+
+Tell the model its environment so it need not run discovery tool calls.
+User: "the more offered in the preamble the better, at least until it gets
+long." Layered:
+
+#+begin_example
+  BASE preamble (workspace-independent): cwd / work-root, scope summary,
+       available worktrees via `git worktree list` (neutral, not workspaces)
+   +  OPTIONAL home.org override/append when a workspace is present
+      (user-editable preamble text; located via Thread C's preamble-source)
+#+end_example
+
+Decoupling caveat: home.org is a workspaces artifact, so it can only be an
+*override layer*, never the source. The worktree manifest should be sourced
+workspace-independently (=git worktree list= / =magit-list-worktrees=), and
+*enriched* by home.org when available.
+
+Open questions:
+- Minimum content the base preamble must carry vs home.org's job.
+- Length management: when does the dynamic preamble get too long; what's
+  trimmable; is scope summarized or listed verbatim?
+- Manifest source: neutral git vs workspaces =worktree-children= (coupling).
+- Feeds Thread E: the manifest is what lets the parent model *choose a
+  worktree* when spawning an agent.
+
+Code: =git-worktrees.org:235= (=worktree-children=, coupled), README "Customization"
+(=workspace-home-builder=, =home.org=), preset =.md= files + =menu.org:290+=
+(current system-prompt construction — says nothing about directory today).
+
+** THREAD E — Dynamic agent cwd & scope (typical case: one worktree)
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/tools/persistent-agent + gptel/scope
+   :END:
+
+User: agent scope and default-directory must be *dynamic*; the typical case
+is a *specific worktree*. The agent gets its *own* drawer carrying its own
+=GPTEL_WORK_ROOT= (e.g. =<:home>/worktree-X=) and scope (=<:home>/worktree-X/**=),
+chosen per spawn — same self-describing mechanism as the parent (Thread B),
+not inherited via dir-locals.
+
+The loop that makes "dynamic" tractable:
+#+begin_example
+  preamble lists available worktrees (Thread D)
+     -> parent model picks worktree-X for a task
+     -> spawn agent with work-root = worktree-X, scope = worktree-X/**
+     -> agent's drawer carries them; mode hook sets default-directory
+#+end_example
+
+Open questions:
+- New =PersistentAgent= tool parameter (=working_dir= / =worktree=) defaulting
+  to =:home=? Or derive from =allowed_paths= common root? Or both?
+- How does the agent know valid worktrees without coupling to workspaces?
+  (Via the preamble it receives — keep the manifest source neutral.)
+- Reconcile with =build-scope-plist= (currently =read=allowed_paths=,
+  =write=("/tmp/**")=). Should write default to the worktree, not =/tmp=?
+- Re-run the .tasks worked example with absolute paths to genuinely exercise
+  denial + expansion (currently unconfirmed — see .tasks item "How to reproduce").
+
+Code: =persistent-agent.org= (=--task= no default-directory; =build-scope-plist=
+=:202-217=; tool schema =args=; =standard-deny-paths=), =scope-tool-wrapper.org=
+(routing), =scope-validation.org:876-951= (=authorize-tool-call=).
+
+** THREAD F — Identity: stop deriving it from the path
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/sessions
+   :END:
+
+The last vestige of archaeology: =session-id= = dir basename
+(=filesystem.org:124-127=). Once activation (A), cwd (B), and scope no longer
+depend on the path, decide whether to *store* identity (a =GPTEL_SESSION_ID=
+drawer key -> rename/move-safe) or accept path-derived identity as harmless.
+
+Open questions:
+- Does anything rely on id == basename (registry keys, symlinks, discovery)?
+  Audit =registry.org=, =filesystem.org= discovery (=:247,260,285=), branching.
+- If stored: migration for existing sessions (or beta "no migration" stance).
+
+Code: =filesystem.org:124-127,247,260,285=, =registry.org:66=, =branching.org=.
+
+** SEPARABLE — Thread G — Reconcile request_scope_expansion response shapes
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/scope (shell + filesystem expansion)
+   :END:
+
+Two shapes/semantics from one tool in one session: filesystem path returns
+={success, patterns_added:[...]}= (persistent pattern add); bash path returns
+={success, allowed_once:true}= (allow-once). Reconcile. Independent of the
+directory work; can proceed in parallel. Area churned recently — see
+=.tasks/done/refactor-request-scope-expansion-to-take-operation.md=.
+
+Code: =scope-shell-tools.org= (~263), =scope-expansion.org= (~700 add, ~746
+allow-once), =scope-validation.org:1055-1065= (callback parses =:allowed_once=).
+
+** SEPARABLE — Thread H — Delete dead tools.org / system-prompts.org plumbing
+   :PROPERTIES:
+   :THREAD_SCOPE: gptel/sessions (janitorial)
+   :END:
+
+Pure cleanup, zero behavior change. =jf/gptel-session--tools-log-file=
+(=constants.org:77=) + =jf/gptel--tools-log-path= (=filesystem.org:175=) have
+no call sites; =system-prompts.org= constant (=constants.org:81=) likewise.
+Remove constant + accessor together. Good warm-up task / first PR.
+
+* Cross-cutting constraints & invariants
+
+- *Decoupling (hard):* gptel's work-root/default-directory/preamble setup must
+  work with workspaces absent. Workspaces is one *producer* (writes drawer
+  values at =:on-create=, drops =.dir-locals.el=); gptel is a consumer of
+  intrinsic per-session data + buffer-locals. This *eliminates* "consult the
+  live workspaces registry at runtime" as a work-root source.
+- *Self-describing sessions:* prefer mechanisms where context travels with the
+  session (drawer content; content-addressed activation) over mechanisms that
+  reverse-engineer it from the path.
+- *cwd must agree with scope:* whatever sets =GPTEL_WORK_ROOT= must keep it
+  consistent with =GPTEL_SCOPE_*= (relative paths resolve into the scoped tree).
+- *Beta, no-migration default:* on-disk formats may break between cycles; a real
+  migration story is reserved for beta (mirrors workspaces persistence policy).
+
+* Open cross-cutting questions (span multiple threads)
+
+1. Auto-adoption: keep "open any session.org -> it activates," or require a
+   content signature? (Thread A primary; affects F.)
+2. One store vs two: is "drawer for per-entity, dir-locals for tree-shared"
+   the final split, or does everything go in the drawer (simpler, but loses
+   the clean workspaces IoC seam)? (A/B/C.)
+3. Is =project-root= -> =work-root= a rename of the existing (discarded)
+   =project-root= parameter, or a new persisted concept beside it? (B/E.)
+4. Preamble length budget and what gets trimmed first. (D.)
+
+* Code reference index (file:line)
+
+- =config/gptel/sessions/commands.org=
+  - =113-122= =ensure-mode-once= (anticipates cookie/auto-mode)
+  - =225,247= =auto-init-session-buffer= + "runs on every file open"
+  - =270-309= three layout regexes + =../..= walks
+  - =345-348= sets buffer-local session vars
+  - =544= =create-session-core= (takes project-root; never sets default-directory)
+  - =783,800= project-root from first selected projectile project
+  - =932= =(add-hook 'find-file-hook #'jf/gptel--auto-init-session-buffer)=
+- =config/gptel/sessions/filesystem.org=
+  - =76-91= =workspace-sessions-dir= consult (featurep/fboundp guard)
+  - =124-127= =session-id-from-directory= (= dir basename)
+  - =175= =tools-log-path= (DEAD)
+  - =247,260,285= session discovery roots
+- =config/gptel/sessions/constants.org= =33= sessions-directory; =77= tools-log-file (DEAD); =81= system-prompts.org (DEAD)
+- =config/gptel/sessions/workspace-integration.org= =66-87= =:on-create= (project-root=home); =118-135= =:menu=; =144-148= registration
+- =config/gptel/scope/scope-validation.org= =123= glob match; =147-219= validate-path-operation; =680-698= deny-all-defaults; =724-759= load-config (fail-closed); =876-951= authorize-tool-call; =1055-1065= expansion callback parse
+- =config/gptel/scope/scope-filesystem-tools.org= =81,124,172= expand-file-name (read/write/edit)
+- =config/gptel/scope/scope-shell-tools.org= =49-53= absolute-path warning; =127,215= default-directory use; ~263 expansion shape
+- =config/gptel/scope/scope-expansion.org= ~700 patterns_added; ~746 allowed_once
+- =config/gptel/scope-profiles/*.yml= ${project_root} only; coding read /** write ${project_root}/**
+- =config/gptel/tools/persistent-agent.org= =202-217= build-scope-plist; =514+= =--task=; =597= find-file-noselect; tool =args= schema; standard-deny-paths
+- =config/gptel/chat/mode.org= =963= define-derived-mode (org-mode); gptel-chat-mode-hook setups
+- =config/gptel/chat/menu.org= =113-148= dir-locals cooperation; =895= hack-local-variables-hook
+- =config/workspaces/integrations.org= registry + anchor payload (:name :home :sessions-dir :context)
+- =config/workspaces/data-model.org= =278-298= =workspace--home=; =429-433= =workspace--sessions-dir=
+- =config/workspaces/git-worktrees.org= =235-261= =worktree-children= (:dir :branch :source)
+- =config/workspaces/docs/README.org= concepts, gptel sessions routing, integration registry, home.org
