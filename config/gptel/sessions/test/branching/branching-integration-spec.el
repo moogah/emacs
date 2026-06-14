@@ -10,7 +10,7 @@
 ;; End-to-end behavioural tests for `jf/gptel--create-branch-session',
 ;; mounted on a real temporary session directory. Exercises:
 ;;   - Parser-driven branch-point selection composed with truncation
-;;     and branch-directory creation (registry, metadata, symlink).
+;;     and branch-directory creation (registry, metadata).
 ;;   - Empty branch from first-turn EXCLUDE still produces a valid
 ;;     `session.org' in a real branch directory.
 ;;   - Org commentary before the first user turn is preserved verbatim
@@ -282,12 +282,7 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
           ;; drawer at the top of session.org (Decision 7).
           (expect (file-exists-p
                    (expand-file-name "metadata.yml" new-branch-dir))
-                  :not :to-be-truthy)
-          ;; Current symlink resolves to the new branch.
-          (let ((current-link (expand-file-name "current" session-dir)))
-            (expect (file-symlink-p current-link) :to-be-truthy)
-            (expect (file-truename (expand-file-name "session.org" current-link))
-                    :to-equal (file-truename new-ctx)))))))
+                  :not :to-be-truthy)))))
 
   (describe "Preset drawer inheritance (Decision 7)"
 
@@ -471,10 +466,15 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
                       (progn
                         (jf/gptel-branch-session "dirty-buffer-regression")
                         ;; Re-compute: `jf/gptel-branch-session' does
-                        ;; not return the new branch dir, so find
-                        ;; it via the current symlink.
+                        ;; not return the new branch dir, so find it by
+                        ;; scanning `branches/' for the freshly-created
+                        ;; branch (the only one besides "main").
                         (file-truename
-                         (expand-file-name "current" session-dir)))))
+                         (jf/gptel--branch-dir-path
+                          session-dir
+                          (car (seq-remove
+                                (lambda (b) (string= b "main"))
+                                (jf/gptel--list-branches session-dir))))))))
 
               ;; Post-assertion (a): save fired. Parent file on
               ;; disk now contains the previously-unsaved turn.

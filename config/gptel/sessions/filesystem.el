@@ -183,24 +183,6 @@ register/boundary/session-dir-marker-walk."
   "Get path to specific BRANCH-NAME directory in SESSION-DIR."
   (expand-file-name branch-name (jf/gptel--branches-dir-path session-dir)))
 
-(defun jf/gptel--current-symlink-path (session-dir)
-  "Get path to current symlink in SESSION-DIR."
-  (expand-file-name "current" session-dir))
-
-(defun jf/gptel--get-current-branch-name (session-dir)
-  "Get name of current branch in SESSION-DIR by following symlink.
-Returns branch name (e.g., \"main\" or \"20260128153042-feature\") or nil if symlink doesn't exist."
-  (let ((symlink (jf/gptel--current-symlink-path session-dir)))
-    (when (file-symlink-p symlink)
-      (file-name-nondirectory (file-truename symlink)))))
-
-(defun jf/gptel--get-current-branch-dir (session-dir)
-  "Get path to current branch directory in SESSION-DIR by following symlink.
-Returns absolute path or nil if symlink doesn't exist."
-  (let ((symlink (jf/gptel--current-symlink-path session-dir)))
-    (when (file-symlink-p symlink)
-      (file-truename symlink))))
-
 (defun jf/gptel--create-branch-directory (session-dir branch-name)
   "Create branch directory for BRANCH-NAME in SESSION-DIR.
 Returns absolute path to created branch directory."
@@ -212,19 +194,6 @@ Returns absolute path to created branch directory."
       (make-directory branch-dir t)
       (jf/gptel--log 'info "Created branch directory: %s" branch-dir))
     branch-dir))
-
-(defun jf/gptel--update-current-symlink (session-dir branch-name)
-  "Update current symlink in SESSION-DIR to point to BRANCH-NAME.
-Creates or updates the symlink. Returns path to symlink."
-  (let* ((symlink (jf/gptel--current-symlink-path session-dir))
-         (target (concat "branches/" branch-name)))
-    ;; Remove existing symlink if present
-    (when (file-exists-p symlink)
-      (delete-file symlink))
-    ;; Create new symlink (relative path)
-    (make-symbolic-link target symlink)
-    (jf/gptel--log 'debug "Updated current symlink to: %s" branch-name)
-    symlink))
 
 (defun jf/gptel--list-branches (session-dir)
   "List all branch names in SESSION-DIR.
