@@ -1,4 +1,4 @@
-;;; auto-init-reload-spec.el --- Persistent-agent auto-init + reload tests -*- lexical-binding: t; -*-
+;;; agent-buffer-activation-reload-spec.el --- Persistent-agent buffer activation + reload tests -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,13 +7,15 @@
 
 ;;; Commentary:
 
-;; Behavioral tests for the persistent-agent module's reliance on the
-;; chat-mode session-init pipeline.  Verifies four contracts:
+;; Behavioral tests for the persistent-agent module's reliance on
+;; content-addressed session activation.  Verifies four contracts:
 ;;
 ;; 1. Agent buffer activates `gptel-chat-mode' on creation, with the
-;;    path-derived session vars (`jf/gptel--session-id',
-;;    `jf/gptel--branch-name', `jf/gptel-autosave-enabled') set
-;;    buffer-locally by `jf/gptel--auto-init-session-buffer'.
+;;    session vars (`jf/gptel--session-id', `jf/gptel--branch-name',
+;;    `jf/gptel-autosave-enabled') set buffer-locally by the
+;;    `gptel-chat-mode-hook' identity binder.  Activation itself is
+;;    content-addressed: `magic-mode-alist' recognises the session.org
+;;    `:PROPERTIES:' drawer signature and selects `gptel-chat-mode'.
 ;;
 ;; 2. Agent buffer is registered in `jf/gptel--session-registry' under
 ;;    its own session-id (not the parent's), retrievable via
@@ -23,29 +25,31 @@
 ;;    session: kill the agent buffer, `find-file-noselect' the same
 ;;    path again, and the result is `gptel-chat-mode' with the same
 ;;    drawer-declared preset applied (backend/model from the preset),
-;;    same branch/session ids restored from the path, same
-;;    parent-session-id installed from the drawer.
+;;    same branch/session ids restored, same parent-session-id
+;;    installed from the drawer.
 ;;
 ;; 4. The persistent-agent module installs NO agent-specific autosave
 ;;    hook on `gptel-post-response-functions' (default value or buffer-
-;;    local) — persistence is delegated to the chat-mode auto-init
-;;    pipeline.
+;;    local) — persistence is delegated to the chat-mode activation
+;;    path.
 ;;
 ;; Real `find-file-noselect' is used (no mocking of file I/O); the
-;; assertions land on the side effect of the registered
-;; `find-file-hook' chain.  Only `gptel-request' is mocked, so no
-;; network call fires.
+;; assertions land on the side effect of content-addressed activation
+;; (`magic-mode-alist' → `gptel-chat-mode' → `gptel-chat-mode-hook'
+;; identity binder).  Only `gptel-request' is mocked, so no network
+;; call fires.
 ;;
 ;; Parent-buffer pattern: the shared
 ;; `jf/persistent-agent-test--with-mock-parent-session' fixture binds
-;; the four session vars via `let' (dynamic binding).  Auto-init's
-;; fast-path guard `(not (bound-and-true-p jf/gptel--session-id))'
-;; would see the dynamic let value when the hook fires in the
-;; freshly-created agent buffer (which has no buffer-local override),
-;; and would bail out — defeating the test.  We therefore shadow the
-;; let-bound vars with nil and re-install them as buffer-local values
-;; in a dedicated parent buffer, so the dynamic binding in any other
-;; buffer (the new agent buffer) is nil and auto-init proceeds.
+;; the four session vars via `let' (dynamic binding).  The chat-mode
+;; identity binder's fast-path guard `(not (bound-and-true-p
+;; jf/gptel--session-id))' would see the dynamic let value when the
+;; hook fires in the freshly-created agent buffer (which has no
+;; buffer-local override), and would bail out — defeating the test.
+;; We therefore shadow the let-bound vars with nil and re-install them
+;; as buffer-local values in a dedicated parent buffer, so the dynamic
+;; binding in any other buffer (the new agent buffer) is nil and the
+;; identity binder proceeds.
 
 ;;; Code:
 
@@ -65,7 +69,7 @@
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
 (require 'gptel-session-registry)
-(require 'gptel-session-commands)        ; installs find-file-hook
+(require 'gptel-session-commands)        ; session create/open commands
 (require 'gptel-chat-mode)
 (require 'gptel-chat-menu)               ; installs apply-declared-preset hook
 (require 'gptel-persistent-agent)
@@ -131,13 +135,13 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
        (when (buffer-live-p pa-parent-buffer)
          (kill-buffer pa-parent-buffer)))))
 
-(describe "persistent-agent auto-init + reload"
+(describe "persistent-agent buffer activation + reload"
 
   (describe "agent buffer activates gptel-chat-mode on creation"
 
     ;; Scenario: specs/persistent-agent/spec.md (delta) §
-    ;; "Agent session creation" → "Agent buffer auto-initializes via
-    ;; find-file-hook"
+    ;; "Agent session creation" → "Agent buffer activates via
+    ;; content-addressed magic-mode recognition"
     (it "the agent buffer is in gptel-chat-mode after creation"
       (let ((preset 'pa-auto-init-preset)
             (agent-buffer nil)
@@ -152,22 +156,20 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
                   (setq agent-buffer
                         (jf-pa-auto-init-test--find-agent-buffer mock-branch-dir))
                   (expect agent-buffer :to-be-truthy)
-                  ;; Major mode is gptel-chat-mode (set by the find-file-hook
-                  ;; auto-init pipeline, not by the agent module directly).
+                  ;; Major mode is gptel-chat-mode (selected by
+                  ;; content-addressed `magic-mode-alist' recognition of
+                  ;; the drawer signature, not by the agent module
+                  ;; directly).
                   (expect (buffer-local-value 'major-mode agent-buffer)
                           :to-equal 'gptel-chat-mode)
                   ;; Agent's session-id is buffer-local and non-empty.
-                  ;; The exact value depends on which auto-init regex
-                  ;; matches the agent's path: with the doubly-nested
-                  ;; layout the branch-session regex captures the
-                  ;; agent-dir basename; with the flat layout
-                  ;; (post-`fix-agent-flat-layout') the nested-agent
-                  ;; regex captures the parent's session-id.  Either
-                  ;; way the assertion the spec actually requires is
-                  ;; "auto-init fired on the agent's session.org," so
+                  ;; Identity is bound by the `gptel-chat-mode-hook'
+                  ;; binder from the drawer (with a basename fallback).
+                  ;; The assertion the spec actually requires is
+                  ;; "activation fired on the agent's session.org," so
                   ;; pin observable identity (default-directory under
-                  ;; the parent's agents/) rather than the path-derived
-                  ;; session-id distinction.
+                  ;; the parent's agents/) rather than the exact
+                  ;; session-id value.
                   (let ((agent-sid (buffer-local-value 'jf/gptel--session-id
                                                        agent-buffer))
                         (agent-dir (buffer-local-value 'default-directory
@@ -179,10 +181,10 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
                             (concat (regexp-quote
                                      (file-truename mock-branch-dir))
                                     "/agents/")))
-                  ;; Branch-name buffer-local is set by auto-init.
+                  ;; Branch-name buffer-local is set by the identity binder.
                   (expect (buffer-local-value 'jf/gptel--branch-name agent-buffer)
                           :to-be-truthy)
-                  ;; Autosave is enabled by the auto-init hook.
+                  ;; Autosave is enabled by the chat-mode activation path.
                   (expect (buffer-local-value 'jf/gptel-autosave-enabled
                                               agent-buffer)
                           :to-be-truthy))))
@@ -191,9 +193,10 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
   (describe "agent buffer registers in jf/gptel--session-registry"
 
     ;; Scenario: specs/persistent-agent/spec.md (delta) §
-    ;; "Agent session creation" → "Agent buffer auto-initializes via
-    ;; find-file-hook" (registry assertion piece).  The exact lookup
-    ;; function is `jf/gptel-session-find', verified via:
+    ;; "Agent session creation" → "Agent buffer activates via
+    ;; content-addressed magic-mode recognition" (registry assertion
+    ;; piece).  The exact lookup function is `jf/gptel-session-find',
+    ;; verified via:
     ;;   grep -n 'defun jf/gptel--' config/gptel/sessions/registry.el
     ;; (`jf/gptel--register-session', `jf/gptel-session-find').
     (it "the agent buffer registers in jf/gptel--session-registry"
@@ -261,11 +264,13 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
                   ;; `create-session-core' initial content.
                   (jf-pa-auto-init-test--cleanup-agent-buffer agent-buffer)
                   (setq agent-buffer nil)
-                  ;; Reopen via real find-file-noselect — find-file-hook
-                  ;; fires, auto-init runs, chat-mode activates, drawer
-                  ;; preset is applied.  We must reopen from a context
-                  ;; where the parent's session-id is NOT dynamically
-                  ;; visible, otherwise the auto-init guard bails.  The
+                  ;; Reopen via real find-file-noselect — content-
+                  ;; addressed activation fires: `magic-mode-alist'
+                  ;; recognises the drawer and selects chat-mode, the
+                  ;; identity binder runs, drawer preset is applied.  We
+                  ;; must reopen from a context where the parent's
+                  ;; session-id is NOT dynamically visible, otherwise the
+                  ;; identity binder's guard bails.  The
                   ;; with-parent-buffer macro keeps the dynamic shadow
                   ;; (let nil), so reopening from the surrounding scope
                   ;; (outside `pa-parent-buffer') sees nil for
@@ -280,7 +285,8 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
                     ;; reload via `gptel-chat--apply-declared-preset').
                     (expect gptel-backend :to-equal preset-backend)
                     (expect gptel-model :to-equal preset-model)
-                    ;; Branch / session ids restored from the path.
+                    ;; Branch / session ids restored on reload (drawer
+                    ;; identity, with basename fallback).
                     (expect jf/gptel--branch-name :to-equal "main")
                     (expect jf/gptel--session-id :to-equal agent-sid)
                     ;; Parent-session-id restored from the drawer
@@ -295,7 +301,7 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
     ;; Scenario: specs/persistent-agent/spec.md (delta) §
     ;; "Persistence and resumption" → "No agent-specific auto-save hook"
     ;; This is a structural-correctness check: the rebuild explicitly
-    ;; delegates autosave to the chat-mode auto-init pipeline.  A
+    ;; delegates autosave to the chat-mode activation path.  A
     ;; regression that re-introduces `jf/gptel--auto-save-session-buffer'
     ;; (or any agent-defined save function) on
     ;; `gptel-post-response-functions' is caught here.
@@ -328,5 +334,5 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
                             :to-be nil)))))
           (jf-pa-auto-init-test--cleanup-agent-buffer agent-buffer))))))
 
-(provide 'auto-init-reload-spec)
-;;; auto-init-reload-spec.el ends here
+(provide 'agent-buffer-activation-reload-spec)
+;;; agent-buffer-activation-reload-spec.el ends here

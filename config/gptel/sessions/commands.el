@@ -508,7 +508,9 @@ No special resume command needed - sessions activate by content recognition when
                          nil))       ; no parent-session-id (standalone)
            (session-file (plist-get session-info :session-file)))
 
-      ;; Open session file - auto-initialization hook will handle the rest
+      ;; Open the session file — content-addressed activation
+      ;; (magic-mode-alist recognises the drawer signature; the
+      ;; gptel-chat-mode-hook identity binder runs) takes over from here.
       (let ((buffer (find-file session-file)))
         (jf/gptel--log 'info "Created session: %s%s"
                       session-id
