@@ -22,7 +22,7 @@ To create a persistent gptel session, use =M-x jf/gptel-persistent-session=.
 Each session has its own directory with branch-based management,
 scoped file access via a =:PROPERTIES:= drawer in =session.org=
 (default: deny-all for security), preset model/backend/tool
-configuration, and auto-initialization on open.
+configuration, and content-addressed activation on open.
 
 (An earlier integration auto-created sessions for each
 =activities.el= activity; that integration was removed when the

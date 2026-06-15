@@ -97,7 +97,7 @@
             ;; `derived-mode-p' guard passes; the activation-time
             ;; installer would have done this in a real session, but
             ;; `find-file-noselect' on a temp file does not trigger
-            ;; the session auto-init pipeline.
+            ;; content-addressed session activation.
             (gptel-chat-mode)
             ;; Seed the cache as if the activation-time installer ran
             ;; and read the file body.

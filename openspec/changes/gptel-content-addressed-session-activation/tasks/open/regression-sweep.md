@@ -122,3 +122,60 @@ design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchp
   to baseline; the async/scope/parallel-tool-callback pre-existing cluster) + the green
   sessions/chat/tools surfaces (sessions 150/0 incl. the 2 new move-safe specs, tools 65/0).
   This is the floor the final sweep compares against; a NEW signature is a regression.
+
+## Observations
+
+- **gptel.org:25 decision**: The module-overview prose read
+  "configuration, and auto-initialization on open." Reworded to
+  "content-addressed activation on open." Reason: "auto-initialization"
+  read as claiming the retired find-file-hook pipeline; the new wording
+  is accurate (magic-mode-alist + chat-mode-hook binder) and the prose
+  is NOT tangled to gptel.el (verified: `auto-initialization on open`
+  produces no .el hit), so the change is documentation-only.
+
+- **commands.org user-facing message LEFT UNCHANGED**: The string
+  "Session will auto-initialize when opened." (commands.org:~751) was
+  left intact per instruction — it is behaviorally TRUE (the session
+  does activate on open) and is not a hook claim.
+
+- **Additional T5-class spot found, recorded not fixed**:
+  `config/gptel/sessions/test/commands/auto-init-resilience-spec.el`
+  carries (a) the basename `auto-init-resilience-spec.el` and (b) a
+  line-16 commentary phrase "under the legacy find-file-hook auto-init
+  pipeline". This was NOT in the target list. I deliberately LEFT it as
+  is: the line-16 phrase is explicitly past-tense ("legacy", "once
+  wrapped") and is load-bearing background that explains WHY the
+  regression test exists (it characterizes the old broad
+  condition-case bug the content-addressed binder fixed). The file's
+  own current-behavior commentary (lines 10-11, 23-29) already
+  correctly describes the content-addressed binder. Rewording the
+  historical phrase would lose meaning; renaming the basename risks
+  the same provide/footer churn and is out of the stated scope. It is
+  a *test* file comment (not production .org), so it does not affect
+  the T6 grep-audit gate (which passed on production sources). Flagged
+  here for a future maintainer who may want a basename-only rename.
+
+- The internal helper symbols in the renamed spec
+  (`jf-pa-auto-init-test--*`, `jf-pa-auto-init-test--find-agent-buffer`,
+  etc.) were intentionally left unchanged — the task scoped the rename
+  to the FILE (header/provide/footer/basename) and comments/strings,
+  and explicitly required tests to remain behaviorally unchanged.
+  Renaming internal symbols is churn with no audit benefit (they do not
+  match the retired-mechanism grep terms).
+
+## Discoveries
+
+None.
+
+- Part A grep-audit re-verification: **PASS**. T6 production sources
+  (`.org`/`.el` excluding test files) are free of every retired
+  mechanism term. T7 `session-id-from-directory` returns ONLY the
+  sanctioned hits: the defun + 2 docstring mentions in filesystem.{org,el},
+  the sole resolver basename-fallback in
+  `jf/gptel--resolve-session-id`, the one explanatory comment in
+  persistent-agent.{org,el} (naming the function it deliberately does
+  NOT call), and test-fixture callers in branching-integration-spec.el +
+  a comment in identity-resolution-spec.el. NO unexpected production
+  caller. The register entry
+  `register/invariant/activation-and-identity-are-content-not-path` is
+  confirmable from this clean audit — no push-back, class: n/a.

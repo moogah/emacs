@@ -84,7 +84,7 @@ Returns the absolute path of the created `session.org'."
               "#+end_user\n"))
     session-file))
 
-(describe "Drawer-driven auto-init (metadata.yml is NOT consulted)"
+(describe "Drawer-driven activation (metadata.yml is NOT consulted)"
 
   (after-each
     (dolist (key jf-gptel-preset-app-test--registry-keys)
@@ -148,11 +148,12 @@ Returns the absolute path of the created `session.org'."
     ;; Detailed overlay semantics (which drawer keys map to which
     ;; buffer-locals, no-op for absent fields, buffer-local scoping)
     ;; live in `config/gptel/chat/test/menu/preset-wiring-spec.el'.
-    ;; Here we assert the integration point that matters for auto-
-    ;; init: when the chat-mode hook runs (which is what auto-init
-    ;; delegates drawer handling to), the overlay function
-    ;; `gptel-chat--apply-drawer-overrides' is invoked.  That proves
-    ;; auto-init does NOT need to do any drawer-handling work itself.
+    ;; Here we assert the integration point that matters for
+    ;; activation: when the chat-mode hook runs (which is what
+    ;; content-addressed activation delegates drawer handling to), the
+    ;; overlay function `gptel-chat--apply-drawer-overrides' is
+    ;; invoked.  That proves activation does NOT need to do any
+    ;; drawer-handling work itself.
 
     (let ((temp-root nil)
           (branch-dir nil)
@@ -183,7 +184,7 @@ Returns the absolute path of the created `session.org'."
         (when (and temp-root (file-directory-p temp-root))
           (delete-directory temp-root t)))
 
-      (it "invokes gptel-chat--apply-drawer-overrides during auto-init"
+      (it "invokes gptel-chat--apply-drawer-overrides during activation"
         (cl-letf* ((real-overlay
                     (symbol-function 'gptel-chat--apply-drawer-overrides))
                    ((symbol-function 'gptel-chat--apply-drawer-overrides)

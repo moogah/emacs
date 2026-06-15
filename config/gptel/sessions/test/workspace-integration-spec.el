@@ -185,7 +185,7 @@
             (expect (derived-mode-p 'gptel-chat-mode) :to-be-truthy)
             (expect gptel--preset :to-equal rt-preset)
             (expect gptel-temperature :to-equal 0.63))
-          ;; Registry cleanup for the auto-initialised buffer.
+          ;; Registry cleanup for the activated session buffer.
           (let ((sid (file-name-nondirectory
                       (directory-file-name session-dir))))
             (remhash (jf/gptel--registry-key sid "main")

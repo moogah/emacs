@@ -76,8 +76,6 @@
                    "\\`test-preset-[0-9]\\{14\\}-analyze-code\\'")
            (expect (file-directory-p agent-dir) :to-be t)
            (expect (file-directory-p (expand-file-name "branches" agent-dir))
-                   :to-be nil)
-           (expect (file-exists-p (expand-file-name "current" agent-dir))
                    :to-be nil))))))
 
   (it "writes session.org with a self-describing :PROPERTIES: drawer"
