@@ -2,7 +2,7 @@
 name: regression-sweep
 description: Full config/gptel test run plus manual smoke of activation, creation, branching, and agents; assert no find-file-hook or symlink remnants remain.
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
 relations:
   - "blocked-by:discovery-reads-drawers"
   - "blocked-by:retire-find-file-hook"
@@ -122,6 +122,34 @@ design.md § "Migration Plan" and § "Testing Approach"; proposal Impact (touchp
   to baseline; the async/scope/parallel-tool-callback pre-existing cluster) + the green
   sessions/chat/tools surfaces (sessions 150/0 incl. the 2 new move-safe specs, tools 65/0).
   This is the floor the final sweep compares against; a NEW signature is a regression.
+
+## Cycle 8 updates (cycle-1781526321) — DONE
+
+- **This task ran and is DONE (merged b15b66f --no-ff).** It was the change's final
+  task. The verification split: the orchestrator ran the heavy automated parts (full
+  `config/gptel` suite floor + the repo-wide grep-audit) in plan; the implementor
+  re-verified the grep-audit (Part A) and did the T5 scrub (Part B) in a worktree; the
+  author-blind reviewer re-verified the grep-audit a third time against post-merge HEAD.
+- **Grep-audit (T6 + T7) PASS — three independent confirmations.** Production is free of
+  every retired mechanism (`find-file-hook`, `auto-init-session-buffer`, layout regexes,
+  `current` symlink); T7 `session-id-from-directory` returns only the sanctioned hits
+  (resolver defun+docstrings, the sole basename fallback, 1 persistent-agent comment,
+  test fixtures). No other production caller. → flips
+  `register/invariant/activation-and-identity-are-content-not-path` **speculated →
+  confirmed** (cycle-8 integrate; see the reconciliation note).
+- **T5 cosmetic scrub merged:** renamed `auto-init-reload-spec.el` →
+  `agent-buffer-activation-reload-spec.el`; reworded stale `find-file-hook`/`auto-init`
+  comments (tests + `commands.org` comment + `gptel.org` prose); removed the vacuous
+  `current`-symlink-absence assertion (`creation-spec.el`) and the orphaned
+  `captured-symlink-target` helper. Cosmetic only; no production logic changed.
+- **Regression:** none — post-merge failset signature set IDENTICAL to the cycle-8
+  baseline (21 pre-existing async/scope/parallel cluster); sessions/chat/tools green.
+- **Manual smoke (step 3): USER-RUN per cycle-8 sign-off.** The change is ready for
+  `/opsx-verify` → `/opsx-archive` **pending the user's interactive smoke report**. The
+  register flip is already correct (gated on the grep-audit + clean scrub, both met).
+- **Residual (non-blocking, deliberately left):** `auto-init-resilience-spec.el` (test
+  file; accurate past-tense "legacy" wording; outside the audit gate) — optional future
+  basename-only cleanup, not filed as a task.
 
 ## Observations
 

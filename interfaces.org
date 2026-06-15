@@ -5020,8 +5020,38 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/activation-and-identity-are-content-not-path
    tier: invariant
-   status: speculated
+   status: confirmed
    status_note: |
+     cycle-1781526321 integrate (2026-06-15): CONFIRMED. The
+     enforcement_mechanism grep-audit (the regression-sweep task, the change's
+     final task) RAN and PASSES, verified independently THREE times — orchestrator
+     (plan), implementor (execute Part A, no push-back), and author-blind reviewer
+     (execute Part 1, re-run against post-merge HEAD b15b66f, verdict PASS / 0
+     findings). T6 repo-wide over ALL config/gptel: production free of every retired
+     MECHANISM (no find-file-hook registration, no jf/gptel--auto-init-session-buffer,
+     no layout regexes, no ../.. identity walks, no `current` symlink writer/reader/
+     constant); the three register *.org greps return nothing. T7
+     session-id-from-directory: ONLY the sanctioned hits remain — the defun + 2
+     docstrings in filesystem.{org,el}, the SOLE production use inside
+     jf/gptel--resolve-session-id (the permitted basename fallback, filesystem.el:103),
+     one explanatory comment in persistent-agent.{org,el}, and test fixtures
+     (branching-integration-spec.el + identity-resolution-spec.el comment); NO other
+     production caller. The cosmetic T5 scrub merged this cycle (b15b66f) removed the
+     last stale path-archaeology WORDING (find-file-hook/auto-init comments in tests +
+     2 production spots, a vacuous `current`-symlink assertion, the orphaned
+     captured-symlink-target helper) so the audit is clean by reading as well as by
+     mechanism. Regression nil (post-merge failset signature set IDENTICAL to the cycle-8
+     baseline; sessions/chat/tools surfaces green). The CODE condition was met cycle-7;
+     this cycle ran the formal audit that was the last gate. RESIDUAL (non-blocking,
+     deliberately left): auto-init-resilience-spec.el (a TEST file, outside the gate)
+     keeps an `auto-init` basename + a past-tense "legacy find-file-hook" background
+     comment — accurate history, optional future basename-only cleanup. Per cycle-8
+     user sign-off the interactive manual smoke is USER-RUN; the register flip is gated
+     on the grep-audit (this entry's declared enforcement_mechanism) + clean scrub merge,
+     both met, so confirmed is correct now; CHANGE archival (/opsx-verify -> /opsx-archive)
+     is held pending the user's smoke report as extra behavioral confirmation.
+     See .orchestrator/cycles/cycle-1781526321/reconciliations/invariant-activation-and-identity-are-content-not-path.md.
+     ----
      cycle-1781468009 integrate (2026-06-14): still SPECULATED, LAST CODE REMNANT
      ELIMINATED. consumer-migration (merged 4043ec7) migrated the final two
      jf/gptel--session-id-from-directory IDENTITY callers off the path: branching.org
@@ -5168,15 +5198,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    enforcement_mechanism:
      kind: test + grep-audit
      location: |
-       Static remnant greps (regression-sweep task) MUST all return
-       nothing in config/gptel/**/*.org:
+       Static remnant greps (regression-sweep task), run REPO-WIDE over
+       all of config/gptel. The three MECHANISM greps MUST return nothing
+       in production *.org sources:
          grep -rn "find-file-hook" ;
          grep -rn "auto-init-session-buffer" ;
          grep -rn "current-symlink\|get-current-branch-name\|current-link".
-       Behavioral coverage: mode-activation-spec.el (content activation),
-       mode-hook-binder-spec.el (binding without path test), and the
-       reworked auto-init-*-spec.el (content-addressed equivalent of the
+       Plus the IDENTITY-source grep (T7, operationalising the cycle-7
+       resolver-as-single-identity-seam meta-discovery):
+         grep -rn "session-id-from-directory" config/gptel
+       which MUST return ONLY the sanctioned hits — the defun + docstrings
+       in sessions/filesystem.{org,el}, the SOLE production use inside
+       jf/gptel--resolve-session-id (the permitted basename fallback), one
+       explanatory comment in tools/persistent-agent.{org,el}, and test
+       fixtures (branching-integration-spec.el + identity-resolution-spec.el).
+       ANY other production caller fails the audit (the entry would be
+       divergent, not confirmed). Behavioral coverage: mode-activation-spec.el
+       (content activation), mode-hook-binder-spec.el (binding without path
+       test), and the reworked agent-buffer-activation-reload-spec.el /
+       auto-init-resilience-spec.el (content-addressed equivalents of the
        former find-file-hook assertions).
+     confirmed_by: |
+       cycle-1781526321 (cycle-8). Audit PASSED, re-verified independently
+       by orchestrator (plan) + implementor (Part A) + author-blind reviewer
+       (Part 1, post-merge HEAD b15b66f). See the cycle-8 reconciliation note.
    related_entries:
      - register/boundary/session-content-signature
      - register/boundary/drawer-first-identity-resolution
