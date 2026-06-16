@@ -508,7 +508,7 @@ The initialization order is:
 
 **THEN** `gptel--restore-state` can find the preset by name in `gptel--known-presets`
 
-**AND** preset was registered before the find-file-hook ran
+**AND** preset was registered before the session activation hooks ran
 
 **AND** session can apply the preset during restore
 

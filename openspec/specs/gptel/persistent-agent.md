@@ -10,7 +10,7 @@ Enables autonomous sub-agents with isolated configuration, full conversation his
 
 **CRITICAL PRINCIPLE**: Agents have ZERO inheritance from parent sessions.
 
-Agent configuration comes ONLY from the agent's `session.org` `:PROPERTIES:` drawer, populated at agent creation time and read at auto-init time:
+Agent configuration comes ONLY from the agent's `session.org` `:PROPERTIES:` drawer, populated at agent creation time and read at mode-activation time:
 1. **Drawer-declared preset** (`:GPTEL_PRESET:`) supplies backend, model, and tools. The agent's system message is the baseline agent-harness preamble followed by the preset's `:system` body (see *Agent System-Prompt Preamble* below), materialized in the sibling `system-prompt.<ext>` file.
 2. **Drawer-declared scope keys** (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) supply file-access permissions, populated from the `allowed_paths` parameter plus the codebase's fixed write/deny patterns.
 
@@ -82,7 +82,7 @@ non-empty system prompt and a `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key.
 
 1. **Validation**: Parent-session check + preset existence — raise user-error before any side effect on validation failure.
 2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys, plus `:GPTEL_SYSTEM_PROMPT_FILE:`, always present for agents) followed directly by the initial `#+begin_user` block (no `* System Prompt` or `* Chat` headings). Always write the sibling `system-prompt.<ext>` file holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Agent System-Prompt Preamble*). No sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) are written.
-3. **Initialization**: Open the agent file with `find-file-noselect`; the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
+3. **Initialization**: Open the agent file with `find-file-noselect`; the file's drawer signature triggers content-addressed activation (`magic-mode-alist`) into `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 4. **Execution**: Compose chat-mode's public API (`gptel-chat-parse-buffer`, `gptel-chat-turns-to-messages`, `gptel-chat-open-assistant-block`, `gptel-chat-stream-callback`, `gptel-chat-fsm-handlers`) to drive the request. The agent supplies its own FSM-handler-chained overlay updates and a parent-feedback overlay as `gptel-request`'s `:context`.
 5. **FSM States**: `WAIT` (overlay: "Waiting…"), `TOOL` (overlay: "Calling Tools… (+N)" with cumulative count).
 6. **Completion**: On `DONE`, read the last `#+begin_assistant` block from the agent buffer, extract the trailing text segment (skipping tool-call segments), delete the parent overlay, invoke the caller-supplied `main-cb` with that text. On `ERRS`/`ABRT`, also delete the overlay and invoke `main-cb` with an error/abort string.
@@ -135,9 +135,9 @@ PersistentAgent SHALL only operate within persistent session buffers and SHALL a
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and `:GPTEL_SYSTEM_PROMPT_FILE:` (always present for agents). The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. A sibling `system-prompt.<ext>` file SHALL always be written next to `session.org` holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Requirement: Agent system-prompt preamble* and `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
+The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and content-addressed activation pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and `:GPTEL_SYSTEM_PROMPT_FILE:` (always present for agents). The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. A sibling `system-prompt.<ext>` file SHALL always be written next to `session.org` holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Requirement: Agent system-prompt preamble* and `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
 
-The session file SHALL be opened with `find-file-noselect` so that the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
+The session file SHALL be opened with `find-file-noselect` so that the file's drawer signature triggers content-addressed activation (`magic-mode-alist`) into `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 
 The agent's directory SHALL live under the parent branch's `agents/` subdirectory and SHALL be named `<preset>-<timestamp>-<slug>`. Agents SHALL NOT have a `branches/` subdirectory or a `current` symlink — they remain single-timeline sessions.
 
@@ -171,9 +171,9 @@ The agent's directory SHALL live under the parent branch's `agents/` subdirector
 ```
 - **AND** no `scope.yml` (or any other sidecar file) is written in the agent directory
 
-#### Scenario: Agent buffer auto-initializes via find-file-hook
+#### Scenario: Agent buffer activates via content-addressed signature
 - **WHEN** the agent's `session.org` is opened (whether at agent creation time or by a later `find-file`)
-- **THEN** `jf/gptel--auto-init-session-buffer` recognizes the agent path layout and runs
+- **THEN** the file's drawer signature selects `gptel-chat-mode` via `magic-mode-alist` and the `gptel-chat-mode-hook` binder runs
 - **AND** the buffer is in `gptel-chat-mode`
 - **AND** the preset declared in the `:PROPERTIES:` drawer has been applied buffer-local
 - **AND** the buffer is registered in `jf/gptel--session-registry`
@@ -213,7 +213,7 @@ The preamble SHALL establish the agent operating contract: (1) the agent does th
 
 ### Requirement: Configuration isolation (zero inheritance)
 
-The system SHALL enforce zero inheritance from the parent session. Agent configuration SHALL come from a single source: the agent's own `session.org` `:PROPERTIES:` drawer — the `:GPTEL_PRESET:` key (applied buffer-local at auto-init time by `gptel-chat--apply-declared-preset`) plus the agent's drawer scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`). The agent SHALL NOT inherit `gptel-backend`, `gptel-model`, `gptel-temperature`, `gptel-tools`, `gptel-system`, or any scope path from the parent buffer at runtime. Globals (the user's defaults outside any session) MAY fill gaps when the preset does not declare a key — globals are the user's standing intent, not parent-specific state.
+The system SHALL enforce zero inheritance from the parent session. Agent configuration SHALL come from a single source: the agent's own `session.org` `:PROPERTIES:` drawer — the `:GPTEL_PRESET:` key (applied buffer-local at mode-activation time by `gptel-chat--apply-declared-preset`) plus the agent's drawer scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`). The agent SHALL NOT inherit `gptel-backend`, `gptel-model`, `gptel-temperature`, `gptel-tools`, `gptel-system`, or any scope path from the parent buffer at runtime. Globals (the user's defaults outside any session) MAY fill gaps when the preset does not declare a key — globals are the user's standing intent, not parent-specific state.
 
 #### Scenario: Backend, model, tools come only from the drawer-declared preset
 - **WHEN** the parent session has a non-default `gptel-backend` and `gptel-model` set buffer-local
@@ -301,11 +301,27 @@ The overlay in the parent buffer SHALL be created at the parent's response-track
 - **THEN** the agent code does NOT accumulate those chunks into a parallel string buffer
 - **AND** the result returned to the parent is derived from the agent buffer at terminal state, not from an in-flight accumulator
 
+### Requirement: Agent identity in the drawer
+
+An agent `session.org` SHALL carry drawer-resident identity exactly like a standalone session: `:GPTEL_SESSION_ID:` and `:GPTEL_BRANCH:` (in addition to the agent-distinguishing `:GPTEL_PARENT_SESSION_ID:`). These keys SHALL be emitted by agent creation (`jf/gptel-persistent-agent--task`) into the drawer it already writes, so that an agent's identity, like a branch's, is read from its drawer rather than reverse-engineered from the nested `agents/<agent>/` path layout.
+
+Agent activation SHALL flow through the same content-addressed path as any session: the agent file is written complete (drawer + body) before it is opened, so `find-file-noselect` triggers the `magic-mode-alist` session signature, and the `gptel-chat-mode-hook` binder establishes the agent buffer's state from the drawer. The agent module SHALL NOT depend on the retired global `find-file-hook` auto-init pipeline.
+
+#### Scenario: Agent drawer carries identity keys
+- **WHEN** an agent is created under parent `p-abc-20260424000000`
+- **THEN** the agent `session.org` drawer contains `:GPTEL_SESSION_ID:`, `:GPTEL_BRANCH:`, and `:GPTEL_PARENT_SESSION_ID: p-abc-20260424000000`
+
+#### Scenario: Agent activates via content-addressed signature
+- **WHEN** `jf/gptel-persistent-agent--task` opens the freshly written agent file with `find-file-noselect`
+- **THEN** the file's drawer signature selects `gptel-chat-mode` via `magic-mode-alist`
+- **AND** the `gptel-chat-mode-hook` binder sets the agent buffer's identity (from the drawer), registers it, and enables autosave
+- **AND** no `find-file-hook` entry is involved
+
 ### Requirement: Persistence and resumption
 
-The system SHALL rely on the chat-mode session-init pipeline for persistence: autosave is installed by auto-init when the session file is opened, and the buffer's contents (including streamed assistant text and tool blocks) are persisted incrementally through chat-mode's normal save path. The agent SHALL NOT install its own custom auto-save hook.
+The system SHALL rely on the chat-mode session-binding pipeline for persistence: autosave is enabled by the `gptel-chat-mode-hook` binder when the session file is activated, and the buffer's contents (including streamed assistant text and tool blocks) are persisted incrementally through chat-mode's normal save path. The agent SHALL NOT install its own custom auto-save hook.
 
-A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mode` session: opening the file via `find-file` SHALL auto-initialize it identically to a standalone session — same major mode, same drawer-declared preset application, same registry registration, same autosave behavior — with the only distinction being the presence of `GPTEL_PARENT_SESSION_ID` in the drawer.
+A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mode` session: opening the file via `find-file` SHALL activate and bind it identically to a standalone session — same major mode (selected by the content-addressed signature), same drawer-declared preset application, same registry registration, same autosave behavior — with the only distinction being the presence of `GPTEL_PARENT_SESSION_ID` in the drawer.
 
 #### Scenario: No agent-specific auto-save hook
 - **WHEN** the persistent-agent module is loaded
@@ -314,7 +330,7 @@ A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mo
 
 #### Scenario: Saved agent session reloads as interactive
 - **WHEN** an agent has completed and its `session.org` is later opened with `find-file`
-- **THEN** the buffer is in `gptel-chat-mode`
+- **THEN** the content-addressed signature selects `gptel-chat-mode`
 - **AND** the drawer-declared preset has been applied buffer-local
 - **AND** the user can invoke `gptel-chat-send` from the buffer to continue the conversation interactively
 - **AND** behavior is indistinguishable from a standalone chat session except for the presence of `GPTEL_PARENT_SESSION_ID` in the drawer
@@ -354,7 +370,7 @@ The system SHALL handle terminal FSM states (`ERRS`, `ABRT`) and creation-time v
 
 ### With Sessions Subsystem
 - Agent directory created by a private agent-specific helper that mirrors the session-directory layout under `<parent-branch>/agents/`.
-- Agent `session.org` is registered via `jf/gptel--register-session` by the auto-init pipeline when the file is opened.
+- Agent `session.org` is registered via `jf/gptel--register-session` by the `gptel-chat-mode-hook` binder when the file is opened.
 - All metadata (preset, parent session id) lives in the session file's `:PROPERTIES:` drawer — no sidecar `metadata.yml` is written.
 
 ### With Scope Subsystem

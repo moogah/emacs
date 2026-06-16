@@ -2,7 +2,7 @@
 name: emit-identity-keys-in-writers
 description: "Emit GPTEL_SESSION_ID and GPTEL_BRANCH drawer keys at session creation, agent creation, and branch creation (agents also get their own id plus the parent link)."
 change: gptel-content-addressed-session-activation
-status: ready
+status: done
 cites_register_entries:
   - register/vocabulary/identity-drawer-keys
   - register/shape/drawer-text-block
