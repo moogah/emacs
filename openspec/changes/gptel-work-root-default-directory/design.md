@@ -61,9 +61,12 @@ gptel never names a workspaces symbol.
 
 ### D1 — Work root is a second persisted *output* of the `project-root` input
 
-`jf/gptel--create-session-core` already consumes `project-root` to expand
-`${project_root}` into `GPTEL_SCOPE_*`. It additionally persists it verbatim as
-`:GPTEL_WORK_ROOT:`. One input → two outputs ⇒ cwd and scope cannot disagree.
+`jf/gptel--create-session-core` canonicalizes `project-root` ONCE at entry
+(`expand-file-name`), then fans that single canonical-absolute string out to its
+two consumers: it expands `${project_root}` into `GPTEL_SCOPE_*`, and it
+additionally persists the same string verbatim as `:GPTEL_WORK_ROOT:`. One
+canonical input → two byte-identical absolute outputs ⇒ cwd and scope cannot
+disagree.
 - *Alternatives:* (a) an independent `work_root` param decoupled from scope —
   rejected, reopens the agreement invariant as a manual obligation; (b) renaming
   `project-root` to `work-root` — rejected, conflates the *input parameter* with
@@ -81,12 +84,22 @@ registry failure (matching the existing var-setting discipline).
   — rejected, the drawer is not a local-variables mechanism (that ordering
   concern was a dir-locals artifact, RESOLVED C).
 
-### D3 — Keyless fallback = `branch-dir`; absolute verbatim storage
+### D3 — Keyless fallback = `branch-dir`; absolute-at-source storage
 
 Absent the key, fall back to `jf/gptel--branch-dir` — identical to `find-file`'s
 value today, so legacy sessions are unchanged (a true no-op, since
-`default-directory` already equals `branch-dir` at activation). Stored absolute,
-matching how `${project_root}` already expands.
+`default-directory` already equals `branch-dir` at activation).
+
+`:GPTEL_WORK_ROOT:` is stored absolute, but the absolute form is established by
+the source-side `expand-file-name` in D1 — NOT by the renderer.
+`jf/gptel-scope-profile--expand-string` substitutes `${project_root}` VERBATIM (a
+raw `replace-regexp-in-string`, no `expand-file-name`; scope-profiles.org
+§expand-string), so the scope keys are absolute only because the *input* was
+already canonicalized before the renderer saw it. Because the same canonical
+string feeds both the renderer and the `:GPTEL_WORK_ROOT:` write, the two outputs
+are byte-identical and absolute for ANY input form (relative, trailing-slash,
+`~`) — strengthening the agreement invariant from verbatim-agreement to
+absolute-and-agreeing without reopening it.
 - *Alternatives:* derive a project root for keyless sessions (rejected —
   reintroduces path archaeology); relative-to-session storage for move-safety
   (rejected — archaeology again, and work-root+scope go stale *together* so they
@@ -141,8 +154,10 @@ absolute-path-only agent.
 Buttercup, co-located. New/extended files:
 - `config/gptel/sessions/test/commands/` — binder sets `default-directory` from
   `GPTEL_WORK_ROOT`; keyless fallback to `branch-dir`; value normalized to a
-  directory. `create-session-core` writes `GPTEL_WORK_ROOT` == its `project-root`
-  input and the scope-expansion root.
+  directory. `create-session-core` canonicalizes its `project-root` input once
+  (`expand-file-name`) and writes `GPTEL_WORK_ROOT` == that canonical-absolute
+  string == the scope-expansion root (byte-identical), for non-canonical inputs
+  too.
 - `config/gptel/tools/test/persistent-agent/` — drawer carries passed
   `work_root`; omitted ⇒ parent's work root frozen in drawer; `build-scope-plist`
   read/write split with `/tmp/**` retained as scratch; tool `:args` schema lists
