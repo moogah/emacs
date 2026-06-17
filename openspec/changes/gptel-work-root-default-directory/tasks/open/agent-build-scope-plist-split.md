@@ -58,3 +58,28 @@ Keep that exact shape; only the `:read` source and the `:write` construction cha
 ## Context
 design.md § Decisions 'D6 — Symmetric read_paths / write_paths; /tmp is appended scratch'
 specs/persistent-agent/spec.md § 'Requirement: Agent session creation' (write scope = write_paths + /tmp scratch)
+
+## Observations
+
+- Signature changed `(allowed-paths)` → `(read-paths write-paths)`. `:read`
+  is `(or read-paths nil)` (verbatim, nil/empty ⇒ no read access). `:write`
+  is `(append write-paths '("/tmp/**"))`, so `/tmp/**` is always the LAST
+  element (scratch grant), and scratch-only write when `write-paths` is nil.
+  `:deny` unchanged (`jf/gptel-persistent-agent--standard-deny-paths`).
+- `register/shape/scope-config-plist` shape preserved exactly:
+  `(:paths (:read … :write … :deny …))`. No shape divergence — only the
+  `:read` source and `:write` construction changed.
+- `jf/gptel-persistent-agent--standard-deny-paths` (≈:194) untouched.
+- Tangle + check-parens passed. New spec
+  `config/gptel/tools/test/persistent-agent/build-scope-plist-spec.el`
+  (4 `it` blocks) passes in isolation.
+- SOLE CALLER `jf/gptel-persistent-agent--task` (persistent-agent.org:560,
+  tangled persistent-agent.el:337) still passes ONE arg
+  (`allowed-paths-list`). This is the documented stale-caller arity owned by
+  the separate `agent-workroot-and-paths` task; it produces 15 pre-existing
+  `wrong-number-of-arguments` failures in the full persistent-agent suite
+  that are NOT a regression from this task. Left untouched per scoping note.
+
+## Discoveries
+
+(none)
