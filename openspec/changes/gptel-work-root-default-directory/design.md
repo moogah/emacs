@@ -139,15 +139,41 @@ encoding.
   session and carries no persisted data, the rename is safe under
   beta/no-migration.
 
-### D7 — Consistency guardrail = warn, not error
+**Work root auto-included in read scope (supersedes D7).** `--task` prepends
+`(concat (directory-file-name resolved-work-root) "/**")` — i.e. `<work_root>/**`,
+compiling to `^<work_root>/.*$` — to `read_paths` before calling
+`build-scope-plist` (deduped against an identical caller-supplied pattern with
+`member`). The agent's work root is therefore **readable by construction**: a
+relative read resolves against `default-directory` (= work root, via the single
+binder seam — `register/boundary/work-root-activation-seam`) and always lands in
+read scope, even when the caller supplies NO `read_paths`. This is
+self-consistency (the agent's own work root joining its own read scope), NOT
+inheritance of the parent's scope — the zero-inheritance invariant is intact.
+*Write scope stays separately scoped:* `:write` remains `/tmp/**` + explicit
+`write_paths` only — the work root is readable, not writable, by construction.
+`register/vocabulary/agent-path-params`: `work_root` now maps to BOTH the
+`:GPTEL_WORK_ROOT:` drawer key AND a prepend into `:GPTEL_SCOPE_READ:` (the
+closed param set is unchanged).
 
-When the resolved `work_root` is not matched by any `read_paths` pattern, emit a
-warning; do not abort creation. This catches the silent-DENY trap (relative
-paths resolving outside scope) without forbidding a deliberate
-absolute-path-only agent.
-- *Alternatives:* hard error/abort (rejected — too strict; a parent may grant
-  only absolute paths intentionally); silent (rejected — revives the very
-  failure mode this change removes).
+### D7 — Consistency guardrail = warn, not error — **SUPERSEDED**
+
+**SUPERSEDED by D6's auto-include.** The original decision emitted a *warning*
+(not an abort) when the resolved `work_root` was not matched by any `read_paths`
+pattern, to catch the silent-DENY trap (relative paths resolving outside scope).
+That guardrail is now **removed as redundant**: D6 makes the work root readable
+by construction, so the mismatch it warned about can no longer occur. The
+guardrail also fired a false alarm on the normal `work_root=/p` + `read_paths=[/p/**]`
+case (the `/p/**` glob compiles to `^/p/.*$`, which does not match the
+no-trailing-slash root `/p`). Rationale for removal (user decision,
+cycle-1781718724-d7-guardrail-prefix-match): a `work_root` unreadable to the
+agent serves no purpose, so the read/work_root redundancy is accepted, and the
+guardrail — plus its cross-module `(require 'jf-gptel-scope-validation)` for the
+path-matcher — is deleted as dead code.
+- *Original alternatives (historical):* hard error/abort (rejected — too strict;
+  a parent may grant only absolute paths intentionally); silent (rejected —
+  revives the very failure mode this change removes). The auto-include resolves
+  the tension both alternatives left open: the failure mode is eliminated by
+  construction rather than reported.
 
 ### Testing approach (scenario → spec mapping)
 

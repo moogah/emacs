@@ -64,7 +64,6 @@ than re-introduce that package.
                                     ;   jf/gptel--context-file-path
 (require 'gptel-session-logging)
 (require 'gptel-scope-profiles)     ; jf/gptel-scope-profile--render-drawer-text
-(require 'jf-gptel-scope-validation) ; jf/gptel-scope--path-matches-any-pattern-p (D7 guardrail)
 (require 'gptel-session-commands)   ; jf/gptel--initial-session-body, sibling-file writer
 #+end_src
 
@@ -582,6 +581,26 @@ for parent overlay feedback and final-text return."
                       (not (string-blank-p work-root)))
                  work-root
                default-directory)))
+           ;; Auto-include the work root in the agent's READ scope so that
+           ;; relative reads (which resolve against `default-directory' =
+           ;; work root on activation, via the single binder seam —
+           ;; register/boundary/work-root-activation-seam) always land in
+           ;; scope (design.md D6).  The pattern `<root>/**' compiles to
+           ;; `^<root>/.*$', covering every file under the work root.
+           ;; `directory-file-name' strips any trailing slash before
+           ;; appending `/**'.  PREPENDED (not appended) and deduped with
+           ;; `member' so an identical caller-supplied pattern is not
+           ;; doubled.  Write scope stays separately scoped (design.md D6:
+           ;; `/tmp/**' + explicit write_paths) — the work root is readable
+           ;; by construction, NOT writable by construction
+           ;; (register/vocabulary/agent-path-params: work_root now maps to
+           ;; the :GPTEL_WORK_ROOT: drawer key AND prepends :GPTEL_SCOPE_READ:).
+           (work-root-read-pattern
+            (concat (directory-file-name resolved-work-root) "/**"))
+           (read-paths-list
+            (if (member work-root-read-pattern read-paths-list)
+                read-paths-list
+              (cons work-root-read-pattern read-paths-list)))
            (session-dir (jf/gptel--create-agent-directory
                          jf/gptel--branch-dir preset description))
            ;; Build the scope plist from read/write paths + standard
@@ -666,20 +685,6 @@ for parent overlay feedback and final-text return."
            ;; `:GPTEL_SYSTEM_PROMPT_FILE:'.
            (body (jf/gptel-persistent-agent--initial-body prompt))
            (initial-content (concat drawer-text body)))
-      ;; Consistency guardrail (design.md D7): warn — do NOT abort — when
-      ;; the resolved work root is not matched by any read pattern.  A
-      ;; relative write/read in the agent resolves against
-      ;; `default-directory' (= work root); if that root sits outside the
-      ;; agent's read scope, those relative ops silently DENY.  A parent
-      ;; may legitimately grant only absolute paths, so this warns rather
-      ;; than forbidding the case (register/vocabulary/agent-path-params).
-      (unless (jf/gptel-scope--path-matches-any-pattern-p
-               resolved-work-root read-paths-list)
-        (let ((msg (format
-                    "PersistentAgent: work root %s is outside the agent's read scope %S; relative paths may be denied"
-                    resolved-work-root read-paths-list)))
-          (jf/gptel--log 'warn "%s" msg)
-          (display-warning 'gptel-persistent-agent msg :warning)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))
              (_ (with-temp-file session-file
                   (insert initial-content)))
