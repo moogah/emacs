@@ -2,7 +2,7 @@
 name: session-write-work-root
 description: create-session-core writes GPTEL_WORK_ROOT from the project-root input
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations: []
 ---
 

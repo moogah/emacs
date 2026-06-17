@@ -2,7 +2,7 @@
 name: agent-workroot-and-paths
 description: PersistentAgent passes work_root + read_paths/write_paths; drawer GPTEL_WORK_ROOT; guardrail
 change: gptel-work-root-default-directory
-status: blocked
+status: ready
 relations:
   - blocked-by:binder-default-directory
   - blocked-by:agent-build-scope-plist-split

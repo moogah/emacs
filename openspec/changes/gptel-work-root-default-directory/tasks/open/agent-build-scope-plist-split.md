@@ -2,7 +2,7 @@
 name: agent-build-scope-plist-split
 description: build-scope-plist takes read-paths + write-paths; /tmp/** appended as scratch
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations:
   - enables:agent-workroot-and-paths
 ---

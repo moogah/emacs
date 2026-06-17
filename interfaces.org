@@ -2436,13 +2436,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: vocabulary
    status: speculated
    status_note: |
-     Speculated at plan (cycle-1781716077, change gptel-work-root-default-
-     directory). BREAKING tool-schema rename: allowed_paths/denied_paths ->
-     work_root + read_paths + write_paths. Confirmed at integrate once
-     agent-build-scope-plist-split (helper takes read-paths/write-paths,
-     /tmp/** appended as scratch) and agent-workroot-and-paths (tool :args
-     lists exactly the six params, excludes allowed_paths/denied_paths)
-     land green and docs-allowed-paths-rename sweeps stale references.
+     STILL SPECULATED after cycle-1781716077 integrate — HELPER LOCUS
+     confirmed, TOOL-SURFACE LOCUS pending.  agent-build-scope-plist-split
+     landed the read/write split of jf/gptel-persistent-agent--build-scope-plist
+     ((read-paths write-paths); /tmp/** appended LAST as scratch, not the
+     write default); author-blind review CLEAN bar one advisory (a
+     non-mutation spec, added).  But the full vocabulary contract — the tool
+     :args advertising exactly {preset, description, prompt, work_root,
+     read_paths, write_paths} and EXCLUDING allowed_paths/denied_paths — is
+     NOT yet on the surface; that is cycle-2's agent-workroot-and-paths
+     (+ docs-allowed-paths-rename for the prose sweep).  KNOWN CONSEQUENCE:
+     the helper's arity change with its --task caller still passing 1 arg
+     leaves 16 wrong-number-of-arguments failures across the persistent-agent
+     suite (quarantined, expected, cleared when the caller task lands).
+     Flips to confirmed at the cycle whose integrate sees the tool :args spec
+     assert the exact six-param set and the suite return to green.
    load_bearing: true
    title: The PersistentAgent tool path/work-root parameter vocabulary (post allowed_paths split)
    purpose: |
@@ -4964,15 +4972,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/work-root-activation-seam
    tier: boundary
-   status: speculated
+   status: confirmed
    status_note: |
-     Speculated at plan (cycle-1781716077, change gptel-work-root-default-
-     directory). The seam is the single setq-local of default-directory in
-     the gptel-chat-mode-hook binder (binder-default-directory). Confirmed
-     at integrate once the binder spec (sets default-directory from
-     GPTEL_WORK_ROOT; keyless -> branch-dir fallback; normalized to a
-     directory) is green and scope-relative-resolution-tests proves tool
-     calls see it.
+     CONFIRMED cycle-1781716077 integrate. binder-default-directory landed
+     exactly ONE setq-local of default-directory in the gptel-chat-mode-hook
+     binder, placed after the four identity setq-locals and BEFORE the
+     condition-case registry block, normalised via file-name-as-directory +
+     expand-file-name, with a genuine branch-dir no-op fallback for keyless
+     sessions.  Author-blind review = CLEAN (0 findings): confirmed the seam
+     is singular (no duplicate default-directory binding in any tool wrapper
+     or second hook), correctly placed, and behaviour-verified by a co-located
+     spec.  The implementor independently recommended the speculated->confirmed
+     flip.  The READ-side proof that tool calls actually resolve against this
+     default-directory is scope-relative-resolution-tests (cycle-2); the seam
+     ITSELF (the single binder set) is confirmed now.
    load_bearing: true
    title: The binder's single default-directory setq-local is the one seam all tool path-resolution flows through
    purpose: |
@@ -7595,15 +7608,35 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/cwd-scope-agreement
    tier: invariant
-   status: speculated
+   status: confirmed
    status_note: |
-     Speculated at plan (cycle-1781716077, change gptel-work-root-default-
-     directory). The CODE condition is established by session-write-work-root
-     (writes GPTEL_WORK_ROOT from the SAME project-root input that expands
-     GPTEL_SCOPE_*) and exercised by scope-relative-resolution-tests. Flips
-     to confirmed at integrate once both land green and the agreement-by-
-     construction spec assertion (persisted GPTEL_WORK_ROOT == scope-
-     expansion root) passes.
+     CONFIRMED cycle-1781716077 integrate — but RECONCILED through a
+     blocking review finding (the speculation's "verbatim" wording was
+     load-bearing and the first implementation broke it).  session-write-
+     work-root initially stored GPTEL_WORK_ROOT as (expand-file-name
+     project-root) while jf/gptel-scope-profile--expand-string substitutes
+     ${project_root} VERBATIM (raw replace-regexp-in-string, NOT
+     expand-file-name; scope-profiles.org §expand-string).  For any
+     non-canonical input (relative / trailing-slash / ~) the two DIVERGED,
+     so agreement was only incidental (true when expand-file-name is a
+     no-op), not structural — and the agreement spec mocked the renderer to
+     also expand-file-name, fabricating the agreement (tautology).  The
+     author-blind reviewer caught both.  Inline fix (commit e0479746):
+     store project-root VERBATIM (the byte-identical string the scope
+     expansion consumes) so the equality is genuine for ANY input; the
+     binder normalises to an absolute directory at READ time.  Case 2 of
+     work-root-emission-spec rewritten to model the real verbatim
+     substitution + a relative input, so a regression to expand-file-name
+     fails it.  why_tests_missed: the original agreement test was tautological
+     (mocked the renderer into agreement).  SPEC-SIGNAL carried to the user
+     (handshake asks_for_user_open): design.md D3's claim that ${project_root}
+     "expands absolute" is FALSE (it is verbatim substitution); open question
+     whether project-root should be canonicalised at the SOURCE so scope
+     patterns become absolute and relative-path resolution lands in scope for
+     ALL input forms, not just already-absolute ones.  Reconciliation note:
+     .orchestrator/cycles/cycle-1781716077/reconciliations/invariant-cwd-scope-agreement.md
+     The scope-relative-resolution-tests task (cycle-2) further exercises the
+     read side; this entry is confirmed on the WRITE/agreement side now.
    load_bearing: true
    title: A session's work root and its scope boundary derive from one input and cannot disagree
    statement: |

@@ -2,7 +2,7 @@
 name: binder-default-directory
 description: Binder sets buffer-local default-directory from GPTEL_WORK_ROOT, branch-dir fallback
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations: []
 ---
 
