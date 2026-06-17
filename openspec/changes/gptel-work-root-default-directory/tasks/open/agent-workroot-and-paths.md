@@ -76,3 +76,115 @@ design.md § Decisions 'D5 — Agent: parent passes work_root', 'D6', 'D7 — Co
 specs/persistent-agent/spec.md § 'Requirement: Agent working directory (parent-supplied)',
   'Requirement: Tool invocation and validation', 'Requirement: Agent session creation',
   'Requirement: Configuration isolation (zero inheritance)'
+
+## Observations
+
+- **BREAKING change forced updates to existing tests (in-scope).** The
+  `allowed_paths` → `read_paths`/`write_paths` rename and the new `work_root`
+  param changed the positional signature of `jf/gptel-persistent-agent--task`
+  and the tool `:args` set. Two existing test files had to be updated to keep
+  the suite green: `creation-spec.el` (the `read_paths` call now sits at the
+  6th positional after `work_root`; the args-schema test now asserts the exact
+  closed six-param set) and `agent-buffer-activation-reload-spec.el` (the agent
+  buffer's `default-directory` is now sourced from `:GPTEL_WORK_ROOT:`, not
+  from `find-file`'s file-dir default, so that test's `default-directory`
+  assertion changed and its parent-buffer fixture now pins a known work root).
+  These are direct consequences of the change's contract, not scope creep.
+
+- **Adjacent latent bug: `persistent-agent-trace.el` around-advice is now
+  arity-stale.** `jf/gptel-pa-trace--around-task` (config/gptel/tools/
+  persistent-agent-trace.el:87) wraps `--task` with the OLD signature
+  `(orig main-cb preset description prompt &optional allowed-paths)` and
+  re-invokes `orig` with only those 5 positionals (line 105). With the new
+  signature the trace advice would silently DROP `work_root`, `read_paths`,
+  and `write_paths` whenever tracing is enabled — every agent spawned under a
+  trace session would lose its work root and scope. This module is loaded at
+  startup but the advice is opt-in (`M-x jf/gptel-pa-trace-start`), so it does
+  not affect the default path or the test suite. It is outside this task's
+  declared files-to-modify, so I did NOT edit it; filed as a `.tasks/`
+  follow-up (`pa-trace-task-advice-arity-drift`).
+
+- **Guardrail glob semantics are sharper than the prose implies.** Under this
+  repo's glob engine (`jf/gptel-scope--glob-to-regex`), a `<root>/**` pattern
+  compiles to `<root>/.*$`, which requires a trailing path component and so
+  does NOT match the work-root directory `<root>` itself. Consequently the
+  common "I gave the agent `work_root /proj` and `read_paths ["/proj/**"]`"
+  case WILL trip the D7 warning, because `/proj` is not matched by `/proj/**`.
+  This is harmless (warn, not error) and arguably correct (relative reads
+  resolve to files *under* the root, which the pattern does cover), but the
+  D7 prose ("work_root falls outside read scope") reads as if it would only
+  fire for genuinely-disjoint roots. The "does not warn" test was written
+  with an ancestor glob to reflect the actual semantics. No code change made;
+  recorded as a Discovery for register reconciliation.
+
+- **`jf-gptel-scope-validation` was not previously required by
+  persistent-agent.org.** The D7 guardrail uses
+  `jf/gptel-scope--path-matches-any-pattern-p`, which lives in the
+  `jf-gptel-scope-validation` feature. persistent-agent only required
+  `gptel-scope-profiles` (which does not transitively pull in validation), so
+  I added an explicit `(require 'jf-gptel-scope-validation)` alongside the
+  existing requires. Matches the convention in the scope subsystem's own
+  modules (scope-expansion/scope-shell-tools/scope-tool-wrapper).
+
+## Discoveries
+
+- discovery_id: disc-agent-workroot-and-paths-1
+  class: vocabulary-mismatch
+  description: |
+    The speculated closed param set in
+    register/vocabulary/agent-path-params is CONFIRMED by implementation.
+    The PersistentAgent tool `:args` now lists exactly
+    {preset, description, prompt, work_root, read_paths, write_paths}, in
+    that order, and `allowed_paths`/`denied_paths` are absent from the tool
+    surface. `work_root` is a scalar written to `:GPTEL_WORK_ROOT:`
+    (defaulting to the parent buffer's frozen `default-directory`);
+    `read_paths` feeds build-scope-plist `:read` verbatim; `write_paths`
+    feeds `:write` with `/tmp/**` appended last and serializes via the
+    existing `+`-multivalue drawer convention (`:GPTEL_SCOPE_WRITE+: /tmp/**`).
+    The build-scope-plist shape (register/shape/scope-config-plist) was
+    consumed unchanged. All six-param assertions and the full tools suite
+    pass green (81 specs, 0 failed).
+  affected_register_entry: register/vocabulary/agent-path-params
+  recommendation: |
+    Promote register/vocabulary/agent-path-params from SPECULATED to
+    CONFIRMED. The user-approved closed set (D5/D6/D7) is exactly what the
+    code advertises; no divergence found. The confirm gate (tool `:args`
+    asserts the six-param set AND suite green) is satisfied.
+
+- discovery_id: disc-agent-workroot-and-paths-2
+  class: interface-drift
+  description: |
+    `jf/gptel-pa-trace--around-task` in
+    config/gptel/tools/persistent-agent-trace.el is :around advice on
+    `jf/gptel-persistent-agent--task`. Its parameter list and its `funcall
+    orig` both still use the pre-change single-`allowed-paths` signature, so
+    while tracing is active it drops the new work_root/read_paths/write_paths
+    positionals — agents spawned under a trace session would lose their work
+    root and scope. The trace module is not in this task's files-to-modify
+    and tracing is opt-in, so it was left untouched.
+  affected_register_entry: register/vocabulary/agent-path-params
+  recommendation: |
+    Update the trace around-advice to mirror the new
+    `(orig main-cb preset description prompt &optional work-root read-paths
+    write-paths)` signature and pass all positionals through to `orig`.
+    Tracked in .tasks/pa-trace-task-advice-arity-drift.md.
+
+- discovery_id: disc-agent-workroot-and-paths-3
+  class: spec-signal
+  description: |
+    D7's "work_root falls outside read scope" wording undersells how often
+    the guardrail fires. Because the repo glob engine compiles `<root>/**`
+    to `<root>/.*$` (requiring a trailing component), a work_root equal to
+    the directory root of its own `<root>/**` read pattern is NOT matched
+    and therefore WARNS. The warning is benign (relative reads still resolve
+    to in-scope files under the root), but operators passing the natural
+    `work_root=/p` + `read_paths=["/p/**"]` pairing will see a warning every
+    time.
+  affected_register_entry: register/vocabulary/agent-path-params
+  recommendation: |
+    Either (a) document in the D7/spec prose that a `<root>/**` pattern does
+    not cover the root directory itself (so the warning is expected for the
+    canonical pairing), or (b) soften the guardrail to also accept a read
+    pattern whose directory prefix equals the work root. Option (a) is the
+    lower-risk reconciliation; defer (b) to a follow-up if the warning noise
+    proves annoying in practice.
