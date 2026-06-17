@@ -2434,23 +2434,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/agent-path-params
    tier: vocabulary
-   status: speculated
+   status: confirmed
    status_note: |
-     STILL SPECULATED after cycle-1781716077 integrate — HELPER LOCUS
-     confirmed, TOOL-SURFACE LOCUS pending.  agent-build-scope-plist-split
-     landed the read/write split of jf/gptel-persistent-agent--build-scope-plist
-     ((read-paths write-paths); /tmp/** appended LAST as scratch, not the
-     write default); author-blind review CLEAN bar one advisory (a
-     non-mutation spec, added).  But the full vocabulary contract — the tool
-     :args advertising exactly {preset, description, prompt, work_root,
-     read_paths, write_paths} and EXCLUDING allowed_paths/denied_paths — is
-     NOT yet on the surface; that is cycle-2's agent-workroot-and-paths
-     (+ docs-allowed-paths-rename for the prose sweep).  KNOWN CONSEQUENCE:
-     the helper's arity change with its --task caller still passing 1 arg
-     leaves 16 wrong-number-of-arguments failures across the persistent-agent
-     suite (quarantined, expected, cleared when the caller task lands).
-     Flips to confirmed at the cycle whose integrate sees the tool :args spec
-     assert the exact six-param set and the suite return to green.
+     CONFIRMED cycle-1781718724 integrate.  TOOL-SURFACE LOCUS now landed:
+     agent-workroot-and-paths (merge 614b95a7) renamed the single allowed_paths
+     arg to the closed symmetric set — the tool :args advertises EXACTLY
+     {preset, description, prompt, work_root, read_paths, write_paths} and
+     EXCLUDES allowed_paths/denied_paths (verified by work-root-spec.el's
+     args-schema assertion AND the author-blind reviewer reading the diff cold).
+     work_root -> :GPTEL_WORK_ROOT: (omitted -> parent default-directory frozen
+     via expand-file-name, a parent-supplied default NOT runtime inheritance);
+     read_paths -> build-scope-plist :read -> :GPTEL_SCOPE_READ:; write_paths ->
+     :write with /tmp/** appended LAST as scratch -> :GPTEL_SCOPE_WRITE(+):.
+     The helper locus was confirmed cycle-1781716077; this cycle confirms the
+     tool surface, completing the confirm gate (exact six-param set + suite
+     green).  The 16 quarantined wrong-number-of-arguments failures the cycle-1
+     split left are CLEARED (--task now passes (read-paths write-paths)); the
+     gptel suite returned 37 -> 21 (pre-existing floor), zero new signatures.
+     Reconciliation note: .orchestrator/cycles/cycle-1781718724/reconciliations/
+     vocabulary-agent-path-params.md.  CARRIED (separate, non-blocking) SPEC-
+     SIGNAL on the D7 guardrail: <root>/** glob does NOT match the no-trailing-
+     slash root expand-file-name yields, so work_root=/p + read_paths=[/p/**]
+     warns every spawn — routed to user (does not affect this vocabulary entry).
+     RESIDUAL: docs-allowed-paths-rename (prose sweep) still open.
    load_bearing: true
    title: The PersistentAgent tool path/work-root parameter vocabulary (post allowed_paths split)
    purpose: |
@@ -4984,8 +4990,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      or second hook), correctly placed, and behaviour-verified by a co-located
      spec.  The implementor independently recommended the speculated->confirmed
      flip.  The READ-side proof that tool calls actually resolve against this
-     default-directory is scope-relative-resolution-tests (cycle-2); the seam
-     ITSELF (the single binder set) is confirmed now.
+     default-directory is scope-relative-resolution-tests — LANDED
+     cycle-1781718724 (merge 4a1af080, relative-resolution-spec.el, 6 specs
+     green, author-blind review CLEAN): with default-directory bound to the work
+     root a relative path resolves under it and lands in scope, and the SAME
+     relative path under a DIFFERENT work root resolves differently (verdict +
+     resolved :resource flip), so a hardcoded-root mutant fails.  Additionally
+     agent-workroot-and-paths (cycle-1781718724, merge 614b95a7) EXTENDED the
+     seam to agents: the agent's own :GPTEL_WORK_ROOT: drawer key is written at
+     spawn and the SAME single binder seam sets the agent buffer's
+     default-directory on activation (NO second binding point added —
+     duplication invariant intact).  Seam confirmed end-to-end (chat + agent,
+     validation + execution).
    load_bearing: true
    title: The binder's single default-directory setq-local is the one seam all tool path-resolution flows through
    purpose: |
@@ -7635,12 +7651,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      create-session-core entry, feeding BOTH the scope expansion and the
      GPTEL_WORK_ROOT write, so both outputs are absolute AND byte-identical
      (agreement preserved, scope patterns absolute, relative-path resolution
-     lands in scope for all inputs).  Tracked as the ready task
-     canonicalize-project-root-at-source (cycle-2; user PAUSED after cycle-1).
-     This entry stays CONFIRMED on the write/agreement side; cycle-2 strengthens
-     it from verbatim-agreement to absolute-agreement and the read side is
-     exercised by scope-relative-resolution-tests.  Reconciliation note:
+     lands in scope for all inputs).  RESOLVED cycle-1781718724:
+     canonicalize-project-root-at-source (merge f50ebb80) landed Option A — one
+     source-side (when project-root (setq project-root (expand-file-name
+     project-root))) at create-session-core entry feeds BOTH the scope
+     expansion AND the GPTEL_WORK_ROOT write, so the two outputs are now
+     byte-identical AND ABSOLUTE for any input form.  The agreement spec
+     (work-root-emission-spec.el Case 2) was strengthened to be genuinely
+     NON-TAUTOLOGICAL (verbatim-substituting mock, non-canonical inputs
+     "proj"/"/Users/x/proj/", asserts byte-identical absolute) — author-blind
+     review CLEAN (0 findings), confirmed the mock cannot fabricate agreement.
+     design.md D1/D3 corrected (${project_root} is verbatim substitution;
+     canonical-absolute established at source, not by the renderer).  The READ
+     side is now proven end-to-end by scope-relative-resolution-tests (merge
+     4a1af080, 6 specs green, author-blind review CLEAN — verdict flips between
+     work roots under identical scope-config, so the specs genuinely bite).
+     This entry stays CONFIRMED, strengthened from verbatim-agreement to
+     ABSOLUTE-agreement.  Reconciliation notes:
      .orchestrator/cycles/cycle-1781716077/reconciliations/invariant-cwd-scope-agreement.md
+     and .orchestrator/cycles/cycle-1781718724/reconciliations/invariant-cwd-scope-agreement.md
    load_bearing: true
    title: A session's work root and its scope boundary derive from one input and cannot disagree
    statement: |

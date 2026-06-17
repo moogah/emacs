@@ -2,10 +2,21 @@
 name: docs-allowed-paths-rename
 description: Sweep and update docs/preset/README/agent references to the old allowed_paths param
 change: gptel-work-root-default-directory
-status: blocked
+status: ready
 relations:
   - blocked-by:agent-workroot-and-paths
 ---
+
+## Cycle 2 updates (cycle-1781718724)
+> UNBLOCKED: agent-workroot-and-paths is DONE (merge 614b95a7). The tool surface
+> rename (`allowed_paths` → `{work_root, read_paths, write_paths}`) and the tool
+> `:description` are landed; `register/vocabulary/agent-path-params` is now CONFIRMED.
+> Status flipped blocked → **ready**. This is now a pure residual prose sweep: the
+> only remaining `allowed_paths` references should be in human-facing docs / agent
+> prompts / preset guidance (the code identifier is gone). Run the step-1 grep and
+> update guidance to `read_paths`/`write_paths` (+ the auto-`/tmp` scratch note). When
+> updating write-access guidance, mention `work_root` too. Last in-change task before
+> verify-change.
 
 ## Files to modify
 - TBD by grep — candidates: `config/gptel/agents/*.md`, `config/gptel/presets/*.md`,

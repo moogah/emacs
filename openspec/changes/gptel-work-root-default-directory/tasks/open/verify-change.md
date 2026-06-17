@@ -12,6 +12,29 @@ relations:
   - blocked-by:docs-allowed-paths-rename
 ---
 
+## Cycle 2 updates (cycle-1781718724)
+> Five of six blockers are now DONE: session-write-work-root, binder-default-directory,
+> agent-build-scope-plist-split (cycle-1) + scope-relative-resolution-tests (4a1af080),
+> agent-workroot-and-paths (614b95a7) (cycle-2). Plus canonicalize-project-root-at-source
+> (f50ebb80) landed. ONLY docs-allowed-paths-rename (now ready) remains before this is
+> unblocked — likely cycle-3.
+>
+> Register status entering verify: `cwd-scope-agreement` CONFIRMED + strengthened to
+> ABSOLUTE-agreement (one source-side expand-file-name; non-tautological spec);
+> `work-root-activation-seam` CONFIRMED end-to-end (chat + agent; read-side proven by
+> relative-resolution-spec.el); `agent-path-params` CONFIRMED (closed tool :args set);
+> `scope-config-plist` CONFIRMED unchanged. Suite floor = 21 pre-existing (externalised
+> async/scope cluster, .tasks/gptel-preexisting-async-scope-test-failures.md) — the
+> 16 quarantined arity failures are CLEARED, so verify should see 21, not 37.
+>
+> Step-4 cwd↔scope agreement check is now ABSOLUTE-agreement (assert both outputs are
+> absolute AND byte-identical for a non-canonical input).
+>
+> ADDITIONAL gate item: confirm the disposition of the D7-guardrail spec-signal (task
+> d7-guardrail-prefix-match, ask cycle-1781718724-d7-guardrail-prefix-match) once the
+> user decides — if Option A/C is chosen, verify the guardrail no longer warns on the
+> benign `work_root=/p` + `read_paths=[/p/**]` common case.
+
 ## Files to modify
 - None (verification only). May add a small end-to-end spec if a gap is found.
 
