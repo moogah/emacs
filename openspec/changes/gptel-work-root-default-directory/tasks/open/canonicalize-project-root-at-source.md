@@ -66,3 +66,87 @@ input form — closing the latent gap without reopening the agreement obligation
 register/invariant/cwd-scope-agreement; design.md D1/D3;
 .orchestrator/cycles/cycle-1781716077/reconciliations/invariant-cwd-scope-agreement.md;
 .orchestrator/cycles/cycle-1781716077/reviews/session-write-work-root.md (finding 3).
+
+## Observations
+
+- DEPARTURE (none material): implemented the canonicalization as a guarded
+  `(when project-root (setq project-root (expand-file-name project-root)))`
+  immediately BEFORE the `let*` (rather than as the first `let*` binding). This
+  mutates the parameter binding once at entry, so every downstream reference
+  (`jf/gptel-scope-profile--create-for-session` and the `GPTEL_WORK_ROOT`
+  append) reads the one canonical string with no further edits. Equivalent to
+  the task's suggested `canonical-root` let, but touches fewer lines and keeps
+  the `GPTEL_WORK_ROOT` write byte-for-byte verbatim relative to the canonical
+  value (no double-expand). nil stays nil (keyless path unchanged).
+
+- PRE-EXISTING FAILURE (NOT introduced by this task, NOT in scope): the sessions
+  suite has ONE failing buttercup spec —
+  `config/gptel/sessions/test/commands/identity-keys-emission-spec.el`
+  ("jf/gptel-persistent-agent--task ... writes the agent's OWN
+  :GPTEL_SESSION_ID: ..."). Root cause is an arity mismatch in an UNRELATED
+  module: `jf/gptel-persistent-agent--build-scope-plist` was split to take
+  `(read-paths write-paths)` (commit ff98330e, task agent-build-scope-plist-
+  split) but its caller at `config/gptel/tools/persistent-agent.org` §567 /
+  `.el:337` still passes a single `allowed-paths-list` arg →
+  `(wrong-number-of-arguments ... 1)`. My changes touch only
+  `config/gptel/sessions/commands.{org,el}` and the work-root spec; this failure
+  reproduces independent of them. Filed as a cross-cutting follow-up in
+  `.tasks/` (fix-persistent-agent-build-scope-plist-arity). All THREE work-root
+  emission specs (including the new strengthened absolute-agreement case) PASS.
+
+- TEST-QUALITY: the strengthened Case 2 drives the REAL verbatim-substitution
+  contract (the renderer mock does a raw `replace-regexp-in-string`-style splice
+  with NO `expand-file-name`), and iterates over a relative input (`"proj"`) and
+  a trailing-slash input (`"/Users/x/proj/"`). It asserts the renderer RECEIVED
+  the absolute `(expand-file-name input)` AND that both `:GPTEL_WORK_ROOT:` and
+  the scope key carry that byte-identical absolute string. The mock cannot
+  fabricate agreement because it never canonicalizes — only the production code
+  can make the scope key absolute. A regression that left WORK_ROOT verbatim, or
+  canonicalized only one side, fails visibly.
+
+## Discoveries
+
+- discovery_id: disc-canonicalize-project-root-at-source-1
+  class: spec-signal
+  description: |
+    Resolved as intended. `register/invariant/cwd-scope-agreement` is now
+    ABSOLUTE-and-agreeing rather than merely verbatim-agreeing: a single
+    source-side `expand-file-name` canonicalizes `project-root` once at the
+    entry of `jf/gptel--create-session-core`, and that one canonical-absolute
+    string fans out to BOTH the `${project_root}` scope expansion and the
+    `:GPTEL_WORK_ROOT:` write. The renderer
+    (`jf/gptel-scope-profile--expand-string`) still substitutes VERBATIM, so the
+    absolute form is established at the source, not the renderer — closing the
+    latent gap where relative/trailing-slash/`~` roots produced non-absolute
+    scope patterns that would not match the absolute paths relative-tool-path
+    resolution produces. The agreement obligation did NOT reopen: the two
+    outputs derive from one mutated binding, so they are byte-identical by
+    construction.
+  affected_register_entry: register/invariant/cwd-scope-agreement
+  recommendation: |
+    Reconfirm the entry with strengthened wording: "...the GPTEL_WORK_ROOT
+    drawer value MUST equal — and now is byte-identical-and-ABSOLUTE to — the
+    project-root used to expand GPTEL_SCOPE_*; a single source-side
+    expand-file-name canonicalizes the one input before fan-out." Note in
+    HISTORY that the renderer remains a verbatim substituter (NOT expand-file-
+    name) and the absolute guarantee lives at the source, so any future renderer
+    change cannot silently break absoluteness.
+
+- discovery_id: disc-canonicalize-project-root-at-source-2
+  class: invariant-gap
+  description: |
+    Out-of-scope but surfaced while running the sessions suite for verification:
+    `jf/gptel-persistent-agent--build-scope-plist` (signature
+    `(read-paths write-paths)`, change agent-build-scope-plist-split) has a
+    caller in `config/gptel/tools/persistent-agent.org` §567 that still passes a
+    single positional arg (`allowed-paths-list`), so the agent
+    session-creation path errors with `wrong-number-of-arguments ... 1`. This
+    fails `identity-keys-emission-spec.el` in the sessions suite. It is a
+    pre-existing defect in the persistent-agent (tools) subsystem, unrelated to
+    the work-root/project-root canonicalization, and was NOT introduced here.
+  affected_register_entry: register/shape/scope-config-plist
+  recommendation: |
+    Fix the §567 caller to supply the read/write split the split function now
+    expects (filed as .tasks/fix-persistent-agent-build-scope-plist-arity.md).
+    Owned by the persistent-agent / agent-build-scope-plist-split change, not by
+    this task.
