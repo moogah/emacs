@@ -19,9 +19,10 @@
 ;;   agent buffer's `default-directory' from that drawer key.
 ;; - `read_paths' / `write_paths' carry the agent scope; `/tmp/**' is
 ;;   appended to write as scratch (design.md D6).
-;; - Guardrail: when the resolved `work_root' is outside the agent's read
-;;   scope, a warning is emitted AND the agent is still created (design.md
-;;   D7).
+;; - The work root is readable BY CONSTRUCTION: `<work_root>/**' is
+;;   prepended to `:read' so relative reads (which resolve against the
+;;   work-root `default-directory') always land in scope.  This SUPERSEDES
+;;   the old D7 consistency guardrail (design.md D6/D7).
 ;;
 ;; Each `it' block carries a leading scenario-mapping comment so drift
 ;; between the spec and the implementation surfaces here first.
@@ -42,6 +43,14 @@
   (add-to-list 'load-path tools-dir)
   (require 'gptel-persistent-agent
            (expand-file-name "persistent-agent.el" tools-dir)))
+
+;; Load the scope validator for the read-side behavioral assertion
+;; (a relative read under the work root must validate as ALLOWED).
+(let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (scope-dir (expand-file-name "../../../scope/" spec-dir)))
+  (add-to-list 'load-path scope-dir)
+  (require 'jf-gptel-scope-validation
+           (expand-file-name "scope-validation.el" scope-dir)))
 
 ;; Helper: open AGENT-DIR's `session.org' in an `org-mode' temp buffer so
 ;; drawer queries route through the same parser the production loader uses.
@@ -128,8 +137,7 @@
          ;; Simulate the parent buffer's work root being bound at spawn.
          (let ((default-directory parent-root))
            (jf/persistent-agent-test--with-mock-gptel-request captured
-             ;; work_root omitted; read_paths cover the parent root so the
-             ;; D7 guardrail stays quiet.
+             ;; work_root omitted ⇒ defaults to the parent's work root.
              (jf/gptel-persistent-agent--task
               #'ignore "test-preset" "analyze code" "do the thing"
               nil
@@ -189,55 +197,86 @@
                       (point-min) "GPTEL_SCOPE_WRITE")
                      :to-equal '("/tmp/**")))))))))
 
-(describe "PersistentAgent work_root consistency guardrail (design.md D7)"
+(describe "PersistentAgent work_root auto-included in read scope (design.md D6)"
 
-  (it "warns AND still creates the agent when work_root is outside read scope"
-    ;; Scenario: spec.md § "Guardrail warns when work_root escapes read
-    ;; scope".  The resolved work root is NOT matched by any read pattern,
-    ;; so a warning fires; creation proceeds (warn, not error).
+  ;; The D7 consistency guardrail (warn when work_root escapes read scope)
+  ;; was SUPERSEDED: the work root is now made readable BY CONSTRUCTION —
+  ;; `<work_root>/**' is prepended to `:read'.  A work_root unreadable to
+  ;; the agent serves no purpose; the read/work_root redundancy is accepted
+  ;; (user decision, cycle-1781718724-d7-guardrail-prefix-match).
+
+  (it "prepends the work-root read pattern <root>/** to :GPTEL_SCOPE_READ:"
+    ;; Scenario: spec.md § "Agent working directory (parent-supplied)" ->
+    ;; relative reads under the work root always land in scope.  Even with
+    ;; NO read_paths supplied, the drawer's read scope carries `<root>/**'
+    ;; (register/vocabulary/agent-path-params: work_root maps to the
+    ;; :GPTEL_WORK_ROOT: drawer key AND prepends :GPTEL_SCOPE_READ:).
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil)
-             (warned nil))
-         (cl-letf (((symbol-function 'display-warning)
-                    (lambda (&rest _args) (setq warned t))))
-           (jf/persistent-agent-test--with-mock-gptel-request captured
-             (jf/gptel-persistent-agent--task
-              #'ignore "test-preset" "analyze code" "do the thing"
-              "/elsewhere/outside"
-              ;; read scope deliberately excludes the work root.
-              '("/path/to/project/**"))))
-         (expect warned :to-be t)
-         ;; Agent was still created despite the warning.
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
-                (entries (and (file-directory-p agents-dir)
-                              (cl-remove-if
-                               (lambda (n) (member n '("." "..")))
-                               (directory-files agents-dir)))))
-           (expect (length entries) :to-equal 1))))))
-
-  (it "does not warn when the work root is matched by a read pattern"
-    ;; Complement: the guardrail stays silent for the common in-scope case.
-    ;; A read pattern that names the work-root DIRECTORY (e.g. an ancestor
-    ;; `**' glob) matches the resolved work root, so no warning fires.
-    ;; NOTE: a `<work-root>/**' pattern would NOT match the work root
-    ;; directory itself under this glob engine (`/**' → `/.*$', which
-    ;; requires a trailing component) — see Discoveries.
-    (jf/persistent-agent-test--with-mock-parent-session
-     (jf/persistent-agent-test--with-mock-preset 'test-preset
-       (let ((captured nil)
-             (warned nil)
-             (wr (expand-file-name "proj" mock-session-dir)))
+             (wr (expand-file-name "proj/worktree-a" mock-session-dir)))
          (make-directory wr t)
-         (cl-letf (((symbol-function 'display-warning)
-                    (lambda (&rest _args) (setq warned t))))
-           (jf/persistent-agent-test--with-mock-gptel-request captured
-             (jf/gptel-persistent-agent--task
-              #'ignore "test-preset" "analyze code" "do the thing"
-              wr
-              ;; Ancestor glob: matches `<mock-session-dir>/proj'.
-              (list (concat (file-name-as-directory mock-session-dir) "**")))))
-         (expect warned :to-be nil))))))
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           ;; NO read_paths argument — the work root alone seeds read scope.
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "do the thing"
+            wr))
+         (let ((agent-dir (jf/persistent-agent-test--sole-agent-dir mock-branch-dir)))
+           (jf/persistent-agent-test--with-agent-session-org-wr agent-dir
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_READ")
+                     :to-equal
+                     (list (concat (directory-file-name wr) "/**")))))))))
+
+  (it "does not double the work-root pattern when the caller already supplied it"
+    ;; Cosmetic dedup (`member'): an identical `<root>/**' read_path is not
+    ;; repeated when prepended.
+    (jf/persistent-agent-test--with-mock-parent-session
+     (jf/persistent-agent-test--with-mock-preset 'test-preset
+       (let* ((captured nil)
+              (wr (expand-file-name "proj/worktree-a" mock-session-dir))
+              (pat (concat (directory-file-name wr) "/**")))
+         (make-directory wr t)
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "do the thing"
+            wr
+            (list pat)))
+         (let ((agent-dir (jf/persistent-agent-test--sole-agent-dir mock-branch-dir)))
+           (jf/persistent-agent-test--with-agent-session-org-wr agent-dir
+             (expect (org-entry-get-multivalued-property
+                      (point-min) "GPTEL_SCOPE_READ")
+                     :to-equal (list pat))))))))
+
+  (it "validates a relative read under the work root as ALLOWED with empty read_paths"
+    ;; Behavioral: a relative path in the agent resolves against
+    ;; `default-directory' (= work root).  With NO read_paths granted, the
+    ;; auto-prepended `<root>/**' must make that resolved path ALLOWED when
+    ;; routed through the real scope validator (the read side of the
+    ;; work-root activation seam, register/boundary/work-root-activation-seam).
+    (jf/persistent-agent-test--with-mock-parent-session
+     (jf/persistent-agent-test--with-mock-preset 'test-preset
+       (let ((captured nil)
+             (wr (expand-file-name "proj/worktree-a" mock-session-dir)))
+         (make-directory wr t)
+         (jf/persistent-agent-test--with-mock-gptel-request captured
+           ;; No read_paths — only the work root seeds read scope.
+           (jf/gptel-persistent-agent--task
+            #'ignore "test-preset" "analyze code" "do the thing"
+            wr))
+         (let* ((agent-dir (jf/persistent-agent-test--sole-agent-dir mock-branch-dir))
+                (read-scope
+                 (jf/persistent-agent-test--with-agent-session-org-wr agent-dir
+                   (org-entry-get-multivalued-property
+                    (point-min) "GPTEL_SCOPE_READ")))
+                ;; A relative read `notes.txt' resolves against the work
+                ;; root (default-directory) — the absolute path the
+                ;; validator sees at funcall time.
+                (resolved (expand-file-name "notes.txt" wr))
+                (config (list :paths (list :read read-scope)))
+                (result (jf/gptel-scope--validate-path-operation
+                         resolved :read config)))
+           (expect (plist-get result :allowed) :to-be t)))))))
 
 (provide 'work-root-spec)
 ;;; work-root-spec.el ends here

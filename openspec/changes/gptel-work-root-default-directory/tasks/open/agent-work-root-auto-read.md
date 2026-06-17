@@ -77,3 +77,117 @@ unused) "work_root broader than read scope" case; the redundancy is accepted.
 .orchestrator/cycles/cycle-1781718724/reconciliations/vocabulary-agent-path-params.md;
 register/vocabulary/agent-path-params (work_root maps_to now: :GPTEL_WORK_ROOT: drawer
 key AND prepended to :GPTEL_SCOPE_READ:); design.md D6/D7.
+
+## Observations
+
+- **Adjacent test file required updating (in-scope side effect, not scope
+  expansion).** Two specs in `config/gptel/tools/test/persistent-agent/creation-spec.el`
+  asserted the OLD contract — that omitting `read_paths` yields an ABSENT
+  `:GPTEL_SCOPE_READ:` key ("zero inheritance"). The auto-include changes that
+  fact: omitting `read_paths` now yields a read scope of exactly
+  `(<work_root>/**)`. Both specs (the `:PROPERTIES:`-drawer spec and the
+  "no :GPTEL_SCOPE_READ when allowed-paths omitted" spec) were updated to assert
+  the work-root pattern instead, and the latter was retitled to
+  "writes :GPTEL_SCOPE_READ as the work root alone when read_paths is omitted".
+  This is the changed behavior's own test surface, not new scope — but it lives
+  outside the two files the task body named, so flagging it.
+
+- **Zero-inheritance vocabulary nuance.** The creation-spec specs framed an
+  absent read key as "zero inheritance". That framing conflated two distinct
+  things: (a) NOT inheriting the parent's read patterns (still true and
+  preserved), and (b) having an empty read scope (no longer true — the agent's
+  OWN work root is now in scope). The updated comments distinguish them
+  explicitly: self-consistency (own work root readable) is not inheritance
+  (parent patterns are still NOT copied). A reader who only remembers the slogan
+  "zero inheritance ⇒ absent read key" may be surprised; the design D6 note now
+  states this distinction.
+
+- **Read-side behavioral assertion routes through the real validator.** The new
+  "ALLOWED with empty read_paths" spec reads the actual `:GPTEL_SCOPE_READ:`
+  back from the rendered agent drawer and feeds it to the production
+  `jf/gptel-scope--validate-path-operation`, rather than asserting on an
+  internal plist. This exercises the read side of the work-root activation seam
+  end-to-end (drawer render → glob compile → path match) and would catch a
+  regression in either the prepend or the glob engine. Required adding a
+  load-time `(require 'jf-gptel-scope-validation ...)` to the spec file (the
+  in-`it` require failed under batch load because `load-file-name` is nil inside
+  spec bodies).
+
+- **The `directory-file-name` + `/**` pattern is order-sensitive vs. the seam's
+  trailing-slash normalization.** The binder seam stores `default-directory` as
+  `(file-name-as-directory (expand-file-name ...))` (trailing slash). The read
+  pattern strips the trailing slash via `directory-file-name` before appending
+  `/**`, so `<root>/**` compiles to `^<root>/.*$`. A relative file resolved
+  against the slash-terminated `default-directory` (e.g. `/root/notes.txt`)
+  matches. This is correct, but the two normalizations (one adds the slash, one
+  strips it) are maintained independently in different modules — a future change
+  to either must keep them coherent. Captured as a discovery below.
+
+## Discoveries
+
+- discovery_id: disc-agent-work-root-auto-read-1
+  class: vocabulary-mismatch
+  description: |
+    register/vocabulary/agent-path-params member `work_root` previously
+    mapped ONLY to the `:GPTEL_WORK_ROOT:` drawer key. This task REFINES that
+    map: `work_root` now maps to BOTH the `:GPTEL_WORK_ROOT:` drawer key AND a
+    prepend of `<work_root>/**` into `:GPTEL_SCOPE_READ:` (via build-scope-plist's
+    `:read`). The closed param SET ({preset, description, prompt, work_root,
+    read_paths, write_paths}) is UNCHANGED — only the `maps_to` of the
+    `work_root` member widens. The entry's status_note already CARRIED the D7
+    spec-signal that motivated this; it should now record the resolution
+    (auto-include landed, guardrail removed) and update the `work_root` member's
+    `maps_to`.
+  affected_register_entry: register/vocabulary/agent-path-params
+  recommendation: |
+    Update the `work_root` member `maps_to` to:
+    ":GPTEL_WORK_ROOT: drawer key AND prepended to build-scope-plist :read ->
+    :GPTEL_SCOPE_READ:". Append to status_note: the carried D7 spec-signal is
+    RESOLVED — work root made readable by construction (prepend), D7 guardrail +
+    its `(require 'jf-gptel-scope-validation)` removed as dead. Entry stays
+    CONFIRMED (closed set unchanged); this is a maps_to refinement, not a
+    surface change. Recommend confirmed -> reconciled (maps_to widened).
+
+- discovery_id: disc-agent-work-root-auto-read-2
+  class: invariant-gap
+  description: |
+    The work-root read pattern (`directory-file-name` + "/**", strips trailing
+    slash) and the binder seam's default-directory normalization
+    (`file-name-as-directory`, adds trailing slash —
+    register/boundary/work-root-activation-seam) are coherent today: a relative
+    file resolved against the slash-terminated default-directory matches
+    `^<root>/.*$`. But the two normalizations live in different modules
+    (persistent-agent.org's --task vs. the sessions binder) and are maintained
+    independently. There is no single shared helper or test pinning their
+    coherence; a future change to either trailing-slash convention could
+    silently desync them (e.g. switching the read pattern to `<root>/` or the
+    seam to a no-slash form would break relative-read matching).
+  affected_register_entry: register/boundary/work-root-activation-seam
+  recommendation: |
+    Note in the seam entry (or a new shape entry) the coherence contract: the
+    work-root READ pattern derived in --task is `<directory-file-name root>/**`
+    (→ `^<root>/.*$`) and MUST stay coherent with the seam's
+    `file-name-as-directory` default-directory so a work-root-relative path
+    matches. The new behavioral spec
+    ("validates a relative read under the work root as ALLOWED with empty
+    read_paths") is the cross-module guard — flag it as the regression anchor.
+    No code change recommended now; this is a documentation/contract gap, not a
+    defect.
+
+- discovery_id: disc-agent-work-root-auto-read-3
+  class: spec-signal
+  description: |
+    The "zero inheritance" framing in creation-spec.el and the read-scope
+    specs is now ambiguous. Pre-change it meant BOTH "no parent read patterns"
+    AND "empty read scope when read_paths omitted". Post-change those split:
+    parent patterns are still NOT inherited, but the agent's own work root IS
+    in scope. The phrase "zero inheritance" should be reserved for the former.
+    If a downstream spec or register entry keys off "omitted read_paths ⇒ absent
+    :GPTEL_SCOPE_READ:", it is now stale.
+  affected_register_entry: register/vocabulary/agent-path-params
+  recommendation: |
+    When reconciling agent-path-params, scope-check any other spec/register
+    text that equates "omitted read_paths" with "absent :GPTEL_SCOPE_READ:" or
+    "empty read scope" — that equivalence no longer holds. The two
+    creation-spec specs touched here were the in-tree instances and are already
+    fixed. No further code change identified; this is a sweep flag.

@@ -126,10 +126,16 @@
              ;; register/invariant/drawer-system-key-write-exclusion).
              (expect (org-entry-get (point-min) "GPTEL_SYSTEM")
                      :to-be nil)
-             ;; No allowed-paths supplied ⇒ no `:GPTEL_SCOPE_READ:'.
+             ;; read_paths omitted ⇒ read scope is the work root alone:
+             ;; `<work_root>/**' is auto-prepended so relative reads land
+             ;; in scope (design.md D6; supersedes the old D7 guardrail).
+             ;; Work root defaults to the parent buffer's `default-directory'.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_READ")
-                     :to-be nil)
+                     :to-equal
+                     (list (concat (directory-file-name
+                                    (expand-file-name default-directory))
+                                   "/**")))
              ;; Standard write target: `/tmp/**'.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_WRITE")
@@ -194,16 +200,18 @@
            (expect (file-exists-p (expand-file-name "scope.yml" agent-dir))
                    :to-be nil))))))
 
-  (it "writes session.org drawer with no :GPTEL_SCOPE_READ when allowed-paths is omitted"
+  (it "writes :GPTEL_SCOPE_READ as the work root alone when read_paths is omitted"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Tool invocation
     ;; and validation" -> "Explicit path configuration (zero inheritance)".
     ;; Replaces the legacy "writes scope.yml with empty read paths" test.
-    ;; The drawer has `:GPTEL_PRESET:', `:GPTEL_PARENT_SESSION_ID:',
-    ;; `:GPTEL_SCOPE_WRITE:' and `:GPTEL_SCOPE_DENY:' but the
-    ;; `:GPTEL_SCOPE_READ:' key is absent (zero inheritance).
+    ;; Zero inheritance of the PARENT's read scope still holds — the agent
+    ;; gets NO parent read patterns.  But the agent's OWN work root is
+    ;; readable by construction: `<work_root>/**' is auto-prepended to
+    ;; `:read' (design.md D6; supersedes the old D7 guardrail).  This is
+    ;; self-consistency, not inheritance.
     ;;
     ;; Note: this test pins the agent-side renderer's behaviour only —
-    ;; downstream validator behaviour for the empty-allowed-paths case
+    ;; downstream validator behaviour for the empty-read-paths case
     ;; is still subject to `disposition-empty-drawer-collapse'.
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
@@ -219,10 +227,14 @@
                 (session-org (expand-file-name "session.org" agent-dir)))
            (expect (file-exists-p session-org) :to-be t)
            (jf/persistent-agent-test--with-agent-session-org agent-dir
-             ;; `:GPTEL_SCOPE_READ:' is absent (zero inheritance).
+             ;; `:GPTEL_SCOPE_READ:' is the work root alone — no parent
+             ;; patterns inherited.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_READ")
-                     :to-be nil)
+                     :to-equal
+                     (list (concat (directory-file-name
+                                    (expand-file-name default-directory))
+                                   "/**")))
              ;; Standard write + deny still present.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_WRITE")
