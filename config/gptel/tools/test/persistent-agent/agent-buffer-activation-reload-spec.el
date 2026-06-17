@@ -131,6 +131,12 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
            (setq-local jf/gptel--session-dir mock-session-dir)
            (setq-local jf/gptel--branch-name "main")
            (setq-local jf/gptel--branch-dir mock-branch-dir)
+           ;; Pin the parent buffer's work root so a `work_root'-omitting
+           ;; agent freezes a KNOWN default into its `:GPTEL_WORK_ROOT:'
+           ;; drawer key (design.md D5).  Without this the default would be
+           ;; the test process's CWD (the worktree root), which the
+           ;; activation assertions below cannot predict.
+           (setq-local default-directory (file-name-as-directory mock-branch-dir))
            ,@body)
        (when (buffer-live-p pa-parent-buffer)
          (kill-buffer pa-parent-buffer)))))
@@ -167,20 +173,23 @@ Inside BODY, `pa-parent-buffer' names the parent buffer."
                   ;; binder from the drawer (with a basename fallback).
                   ;; The assertion the spec actually requires is
                   ;; "activation fired on the agent's session.org," so
-                  ;; pin observable identity (default-directory under
-                  ;; the parent's agents/) rather than the exact
-                  ;; session-id value.
+                  ;; pin observable identity.  After the work-root change
+                  ;; (design.md D5) the agent buffer's `default-directory'
+                  ;; comes from its `:GPTEL_WORK_ROOT:' drawer key — here a
+                  ;; `work_root'-omitting agent froze the parent's work
+                  ;; root (set to `mock-branch-dir' by the parent-buffer
+                  ;; fixture).  The binder normalizes it via
+                  ;; `file-name-as-directory'+`expand-file-name'.
                   (let ((agent-sid (buffer-local-value 'jf/gptel--session-id
                                                        agent-buffer))
                         (agent-dir (buffer-local-value 'default-directory
                                                        agent-buffer)))
                     (expect agent-sid :to-be-truthy)
                     (expect (stringp agent-sid) :to-be-truthy)
-                    (expect agent-dir
-                            :to-match
-                            (concat (regexp-quote
-                                     (file-truename mock-branch-dir))
-                                    "/agents/")))
+                    (expect (file-truename agent-dir)
+                            :to-equal
+                            (file-name-as-directory
+                             (file-truename mock-branch-dir))))
                   ;; Branch-name buffer-local is set by the identity binder.
                   (expect (buffer-local-value 'jf/gptel--branch-name agent-buffer)
                           :to-be-truthy)

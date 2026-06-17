@@ -64,6 +64,7 @@ than re-introduce that package.
                                     ;   jf/gptel--context-file-path
 (require 'gptel-session-logging)
 (require 'gptel-scope-profiles)     ; jf/gptel-scope-profile--render-drawer-text
+(require 'jf-gptel-scope-validation) ; jf/gptel-scope--path-matches-any-pattern-p (D7 guardrail)
 (require 'gptel-session-commands)   ; jf/gptel--initial-session-body, sibling-file writer
 #+end_src
 
@@ -171,8 +172,8 @@ FSM is the finite state machine managing the request."
 
 * Scope Plist Builder
 
-Build the agent's scope plist from =allowed-paths= plus the standard
-deny set (Decision 1 of design.md, gptel-scope-in-org-properties:
+Build the agent's scope plist from =read-paths= / =write-paths= plus
+the standard deny set (Decision 1 of design.md, gptel-scope-in-org-properties:
 drawer-resident scope). The plist follows the canonical
 =register/shape/scope-config-plist= shape that
 =jf/gptel-scope-profile--render-drawer-text= expects.
@@ -484,7 +485,7 @@ The agent's =session.org= is composed in a single shot as
   =jf/gptel-scope-profile--render-drawer-text= (Mode 2a) and carries
   =:GPTEL_PRESET:=, =:GPTEL_PARENT_SESSION_ID:=, the resolved
   =:GPTEL_SCOPE_READ:= / =:WRITE:= / =:DENY:= keys built from
-  =allowed-paths= + the standard deny set, and always
+  =read-paths= / =write-paths= + the standard deny set, and always
   =:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.<ext>= pointing at the
   sibling file written by
   =jf/gptel-persistent-agent--write-system-prompt=.  The basename is
@@ -519,14 +520,24 @@ preserved by construction — the drawer text contains exactly one
 
 #+begin_src emacs-lisp
 (defun jf/gptel-persistent-agent--task (main-cb preset description prompt
-                                                 &optional allowed-paths)
+                                                 &optional work-root
+                                                 read-paths write-paths)
   "Spawn an autonomous agent in a chat-mode session and return final text to MAIN-CB.
 
 PRESET is the registered gptel preset name (string).
 DESCRIPTION is a 3-5 word slug used in the directory and overlay header.
 PROMPT is the initial user message text.
-ALLOWED-PATHS is an optional vector or list of glob patterns; nil/empty ⇒
-no read access (zero inheritance).
+WORK-ROOT is the absolute directory the agent operates in; written to the
+agent's drawer as `:GPTEL_WORK_ROOT:'.  When nil/empty it defaults to the
+parent buffer's work root (`default-directory' at spawn — this function runs
+in the parent buffer context), frozen into the agent's own drawer at creation
+\(design.md D5; NOT a live link to the parent).
+READ-PATHS is an optional vector or list of glob patterns granting the agent
+read access; nil/empty ⇒ no read access (zero inheritance).  Replaces the read
+role of the removed `allowed_paths' (design.md D6).
+WRITE-PATHS is an optional vector or list of glob patterns granting the agent
+write access; `/tmp/**' is auto-appended as scratch by
+`jf/gptel-persistent-agent--build-scope-plist' (design.md D6).
 
 The agent's session.org is created with a self-describing
 `:PROPERTIES:' drawer (preset + parent session id + scope keys),
@@ -548,12 +559,32 @@ for parent overlay feedback and final-text return."
                       (plist-get info :position)
                       (point-marker)))
            (parent-id jf/gptel--session-id)
-           (allowed-paths-list (if (vectorp allowed-paths)
-                                   (append allowed-paths nil)
-                                 allowed-paths))
+           ;; Normalize the read/write path arrays the model may have
+           ;; supplied as JSON arrays (vectors) into lists, mirroring the
+           ;; old `allowed-paths-list' coercion (design.md D6).
+           (read-paths-list (if (vectorp read-paths)
+                                (append read-paths nil)
+                              read-paths))
+           (write-paths-list (if (vectorp write-paths)
+                                 (append write-paths nil)
+                               write-paths))
+           ;; Resolve the agent's work root: explicit WORK-ROOT when
+           ;; supplied, else the parent buffer's work root
+           ;; (`default-directory' at spawn — `--task' runs in the parent
+           ;; buffer).  `expand-file-name' freezes it to an absolute path
+           ;; that goes into the agent's OWN drawer; this is a
+           ;; parent-supplied default captured at create time, NOT a live
+           ;; link to the parent (design.md D5;
+           ;; register/vocabulary/agent-path-params).
+           (resolved-work-root
+            (expand-file-name
+             (if (and (stringp work-root)
+                      (not (string-blank-p work-root)))
+                 work-root
+               default-directory)))
            (session-dir (jf/gptel--create-agent-directory
                          jf/gptel--branch-dir preset description))
-           ;; Build the scope plist from allowed-paths + standard
+           ;; Build the scope plist from read/write paths + standard
            ;; denies, resolve the agent's preset spec for the chat-
            ;; mode snapshot keys (Decision 4 / Layer 2 of gptel-
            ;; drawer-as-source-of-truth), render the drawer-text-block
@@ -564,7 +595,8 @@ for parent overlay feedback and final-text return."
            ;; drawer-resident scope (cycle-2 task
            ;; rewire-persistent-agent).
            (scope-plist
-            (jf/gptel-persistent-agent--build-scope-plist allowed-paths-list))
+            (jf/gptel-persistent-agent--build-scope-plist
+             read-paths-list write-paths-list))
            (preset-spec (and preset-sym
                              (fboundp 'gptel-get-preset)
                              (gptel-get-preset preset-sym)))
@@ -618,12 +650,36 @@ for parent overlay feedback and final-text return."
                          drawer-text "GPTEL_SESSION_ID" agent-session-id))
            (drawer-text (jf/gptel--append-drawer-property
                          drawer-text "GPTEL_BRANCH" "main"))
+           ;; Splice the agent's working directory into its OWN drawer as
+           ;; `:GPTEL_WORK_ROOT:' (design.md D5).  On activation the single
+           ;; binder seam (`jf/gptel--bind-session-buffer', the ONLY place
+           ;; a session buffer's `default-directory' is established —
+           ;; register/boundary/work-root-activation-seam) reads this key
+           ;; and does the one `setq-local'.  We write the drawer key only;
+           ;; we do NOT bind `default-directory' here (a second binding
+           ;; point would be a duplication bug).
+           (drawer-text (jf/gptel--append-drawer-property
+                         drawer-text "GPTEL_WORK_ROOT" resolved-work-root))
            ;; Compose the agent session.org body: drawer + populated
            ;; user block.  No headings are emitted; the preset's
            ;; `:system' lives in the sibling file resolved via
            ;; `:GPTEL_SYSTEM_PROMPT_FILE:'.
            (body (jf/gptel-persistent-agent--initial-body prompt))
            (initial-content (concat drawer-text body)))
+      ;; Consistency guardrail (design.md D7): warn — do NOT abort — when
+      ;; the resolved work root is not matched by any read pattern.  A
+      ;; relative write/read in the agent resolves against
+      ;; `default-directory' (= work root); if that root sits outside the
+      ;; agent's read scope, those relative ops silently DENY.  A parent
+      ;; may legitimately grant only absolute paths, so this warns rather
+      ;; than forbidding the case (register/vocabulary/agent-path-params).
+      (unless (jf/gptel-scope--path-matches-any-pattern-p
+               resolved-work-root read-paths-list)
+        (let ((msg (format
+                    "PersistentAgent: work root %s is outside the agent's read scope %S; relative paths may be denied"
+                    resolved-work-root read-paths-list)))
+          (jf/gptel--log 'warn "%s" msg)
+          (display-warning 'gptel-persistent-agent msg :warning)))
       (let* ((session-file (jf/gptel--context-file-path session-dir))
              (_ (with-temp-file session-file
                   (insert initial-content)))
@@ -669,12 +725,14 @@ Sessions persist to disk with full conversation history.
 
 Use for complex research, open-ended exploration, or iterative tasks.
 
-IMPORTANT: typically pass `allowed_paths' to control the agent's file access.
-Use the read_file_in_scope tool on session.org to inspect the parent
-session's :PROPERTIES: drawer (the :GPTEL_SCOPE_READ: and
-:GPTEL_SCOPE_WRITE: keys); pass relevant paths to the agent via
-allowed_paths. If allowed_paths is omitted or empty, the agent has NO
-read access."
+IMPORTANT: control the agent's file access with read_paths and write_paths,
+and its working directory with work_root.  Use the read_file_in_scope tool on
+session.org to inspect the parent session's :PROPERTIES: drawer (the
+:GPTEL_SCOPE_READ: and :GPTEL_SCOPE_WRITE: keys) and pass relevant patterns to
+read_paths / write_paths.  Pass work_root (typically a worktree) as the
+absolute directory the agent works in; omit work_root to default to the
+parent's work root.  If read_paths is omitted or empty, the agent has NO read
+access (zero inheritance)."
  :function #'jf/gptel-persistent-agent--task
  :args '(( :name "preset"
            :type string
@@ -685,10 +743,17 @@ read access."
          ( :name "prompt"
            :type string
            :description "Detailed task instructions; becomes the agent's first user turn")
-         ( :name "allowed_paths"
+         ( :name "work_root"
+           :type string
+           :description "Absolute directory the agent works in (typically a worktree). Omit to default to the parent's work root.")
+         ( :name "read_paths"
            :type array
            :items (:type string)
-           :description "Array of glob patterns for paths the agent can access. If omitted, agent has no read access."))
+           :description "Array of glob patterns the agent can read. If omitted or empty, the agent has no read access.")
+         ( :name "write_paths"
+           :type array
+           :items (:type string)
+           :description "Array of glob patterns the agent can write. /tmp scratch is auto-added; omit for scratch-only write."))
  :category "gptel-persistent"
  :async t
  ;; :confirm t intentionally omitted: gptel-chat-mode lacks a

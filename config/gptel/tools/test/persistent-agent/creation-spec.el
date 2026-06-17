@@ -157,8 +157,12 @@
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
          (jf/persistent-agent-test--with-mock-gptel-request captured
+           ;; New signature: (... prompt work-root read-paths write-paths).
+           ;; `read_paths' (6th positional, after `work_root') replaces the
+           ;; read role of the removed `allowed_paths' (design.md D6).
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "do the thing"
+            "/path/to/project"
             '("/path/to/project/**" "/another/**")))
          (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
@@ -277,17 +281,20 @@
         (expect (error-message-string err) :to-match
                 "PersistentAgent requires parent persistent session"))))
 
-  (it "tool registration drops denied_paths from the args"
+  (it "tool registration lists exactly the six params and excludes allowed_paths/denied_paths"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Tool invocation
-    ;; and validation" -> "Tool argument schema"
+    ;; and validation" -> "Tool argument schema".  BREAKING rename
+    ;; (design.md D6): `allowed_paths' is gone; the surface is the closed
+    ;; six-param set {preset, description, prompt, work_root, read_paths,
+    ;; write_paths} (register/vocabulary/agent-path-params closed_set).
     (let* ((tool       (gptel-get-tool "PersistentAgent"))
            (args       (gptel-tool-args tool))
            (arg-names  (mapcar (lambda (a) (plist-get a :name)) args)))
       (expect tool :not :to-be nil)
-      (expect arg-names :to-contain "preset")
-      (expect arg-names :to-contain "description")
-      (expect arg-names :to-contain "prompt")
-      (expect arg-names :to-contain "allowed_paths")
+      (expect arg-names :to-equal
+              '("preset" "description" "prompt"
+                "work_root" "read_paths" "write_paths"))
+      (expect arg-names :not :to-contain "allowed_paths")
       (expect arg-names :not :to-contain "denied_paths"))))
 
 (describe "PersistentAgent session.org matches the canonical document layout"
