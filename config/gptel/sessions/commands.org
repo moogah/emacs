@@ -507,8 +507,10 @@ Creates:
   preset has no `:system' or when INITIAL-CONTENT is caller-supplied)
 - session.org pre-populated with the drawer-resident scope (preset
   + scope keys + `:GPTEL_SYSTEM_PROMPT_FILE:' when the sibling file
-  was written) followed by an empty `#+begin_user' / `#+end_user'
-  block
+  was written + `:GPTEL_WORK_ROOT:' when PROJECT-ROOT is non-nil,
+  the absolute PROJECT-ROOT verbatim — the same input that expanded
+  `${project_root}' into the scope keys) followed by an empty
+  `#+begin_user' / `#+end_user' block
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
 The drawer embedded in `session.org' is the authoritative
@@ -587,6 +589,25 @@ Returns plist with:
                        drawer-text "GPTEL_SESSION_ID" session-id))
          (drawer-text (jf/gptel--append-drawer-property
                        drawer-text "GPTEL_BRANCH" "main"))
+         ;; Persist the working directory as `:GPTEL_WORK_ROOT:' — a
+         ;; second, verbatim output of the SAME PROJECT-ROOT input that
+         ;; expanded `${project_root}' into the `GPTEL_SCOPE_*' keys
+         ;; above (via `jf/gptel-scope-profile--create-for-session').
+         ;; Because the work-root key and the scope-expansion root
+         ;; derive from one input, the session's working directory and
+         ;; its scope boundary CANNOT disagree — the cwd↔scope agreement
+         ;; invariant (register/invariant/cwd-scope-agreement) is
+         ;; structural, not enforced (design.md D1).  Stored absolute to
+         ;; match how `${project_root}' expands (design.md D3).  When
+         ;; PROJECT-ROOT is nil this is a keyless session: the key is
+         ;; SKIPPED so the binder falls back to `branch-dir'.  Spliced
+         ;; via the append helper to preserve the `:PROPERTIES:' /
+         ;; `:END:' adjacency invariant.
+         (drawer-text (if project-root
+                          (jf/gptel--append-drawer-property
+                           drawer-text "GPTEL_WORK_ROOT"
+                           (expand-file-name project-root))
+                        drawer-text))
          (final-content (or initial-content
                             (concat drawer-text
                                     (jf/gptel--initial-session-body)))))

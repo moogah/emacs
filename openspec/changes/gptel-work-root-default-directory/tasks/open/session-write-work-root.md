@@ -54,3 +54,76 @@ key inside the drawer block.
 ## Context
 design.md § Decisions 'D1 — Work root is a second persisted output of the project-root input'
 specs/sessions-persistence/spec.md § 'Requirement: Work-root drawer key'
+
+## Observations
+
+- Implemented exactly per the prescribed approach: a derived-output
+  `GPTEL_WORK_ROOT` append spliced after the existing `GPTEL_BRANCH`
+  append in `jf/gptel--create-session-core`, gated on `project-root`
+  being non-nil, value `(expand-file-name project-root)`. No new
+  parameter introduced.
+- The docstring's `Creates:` section was extended to document the new
+  conditional key so the literate source stays accurate (the docstring
+  already enumerated the other drawer keys; omitting this one would have
+  left a documentation gap). This is a doc-only edit, no behaviour
+  change.
+- The branch writer (`jf/gptel--create-branch-session`, case 3 in
+  identity-keys-emission-spec.el) verbatim-COPIES the parent drawer and
+  then REPLACES identity keys. It does NOT touch `GPTEL_WORK_ROOT`, so a
+  branch inherits the parent's work root by copy. This is consistent
+  with the agreement invariant (a branch shares the parent's scope keys
+  too, by copy) but is OUT OF THIS TASK'S SCOPE — flagged as a discovery
+  below for the orchestrator to confirm whether a branch-side spec is
+  wanted. No code touched there.
+- Agreement-by-construction is asserted structurally: the spec mocks
+  `jf/gptel-scope-profile--create-for-session`, captures the
+  `project-root` it receives, and proves the written `GPTEL_WORK_ROOT`
+  equals `(expand-file-name <that same arg>)`. Using a relative-form
+  input (`"proj"` with a fixed `default-directory`) exercises the
+  normalisation, so the test is not a tautology over an already-absolute
+  literal — both writers are shown to agree on the SAME absolute string.
+- Latent/adjacent: `expand-file-name` resolves against `default-directory`
+  at session-creation time for a relative `project-root`. In production
+  the interactive caller passes a projectile project root (already
+  absolute), so this is benign, but a relative `project-root` from a
+  programmatic caller would bind the work root to whatever
+  `default-directory` happened to be. Not changed — the task explicitly
+  specifies `(expand-file-name project-root)`.
+
+## Discoveries
+
+- discovery_id: disc-session-write-work-root-1
+  class: spec-signal
+  description: |
+    The agreement-by-construction invariant is now confirmable for the
+    create-session-core path, but the BRANCH writer
+    (jf/gptel--create-branch-session) propagates GPTEL_WORK_ROOT only by
+    verbatim drawer copy — it never re-derives it and has no test
+    asserting the branch's GPTEL_WORK_ROOT still equals the branch's
+    GPTEL_SCOPE_* root. The invariant statement is scoped to
+    "any session created by jf/gptel--create-session-core", so branches
+    are arguably out of scope, but branches are sessions a user works in.
+  affected_register_entry: register/invariant/cwd-scope-agreement
+  recommendation: |
+    Confirm the invariant for create-session-core (this task is its
+    enforcement gate). Separately decide whether the invariant's scope
+    should be widened to branch creation, and if so, file a follow-up
+    task for a branch-side agreement spec. Do NOT widen silently here.
+
+- discovery_id: disc-session-write-work-root-2
+  class: deviation
+  description: |
+    The cited register entry says enforcement is "test (no runtime guard
+    — the equality is structural)". Implementation confirms this is
+    correct: because both outputs read the single `project-root` lexical,
+    there is no code path where they can diverge for a fixed input. The
+    only residual coupling is `expand-file-name`'s dependence on
+    `default-directory` for a RELATIVE project-root — but that affects
+    BOTH writers identically (the scope renderer also expands against the
+    same root), so agreement holds regardless. No push-back; the
+    SPECULATED entry is accurate as written.
+  affected_register_entry: register/invariant/cwd-scope-agreement
+  recommendation: |
+    Promote register/invariant/cwd-scope-agreement from SPECULATED to
+    CONFIRMED for the create-session-core path. The structural-equality
+    claim is sound; the agreement-by-construction spec is the gate.
