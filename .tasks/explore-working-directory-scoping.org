@@ -7,6 +7,14 @@
 # SOURCE:   .tasks/design-working-directory-scoping-for-sessions-and-agents.md
 #           (surfaced 2026-06-13 during first live PersistentAgent test, commit 3f7feee)
 # CREATED:  2026-06-13 explore session
+# UPDATED:  2026-06-17 explore session (Thread B RESOLVED: design locked
+#           + load-bearing spike CONFIRMED that chat AND agent tool calls
+#           run with the originating buffer's default-directory, so the
+#           mode-hook binder is the single binding point; Thread E agent
+#           leg scoped: parent PASSES work_root + read/write paths, /tmp
+#           is scratch not the write default. Earlier: Thread C RESOLVED
+#           dir-locals redundant vs the integration-registry payload; see
+#           [[*RESOLVED B]], [[*THREAD E]], [[*RESOLVED C]])
 # RELATES:  .tasks/done/refactor-request-scope-expansion-to-take-operation.md
 #           .tasks/harden-persistent-agent-callback-on-error.md
 #           openspec/specs/gptel/scope.md, openspec/specs/gptel/persistent-agent.md
@@ -204,6 +212,14 @@ reorg (workspaces is one of many).
 
 * Emerging design principle (converged, not yet ratified)
 
+# CORRECTION (2026-06-17 session): the "Preamble source in dir-locals" leg
+# below is SUPERSEDED -- see [[*RESOLVED C]]. The preamble-source pointer goes
+# in the DRAWER (written at create time from the integration-registry
+# payload), not dir-locals. Also: the parenthetical "dir-locals can't set
+# default-directory" (last bullet of this section) is FALSE -- verified by
+# batch experiment that it can; see Thread C "Verified Emacs mechanics".
+# The "Work root in the drawer" leg STANDS and is now reinforced.
+
 A single rule resolves the storage/activation questions and honors the
 workspaces-decoupling constraint:
 
@@ -254,7 +270,7 @@ design work; PARKED = deferred; SEPARABLE = independent / janitorial.
 Several are cross-cutting and may collectively warrant promotion to an
 openspec change once their shapes settle.
 
-** THREAD A — Binding & activation: retire the find-file-hook archaeology
+** RESOLVED A — Binding & activation: retire the find-file-hook archaeology
    :PROPERTIES:
    :THREAD_SCOPE: gptel/sessions (chat mode activation, buffer binding)
    :END:
@@ -284,58 +300,224 @@ Code: =commands.org:225,247,270-309,932= (hook+regexes), =commands.org:113-122=
 =mode.org / display.org / menu.org= (=gptel-chat-mode-hook= setups),
 =menu.org:895= (=hack-local-variables-hook=).
 
-** THREAD B — Work root in the drawer; set default-directory in the mode hook
+** RESOLVED B — Work root in the drawer; set default-directory in the mode hook
    :PROPERTIES:
    :THREAD_SCOPE: gptel/sessions + gptel/scope (Role 2)
+   :RESOLVED:  2026-06-17 explore session (design locked + spike confirmed)
    :END:
 
 Give Role 2 an explicit home: a =GPTEL_WORK_ROOT= drawer key, set
-=default-directory= from it in the mode hook (after find-file). Co-locate
-with =GPTEL_SCOPE_*= because cwd and scope must agree. This is the *core*
-fix for the cwd bug and what makes scope validation meaningful/testable.
+=default-directory= from it in the mode hook. Co-locate with =GPTEL_SCOPE_*=
+because cwd and scope must agree. This is the *core* fix for the cwd bug and
+what makes scope validation meaningful/testable.
 
-Open questions:
-- Exact mode-hook *ordering*: work-root + default-directory must be set
-  *before* anything that resolves paths or builds the preamble. Slot it into
-  the existing careful order (fold, visibility, preset-after-hack-local-vars).
-- Provenance of the value (decoupled): workspace =:on-create= writes
-  =:home=; plain =jf/gptel-persistent-session= writes the selected project;
-  manual sessions get a default. Same slot, different writers.
-- Smallest first step (from .tasks item): set the *agent's* default-directory
-  in =--task= to a deliberately chosen root and confirm relative paths then
-  hit the real scope boundary (re-run scope scenarios with absolute paths too).
+*Architecture shift since the doc was written:* Threads A and F are
+implemented. Activation is content-addressed (=magic-mode-alist= on the
+drawer signature, =mode.org:1088=); the *single* setup seam is the mode-hook
+binder (=commands.org:~260-300=), which ALREADY scans the drawer alist
+(=jf/gptel--scan-session-drawer-keys=) and =setq-local='s four session vars.
+So the RESOLVED-C ordering worry (mode-hook vs =hack-local-variables=) does
+NOT apply here — that was a dir-locals concern; the drawer is read directly
+at mode-hook time. Adding =default-directory= is one =setq-local= beside the
+existing four.
 
-Code: =commands.org:544= (=create-session-core= — takes =project-root=, never
-sets default-directory), =persistent-agent.org:514+= /=.el:284-386= (=--task=,
-=find-file-noselect= at =.org:597=), =scope-validation.org:147-219= (path
-resolution against directory), =scope-filesystem-tools.org:81,124,172=,
-=scope-shell-tools.org:127,215=.
+*** Locked design (chat sessions)
 
-** THREAD C — dir-locals as the workspaces↔gptel decoupling seam
+- WRITE (=create-session-core=, =commands.org:~544=): =project-root= is the
+  SINGLE input; persist it verbatim as =:GPTEL_WORK_ROOT:= via
+  =jf/gptel--append-drawer-property= (same splice the identity keys use). One
+  input -> two outputs (=GPTEL_SCOPE_*= expanded + =GPTEL_WORK_ROOT= verbatim);
+  the cwd<->scope agreement invariant is then STRUCTURAL, not enforced.
+  Resolves cross-cutting Q3: work-root is neither a rename nor an independent
+  concept — it is a second *persisted output* of the project-root input.
+- READ (binder, =commands.org:~280=, its own commented stanza beside the four
+  =setq-local='s, BEFORE the =condition-case= registry block so it survives a
+  registry failure):
+    =(setq-local default-directory
+       (file-name-as-directory
+        (expand-file-name
+         (or (cdr (assoc "GPTEL_WORK_ROOT" drawer-alist)) branch-dir))))=
+- Decisions (2026-06-17, all reversible under beta/no-migration):
+  | fork              | locked choice                                            |
+  | work-root model   | derived output of one input (project-root)               |
+  | keyless fallback  | =branch-dir= (= today's find-file value; no-op for legacy)|
+  | storage form      | absolute, verbatim (matches =${project_root}= expansion) |
+
+*** Load-bearing spike — CONFIRMED (2026-06-17, traced gptel-request.el)
+
+Question: do INTERACTIVE chat tool calls (not just agents) run with the chat
+buffer's =default-directory=? If not, a buffer-local set in the binder would
+miss chat. Answer: YES.
+- =gptel-request= (=:1773=): =:buffer= defaults to =(current-buffer)= at call
+  time, stored as =info :buffer= (=:1982=).
+- =gptel--handle-tool-use= (=:1692=): wraps the ENTIRE tool-funcall loop in
+  =(with-current-buffer (plist-get info :buffer) ...)=; both async (=:1740=)
+  and sync (=:1744=) =apply= the tool fn INSIDE that binding.
+- So validation AND execution run with the originating buffer's
+  =default-directory=. Chat: user sends from the chat buffer. Agent: =--task=
+  sends inside =(with-current-buffer agent-buffer ...)=. Both covered by ONE
+  buffer-local set in =gptel-chat-mode-hook=. No second binding point needed.
+
+Mechanism confirmed end-to-end: filesystem tools (=scope-filesystem-tools.org:
+81,124,172=, bare =expand-file-name=) and bash (=scope-validation.org:299,420=,
+resolves against =default-directory=) both pick up the binder's value.
+
+*** Scope check — DONE (2026-06-17, this branch; supersedes the .tasks caveat)
+
+The doc warned the worked example's rows were captured on another worktree
+and "not to be trusted as the current baseline." Re-run on THIS branch:
+- =config/gptel/scope/test/validation= suite: 195/195 green.
+- Focused absolute-path batch experiment (full isolated init), ALL PASS:
+  | scenario (absolute paths)                       | result                       |
+  | load-config(missing dir)                        | deny-all-defaults (all nil)  |
+  | deny-all + any read                             | DENY =not-in-scope=          |
+  | read inside read scope (/etc/hosts)             | ALLOW                        |
+  | write inside write scope (<root>/src/x.el)      | ALLOW                        |
+  | write OUTSIDE write scope (/tmp/elsewhere.el)   | DENY =not-in-scope=, and the |
+  |                                                 | denial carries =:allowed-    |
+  |                                                 | patterns ("<root>/**")= —    |
+  |                                                 | the exact expansion offer    |
+  | read of write-only path (read>=write hierarchy) | ALLOW                        |
+  | write <root>/sub/.git/config (deny precedence)  | DENY =denied-pattern=        |
+CONCLUSION: fail-CLOSED confirmed (no fail-open path); denials carry the
+allowed-patterns the expansion flow offers; deny beats write-allow. The
+machinery is meaningful on absolute paths TODAY — so once B fixes
+=default-directory=, RELATIVE paths will resolve into this same (verified)
+boundary. The cwd fix is the only missing piece, not the validator.
+
+Code: =commands.org:~544= (=create-session-core=, write), =commands.org:~280=
+(binder, read), =persistent-agent.org:560-620= (agent drawer write — see
+[[*THREAD E]]), =scope-validation.org:147-219,299,420= (resolution),
+=scope-filesystem-tools.org:81,124,172=, =scope-shell-tools.org:127,215=,
+=gptel-request.el:1692,1740,1744,1773,1982= (tool-call buffer context).
+
+** RESOLVED C — dir-locals seam subsumed by the integration-registry payload
    :PROPERTIES:
    :THREAD_SCOPE: workspaces + gptel/sessions (preamble source, IoC)
+   :RESOLVED:  2026-06-17 explore session
    :END:
 
-Workspaces drops a =.dir-locals.el= at =:home= setting
-=jf/gptel--preamble-source= (and possibly other tree-shared hints) to
-=home.org=; the value cascades to every session/worktree under the tree.
-gptel reads a buffer-local and never names a workspace symbol. Satisfies
-the "operable independently of workspaces" constraint by construction.
+Original framing (now superseded): workspaces drops a =.dir-locals.el=
+at =:home= setting =jf/gptel--preamble-source= (and other tree-shared
+hints); the value cascades to every session under the tree; gptel reads
+a buffer-local and never names a workspace symbol.
 
-Open questions:
-- Which values are genuinely *tree-shared* (belong in dir-locals) vs
-  *per-entity* (belong in the drawer)? Current take: preamble-source = tree;
-  cwd/scope = drawer. Validate there are no others.
-- =safe-local-variable= predicates for each var so sessions never prompt.
-- Global (=~/.gptel=) sessions have no such dir-local -> default preamble.
-  Confirm the fallback layering is clean.
-- Producer side: where in the workspaces scaffold pipeline does the
-  =.dir-locals.el= get written, and does anchoring an *existing* repo
-  (=anchored-existing=, which skips artifact injection) get it or not?
+*Resolution: do NOT add a dir-locals layer. Write gptel's values into
+the drawer at create time, sourced from the integration payload.*
+Thread C largely collapses into [[*THREAD B]].
 
-Code: =integrations.org= (registry, anchor payload), =workspace-integration.org=
-(gptel =:on-create= / =:menu=), README "gptel sessions" + "Integration registry",
-=menu.org:113-148= (existing dir-locals cooperation).
+*** Why: two candidate seams, and one already exists
+
+#+begin_example
+  SEAM 1 — integration registry        (PUSH, at create time)   ALREADY EXISTS
+    workspaces --(payload :home ...)--> gptel :on-create --> gptel writes drawer
+    - workspaces names no gptel symbol     - gptel is the sole writer
+    - value delivered exactly when gptel is creating the session
+
+  SEAM 2 — .dir-locals.el at :home      (PULL, at open time)     what C proposed
+    gptel :on-create --> writes .dir-locals.el --> gptel reads it on every open
+    - gptel writes AND reads it (per "only gptel touches gptel vars")
+#+end_example
+
+Once we concede only gptel writes/reads its own variables, Seam 2's
+writer and reader are *both gptel* -> dir-locals is not a decoupling
+device, just a store gptel writes to itself. *The decoupling was always
+coming from the registry payload, not from dir-locals.* Seam 2 is a
+redundant second seam.
+
+The only structural difference is push-at-create vs pull-at-open
+(write-once-per-tree vs write-once-per-session). That pays off ONLY for
+sessions gptel's create path never ran for:
+
+  | session source           | covered by drawer (Seam 1)?      |
+  |--------------------------+----------------------------------|
+  | :on-create / :menu       | yes                              |
+  | agent (--task)           | yes (needs own value anyway)     |
+  | branch                   | yes (inherits parent drawer)     |
+  | hand-authored / external | NO -- only dir-locals catches it |
+
+Every row but the last funnels through gptel code already holding
+=:home=. So the dir-locals-only benefit reduces to "a tree default for
+sessions gptel never created" -- essentially the hand-authored case.
+
+Cost of adding Seam 2: a git-committed artifact; merge-with-the-user's-
+existing-=.dir-locals.el=; cascade noise into agent subdirs; and a new
+*silent* fallback (an agent whose drawer write fails inherits =:home=
+instead of its worktree -- reviving the cwd/scope-disagreement bug class
+without a symptom).
+
+*** Verified Emacs mechanics (batch experiments, 2026-06-17)
+
+These overturn two claims made elsewhere in this doc (correction note
+under [[*Emerging design principle]]):
+
+- dir-locals *can* set =default-directory= (the doc's "can't" is FALSE).
+- =default-directory= is =risky? nil=, =safe? stringp= in stock Emacs:
+  settable, no prompt.
+- Ordering is fixed: =gptel-chat-mode-hook= runs BEFORE file/dir-locals
+  are applied (sees the file's own dir); =hack-local-variables-hook= runs
+  AFTER (sees forced values). The codebase already relies on this split
+  (=menu.org:895=, preset case).
+- A drawer-driven override in =hack-local-variables-hook= BEATS a
+  dir-locals value (a deep-subdir "agent" buffer overrode the inherited
+  tree value). So dir-locals + drawer is a PRECEDENCE STACK, not XOR --
+  this dissolves the doc's original objection (agents "would inherit the
+  parent's cwd") but does NOT make the layer worth adding.
+
+*** What dir-locals uniquely does (and why none of it serves a gptel goal)
+
+A drawer only exists in files gptel authored and only means anything
+once gptel's mode+hook are live. dir-locals is applied by Emacs core to
+ANY file under the tree. That gap is real; the full inventory:
+
+  | # | dir-locals-only capability                          | serves a gptel goal?               |
+  |---+-----------------------------------------------------+------------------------------------|
+  | 1 | reaches non-drawer buffers (src, home.org, dired)   | NO -- gptel must not touch those   |
+  | 2 | retroactive: edit file -> existing sessions on open | marginal (beta/no-migration)       |
+  | 3 | computed/self-relocating values via eval (move-safe)| marginal (eval risky; abs-anchored)|
+  | 4 | single source of truth for tree (vs N drawers)      | low (values create-time-stable)    |
+  | 5 | subtree override topology (.dir-locals.el in subdir)| NO -- drawer per-ENTITY is better  |
+  | 6 | idiomatic/discoverable location                     | soft/UX only                       |
+
+Every unique capability either serves a non-goal (1), is modelled
+better by the drawer (5), or is marginal under beta/no-migration +
+create-time-stable values (2,3,4).
+
+*** The reframe that keeps it clean
+
+Capability #1 IS legitimately valuable -- "working anywhere in this
+workspace sets my environment" -- but that is a *workspace-level* goal
+about *non-gptel* buffers with *non-gptel* values (=default-directory=,
+=compile-command=, project settings). gptel declining dir-locals does
+NOT take that away: workspaces may drop its OWN =.dir-locals.el= with
+non-gptel values anytime, naming no gptel symbol, fully decoupled.
+
+#+begin_example
+  gptel values (work-root, scope, preamble-pointer)  -> drawer via payload         no dir-locals
+  workspace values (default-directory tree-wide ...)  -> workspaces' OWN .dir-locals  optional
+#+end_example
+
+*** Deferred escape hatch + re-entry condition
+
+The precedence stack (drawer overrides an inherited dir-locals default)
+is PROVEN to compose safely. Keep it in the back pocket: if hand-
+authored sessions or a user-set workspace-wide default ever become worth
+supporting, a dir-locals tree default can be added WITHOUT disturbing the
+drawer-first design. It is an extension point, not the architecture.
+
+Re-entry condition (the push-vs-pull boundary): the registry payload is
+a PUSH seam (fires only at create). The day gptel gains a value that must
+reflect the *current* tree state at every open -- rather than the state
+frozen at create -- a pull seam (dir-locals or discovery) re-earns its
+place. Checked 2026-06-17: work-root, scope, and the preamble-source
+pointer are all create-time-stable; preamble *content* is resolved at
+build time from whatever file the (stable) pointer names. Nothing needs
+pull today.
+
+Code: =workspace-integration.org:66-87= (=:on-create=, payload =:home=),
+=integrations.org= (registry, anchor payload), =menu.org:113-148,895=
+(existing dir-locals cooperation + the two-hook ordering), README
+"gptel sessions" + "Integration registry".
 
 ** THREAD D — Dynamic preamble (base + home.org override); worktree manifest
    :PROPERTIES:
@@ -389,21 +571,55 @@ The loop that makes "dynamic" tractable:
      -> agent's drawer carries them; mode hook sets default-directory
 #+end_example
 
-Open questions:
-- New =PersistentAgent= tool parameter (=working_dir= / =worktree=) defaulting
-  to =:home=? Or derive from =allowed_paths= common root? Or both?
-- How does the agent know valid worktrees without coupling to workspaces?
-  (Via the preamble it receives — keep the manifest source neutral.)
-- Reconcile with =build-scope-plist= (currently =read=allowed_paths=,
-  =write=("/tmp/**")=). Should write default to the worktree, not =/tmp=?
-- Re-run the .tasks worked example with absolute paths to genuinely exercise
-  denial + expansion (currently unconfirmed — see .tasks item "How to reproduce").
+*** Locked agent-leg design (2026-06-17 explore session)
 
-Code: =persistent-agent.org= (=--task= no default-directory; =build-scope-plist=
-=:202-217=; tool schema =args=; =standard-deny-paths=), =scope-tool-wrapper.org=
+Reframed by the user: the parent does NOT inherit-cascade to the agent — it
+*explicitly passes* the agent's work root and paths. This continues the
+"agents are self-describing, not inheriting" principle and gives the parent
+flexibility in *where* it assigns each agent to work.
+
+Two coupled changes, both almost entirely in =persistent-agent.org= + the
+shared binder ([[*RESOLVED B]]) + tests. NB: the tool is =:async t=, so gptel
+prepends =main-cb=; =:args= order maps to params AFTER it.
+
+(1) Parent passes =work_root=:
+- Add =work_root= string param to the tool =:args= (=persistent-agent.org:681=)
+  and to =--task= (=:514=, positional after existing args).
+- Write =:GPTEL_WORK_ROOT:= into the agent's drawer (=:560-620=) via
+  =jf/gptel--append-drawer-property=. The binder ([[*RESOLVED B]]) reads it —
+  shared, zero extra work.
+- DEFAULT when omitted = the PARENT's own work-root (read live from =--task='s
+  buffer context). This is an explicit gptel-code default, NOT a dir-locals
+  cascade — the agent's value still lives in its OWN drawer.
+- Normalize: =file-name-as-directory= + =expand-file-name=.
+
+(2) Parent passes read AND write paths (the =/tmp=-only write was an
+ACCIDENT, never intended design — =/tmp= is meant as scratch space only):
+- Tool schema: symmetric =read_paths= / =write_paths= (rename =allowed_paths=;
+  beta/no-migration, schema is re-read each session, no persisted churn).
+- =build-scope-plist= (=:202=): =(read-paths write-paths)= ->
+  =:write (append write-paths '("/tmp/**"))= so =/tmp= stays scratch and
+  parent-supplied write paths are honored; =:read read-paths=; deny unchanged.
+
+(3) Coupling guardrail (LOCKED = option 1): work_root and write-scope must
+agree (a relative write resolves under work_root -> must fall inside a write
+glob, else silent DENY — exactly the bug class B kills). Validate that
+=work_root= is within the read scope; warn/error otherwise.
+
+*** Still genuinely open (ties to Thread D)
+
+- Worktree MANIFEST source for the parent model to *choose* work_root: keep it
+  workspace-neutral (=git worktree list= / =magit-list-worktrees=), surfaced
+  via the preamble (Thread D). This is the only non-mechanical unknown left.
+- (Absolute-path denial+expansion re-run: DONE — see [[*RESOLVED B]] "Scope
+  check — DONE". The validator is sound on absolute paths; only the cwd fix
+  remains to make the agent's RELATIVE paths land in that boundary.)
+
+Code: =persistent-agent.org= (=--task= =:514=; =build-scope-plist= =:202-217=;
+tool schema =:args= =:681=; =standard-deny-paths= =:194=), =scope-tool-wrapper.org=
 (routing), =scope-validation.org:876-951= (=authorize-tool-call=).
 
-** THREAD F — Identity: stop deriving it from the path
+** RESOLVED F — Identity: stop deriving it from the path
    :PROPERTIES:
    :THREAD_SCOPE: gptel/sessions
    :END:
@@ -463,9 +679,9 @@ Remove constant + accessor together. Good warm-up task / first PR.
 
 1. Auto-adoption: keep "open any session.org -> it activates," or require a
    content signature? (Thread A primary; affects F.)
-2. One store vs two: is "drawer for per-entity, dir-locals for tree-shared"
-   the final split, or does everything go in the drawer (simpler, but loses
-   the clean workspaces IoC seam)? (A/B/C.)
+2. One store vs two: RESOLVED (2026-06-17, [[*RESOLVED C]]) -> everything
+   gptel owns goes in the DRAWER; the IoC seam is the integration-registry
+   payload, NOT dir-locals (which would be a redundant second seam). (A/B/C.)
 3. Is =project-root= -> =work-root= a rename of the existing (discarded)
    =project-root= parameter, or a new persisted concept beside it? (B/E.)
 4. Preamble length budget and what gets trimmed first. (D.)
