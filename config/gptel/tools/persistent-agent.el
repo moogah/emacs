@@ -117,21 +117,28 @@ Embedded into the agent's `:GPTEL_SCOPE_DENY:' drawer key on creation
 in `jf/gptel-persistent-agent--write-scope-file' before that function
 was deleted.")
 
-(defun jf/gptel-persistent-agent--build-scope-plist (allowed-paths)
-  "Build the agent's scope plist from ALLOWED-PATHS.
-ALLOWED-PATHS is a normalized list of glob patterns (caller has
-converted any vector). nil/empty ⇒ no read access (zero inheritance).
+(defun jf/gptel-persistent-agent--build-scope-plist (read-paths write-paths)
+  "Build the agent's scope plist from READ-PATHS and WRITE-PATHS.
+READ-PATHS and WRITE-PATHS are normalized lists of glob patterns
+\(caller has converted any vector).
+
+`:read' is the supplied READ-PATHS verbatim — nil/empty ⇒ no read
+access (zero inheritance).  `:write' is the supplied WRITE-PATHS
+with `/tmp/**' appended as the last element: `/tmp/**' is a
+guaranteed scratch grant, NOT the write default (when WRITE-PATHS
+is nil/empty the agent gets scratch-only write).  `:deny' is the
+standard set from `jf/gptel-persistent-agent--standard-deny-paths'.
 
 Returns a plist of `register/shape/scope-config-plist' shape:
-  (:paths (:read (...) :write (\"/tmp/**\") :deny (<standard set>)))
+  (:paths (:read (...) :write (... \"/tmp/**\") :deny (<standard set>)))
 
 Caller renders this via
 `jf/gptel-scope-profile--render-drawer-text' to obtain the
 `:PROPERTIES:' drawer-text-block embedded in the agent's
 `session.org'."
   (list :paths
-        (list :read  (or allowed-paths nil)
-              :write '("/tmp/**")
+        (list :read  (or read-paths nil)
+              :write (append write-paths '("/tmp/**"))
               :deny  jf/gptel-persistent-agent--standard-deny-paths)))
 
 (defun jf/gptel-persistent-agent--initial-body (prompt)
