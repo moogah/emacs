@@ -64,3 +64,28 @@ Place the new `setq-local` immediately after the existing
 ## Context
 design.md § Decisions 'D2 — Read in the binder', 'D3 — Keyless fallback', 'D4 — Tools inherit the work root through the existing buffer context'
 specs/sessions-persistence/spec.md § 'Requirement: Default-directory resolution on session activation'
+
+## Observations
+- The binder already `setq-local`s the four identity vars before a
+  `condition-case` registry block; inserting one more `setq-local` for
+  `default-directory` immediately after `jf/gptel--branch-dir` and before
+  the `condition-case` was a drop-in that matched the existing
+  var-setting discipline exactly (survives a registry failure).
+- `jf/gptel--branch-dir` was indeed already bound at that point (set on
+  the line directly above), confirming the seam contract's "already in
+  hand" precondition.
+- Fixture infrastructure in the sibling `mode-hook-binder-spec.el`
+  (drawer-writing `session.org` helper + `buffer-file-name`-bearing
+  buffer that the binder is invoked directly against) was directly
+  reusable for the work-root spec; the new spec mirrors it rather than
+  introducing new test machinery.
+- Keyless sessions are a genuine no-op: the fallback test confirms
+  `default-directory` equals `(file-name-as-directory (expand-file-name
+  branch-dir))`, i.e. the same absolute directory `find-file` would have
+  set — byte-for-byte today's behavior.
+- Full sessions suite: 153 specs, 0 failed (3 new). No regressions vs
+  the floor.
+
+## Discoveries
+
+(none)
