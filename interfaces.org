@@ -2426,6 +2426,90 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** agent-path-params
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-agent-path-params
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/agent-path-params
+   tier: vocabulary
+   status: speculated
+   status_note: |
+     Speculated at plan (cycle-1781716077, change gptel-work-root-default-
+     directory). BREAKING tool-schema rename: allowed_paths/denied_paths ->
+     work_root + read_paths + write_paths. Confirmed at integrate once
+     agent-build-scope-plist-split (helper takes read-paths/write-paths,
+     /tmp/** appended as scratch) and agent-workroot-and-paths (tool :args
+     lists exactly the six params, excludes allowed_paths/denied_paths)
+     land green and docs-allowed-paths-rename sweeps stale references.
+   load_bearing: true
+   title: The PersistentAgent tool path/work-root parameter vocabulary (post allowed_paths split)
+   purpose: |
+     The closed set of path/work-root parameters the PersistentAgent tool
+     surface advertises after this change. The single allowed_paths
+     parameter (whose write behavior was accidentally "/tmp only") is
+     replaced by a symmetric, parent-controlled set. /tmp/** is no longer
+     the write default -- it is the LAST element auto-appended to :write as
+     guaranteed scratch. Advertising a removed param (allowed_paths /
+     denied_paths) or mis-routing write_paths so /tmp becomes the sole
+     write target is a vocabulary-mismatch bug of the same class as the
+     drawer-key mis-routing tracked by register/vocabulary/drawer-key-set.
+
+   members:
+     - value: "work_root"
+       cardinality: scalar
+       description: |
+         absolute dir the agent operates in; written to the agent drawer as
+         :GPTEL_WORK_ROOT:. Omitted -> default to the parent buffer's work
+         root (default-directory at spawn), frozen into the drawer (a
+         parent-supplied default, NOT runtime inheritance).
+       maps_to: ":GPTEL_WORK_ROOT: drawer key"
+     - value: "read_paths"
+       cardinality: list
+       description: agent read scope; replaces the read role of allowed_paths.
+       maps_to: "build-scope-plist :read -> :GPTEL_SCOPE_READ:"
+     - value: "write_paths"
+       cardinality: list
+       description: |
+         agent write scope (parent-controlled). build-scope-plist appends
+         /tmp/** as the last :write element -> serializes via the existing
+         +-multivalue convention (:GPTEL_SCOPE_WRITE+: /tmp/**).
+       maps_to: "build-scope-plist :write -> :GPTEL_SCOPE_WRITE:(+)"
+
+   forbidden_values:
+     - value: "allowed_paths"
+       reason: |
+         Removed from the tool surface (BREAKING). Its read role moves to
+         read_paths; its accidental "/tmp-only write" behavior is deleted.
+         No persisted-data migration (model re-reads the schema each
+         session).
+     - value: "denied_paths"
+       reason: |
+         Dropped from the surface; deny stays the standard
+         jf/gptel-persistent-agent--standard-deny-paths set.
+
+   closed_set: true
+   unmapped_policy: error
+   unmapped_policy_rationale: |
+     The tool :args schema is the closed surface the model reads. A param
+     outside {preset, description, prompt, work_root, read_paths,
+     write_paths} -- especially a resurrected allowed_paths -- must not
+     appear; the agent-workroot-and-paths spec asserts the exact arg set.
+
+   related_entries:
+     - register/shape/scope-config-plist
+     - register/vocabulary/drawer-key-set
+     - register/invariant/cwd-scope-agreement
+   cited_by_tasks:
+     - agent-build-scope-plist-split
+     - agent-workroot-and-paths
+     - docs-allowed-paths-rename
+     - verify-change
+   discovered_from: gptel-work-root-default-directory
+   discovered_by: architect
+   #+end_src
+
 * Boundary
 
   Entries describe canonical mapping functions between subsystems. The
@@ -4869,6 +4953,73 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - add-worktree-command
      - on-purge-teardown-handler
    discovered_from: add-workspace-git-worktrees
+   discovered_by: architect
+   #+end_src
+
+** work-root-activation-seam
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-work-root-activation-seam
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/work-root-activation-seam
+   tier: boundary
+   status: speculated
+   status_note: |
+     Speculated at plan (cycle-1781716077, change gptel-work-root-default-
+     directory). The seam is the single setq-local of default-directory in
+     the gptel-chat-mode-hook binder (binder-default-directory). Confirmed
+     at integrate once the binder spec (sets default-directory from
+     GPTEL_WORK_ROOT; keyless -> branch-dir fallback; normalized to a
+     directory) is green and scope-relative-resolution-tests proves tool
+     calls see it.
+   load_bearing: true
+   title: The binder's single default-directory setq-local is the one seam all tool path-resolution flows through
+   purpose: |
+     There is exactly ONE place a session buffer's default-directory is
+     established for relative-path resolution: the gptel-chat-mode-hook
+     binder (jf/gptel--bind-session-buffer) reads GPTEL_WORK_ROOT from the
+     drawer alist it already scans and does one setq-local. Because
+     gptel--handle-tool-use runs every tool funcall inside
+     (with-current-buffer (plist-get info :buffer) ...) and info:buffer is
+     the originating session buffer, this ONE buffer-local set reaches every
+     tool (filesystem + bash, chat + agent) for BOTH validation and
+     execution. No per-tool binding point, no second hook. A duplicate
+     default-directory binding inside a tool wrapper or a second hook is a
+     duplication bug (architect duplication severity = blocking here).
+
+   seam_contract: |
+     IN:  drawer-alist (already in hand), optional GPTEL_WORK_ROOT key, and
+          jf/gptel--branch-dir (already setq-local'd just above).
+     OUT: buffer-local default-directory =
+          (file-name-as-directory
+           (expand-file-name
+            (or (cdr (assoc "GPTEL_WORK_ROOT" drawer-alist))
+                jf/gptel--branch-dir)))
+     Placed BEFORE the condition-case registry block so it survives a
+     registry failure (matching the four identity setq-locals' discipline).
+     Keyless sessions: branch-dir fallback == today's find-file value (a
+     true no-op).
+
+   producers:
+     - file: config/gptel/sessions/commands.org
+       function: jf/gptel--bind-session-buffer (gptel-chat-mode-hook)
+   consumers:
+     - file: config/gptel/scope/scope-filesystem-tools.org
+       note: bare (expand-file-name filepath) resolves against default-directory
+     - file: config/gptel/scope/scope-validation.org
+       note: bash validator passes directory=default-directory
+
+   related_entries:
+     - register/invariant/cwd-scope-agreement
+     - register/boundary/drawer-first-identity-resolution
+     - register/invariant/activation-and-identity-are-content-not-path
+   cited_by_tasks:
+     - binder-default-directory
+     - scope-relative-resolution-tests
+     - agent-workroot-and-paths
+     - verify-change
+   discovered_from: gptel-work-root-default-directory
    discovered_by: architect
    #+end_src
 
@@ -7434,6 +7585,70 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_from: add-workspace-git-worktrees
    discovered_by: implementor
    discovered_class: load-order-hazard
+   #+end_src
+
+** cwd-scope-agreement
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-cwd-scope-agreement
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/cwd-scope-agreement
+   tier: invariant
+   status: speculated
+   status_note: |
+     Speculated at plan (cycle-1781716077, change gptel-work-root-default-
+     directory). The CODE condition is established by session-write-work-root
+     (writes GPTEL_WORK_ROOT from the SAME project-root input that expands
+     GPTEL_SCOPE_*) and exercised by scope-relative-resolution-tests. Flips
+     to confirmed at integrate once both land green and the agreement-by-
+     construction spec assertion (persisted GPTEL_WORK_ROOT == scope-
+     expansion root) passes.
+   load_bearing: true
+   title: A session's work root and its scope boundary derive from one input and cannot disagree
+   statement: |
+     For any session created by jf/gptel--create-session-core, the
+     GPTEL_WORK_ROOT drawer value (the directory against which the model's
+     relative paths resolve at tool time) MUST equal the project-root used
+     to expand that session's GPTEL_SCOPE_* patterns. The two are not
+     computed independently: a single project-root input is persisted
+     verbatim as GPTEL_WORK_ROOT and simultaneously expanded into
+     GPTEL_SCOPE_*. A relative path located inside the work root therefore
+     resolves inside the read/write scope BY CONSTRUCTION -- the allow/deny
+     decision is meaningful, not incidental.
+   enforcement_mechanism: |
+     test (the confirm gate -- no runtime guard; the equality is structural,
+     a single input fanned to two outputs).
+     (1) session-write-work-root: create-session-core emits GPTEL_WORK_ROOT
+     from the project-root argument it already threads into
+     jf/gptel-scope-profile--create-for-session; a Buttercup spec asserts the
+     persisted GPTEL_WORK_ROOT equals the scope-expansion root (one input ->
+     two outputs). (2) scope-relative-resolution-tests: with default-directory
+     bound to the work root, a relative path resolves under it and lands in
+     scope; the same relative path under a different work root resolves
+     differently.
+   why_it_matters: |
+     The cwd bug this change fixes is precisely a DISagreement: default-
+     directory fell through to the branches/<branch>/ bookkeeping dir while
+     scope was expanded from the real project root, so every relative-path
+     decision judged "the wrong path universe" -- sometimes spuriously
+     permissive, sometimes spuriously restrictive. Deriving both from one
+     input removes the disagreement as a manual obligation.
+   applies_to:
+     - config/gptel/sessions/commands.org
+     - config/gptel/scope/scope-validation.org
+   related_entries:
+     - register/boundary/work-root-activation-seam
+     - register/vocabulary/agent-path-params
+     - register/shape/scope-config-plist
+     - register/boundary/scope-config-loader
+   cited_by_tasks:
+     - session-write-work-root
+     - scope-relative-resolution-tests
+     - verify-change
+   discovered_from: gptel-work-root-default-directory
+   discovered_by: architect
+   discovered_class: invariant-gap
    #+end_src
 
 * Status legend
