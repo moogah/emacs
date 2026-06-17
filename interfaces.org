@@ -7628,15 +7628,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      work-root-emission-spec rewritten to model the real verbatim
      substitution + a relative input, so a regression to expand-file-name
      fails it.  why_tests_missed: the original agreement test was tautological
-     (mocked the renderer into agreement).  SPEC-SIGNAL carried to the user
-     (handshake asks_for_user_open): design.md D3's claim that ${project_root}
-     "expands absolute" is FALSE (it is verbatim substitution); open question
-     whether project-root should be canonicalised at the SOURCE so scope
-     patterns become absolute and relative-path resolution lands in scope for
-     ALL input forms, not just already-absolute ones.  Reconciliation note:
+     (mocked the renderer into agreement).  SPEC-SIGNAL RESOLVED by the user
+     (cycle-1781716077 integrate): design.md D3's claim that ${project_root}
+     "expands absolute" is FALSE (it is verbatim substitution).  User chose to
+     CANONICALISE AT SOURCE — expand-file-name project-root ONCE at
+     create-session-core entry, feeding BOTH the scope expansion and the
+     GPTEL_WORK_ROOT write, so both outputs are absolute AND byte-identical
+     (agreement preserved, scope patterns absolute, relative-path resolution
+     lands in scope for all inputs).  Tracked as the ready task
+     canonicalize-project-root-at-source (cycle-2; user PAUSED after cycle-1).
+     This entry stays CONFIRMED on the write/agreement side; cycle-2 strengthens
+     it from verbatim-agreement to absolute-agreement and the read side is
+     exercised by scope-relative-resolution-tests.  Reconciliation note:
      .orchestrator/cycles/cycle-1781716077/reconciliations/invariant-cwd-scope-agreement.md
-     The scope-relative-resolution-tests task (cycle-2) further exercises the
-     read side; this entry is confirmed on the WRITE/agreement side now.
    load_bearing: true
    title: A session's work root and its scope boundary derive from one input and cannot disagree
    statement: |
