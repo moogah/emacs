@@ -100,25 +100,26 @@
 
   ;;; Case 2 — agreement-by-construction with the scope-expansion root
 
-  (it "writes the SAME root the scope expansion received (agreement-by-construction)"
-    ;; Capture the PROJECT-ROOT argument the scope-profile renderer sees
-    ;; so we can prove `:GPTEL_WORK_ROOT:' is `(expand-file-name <that>)'.
-    ;; A relative-form PROJECT-ROOT exercises the normalisation: both
-    ;; writers MUST agree on the same absolute string.
-    (let ((scope-root :unset)
-          ;; default-directory makes the relative form resolvable to a
-          ;; deterministic absolute path for the assertion.
-          (default-directory "/Users/x/"))
+  (it "writes the SAME verbatim root the scope expansion substitutes (agreement-by-construction)"
+    ;; The renderer mock here FAITHFULLY models the real substitution:
+    ;; `jf/gptel-scope-profile--expand-string' does a raw
+    ;; `(replace-regexp-in-string "${project_root}" project-root str t t)'
+    ;; (scope-profiles.org §expand-string) — it inserts PROJECT-ROOT
+    ;; VERBATIM, NOT `(expand-file-name project-root)'.  We deliberately
+    ;; pass a NON-canonical relative-form PROJECT-ROOT ("proj") so the
+    ;; assertion would FAIL if the writer applied any transformation
+    ;; (expand-file-name, trailing-slash munging) — proving the agreement
+    ;; is structural for any input, not just already-absolute ones.
+    (let ((scope-root :unset))
       (cl-letf (((symbol-function 'jf/gptel-scope-profile--create-for-session)
                  (lambda (_preset project-root &rest _args)
                    (setq scope-root project-root)
-                   ;; Minimal valid drawer-text-block carrying a scope key
-                   ;; expanded from the SAME root, so the test exercises a
-                   ;; realistic drawer shape.
+                   ;; Substitute PROJECT-ROOT VERBATIM, exactly as the real
+                   ;; --expand-string does (raw replace, no expand-file-name).
                    (concat ":PROPERTIES:\n"
                            ":GPTEL_PRESET: executor\n"
                            ":GPTEL_SCOPE_FILESYSTEM_WRITE: "
-                           (expand-file-name project-root) "\n"
+                           project-root "/**\n"
                            ":END:\n"))))
         (with-captured-io
           (jf/gptel--create-session-core
@@ -127,19 +128,16 @@
            'executor nil nil "proj")
           (let ((content (jf/work-root-test--session-content
                           captured-files
-                          "/sessions/sess-workroot-rel-20260617120000"))
-                (expected-abs (expand-file-name "proj")))
-            ;; The renderer actually received the project-root.
+                          "/sessions/sess-workroot-rel-20260617120000")))
+            ;; The renderer actually received the raw project-root.
             (expect scope-root :to-equal "proj")
-            ;; Work-root value == absolute form of the SAME input the
-            ;; scope expansion used.
-            (expect content :to-match
-                    (concat ":GPTEL_WORK_ROOT: " (regexp-quote expected-abs) "\n"))
-            ;; And it agrees verbatim with the scope-expansion root the
-            ;; mocked renderer wrote into the scope key.
-            (expect content :to-match
-                    (concat ":GPTEL_SCOPE_FILESYSTEM_WRITE: "
-                            (regexp-quote expected-abs) "\n")))))))
+            ;; Work-root value is the VERBATIM input — byte-identical, no
+            ;; transformation.  (A regression to (expand-file-name project-root)
+            ;; would write an absolute path here and fail this assertion.)
+            (expect content :to-match ":GPTEL_WORK_ROOT: proj\n")
+            ;; And it is byte-identical to the root the scope key carries:
+            ;; both derive from the same string, so they cannot disagree.
+            (expect content :to-match ":GPTEL_SCOPE_FILESYSTEM_WRITE: proj/\\*\\*\n"))))))
 
   ;;; Case 3 — nil PROJECT-ROOT emits NO key
 

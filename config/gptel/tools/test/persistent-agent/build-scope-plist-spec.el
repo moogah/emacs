@@ -66,6 +66,16 @@
       (let ((paths (plist-get plist :paths)))
         (expect (plist-member paths :read) :not :to-be nil)
         (expect (plist-member paths :write) :not :to-be nil)
-        (expect (plist-member paths :deny) :not :to-be nil)))))
+        (expect (plist-member paths :deny) :not :to-be nil))))
+
+  ;; Non-mutation guard: `:write' is built with `(append write-paths
+  ;; '("/tmp/**"))', which copies and must NOT destructively extend the
+  ;; caller's list.  Pins the contract so a future refactor to `nconc'
+  ;; (which would silently append /tmp/** onto a caller-reused list)
+  ;; fails loudly here.
+  (it "does not mutate the caller's write-paths list"
+    (let ((wp (list "/p/**")))
+      (jf/gptel-persistent-agent--build-scope-plist nil wp)
+      (expect wp :to-equal '("/p/**")))))
 
 ;;; build-scope-plist-spec.el ends here

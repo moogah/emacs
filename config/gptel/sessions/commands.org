@@ -525,9 +525,10 @@ Creates:
 - session.org pre-populated with the drawer-resident scope (preset
   + scope keys + `:GPTEL_SYSTEM_PROMPT_FILE:' when the sibling file
   was written + `:GPTEL_WORK_ROOT:' when PROJECT-ROOT is non-nil,
-  the absolute PROJECT-ROOT verbatim — the same input that expanded
-  `${project_root}' into the scope keys) followed by an empty
-  `#+begin_user' / `#+end_user' block
+  PROJECT-ROOT verbatim — byte-identical to the string substituted
+  into the `${project_root}' scope keys, so the two agree by
+  construction) followed by an empty `#+begin_user' / `#+end_user'
+  block
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
 The drawer embedded in `session.org' is the authoritative
@@ -607,23 +608,27 @@ Returns plist with:
          (drawer-text (jf/gptel--append-drawer-property
                        drawer-text "GPTEL_BRANCH" "main"))
          ;; Persist the working directory as `:GPTEL_WORK_ROOT:' — a
-         ;; second, verbatim output of the SAME PROJECT-ROOT input that
+         ;; second, VERBATIM output of the SAME PROJECT-ROOT input that
          ;; expanded `${project_root}' into the `GPTEL_SCOPE_*' keys
          ;; above (via `jf/gptel-scope-profile--create-for-session').
-         ;; Because the work-root key and the scope-expansion root
-         ;; derive from one input, the session's working directory and
-         ;; its scope boundary CANNOT disagree — the cwd↔scope agreement
-         ;; invariant (register/invariant/cwd-scope-agreement) is
-         ;; structural, not enforced (design.md D1).  Stored absolute to
-         ;; match how `${project_root}' expands (design.md D3).  When
-         ;; PROJECT-ROOT is nil this is a keyless session: the key is
-         ;; SKIPPED so the binder falls back to `branch-dir'.  Spliced
-         ;; via the append helper to preserve the `:PROPERTIES:' /
-         ;; `:END:' adjacency invariant.
+         ;; Stored VERBATIM — the byte-identical PROJECT-ROOT string that
+         ;; `jf/gptel-scope-profile--expand-string' substitutes into the
+         ;; scope patterns (a raw `replace-regexp-in-string', NOT
+         ;; `expand-file-name'; scope-profiles.org §expand-string).  Both
+         ;; outputs are therefore the SAME string, so the session's working
+         ;; directory and its scope boundary CANNOT disagree — the cwd↔scope
+         ;; agreement invariant (register/invariant/cwd-scope-agreement) is
+         ;; structural by construction (design.md D1), for ANY input form
+         ;; (relative, trailing-slash, ~) rather than only canonical-absolute
+         ;; ones.  Normalisation to an absolute directory happens at READ
+         ;; time in the binder (`expand-file-name' + `file-name-as-directory'),
+         ;; not here.  When PROJECT-ROOT is nil this is a keyless session: the
+         ;; key is SKIPPED so the binder falls back to `branch-dir'.  Spliced
+         ;; via the append helper to preserve the `:PROPERTIES:' / `:END:'
+         ;; adjacency invariant.
          (drawer-text (if project-root
                           (jf/gptel--append-drawer-property
-                           drawer-text "GPTEL_WORK_ROOT"
-                           (expand-file-name project-root))
+                           drawer-text "GPTEL_WORK_ROOT" project-root)
                         drawer-text))
          (final-content (or initial-content
                             (concat drawer-text
