@@ -247,7 +247,9 @@ On a signature-bearing buffer:
      the trailing `branches/<branch>/' segment the fallback regex needs).
   4. `session-dir' via `jf/gptel--session-dir-from-branch-dir' (the
      structural `branches/' ancestor walk; move-safe, depth-independent).
-  5. `setq-local's the four session vars.
+  5. `setq-local's the four session vars, plus `default-directory' from
+     the drawer's `GPTEL_WORK_ROOT' key (branch-dir fallback) so every
+     tool call resolves relative paths against the session work root.
   6. Registers the buffer and enables `jf/gptel-autosave-enabled', wrapped
      in `condition-case' so a registry failure does not abort var-setting.
 
@@ -282,6 +284,21 @@ register/invariant/activation-and-identity-are-content-not-path."
       (setq-local jf/gptel--session-dir session-dir)
       (setq-local jf/gptel--branch-name branch-name)
       (setq-local jf/gptel--branch-dir branch-dir)
+      ;; Work-root activation seam: establish the buffer-local
+      ;; `default-directory' that relative-path resolution uses for every
+      ;; tool call (chat + agent), since `gptel--handle-tool-use' runs each
+      ;; tool inside `(with-current-buffer info:buffer)'.  Read from the
+      ;; drawer key we already scanned; a keyless session falls back to
+      ;; `branch-dir' (byte-for-byte today's `find-file' behavior — a true
+      ;; no-op).  Set alongside the four identity vars and BEFORE the
+      ;; `condition-case' so a registry failure cannot abort it.  See
+      ;; design.md §Decisions D2/D3/D4 and
+      ;; register/boundary/work-root-activation-seam.
+      (setq-local default-directory
+                  (file-name-as-directory
+                   (expand-file-name
+                    (or (cdr (assoc "GPTEL_WORK_ROOT" drawer-alist))
+                        jf/gptel--branch-dir))))
       ;; Registry registration + autosave: wrapped so a registry failure
       ;; cannot abort the var-setting above.
       (condition-case err
