@@ -4,9 +4,9 @@
 
 The parent SHALL set the agent's working directory explicitly; the agent SHALL NOT inherit it by any runtime cascade. PersistentAgent SHALL accept a `work_root` parameter naming the absolute directory the agent operates in. When `work_root` is omitted, it SHALL default to the parent session's own work root (the value of the parent buffer's `GPTEL_WORK_ROOT` / `default-directory` at spawn time) — a single explicit default chosen at creation, written into the agent's drawer, not a live link to the parent. `jf/gptel-persistent-agent--task` SHALL write the resolved value into the agent's `session.org` drawer as `:GPTEL_WORK_ROOT:`, from which the standard activation binder sets the agent buffer's `default-directory` (see `gptel/sessions-persistence` Requirement: Default-directory resolution on session activation).
 
-As a consistency guardrail against the silent-deny trap (a relative write resolving outside the agent's write scope), the tool SHALL warn when the resolved `work_root` falls outside the agent's read scope. The warning SHALL NOT abort agent creation.
+To eliminate the silent-deny trap (a relative read resolving outside the agent's read scope), `jf/gptel-persistent-agent--task` SHALL make the resolved `work_root` readable by construction: it SHALL prepend the read pattern `<work_root>/**` to the agent's `read_paths` before building the scope plist, deduplicated against an identical caller-supplied pattern. Consequently a relative path resolving against the agent's `default-directory` (= work root) always lands in read scope, even when the caller supplies no `read_paths`. This is self-consistency (the agent's own work root joining its own read scope), NOT inheritance of the parent's scope. Write scope remains separately governed — the work root is readable, not writable, by construction (see *Requirement: Agent session creation* for write scope). No abort-or-warn guardrail is needed because the mismatch it would report can no longer occur.
 
-**Implementation**: `config/gptel/tools/persistent-agent.org` (`jf/gptel-persistent-agent--task`, drawer write).
+**Implementation**: `config/gptel/tools/persistent-agent.org` (`jf/gptel-persistent-agent--task`, drawer write, work-root read-pattern prepend).
 
 #### Scenario: Explicit work_root written to the agent drawer
 - **WHEN** an agent is created with `work_root "/Users/x/proj/worktree-a"`
@@ -19,10 +19,12 @@ As a consistency guardrail against the silent-deny trap (a relative write resolv
 - **THEN** the agent's drawer records `:GPTEL_WORK_ROOT: /Users/x/proj`
 - **AND** the value is frozen at creation time (not a live reference to the parent buffer)
 
-#### Scenario: Guardrail warns when work_root escapes read scope
-- **WHEN** the resolved `work_root` is not matched by any of the agent's `read_paths`
-- **THEN** a warning is emitted noting the work root falls outside the agent's read scope
-- **AND** the agent is still created
+#### Scenario: Work root is readable by construction (auto-included in read scope)
+- **WHEN** an agent is created with `work_root "/Users/x/proj"` and no `read_paths`
+- **THEN** the agent's `:GPTEL_SCOPE_READ:` contains `/Users/x/proj/**`
+- **AND** a relative read resolving under the work root is allowed without scope expansion
+- **WHEN** the caller already supplied `/Users/x/proj/**` in `read_paths`
+- **THEN** the pattern is not duplicated
 
 ## MODIFIED Requirements
 
