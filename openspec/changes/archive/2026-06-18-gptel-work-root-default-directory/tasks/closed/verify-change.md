@@ -12,31 +12,28 @@ relations:
   - blocked-by:docs-allowed-paths-rename
 ---
 
-## ARCHIVE HOLD (2026-06-18, live Phase-3 verification)
+## ARCHIVE HOLD — CLEARED (2026-06-18)
 
-**Do not `/opsx-archive` this change yet** (user decision, 2026-06-18).
+**Hold lifted.** The blocking defect — denying a scope expansion on the
+**parallel-tool** path throwing `Wrong type argument: symbolp, "<glob pattern>"`
+(scope-validation.org, `symbol-name` on a non-symbol `operation`) and leaving the
+parent session stuck — has been **fixed** (commit `a14c069c`, "Fix parallel-deny
+symbolp crash: serialize denial array fields as JSON arrays"). The follow-up task
+is closed at `.tasks/done/scope-deny-symbolp-crash-parallel-tools.md`. This change
+is clear to `/opsx-archive`.
 
-The work-root behavior itself is verified end-to-end in a live PersistentAgent
-session (`~/.gptel/sessions/wr-live-20260618124704`): the agent drawer carries
-`:GPTEL_WORK_ROOT:`, `:GPTEL_SCOPE_READ:` with the D6 work-root auto-include
-firing even at `read_paths nil`, `:GPTEL_SCOPE_WRITE: /tmp/**` scratch-only; the
-scope boundary is genuinely crossed (denial occurs); and add-to-scope persists
-patterns into the drawer (expansion efficacy). Automated coverage added this
-cycle: `config/gptel/scope/test/integration/work-root-execution-context-spec.el`
+For the record — the work-root behavior was verified end-to-end in a live
+PersistentAgent session (`~/.gptel/sessions/wr-live-20260618124704`): the agent
+drawer carries `:GPTEL_WORK_ROOT:`, `:GPTEL_SCOPE_READ:` with the D6 work-root
+auto-include firing even at `read_paths nil`, `:GPTEL_SCOPE_WRITE: /tmp/**`
+scratch-only; the scope boundary is genuinely crossed (denial occurs); and
+add-to-scope persists patterns into the drawer (expansion efficacy). Automated
+coverage: `config/gptel/scope/test/integration/work-root-execution-context-spec.el`
 and `work-root-worked-example-spec.el` (8 specs, green).
 
-The hold is for a **separate, pre-existing defect** the live test surfaced:
-denying a scope expansion on the **parallel-tool** path throws
-`Wrong type argument: symbolp, "<glob pattern>"` (scope-validation.org:246,
-`symbol-name` on a non-symbol `operation`) and leaves the parent session stuck.
-Tracked at `.tasks/scope-deny-symbolp-crash-parallel-tools.md` (NOT caused by
-this change — it is the documented "Parallel tool callback / transient
-collision" cluster). Per user, archive stays held until that crash is fixed,
-because live agent use hits it.
-
-Follow-up for the worked-example spec: make at least one deny scenario drive the
-REAL deny continuation (not the no-op expansion stub) so this crash cannot hide
-in green tests again.
+The crash was a **separate, pre-existing defect** the live test surfaced (the
+documented "Parallel tool callback / transient collision" cluster), NOT caused by
+this change.
 
 ## Cycle 2 updates (cycle-1781718724)
 > Five of six blockers are now DONE: session-write-work-root, binder-default-directory,

@@ -2,7 +2,7 @@
 name: scope-relative-resolution-tests
 description: Verify relative paths resolve against default-directory (work root); no validator change
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations:
   - blocked-by:binder-default-directory
 ---

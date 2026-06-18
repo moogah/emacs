@@ -2,7 +2,7 @@
 name: canonicalize-project-root-at-source
 description: expand-file-name project-root ONCE at create-session-core entry so both scope patterns and GPTEL_WORK_ROOT are absolute (and agree)
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations:
   - discovered-from:session-write-work-root
 ---

@@ -2,7 +2,7 @@
 name: docs-allowed-paths-rename
 description: Sweep and update docs/preset/README/agent references to the old allowed_paths param
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations:
   - blocked-by:agent-workroot-and-paths
 ---

@@ -2,7 +2,7 @@
 name: agent-work-root-auto-read
 description: Auto-include work_root in the agent's read scope (work_root/** prepended to :read); remove the now-redundant D7 guardrail
 change: gptel-work-root-default-directory
-status: ready
+status: done
 relations:
   - discovered-from:agent-workroot-and-paths
 ---
