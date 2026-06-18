@@ -2,7 +2,7 @@
 name: verify-change
 description: Tangle+validate both .org files, full affected-area test run, walk spec scenarios
 change: gptel-work-root-default-directory
-status: blocked
+status: done
 relations:
   - blocked-by:session-write-work-root
   - blocked-by:binder-default-directory
@@ -11,6 +11,32 @@ relations:
   - blocked-by:agent-workroot-and-paths
   - blocked-by:docs-allowed-paths-rename
 ---
+
+## ARCHIVE HOLD (2026-06-18, live Phase-3 verification)
+
+**Do not `/opsx-archive` this change yet** (user decision, 2026-06-18).
+
+The work-root behavior itself is verified end-to-end in a live PersistentAgent
+session (`~/.gptel/sessions/wr-live-20260618124704`): the agent drawer carries
+`:GPTEL_WORK_ROOT:`, `:GPTEL_SCOPE_READ:` with the D6 work-root auto-include
+firing even at `read_paths nil`, `:GPTEL_SCOPE_WRITE: /tmp/**` scratch-only; the
+scope boundary is genuinely crossed (denial occurs); and add-to-scope persists
+patterns into the drawer (expansion efficacy). Automated coverage added this
+cycle: `config/gptel/scope/test/integration/work-root-execution-context-spec.el`
+and `work-root-worked-example-spec.el` (8 specs, green).
+
+The hold is for a **separate, pre-existing defect** the live test surfaced:
+denying a scope expansion on the **parallel-tool** path throws
+`Wrong type argument: symbolp, "<glob pattern>"` (scope-validation.org:246,
+`symbol-name` on a non-symbol `operation`) and leaves the parent session stuck.
+Tracked at `.tasks/scope-deny-symbolp-crash-parallel-tools.md` (NOT caused by
+this change — it is the documented "Parallel tool callback / transient
+collision" cluster). Per user, archive stays held until that crash is fixed,
+because live agent use hits it.
+
+Follow-up for the worked-example spec: make at least one deny scenario drive the
+REAL deny continuation (not the no-op expansion stub) so this crash cannot hide
+in green tests again.
 
 ## Cycle 2 updates (cycle-1781718724)
 > Five of six blockers are now DONE: session-write-work-root, binder-default-directory,
