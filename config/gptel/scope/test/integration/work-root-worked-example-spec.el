@@ -74,16 +74,32 @@
    :read  (list (concat wex--work-root "**"))
    :write (list (concat wex--scratch "**"))))
 
-(defun wex--stub-expansion ()
-  "Stub the expansion UI as a no-op that records the call but does not respond.
+(defvar wex--shown nil
+  "Transient scopes shown via `transient-setup', newest first.")
 
-A denied (out-of-scope) call is ROUTED to the expansion prompt and the tool
-body does not run until the user answers.  Stubbing the prompt as a no-op
-(the proven pattern from `filesystem-scope-integration-spec.el's \"triggers
-expansion UI when path is outside read scope\") proves the body did NOT run —
-which is exactly the silent-write regression point — without invoking the
-deny-continuation dispatcher (noisy in batch mode)."
-  (spy-on 'jf/gptel-scope-prompt-expansion))
+(defun wex--install-real-deny ()
+  "Let the REAL expansion queue run, capturing transients so a test can deny.
+
+REPLACES the former no-op stub.  Stubbing `jf/gptel-scope-prompt-expansion'
+as a complete no-op proved the body did not run, but it NEVER drove the deny
+continuation — which is exactly where the parallel-deny serialization crash
+lived (.tasks/scope-deny-symbolp-crash-parallel-tools.md).  Capturing the
+transient and driving the real `jf/gptel-scope--deny-expansion' exercises the
+full deny path under a non-empty scope, so this spec can no longer hide that
+class of bug."
+  (spy-on 'transient-setup :and-call-fake
+          (lambda (_prefix &rest args)
+            (push (plist-get (cddr args) :scope) wex--shown)))
+  (spy-on 'transient-quit-one)
+  (setq jf/gptel-scope--expansion-active nil
+        jf/gptel-scope--expansion-queue nil
+        wex--shown nil))
+
+(defun wex--deny-current ()
+  "Run the REAL `jf/gptel-scope--deny-expansion' against the shown transient."
+  (let ((scope (car wex--shown)))
+    (cl-letf (((symbol-function 'transient-scope) (lambda (&rest _) scope)))
+      (jf/gptel-scope--deny-expansion))))
 
 (describe "Worked-example reproduction: the original cwd-bug table, with the fix in place"
 
@@ -112,23 +128,31 @@ deny-continuation dispatcher (noisy in batch mode)."
       (expect (plist-get wex--result :success) :to-be t)
       (expect (plist-get wex--result :content) :to-equal "# minimal")))
 
-  (it "STEP 2: absolute out-of-scope read is DENIED (scope boundary is now crossed)"
+  (it "STEP 2: absolute out-of-scope read is DENIED and delivers a structured denial"
     ;; Was: file_not_found because the body ran in the sandbox.  Now: the
     ;; absolute path is outside read scope, so the call is routed to the
-    ;; expansion prompt and the body does NOT run (no content returned) until
-    ;; the user answers.  This is the boundary the original run never crossed.
+    ;; expansion prompt and the body does NOT run.  Driving the REAL deny suffix
+    ;; (not a no-op stub) proves the denial serializes and reaches the callback
+    ;; under a NON-EMPTY scope — the case that used to crash and hang.
     (let* ((default-directory wex--work-root)
            (abs (expand-file-name "init.el" wex--outside)))
       (with-temp-file abs (insert "(secret)"))
       (spy-on 'jf/gptel-scope--load-config :and-return-value (wex--config))
-      (wex--stub-expansion)
+      (wex--install-real-deny)
 
       (funcall (gptel-tool-function (wex--find-tool "read_file_in_scope"))
                #'wex--callback abs)
 
-      ;; Routed to expansion (denied), and the body never ran.
-      (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
-      (expect wex--result :to-be nil)))
+      ;; Routed to expansion (transient shown), body has not run yet.
+      (expect (length wex--shown) :to-equal 1)
+      (expect wex--result :to-be nil)
+      ;; Drive the REAL deny: callback receives a structured denial (no crash,
+      ;; no hang), the body still never ran (no :content), and the denial
+      ;; reports allowed_patterns as a JSON array.
+      (wex--deny-current)
+      (expect (plist-get wex--result :success) :not :to-be t)
+      (expect (plist-get wex--result :content) :to-be nil)
+      (expect (plist-get wex--result :allowed-patterns) :to-be-truthy)))
 
   (it "STEP 3: absolute in-scope write is ALLOWED (scratch space)"
     (let* ((default-directory wex--work-root)
@@ -141,21 +165,29 @@ deny-continuation dispatcher (noisy in batch mode)."
       (expect (plist-get wex--result :success) :to-be t)
       (expect (file-exists-p abs) :to-be-truthy)))
 
-  (it "STEP 4: relative out-of-scope write is DENIED and leaves NO file (the headline fix)"
+  (it "STEP 4: relative out-of-scope write is DENIED, delivers a denial, and leaves NO file (the headline fix)"
     ;; THE bug: previously this silently wrote into the sandbox.  Now the
     ;; relative path resolves to <work-root>/x.txt, which is in READ scope but
-    ;; NOT in WRITE scope, so the write is denied and nothing is created.
+    ;; NOT in WRITE scope, so the write is denied and nothing is created.  The
+    ;; REAL deny suffix runs (under non-empty scope) and must deliver cleanly.
     (let* ((default-directory wex--work-root)
            (would-be (expand-file-name "x.txt" wex--work-root)))
       (spy-on 'jf/gptel-scope--load-config :and-return-value (wex--config))
-      (wex--stub-expansion)
+      (wex--install-real-deny)
 
       (funcall (gptel-tool-function (wex--find-tool "write_file_in_scope"))
                #'wex--callback "x.txt" "should not be written")
 
-      ;; Routed to expansion (denied) rather than silently written.
-      (expect 'jf/gptel-scope-prompt-expansion :to-have-been-called)
-      (expect wex--result :to-be nil)
+      ;; Routed to expansion (transient shown) rather than silently written.
+      (expect (length wex--shown) :to-equal 1)
+      (wex--deny-current)
+      ;; The denial must actually REACH the callback (non-nil) — this is the
+      ;; assertion that fails when the deny payload crashes serialization; a
+      ;; bare `success not t' would pass vacuously on a nil (never-delivered)
+      ;; result and mask the bug.
+      (expect wex--result :to-be-truthy)
+      (expect (plist-get wex--result :success) :not :to-be t)
+      (expect (plist-get wex--result :allowed-patterns) :to-be-truthy)
       ;; The decisive regression assertion: the file was NOT silently created.
       (expect (file-exists-p would-be) :to-be nil)))
 

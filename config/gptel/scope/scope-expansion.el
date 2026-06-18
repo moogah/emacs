@@ -285,7 +285,7 @@ modified.  The drawer at point-min must already exist."
         (if callback
             (condition-case callback-err
                 (funcall callback
-                         (json-serialize
+                         (jf/gptel-scope--serialize-tool-result
                           (list :success nil
                                 :user_denied t
                                 :message "User denied scope expansion request.")))
@@ -482,7 +482,7 @@ inspect the message log, but the structured callback's authority is
 unchanged."
   (condition-case err
       (if callback
-          (funcall callback (json-serialize result-plist))
+          (funcall callback (jf/gptel-scope--serialize-tool-result result-plist))
         (message "Warning: No callback provided for scope expansion"))
     (error
      (message "Error invoking callback: %s" (error-message-string err)))))
@@ -501,7 +501,7 @@ again."
     (condition-case err
         (if callback
             (funcall callback
-                     (json-serialize
+                     (jf/gptel-scope--serialize-tool-result
                       (list :success t
                             :allowed_once t
                             :message "Permission granted for this invocation only.")))
