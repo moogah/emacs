@@ -1,3 +1,18 @@
+---
+status: confirmed
+status_set_at: 2026-06-17T21:51:00Z
+status_set_by: pm
+confirmed_after_cycle: cycle-1781723720
+confirmed_basis: |
+  Three integrate cycles executed cleanly with no goal-drift signals and a
+  rising critical-path completion ratio (→ 0.857 → 1.0 at cycle-3). All 9
+  tasks done; the work-root default-directory + relative-path scope
+  resolution outcome is verified end-to-end (4 spec scenarios + the
+  cwd↔scope absolute-agreement invariant all map to passing tests; openspec
+  validate clean). User confirmed done at the cycle-3 integrate close
+  (archive held as a manual /opsx-archive step).
+---
+
 ## Why
 
 A gptel session's `default-directory` is never set after its `session.org`

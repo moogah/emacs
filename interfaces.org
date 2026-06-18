@@ -2434,7 +2434,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/agent-path-params
    tier: vocabulary
-   status: confirmed
+   status: reconciled
    status_note: |
      CONFIRMED cycle-1781718724 integrate.  TOOL-SURFACE LOCUS now landed:
      agent-workroot-and-paths (merge 614b95a7) renamed the single allowed_paths
@@ -2456,7 +2456,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      SIGNAL on the D7 guardrail: <root>/** glob does NOT match the no-trailing-
      slash root expand-file-name yields, so work_root=/p + read_paths=[/p/**]
      warns every spawn — routed to user (does not affect this vocabulary entry).
-     RESIDUAL: docs-allowed-paths-rename (prose sweep) still open.
+     RECONCILED cycle-1781723720 integrate (confirmed -> reconciled): the
+     work_root member's maps_to WIDENED -- it now maps to BOTH the
+     :GPTEL_WORK_ROOT: drawer key AND a (directory-file-name work_root)/**
+     pattern prepended (deduped via member) into :GPTEL_SCOPE_READ:, so the
+     work root is readable by construction (relative read under it ALLOWED
+     with empty read_paths; work-root-spec.el:200-251). The closed six-param
+     SET is UNCHANGED. The CARRIED D7 guardrail spec-signal is RESOLVED by
+     removal (user Option D): the <root>/** glob false-alarm is moot because
+     the guardrail + its sole-purpose (require 'jf-gptel-scope-validation) are
+     gone (agent-work-root-auto-read, merge 9e0d60c3). RESIDUAL
+     docs-allowed-paths-rename CLOSED this cycle (verified no-op; 614b95a7 had
+     already cleared the prose). Reconciliation note:
+     .orchestrator/cycles/cycle-1781723720/reconciliations/
+     vocabulary-agent-path-params.md.
    load_bearing: true
    title: The PersistentAgent tool path/work-root parameter vocabulary (post allowed_paths split)
    purpose: |
@@ -2477,8 +2490,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          absolute dir the agent operates in; written to the agent drawer as
          :GPTEL_WORK_ROOT:. Omitted -> default to the parent buffer's work
          root (default-directory at spawn), frozen into the drawer (a
-         parent-supplied default, NOT runtime inheritance).
-       maps_to: ":GPTEL_WORK_ROOT: drawer key"
+         parent-supplied default, NOT runtime inheritance). Auto-included in
+         the agent read scope (cycle-1781723720): (directory-file-name
+         work_root)/** is PREPENDED (deduped via member) into :read so the
+         work root is readable by construction -- a relative file under it
+         validates ALLOWED even with empty read_paths.
+       maps_to: |
+         ":GPTEL_WORK_ROOT: drawer key" AND prepended into
+         "build-scope-plist :read -> :GPTEL_SCOPE_READ:" as
+         (directory-file-name work_root)/** (deduped via member)
      - value: "read_paths"
        cardinality: list
        description: agent read scope; replaces the read role of allowed_paths.
@@ -2518,6 +2538,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    cited_by_tasks:
      - agent-build-scope-plist-split
      - agent-workroot-and-paths
+     - agent-work-root-auto-read
+     - docs-allowed-paths-rename
+     - verify-change
      - docs-allowed-paths-rename
      - verify-change
    discovered_from: gptel-work-root-default-directory
