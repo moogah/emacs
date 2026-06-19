@@ -56,3 +56,15 @@ maintainer.
 Discovered while implementing
 openspec/changes/gptel-work-root-default-directory/tasks/closed/agent-workroot-and-paths.md
 (disc-agent-workroot-and-paths-2).
+
+## Cycle-3 corroboration (cycle-1781723720)
+
+Independently RE-CONFIRMED by the end-of-cycle Architect audit
+(`arch-cycle-1781723720-eoc1`,
+`.orchestrator/cycles/cycle-1781723720/findings/arch-eoc-cycle-1781723720.md`) and again
+by the `docs-allowed-paths-rename` implementor's interface-drift discovery. The Architect
+located the advice at `persistent-agent-trace.org:196-215` (arglist + log line ≈:202 +
+forwarding call ≈:214) — same defect, still present after cycle-3. Severity remains
+**advisory** (opt-in trace tooling, no spec/production path). Still the correct single
+home for this fix; a duplicate (`fix-pa-trace-advice-arity`) created in cycle-3 was
+removed in favor of this pre-existing entry.

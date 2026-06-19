@@ -7,7 +7,18 @@
 # SOURCE:   .tasks/design-working-directory-scoping-for-sessions-and-agents.md
 #           (surfaced 2026-06-13 during first live PersistentAgent test, commit 3f7feee)
 # CREATED:  2026-06-13 explore session
-# UPDATED:  2026-06-17 explore session (Thread B RESOLVED: design locked
+# UPDATED:  2026-06-19 explore session (Threads D AND E RESOLVED.
+#           D: home.org leg DROPPED -> env builder is 100% workspace-neutral;
+#           env block at TAIL of the composed system message via the existing
+#           pre-send seam (covers chat AND agents); idempotent wholesale rebuild;
+#           agent write path untouched; worktree list dropped from scope.
+#           E: agent leg found ALREADY IMPLEMENTED (archive 2026-06-18-gptel-
+#           work-root-default-directory, D5/D6/D7); env block (D) is the agent's
+#           cwd/scope channel since agents are gptel-chat-mode buffers; write-
+#           perms taken as an assumption (separate small fix; see write-axis
+#           diagnosis); worktree manifest the lone deferred item.
+#           See [[*RESOLVED D]], [[*RESOLVED E]].
+#           2026-06-17 explore session (Thread B RESOLVED: design locked
 #           + load-bearing spike CONFIRMED that chat AND agent tool calls
 #           run with the originating buffer's default-directory, so the
 #           mode-hook binder is the single binding point; Thread E agent
@@ -519,105 +530,197 @@ Code: =workspace-integration.org:66-87= (=:on-create=, payload =:home=),
 (existing dir-locals cooperation + the two-hook ordering), README
 "gptel sessions" + "Integration registry".
 
-** THREAD D — Dynamic preamble (base + home.org override); worktree manifest
+** RESOLVED D — Dynamic environment block (TAIL of the composed system message)
    :PROPERTIES:
    :THREAD_SCOPE: gptel/sessions or gptel/chat (system prompt / preamble)
+   :RESOLVED:  2026-06-19 explore session (home.org leg dropped; injection
+               + placement + composition locked)
    :END:
 
-Tell the model its environment so it need not run discovery tool calls.
-User: "the more offered in the preamble the better, at least until it gets
-long." Layered:
+Tell the model its environment (work-root, scope, available worktrees) so it
+need not run discovery tool calls. User: "the more offered in the preamble the
+better, at least until it gets long."
+
+*** Adjustment that simplified the whole thread (2026-06-19): drop home.org
+
+The original framing layered a workspace-neutral base + an OPTIONAL =home.org=
+override, which forced =home.org= to be "override only, never source" and made
+the builder merge two sources with different trust/availability. *Dropping the
+home.org leg entirely* makes the builder PURE: every input is intrinsic to the
+session and workspace-neutral.
 
 #+begin_example
-  BASE preamble (workspace-independent): cwd / work-root, scope summary,
-       available worktrees via `git worktree list` (neutral, not workspaces)
-   +  OPTIONAL home.org override/append when a workspace is present
-      (user-editable preamble text; located via Thread C's preamble-source)
+  ENV BLOCK (dynamic) — 100% workspace-neutral builder
+    work-root  <- drawer GPTEL_WORK_ROOT   (already set; Thread B done)
+    scope      <- drawer GPTEL_SCOPE_*      (read live; MUTATES mid-session)
+                                          ^
+     workspaces' ONLY contribution: it wrote GPTEL_WORK_ROOT at :on-create.
+     After that gptel reads its OWN DRAWER; names no workspace symbol;
+     works identically with workspaces absent.
 #+end_example
 
-Decoupling caveat: home.org is a workspaces artifact, so it can only be an
-*override layer*, never the source. The worktree manifest should be sourced
-workspace-independently (=git worktree list= / =magit-list-worktrees=), and
-*enriched* by home.org when available.
+*Worktree list DROPPED from scope (2026-06-19):* an earlier draft of this
+block also listed available worktrees via =git worktree list=. Pulled out —
+it raises discovery/selection questions (which worktrees, how surfaced, how
+the parent chooses one) that belong with Thread E's manifest question, not in
+the env-block MVP. The env block ships with work-root + scope only.
 
-Open questions:
-- Minimum content the base preamble must carry vs home.org's job.
-- Length management: when does the dynamic preamble get too long; what's
-  trimmable; is scope summarized or listed verbatim?
-- Manifest source: neutral git vs workspaces =worktree-children= (coupling).
-- Feeds Thread E: the manifest is what lets the parent model *choose a
-  worktree* when spawning an agent.
+*** Two grounding facts that shaped the design (2026-06-19)
 
-Code: =git-worktrees.org:235= (=worktree-children=, coupled), README "Customization"
-(=workspace-home-builder=, =home.org=), preset =.md= files + =menu.org:290+=
-(current system-prompt construction — says nothing about directory today).
+1. *The injection seam already exists and already covers agents.* The pre-send
+   refresh is a =:before= advice on =gptel-request= (=menu.org:446=) that
+   re-reads the sibling =system-prompt.<ext>= into =gptel--system-message=,
+   gated to chat-mode buffers (=menu.org:428=). Agents send via =gptel-request=
+   from a buffer that IS =gptel-chat-mode= (=persistent-agent.org:543-545=,
+   =692-706=), so the SAME advice fires for them. One seam covers chat + agents.
+2. *Scope is mutable mid-session.* =request_scope_expansion= PERSISTS new
+   patterns into the drawer (=scope-expansion.org= collapses ops into
+   =GPTEL_SCOPE_*= keys). A frozen scope summary would go stale — so the env
+   block genuinely wants per-send recomputation, which is exactly the cadence
+   the pre-send seam runs at. (Scope is the volatile field that earns per-send
+   rebuild; with worktrees dropped, work-root is otherwise create-time-stable.)
 
-** THREAD E — Dynamic agent cwd & scope (typical case: one worktree)
+*** Locked design
+
+- *Placement = TAIL.* Append the env block AFTER the sibling body:
+  #+begin_example
+    gptel--system-message  <-  sibling-body  +  "\n\n"  +  env-block
+
+    agent:  [harness preamble + role]  + [env]    <- sibling stays baked, untouched
+    chat:   [role]                     + [env]
+  #+end_example
+  TAIL was chosen over "env between harness and role" specifically because the
+  agent sibling is =harness + role= BAKED TOGETHER at create
+  (=persistent-agent.org:350-360=); inserting env BETWEEN them would require
+  splitting that blob (a known-prefix splice hack) OR moving the harness to
+  send-time composition (would unify the two sibling writers + make the harness
+  live, but the sibling stops being the self-contained full prompt, and needs an
+  agent-type signal at send). TAIL sidesteps all of it: pure =concat=, *agent
+  write path untouched, sibling stays self-contained.* Order the model reads:
+  identity -> rules -> role -> "here's your current environment" (recency favors
+  the volatile data being last).
+- *Channel = system message* (not a context turn): the data is framing, not
+  conversational, and the seam already produces the system message.
+- *Idempotent wholesale rebuild* (the load-bearing invariant): each send sets
+  =gptel--system-message= FRESH from =(sibling-file-body + recomputed-env)=,
+  and NEVER reads its own prior buffer-local value. Both halves are rebuilt from
+  source (file + drawer) every send -> no accumulation, no staleness. The
+  existing refresh already rebuilds the role half wholesale from the FILE
+  (=menu.org:431-435=); env appends the same way.
+- *One seam, env append is UNCONDITIONAL.* The sibling refresh no-ops when the
+  drawer has no =:GPTEL_SYSTEM_PROMPT_FILE:= (=menu.org:429=), but EVERY session
+  must get the env block. So: (1) role-content = sibling body (conditional,
+  defensive; else the already-installed =gptel--system-message=), (2) env-block
+  = built from the drawer (UNCONDITIONAL), (3) =gptel--system-message= =
+  compose(role, env) (wholesale set). One widened function or two ordered
+  =:before= advices (env MUST run after the sibling read) — implementation call
+  for design.
+- *Content (Thread C's old length question, now scoped):* 1-2 sentences of prose
+  explaining what the env info is + the facts (work-root, scope) + a sentence
+  noting the info is dynamic / live / current. (Worktrees dropped, see above.)
+- *Graceful degradation:* a chat-mode buffer with no drawer (plain chat) still
+  hits the advice — report =default-directory= and "no scope restrictions / not
+  a scoped session" rather than erroring or emitting an empty block.
+
+*** Still open / flagged (not blocking)
+
+- *Length budget:* scope verbatim globs vs summarized. User: "more is better
+  until it gets long." Soft.
+- *Worktree manifest:* DEFERRED (dropped from this block's scope, see above).
+  Lives with Thread E's open manifest question.
+
+Code: =menu.org:375-448= (pre-send refresh advice, the seam), =menu.org:312-372=
+(=system-prompt-file-path= / =apply-system-prompt-file=), =commands.org:262-317=
+(binder; =default-directory= from =GPTEL_WORK_ROOT=), =persistent-agent.org:
+273-360= (harness preamble baked into the agent sibling), =scope-expansion.org=
+(scope mutates the drawer mid-session), preset =.md= files.
+
+** RESOLVED E — Dynamic agent cwd & scope (mechanism SHIPPED; env block surfaces it)
    :PROPERTIES:
    :THREAD_SCOPE: gptel/tools/persistent-agent + gptel/scope
+   :RESOLVED:  2026-06-19 explore session (agent leg found already implemented;
+               D<->E composition locked; write-perms taken as an assumption;
+               worktree manifest the lone deferred item)
    :END:
 
-User: agent scope and default-directory must be *dynamic*; the typical case
-is a *specific worktree*. The agent gets its *own* drawer carrying its own
-=GPTEL_WORK_ROOT= (e.g. =<:home>/worktree-X=) and scope (=<:home>/worktree-X/**=),
-chosen per spawn — same self-describing mechanism as the parent (Thread B),
-not inherited via dir-locals.
+User: agent scope and default-directory must be *dynamic*; the typical case is
+a *specific worktree*. The agent gets its OWN drawer carrying its own
+=GPTEL_WORK_ROOT= and scope, chosen per spawn — self-describing, not inherited.
 
-The loop that makes "dynamic" tractable:
+*** The agent leg is ALREADY IMPLEMENTED (archive 2026-06-18-gptel-work-root-default-directory)
+
+What this thread proposed as "locked design" SHIPPED in the work-root change
+(decisions D5/D6/D7). Verified in =persistent-agent.org= + tangled =.el=:
+- =--task= takes =work_root=, =read_paths=, =write_paths=
+  (=persistent-agent.org:521-523=); =allowed_paths= removed (D6).
+- =work_root= written to the agent's OWN drawer =:GPTEL_WORK_ROOT:= (=:680=);
+  omitted ⇒ defaults to the parent buffer's =default-directory=, FROZEN at
+  create (=:578-583=, NOT a live link). The shared binder ([[*RESOLVED B]])
+  reads it and sets =default-directory=.
+- =build-scope-plist= split read/write; =/tmp/**= appended as scratch (=:202=).
+- Coupling guardrail evolved: the old warn-on-mismatch (D7) was SUPERSEDED by
+  auto-include — =work_root/**= is PREPENDED to the agent's READ scope so the
+  work root is "readable by construction" (=:598-603=, commit b62b7e38).
+
+*** The clarification: the env block (Thread D) IS the agent's cwd/scope channel
+
+The original framing said E must "tell the agent its cwd/scope." It doesn't
+need bespoke work: *agents are =gptel-chat-mode= buffers with their OWN drawer*,
+so [[*RESOLVED D]]'s per-send env builder applies to them unchanged.
+
 #+begin_example
-  preamble lists available worktrees (Thread D)
-     -> parent model picks worktree-X for a task
-     -> spawn agent with work-root = worktree-X, scope = worktree-X/**
-     -> agent's drawer carries them; mode hook sets default-directory
+  PARENT spawns agent
+     | --task writes the agent's OWN drawer: GPTEL_WORK_ROOT + GPTEL_SCOPE_*
+     v
+  AGENT buffer (gptel-chat-mode)
+     | binder:   default-directory <- GPTEL_WORK_ROOT       (shipped; B/E)
+     | pre-send: env block         <- agent's OWN drawer     (D, same builder)
+     v
+  agent's system-message TAIL: "work root <X>; read/write <scope>; live."
 #+end_example
 
-*** Locked agent-leg design (2026-06-17 explore session)
+So D SUBSUMES the "communicate the agent's environment" half of E: one per-
+buffer, drawer-sourced builder; no agent-specific env code. Agent env block ==
+chat env block. The agent-specific *framing* ("you are a headless sub-agent")
+stays in the static harness preamble — a separate layer from the env block.
 
-Reframed by the user: the parent does NOT inherit-cascade to the agent — it
-*explicitly passes* the agent's work root and paths. This continues the
-"agents are self-describing, not inheriting" principle and gives the parent
-flexibility in *where* it assigns each agent to work.
+"Dynamic" in the way that matters: if an agent grows scope via
+=request_scope_expansion= mid-run (drawer mutates), the per-send env block
+reflects the new scope next turn. cwd stays frozen (an agent should not
+relocate mid-task).
 
-Two coupled changes, both almost entirely in =persistent-agent.org= + the
-shared binder ([[*RESOLVED B]]) + tests. NB: the tool is =:async t=, so gptel
-prepends =main-cb=; =:args= order maps to params AFTER it.
+*** Assumption taken for this work (2026-06-19)
 
-(1) Parent passes =work_root=:
-- Add =work_root= string param to the tool =:args= (=persistent-agent.org:681=)
-  and to =--task= (=:514=, positional after existing args).
-- Write =:GPTEL_WORK_ROOT:= into the agent's drawer (=:560-620=) via
-  =jf/gptel--append-drawer-property=. The binder ([[*RESOLVED B]]) reads it —
-  shared, zero extra work.
-- DEFAULT when omitted = the PARENT's own work-root (read live from =--task='s
-  buffer context). This is an explicit gptel-code default, NOT a dir-locals
-  cascade — the agent's value still lives in its OWN drawer.
-- Normalize: =file-name-as-directory= + =expand-file-name=.
+*Agents will have appropriate WRITE permissions* — i.e. the parent-passed
+=work_root= ends up in the agent's WRITE scope (not just read). Tracked
+separately as a real gap: the shipped auto-include landed on the READ axis
+while the original silent-DENY problem is on the WRITE axis (relative writes
+under =work_root= still deny). The validator's read<=write hierarchy
+(=scope-validation.org:188-193=) means putting =work_root/**= in WRITE makes it
+both writable AND readable, subsuming the read prepend. The change's OWN spec
+already requires it (=specs/scope/spec.md:28-33=, "relative write inside the
+work root is in scope by construction" — true for chat via the coding profile's
+=write: ${project_root}/**=, FALSE for agents today). Full drift diagnosis +
+fix recorded in =.tasks/agent-work-root-into-write-scope.md= (separate small
+item, per the 2026-06-19 boundary decision). For preamble/E purposes we ASSUME
+it fixed.
 
-(2) Parent passes read AND write paths (the =/tmp=-only write was an
-ACCIDENT, never intended design — =/tmp= is meant as scratch space only):
-- Tool schema: symmetric =read_paths= / =write_paths= (rename =allowed_paths=;
-  beta/no-migration, schema is re-read each session, no persisted churn).
-- =build-scope-plist= (=:202=): =(read-paths write-paths)= ->
-  =:write (append write-paths '("/tmp/**"))= so =/tmp= stays scratch and
-  parent-supplied write paths are honored; =:read read-paths=; deny unchanged.
+*** The lone deferred item
 
-(3) Coupling guardrail (LOCKED = option 1): work_root and write-scope must
-agree (a relative write resolves under work_root -> must fall inside a write
-glob, else silent DENY — exactly the bug class B kills). Validate that
-=work_root= is within the read scope; warn/error otherwise.
+- *Worktree MANIFEST source* for the parent to CHOOSE a non-default =work_root=
+  (the worktree-isolation case). Dropped from the env block ([[*RESOLVED D]]).
+  Until it lands, the parent reaches a non-default root three ways, all working
+  today with what is shipped: (a) parent-default (omit ⇒ agent works in the
+  parent's tree), (b) explicit-from-user, (c) on-demand =git worktree list= via
+  a tool call. Keep workspace-neutral when built. This is the only thing
+  between "agent works where the parent is" and "parent fans agents across
+  isolated worktrees."
 
-*** Still genuinely open (ties to Thread D)
-
-- Worktree MANIFEST source for the parent model to *choose* work_root: keep it
-  workspace-neutral (=git worktree list= / =magit-list-worktrees=), surfaced
-  via the preamble (Thread D). This is the only non-mechanical unknown left.
-- (Absolute-path denial+expansion re-run: DONE — see [[*RESOLVED B]] "Scope
-  check — DONE". The validator is sound on absolute paths; only the cwd fix
-  remains to make the agent's RELATIVE paths land in that boundary.)
-
-Code: =persistent-agent.org= (=--task= =:514=; =build-scope-plist= =:202-217=;
-tool schema =:args= =:681=; =standard-deny-paths= =:194=), =scope-tool-wrapper.org=
-(routing), =scope-validation.org:876-951= (=authorize-tool-call=).
+Code: =persistent-agent.org:521-710= (=--task=; work_root + read/write paths;
+read auto-include =:598-603=; drawer write =:680=), =build-scope-plist= =:202=,
+=scope-validation.org:188-193= (read<=write hierarchy), =scope-expansion.org=
+(scope mutates the drawer mid-session), archive
+=2026-06-18-gptel-work-root-default-directory/= (design D5/D6/D7, specs).
 
 ** RESOLVED F — Identity: stop deriving it from the path
    :PROPERTIES:
@@ -684,7 +787,9 @@ Remove constant + accessor together. Good warm-up task / first PR.
    payload, NOT dir-locals (which would be a redundant second seam). (A/B/C.)
 3. Is =project-root= -> =work-root= a rename of the existing (discarded)
    =project-root= parameter, or a new persisted concept beside it? (B/E.)
-4. Preamble length budget and what gets trimmed first. (D.)
+4. Preamble length budget and what gets trimmed first. (D — env block now
+   RESOLVED at TAIL via the pre-send seam; length remains the one soft-open
+   sub-question, see [[*RESOLVED D]] "Still open / flagged".)
 
 * Code reference index (file:line)
 
