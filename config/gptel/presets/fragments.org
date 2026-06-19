@@ -1,0 +1,249 @@
+#+title: Fragment renderer/parser
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle fragments.el
+#+auto_tangle: y
+
+* Introduction
+
+This module is the foundation of the =prompt-fragments= capability. It defines
+the *fragment* data model and the backend-parametrized *renderer* that turns a
+fragment into a delimited block of text suitable for a particular LLM backend's
+system message.
+
+Three-level model (design.md Decision 1):
+
+- A *section* is a single top-level Org heading. The heading text names the
+  section; the body beneath it is the section content. A section is represented
+  as a cons cell =(name . body)= where =body= is whitespace-trimmed.
+- A *fragment* is one =.org= source of one or more sections, declared *static*
+  (rendered text fixed at tangle time) or *dynamic* (text produced by a function
+  at compose time). Kind defaults to =static=. A fragment is represented as a
+  plist =(:kind SYMBOL :sections ((name . body) ...))=.
+- A *composition* (handled by the composer module, not here) is an ordered list
+  of fragments rendered and joined into the effective system message.
+
+Renderer contract (design.md Decision 2):
+
+- =jf/gptel-fragment-render (fragment backend)= dispatches on =backend=. Only the
+  =claude= backend is implemented in this change; the renderer takes =backend= as
+  a parameter so additional backends are a pure extension that never touches
+  fragment sources.
+- For =claude=, each section =N=/=body= renders as an XML block
+  ="<tag>\nbody\n</tag>"= where =tag = (replace-regexp-in-string " " "_"
+  (downcase N))= (snake_case, e.g. =Output Format= → =<output_format>=). Sections
+  are joined with a blank line.
+- An *unimplemented backend is reported* (=jf/gptel--log 'warn= then =signal=) —
+  never silently rendered as Claude or Markdown. The renderer carries no
+  Markdown/YAML assumptions of any kind; output format is whatever the target
+  backend's rendering specifies.
+
+The parser uses a line-scan over the Org buffer (heading regexp) rather than
+=org-element-parse-buffer=, matching the chat parser's batch-friendly precedent
+(=config/gptel/chat/parser.org=). This keeps the module loadable in batch with
+no interactive Org dependencies, which static pre-rendering at tangle time
+requires.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; fragments.el --- Fragment renderer/parser -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; Fragment data model and backend-parametrized renderer for the
+;; prompt-fragments capability.  See fragments.org for the full design.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'subr-x)
+#+end_src
+
+* Constants
+
+The closed set of fragment kinds and the default kind.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-fragment-kinds '(static dynamic)
+  "Closed set of fragment kinds.
+A fragment is either `static' (its rendered text is fixed at tangle
+time) or `dynamic' (its text is produced by a function at compose
+time).  Any source declaring a kind outside this set is malformed.")
+
+(defconst jf/gptel-fragment-default-kind 'static
+  "Kind assigned to a fragment whose source declares no kind.")
+#+end_src
+
+* Section-name → tag
+
+Maps a section name to the snake_case tag used by XML-style backends. This is
+the single source of truth for the name→tag transform so backends and tests
+agree.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--section-name-to-tag (name)
+  "Return the snake_case tag derived from section NAME.
+Downcase NAME and replace runs of whitespace with a single
+underscore, e.g. \"Output Format\" -> \"output_format\".  Leading and
+trailing whitespace is trimmed first so it does not produce stray
+underscores."
+  (let ((trimmed (string-trim (or name ""))))
+    (replace-regexp-in-string "[ \t]+" "_" (downcase trimmed))))
+#+end_src
+
+* Parsing
+
+Parse an Org source string into a fragment plist. The parser scans for
+top-level (single-star) headings; each heading opens a section whose body runs
+until the next top-level heading or end of buffer. The body is whitespace
+trimmed. Kind is read from a =#+fragment_kind:= keyword anywhere in the source;
+absent or unrecognized, it defaults to `static'.
+
+** Reading the kind keyword
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--read-kind (source)
+  "Return the fragment kind declared in SOURCE, a string.
+Looks for a `#+fragment_kind: KIND' keyword (case-insensitive on the
+keyword, on the value).  Returns the matching symbol from
+`jf/gptel-fragment-kinds', or `jf/gptel-fragment-default-kind' when no
+recognized kind is declared."
+  (if (string-match
+       (rx bol (* (in " \t")) "#+fragment_kind:" (* (in " \t"))
+           (group (+ (not (in " \t\n")))))
+       source)
+      (let ((declared (intern (downcase (match-string 1 source)))))
+        (if (memq declared jf/gptel-fragment-kinds)
+            declared
+          jf/gptel-fragment-default-kind))
+    jf/gptel-fragment-default-kind))
+#+end_src
+
+** Splitting into sections
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--parse-sections (source)
+  "Parse SOURCE (an Org string) into an ordered list of sections.
+Each section is a cons cell (NAME . BODY): NAME is the text of a
+top-level (single-star) Org heading; BODY is the whitespace-trimmed
+content beneath it, up to the next top-level heading or end of input.
+Returns the sections in source order.  Content before the first
+heading is ignored."
+  (let ((heading-re (rx bol "*" (+ (in " \t")) (group (* nonl)) eol))
+        (sections '())
+        (case-fold-search nil))
+    (with-temp-buffer
+      (insert source)
+      (goto-char (point-min))
+      (while (re-search-forward heading-re nil t)
+        (let* ((name (string-trim (match-string 1)))
+               (body-start (min (1+ (line-end-position)) (point-max)))
+               (body-end (if (re-search-forward heading-re nil t)
+                             (line-beginning-position)
+                           (point-max))))
+          (goto-char body-start)
+          (let ((body (string-trim
+                       (buffer-substring-no-properties
+                        (min body-start body-end) body-end))))
+            (push (cons name body) sections))
+          (goto-char body-end))))
+    (nreverse sections)))
+#+end_src
+
+** Assembling the fragment
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--parse-source (source)
+  "Parse SOURCE into a fragment plist.
+SOURCE is an Org source string, or the path of an `.org' file (read
+verbatim).  Returns a plist (:kind SYMBOL :sections ((name . body) ...))
+where :kind is one of `jf/gptel-fragment-kinds' (default
+`jf/gptel-fragment-default-kind') and :sections is the ordered section
+list from `jf/gptel-fragment--parse-sections'.
+
+This function is batch-loadable: it performs no interactive Org work
+and starts no major mode, so it is safe to call at tangle time when
+static fragments are pre-rendered."
+  (let ((text (if (and (stringp source)
+                       (not (string-match-p "\n" source))
+                       (file-readable-p source))
+                  (with-temp-buffer
+                    (insert-file-contents source)
+                    (buffer-string))
+                source)))
+    (list :kind (jf/gptel-fragment--read-kind text)
+          :sections (jf/gptel-fragment--parse-sections text))))
+#+end_src
+
+* Rendering
+
+** Claude / XML rendering
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--render-section-claude (section)
+  "Render SECTION as a Claude-style XML block.
+SECTION is a cons (NAME . BODY).  Returns \"<tag>\\nBODY\\n</tag>\"
+where tag is `jf/gptel-fragment--section-name-to-tag' of NAME."
+  (let ((tag (jf/gptel-fragment--section-name-to-tag (car section)))
+        (body (cdr section)))
+    (format "<%s>\n%s\n</%s>" tag body tag)))
+
+(defun jf/gptel-fragment--render-claude (fragment)
+  "Render FRAGMENT for the `claude' backend.
+Renders each section with `jf/gptel-fragment--render-section-claude'
+and joins them with a blank line, preserving section order."
+  (mapconcat #'jf/gptel-fragment--render-section-claude
+             (plist-get fragment :sections)
+             "\n\n"))
+#+end_src
+
+** Backend dispatch
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment-render (fragment backend)
+  "Render FRAGMENT for BACKEND and return the rendered string.
+FRAGMENT is a fragment plist (see `jf/gptel-fragment--parse-source').
+BACKEND is a backend symbol; only `claude' is implemented in this
+change.
+
+Stages: dispatch on BACKEND -> render each section into a
+backend-delimited block -> join the blocks.  For `claude', each
+section renders as an XML block (see
+`jf/gptel-fragment--render-section-claude').
+
+An unimplemented BACKEND is reported, not silently mis-rendered: this
+function logs a warning via `jf/gptel--log' (when available) and then
+signals `jf/gptel-fragment-unimplemented-backend'.  It never falls
+through to Claude output, and it carries no default text format -- the
+output format is whatever the target backend's rendering specifies."
+  (pcase backend
+    ('claude (jf/gptel-fragment--render-claude fragment))
+    (_
+     (when (fboundp 'jf/gptel--log)
+       (jf/gptel--log 'warn
+                      "fragment renderer: no rendering implemented for backend %S"
+                      backend))
+     (signal 'jf/gptel-fragment-unimplemented-backend (list backend)))))
+#+end_src
+
+The unimplemented-backend error symbol. It derives from =error= so callers can
+catch it with a plain =condition-case= on =error=, but it is distinguishable for
+callers that want to special-case an unsupported backend.
+
+#+begin_src emacs-lisp
+(define-error 'jf/gptel-fragment-unimplemented-backend
+  "No fragment rendering implemented for this backend"
+  'error)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'jf-gptel-fragments)
+;;; fragments.el ends here
+#+end_src
