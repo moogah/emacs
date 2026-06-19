@@ -157,4 +157,146 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
            (expect (stringp block) :to-be t)
            (expect block :to-match "- Working directory: /tmp/work/")))))))
 
+;; ---------------------------------------------------------------------------
+;; role base (task: stable-role-base)
+;;
+;; `gptel-chat--system-prompt-base' is a buffer-local that holds the
+;; current ROLE content (the system-prompt body) WITHOUT any environment
+;; block, set at every site that installs role content into
+;; `gptel--system-message'.  The pre-send composer (sibling task) reads
+;; this base — never the composed `gptel--system-message' — for the
+;; no-sibling-file case, so the environment block never accumulates
+;; across sends (register/invariant/composed-system-message-write-only).
+;; ---------------------------------------------------------------------------
+
+(require 'gptel-chat-mode)
+(require 'gptel)
+
+(defvar jf-rolebase-test--tmp-dir nil
+  "Temp directory holding the test session.org and sibling file.")
+
+(defun jf-rolebase-test--write-session (drawer)
+  "Write session.org with DRAWER as `:PROPERTIES:' body; return absolute path."
+  (let ((session-file (expand-file-name "session.org" jf-rolebase-test--tmp-dir)))
+    (with-temp-file session-file
+      (insert ":PROPERTIES:\n"
+              drawer
+              ":END:\n"
+              "#+begin_user\n\n#+end_user\n"))
+    session-file))
+
+(defun jf-rolebase-test--write-sibling (basename body)
+  "Write BODY to <tmp>/BASENAME; return its absolute path."
+  (let ((path (expand-file-name basename jf-rolebase-test--tmp-dir)))
+    (write-region body nil path nil 'silent)
+    path))
+
+(describe "role base"
+
+  :var (session-file)
+
+  (before-each
+    (setq jf-rolebase-test--tmp-dir
+          (make-temp-file "jf-rolebase-" t)))
+
+  (after-each
+    (when (and jf-rolebase-test--tmp-dir
+               (file-directory-p jf-rolebase-test--tmp-dir))
+      (delete-directory jf-rolebase-test--tmp-dir t)))
+
+  (describe "set from the legacy :GPTEL_SYSTEM: drawer overlay"
+
+    (it "captures the installed role body into the base"
+      (setq session-file
+            (jf-rolebase-test--write-session
+             ":GPTEL_SYSTEM: You are a careful assistant.\n"))
+      (let ((buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (gptel-chat--apply-drawer-overrides)
+              (expect (local-variable-p 'gptel-chat--system-prompt-base)
+                      :to-be t)
+              ;; Base equals the installed role body, identical to
+              ;; `gptel--system-message'.
+              (expect gptel-chat--system-prompt-base
+                      :to-equal "You are a careful assistant.")
+              (expect gptel-chat--system-prompt-base
+                      :to-equal gptel--system-message))
+          (kill-buffer buf))))
+
+    (it "holds role-only content (no environment block)"
+      (setq session-file
+            (jf-rolebase-test--write-session
+             ":GPTEL_SYSTEM: You are a careful assistant.\n"))
+      (let ((buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (gptel-chat--apply-drawer-overrides)
+              ;; Guard against a regression where the base is set from
+              ;; the composed `role + env-block' value.
+              (expect gptel-chat--system-prompt-base
+                      :not :to-match "# Environment")
+              (expect gptel-chat--system-prompt-base
+                      :not :to-match "current as of this message"))
+          (kill-buffer buf)))))
+
+  (describe "set from the sibling system-prompt file installer"
+
+    (it "captures the sibling-file body into the base"
+      (jf-rolebase-test--write-sibling "system-prompt.md"
+                                       "You are a meticulous reviewer.")
+      (setq session-file
+            (jf-rolebase-test--write-session
+             ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+      (let ((buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (gptel-chat--apply-system-prompt-file)
+              (expect (local-variable-p 'gptel-chat--system-prompt-base)
+                      :to-be t)
+              (expect gptel-chat--system-prompt-base
+                      :to-equal "You are a meticulous reviewer.")
+              (expect gptel-chat--system-prompt-base
+                      :to-equal gptel--system-message))
+          (kill-buffer buf))))
+
+    (it "holds role-only content (no environment block)"
+      (jf-rolebase-test--write-sibling "system-prompt.md"
+                                       "You are a meticulous reviewer.")
+      (setq session-file
+            (jf-rolebase-test--write-session
+             ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+      (let ((buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (gptel-chat--apply-system-prompt-file)
+              (expect gptel-chat--system-prompt-base
+                      :not :to-match "# Environment")
+              (expect gptel-chat--system-prompt-base
+                      :not :to-match "current as of this message"))
+          (kill-buffer buf)))))
+
+  (describe "set from the pre-send sibling refresh"
+
+    (it "keeps the base aligned with the re-read sibling body, role-only"
+      (jf-rolebase-test--write-sibling "system-prompt.md" "Old body.\n")
+      (setq session-file
+            (jf-rolebase-test--write-session
+             ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+      (let ((buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              ;; A user edits the sibling on disk; refresh re-reads it.
+              (jf-rolebase-test--write-sibling "system-prompt.md" "New body.\n")
+              (gptel-chat--refresh-system-prompt-from-file)
+              (expect gptel-chat--system-prompt-base :to-equal "New body.\n")
+              (expect gptel-chat--system-prompt-base
+                      :not :to-match "# Environment"))
+          (kill-buffer buf))))))
+
 ;;; environment-preamble-spec.el ends here

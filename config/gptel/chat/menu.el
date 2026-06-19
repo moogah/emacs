@@ -70,6 +70,21 @@
 ;; `config/gptel/sessions/constants.org'.  Declaring lets this module
 ;; compile and write the binding without pulling sessions in.
 (defvar jf/gptel--parent-session-id)
+
+;; Stable role source for the pre-send environment-block composer.
+;; Holds the ROLE content (the system-prompt body) WITHOUT any
+;; environment block, set wherever role content is installed into
+;; `gptel--system-message' (preset `:system', legacy `:GPTEL_SYSTEM:'
+;; drawer entry, or sibling system-prompt file).  The pre-send composer
+;; rebuilds `gptel--system-message' WHOLESALE as `role + env-block' from
+;; this base (no-sibling-file case) so the composed value never feeds
+;; back into the next composition — it is write-only output, never an
+;; input (register/invariant/composed-system-message-write-only).  The
+;; env block is NEVER written here.
+(defvar-local gptel-chat--system-prompt-base nil
+  "Role content (system-prompt body) without the dynamic environment block.
+The stable source the pre-send composer rebuilds from when the buffer
+has no sibling system-prompt file.")
 ;; Forward declarations:1 ends here
 
 ;; Preset resolution
@@ -241,7 +256,11 @@ preset's composite-key logic (design.md §Decision 5)."
         ((`(,_preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)
           (gptel-org--entry-properties (point-min))))
       (when system
-        (set (make-local-variable 'gptel--system-message) system))
+        (set (make-local-variable 'gptel--system-message) system)
+        ;; Capture the role body into the stable base alongside the
+        ;; system-message install — the base is role-only, never the
+        ;; composed `role + env-block' value.
+        (set (make-local-variable 'gptel-chat--system-prompt-base) system))
       (when backend
         (set (make-local-variable 'gptel-backend) backend))
       (when model
@@ -346,7 +365,12 @@ entry > preset `:system')."
                       (insert-file-contents path)
                       (buffer-string)))
               ((not (string-blank-p body))))
-    (set (make-local-variable 'gptel--system-message) body)))
+    (set (make-local-variable 'gptel--system-message) body)
+    ;; Keep the stable base consistent with the sibling-file body.  The
+    ;; composer prefers the freshly re-read sibling on each send, so this
+    ;; is belt-and-suspenders, but it keeps the base role-only (never the
+    ;; composed `role + env-block' value).
+    (set (make-local-variable 'gptel-chat--system-prompt-base) body)))
 ;; System Prompt sibling file:1 ends here
 
 ;; Environment block builder
@@ -520,7 +544,11 @@ the function operates on the buffer-local context."
                         (insert-file-contents path)
                         (buffer-string))))
             (unless (string-blank-p body)
-              (set (make-local-variable 'gptel--system-message) body)))
+              (set (make-local-variable 'gptel--system-message) body)
+              ;; Keep the stable base consistent with the re-read sibling
+              ;; body — role-only, never the composed value.
+              (set (make-local-variable 'gptel-chat--system-prompt-base)
+                   body)))
         (jf/gptel--log 'warn
                        "system-prompt sibling file unreadable: %s"
                        path)))))
@@ -701,7 +729,15 @@ triggers a `display-warning' rather than an error, matching upstream
         (progn
           (gptel--apply-preset
            preset
-           (lambda (sym val) (set (make-local-variable sym) val)))
+           (lambda (sym val)
+             (set (make-local-variable sym) val)
+             ;; Mirror the preset's `:system' role body into the stable
+             ;; base — the base holds role-only content (no environment
+             ;; block) and is the source the pre-send composer rebuilds
+             ;; from for the no-sibling-file case.
+             (when (eq sym 'gptel--system-message)
+               (set (make-local-variable 'gptel-chat--system-prompt-base)
+                    val))))
           (gptel-chat--apply-drawer-overrides))
       (display-warning
        '(gptel-chat presets)
