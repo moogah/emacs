@@ -241,6 +241,206 @@ callers that want to special-case an unsupported backend.
   'error)
 #+end_src
 
+* Composition
+
+A *composition* is an ordered list of *fragment references*. The composer
+realizes each reference to per-fragment text, then joins the texts (in list
+order) into the effective system message. This reproduces today's hard-coded
+=concat= order as data: the common case (config + a single role fragment) stays
+simple, and the override seam keeps extension opt-in (design.md Decision 3).
+
+** Fragment-reference shape (pinned)
+
+A *fragment reference* is a plist. Its =:kind= mirrors the fragment plist's
+=:kind= so the two shapes read symmetrically:
+
+- =(:kind static :text STRING)= — a *static* reference. =:text= is the
+  pre-rendered text committed at tangle time. The composer consumes it
+  *verbatim* with no compose-time rendering (invariant
+  =static-prerender-dynamic-compose=).
+- =(:kind dynamic :fn FUNCTION)= — a *dynamic* reference. =:fn= is a function of
+  one argument; the composer calls =(funcall FN CONTEXT)= at compose time and
+  the call returns the reference's text. A dynamic reference's default position
+  is the *tail* (prompt-cache friendliness); non-tail placement is permitted by
+  the mechanism but discouraged by guidance (design.md Decision 4).
+
+This is the concrete representation pinned for =register/shape/composition= (a
+composition is an ordered list of these references). Pinning the value up front
+avoids the unpinned-container reconcile cost seen last cycle.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment-ref-static (text)
+  "Return a static fragment reference wrapping pre-rendered TEXT.
+TEXT is consumed verbatim by `jf/gptel-fragment-compose' with no
+compose-time rendering."
+  (list :kind 'static :text (or text "")))
+
+(defun jf/gptel-fragment-ref-dynamic (fn)
+  "Return a dynamic fragment reference wrapping FN.
+FN is a function of one argument (the compose-time context).  The
+composer calls (funcall FN CONTEXT) at compose time to produce the
+reference's text.  Dynamic references default to the tail of a
+composition for prompt-cache friendliness."
+  (list :kind 'dynamic :fn fn))
+#+end_src
+
+** Realizing one reference
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--realize-ref (ref context)
+  "Return the per-fragment text for fragment reference REF.
+A static REF yields its pre-rendered :text verbatim (no rendering).  A
+dynamic REF yields (funcall (plist-get REF :fn) CONTEXT): a nil result
+becomes the empty string (so a function like `ignore' contributes
+nothing), a string passes through, anything else is coerced with
+`format'.  CONTEXT is the compose-time context passed through to
+dynamic functions.  Signals `jf/gptel-fragment-bad-reference' for a
+reference whose :kind is neither `static' nor `dynamic'."
+  (pcase (plist-get ref :kind)
+    ('static (or (plist-get ref :text) ""))
+    ('dynamic
+     (let ((out (funcall (plist-get ref :fn) context)))
+       (cond ((null out) "")
+             ((stringp out) out)
+             (t (format "%s" out)))))
+    (_ (signal 'jf/gptel-fragment-bad-reference (list ref)))))
+#+end_src
+
+The bad-reference error symbol, deriving from =error= for plain
+=condition-case= catchability.
+
+#+begin_src emacs-lisp
+(define-error 'jf/gptel-fragment-bad-reference
+  "Fragment reference has an unrecognized :kind"
+  'error)
+#+end_src
+
+** Composing
+
+The composer realizes each reference in list order and joins the *non-empty*
+results with a blank line (="\n\n"=, matching fragment-core's section join).
+
+*Empty-contribution policy (decided):* a reference that realizes to an empty or
+whitespace-only string contributes *nothing* — it is *skipped*, not rejected and
+not emitted as an empty block. Rationale: a fragment with no sections renders to
+=""= (reviewer note), and the =role= slot collapses to an empty contribution when
+the active preset supplies no role fragment. Skipping keeps the prelude/preamble
+prefix clean and join-stable (no leading/trailing/double blank lines) regardless
+of an absent role. Rejecting would punish the documented common case (config-only
+preset, no role), so skip is correct.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment-compose (composition backend &optional context)
+  "Compose COMPOSITION into the effective system message string.
+COMPOSITION is an ordered list of fragment references (see
+`jf/gptel-fragment-ref-static' / `jf/gptel-fragment-ref-dynamic').
+BACKEND is accepted for signature parity with the renderer and forward
+compatibility; static references are already pre-rendered for their
+backend and dynamic functions own their own formatting, so BACKEND is
+not consulted here.  CONTEXT is passed through to each dynamic
+reference's function.
+
+Stages (register/boundary/composer-compose):
+1. realize-fragments: each reference in order -> per-fragment text.  A
+   static reference yields its pre-rendered :text verbatim; a dynamic
+   reference yields (funcall :fn CONTEXT).  List order is preserved.
+2. join: the per-fragment texts are joined in list order with a blank
+   line.  References that realize to empty or whitespace-only text are
+   skipped (see the empty-contribution policy), so an absent role
+   fragment collapses cleanly without emitting a blank block.
+
+The static prefix of a composition is therefore stable across sends
+\(cacheable prefix); the only per-send work is the tail dynamic
+reference(s) (invariant `static-prerender-dynamic-compose')."
+  (ignore backend)
+  (let ((parts '()))
+    (dolist (ref composition)
+      (let ((text (jf/gptel-fragment--realize-ref ref context)))
+        (unless (string-empty-p (string-trim text))
+          (push text parts))))
+    (string-join (nreverse parts) "\n\n")))
+#+end_src
+
+** Context-derived default composition
+
+The default composition is derived from send CONTEXT, reproducing today's order
+as data (design.md Decision 3):
+
+#+begin_example
+chat   -> [emacs-prelude (static), role, environment (dynamic)]
+agent  -> [agent-preamble (static), role, environment (dynamic)]
+#+end_example
+
+The leading static (prelude/preamble) and the trailing dynamic (=environment=)
+are sourced through an *override seam* of variables so the concrete content can
+be wired by the source/integration tasks without changing the composer. The
+=role= slot is filled by the active preset's role fragment; when the preset
+supplies no role, =role= collapses to an empty contribution (and the compose step
+skips it) while the prelude/preamble still leads.
+
+*Dynamic-defaults-to-tail:* the default compositions place the only dynamic
+reference (=environment=) at the *tail*. This is the documented guidance — a
+dynamic fragment's default position is the tail so the static prefix stays
+cacheable. The override seam permits non-tail dynamic placement, but it is
+discouraged.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-fragment-chat-prelude-text ""
+  "Pre-rendered static text leading the chat default composition.
+The `emacs-prelude' fragment's tangled text.  Wired by the source/
+integration tasks; the composer reads it through this seam.")
+
+(defvar jf/gptel-fragment-agent-preamble-text ""
+  "Pre-rendered static text leading the agent default composition.
+The `agent-preamble' fragment's tangled text.  Wired by the source/
+integration tasks; the composer reads it through this seam.")
+
+(defvar jf/gptel-fragment-environment-fn #'ignore
+  "Dynamic function producing the trailing `environment' text.
+A function of one argument (the compose-time context) returning the
+environment-block string.  Defaults to `ignore' (empty contribution,
+skipped) until wired by the source/integration tasks.")
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--default-composition (context &optional role-ref)
+  "Return the default composition for send CONTEXT.
+CONTEXT is `chat' or `agent'.  The returned composition is an ordered
+list of fragment references:
+
+  chat  -> [emacs-prelude (static), ROLE-REF, environment (dynamic)]
+  agent -> [agent-preamble (static), ROLE-REF, environment (dynamic)]
+
+ROLE-REF is the active preset's role fragment reference occupying the
+role position.  When ROLE-REF is nil the role slot collapses to an
+empty static contribution (which the compose step skips); the leading
+prelude/preamble still leads.  Signals `jf/gptel-fragment-unknown-context'
+for a CONTEXT that is neither `chat' nor `agent'.
+
+This is the default; a caller MAY pass an explicit composition to
+`jf/gptel-fragment-compose' to override the list (add/remove/reorder).
+The trailing `environment' dynamic reference is at the tail by design
+\(prompt-cache friendliness); non-tail dynamic placement via an explicit
+composition is permitted but discouraged."
+  (let* ((lead-text (pcase context
+                      ('chat jf/gptel-fragment-chat-prelude-text)
+                      ('agent jf/gptel-fragment-agent-preamble-text)
+                      (_ (signal 'jf/gptel-fragment-unknown-context
+                                 (list context)))))
+         (role (or role-ref (jf/gptel-fragment-ref-static ""))))
+    (list (jf/gptel-fragment-ref-static lead-text)
+          role
+          (jf/gptel-fragment-ref-dynamic jf/gptel-fragment-environment-fn))))
+#+end_src
+
+The unknown-context error symbol, deriving from =error=.
+
+#+begin_src emacs-lisp
+(define-error 'jf/gptel-fragment-unknown-context
+  "Unknown send context for default composition"
+  'error)
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
