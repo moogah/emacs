@@ -81,6 +81,6 @@ grep -n "workspace" config/gptel/chat/menu.org
 
 ## Spec scenarios covered
 
-`specs/gptel/environment-preamble.md` → Requirement "Environment block content
+`specs/environment-preamble/spec.md` → Requirement "Environment block content
 is drawer-sourced and workspace-neutral" (all scenarios) and Requirement
 "Graceful degradation without a scope drawer".

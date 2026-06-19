@@ -79,6 +79,6 @@ confirm the next send reflects it.
 
 ## Spec scenarios covered
 
-`specs/gptel/environment-preamble.md` → Requirements "Environment block appended
+`specs/environment-preamble/spec.md` → Requirements "Environment block appended
 to the composed system message" (all scenarios), "Idempotent wholesale rebuild"
 (both scenarios), and "Scoped to chat-mode buffers only".

@@ -66,6 +66,6 @@ grep -n "system-prompt-base" config/gptel/chat/menu.org
 
 ## Spec scenarios covered
 
-Enables (does not itself assert) `specs/gptel/environment-preamble.md` →
+Enables (does not itself assert) `specs/environment-preamble/spec.md` →
 Requirement "Idempotent wholesale rebuild" — the two-send no-duplication
 scenario is asserted in `pre-send-compose-and-wire`, which depends on this base.
