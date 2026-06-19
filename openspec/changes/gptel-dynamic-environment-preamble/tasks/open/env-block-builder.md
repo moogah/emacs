@@ -2,7 +2,7 @@
 name: env-block-builder
 description: Add a workspace-neutral builder that produces the environment block (work root + verbatim scope globs + prose framing + live-note) from the buffer's drawer and default-directory, degrading gracefully when no scope drawer is present. Unit-tested in isolation.
 change: gptel-dynamic-environment-preamble
-status: ready
+status: done
 relations: []
 ---
 

@@ -597,6 +597,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      additionally pins the save-buffer side-effect via spy + on-
      disk re-read and the read-string DEFAULT-VALUE argument via
      spy-calls-args-for.
+     cycle-1781857401 (2026-06-19) — task pre-send-compose-and-wire
+     WIDENED the gptel-chat--refresh-system-prompt-from-file consumer
+     from a sibling-file cache refresh into the per-send COMPOSER
+     (role + "\n\n" + environment-block; see the updated consumers
+     entry and register/shape/environment-block + register/invariant/
+     composed-system-message-write-only). The on-disk file SHAPE and the
+     :GPTEL_SYSTEM_PROMPT_FILE: drawer key are UNCHANGED — only the
+     consumer's job widened — so this shape entry STAYS confirmed.
+     On-touch Architect arch-cycle-1781857401-on1 (advisory interface-
+     drift) flagged exactly this consumer-prose lag; reconciled here.
    load_bearing: true
    title: |
      Shape of the on-disk sibling system-prompt file and its
@@ -714,11 +724,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - file: config/gptel/chat/menu.org
        function: gptel-chat--refresh-system-prompt-from-file
        usage: |
-         Pre-send refresh installed as :before advice on
-         gptel-request. Re-reads the sibling file and updates the
-         buffer-local cache before every chat request from a
-         gptel-chat-mode buffer. Same defensive guards as the
-         activation-time installer.
+         The per-send COMPOSER installed as :before advice on
+         gptel-request (widened from a cache refresh in cycle-
+         1781857401 by task pre-send-compose-and-wire). For every send
+         from a gptel-chat-mode buffer it recomposes the buffer-local
+         gptel--system-message WHOLESALE as
+         role + "\n\n" + (gptel-chat--build-environment-block), with
+         the environment block as the tail (register/shape/
+         environment-block). ROLE is resolved from STABLE sources only:
+         the sibling file body re-read each send when
+         :GPTEL_SYSTEM_PROMPT_FILE: is set/readable/non-blank, else the
+         buffer-local role base (register/invariant/composed-system-
+         message-write-only, gptel-chat--system-prompt-base), else "".
+         An unreadable/blank sibling logs a warning and falls back to
+         the base (the original defensive guard, preserved) rather than
+         dropping the prompt. The composer NEVER reads the prior
+         composed gptel--system-message as input (idempotency). This
+         widens the CONSUMER's job only — the on-disk sibling-file SHAPE
+         and the :GPTEL_SYSTEM_PROMPT_FILE: drawer key are UNCHANGED, so
+         this entry stays confirmed.
      - file: config/gptel/chat/menu.org
        function: gptel-chat--edit-system-prompt-file
        usage: |
@@ -1539,16 +1563,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/environment-block
    tier: shape
-   status: speculated
+   status: confirmed
    status_note: |
+     cycle-1781857401 integrate (2026-06-19): speculated → CONFIRMED.
+     env-block-builder (merge 8f05e41e) implemented
+     gptel-chat--build-environment-block rendering the D3 block VERBATIM
+     ("# Environment" + framing/live-note + Working directory + verbatim
+     Readable/Writable/Denied globs) and the D5 degradation line ("- File
+     access: no scope restrictions (this buffer is not a scoped session)").
+     pre-send-compose-and-wire (merge 4d8cad0e) confirmed tail placement
+     (role + "\n\n" + block, block last) and wholesale rebuild via the
+     two-send single-block idempotency spec. Builder + composition specs
+     green (148 builder specs; chat 559/0). Author-blind reviews of both
+     tasks CLEAN. See .orchestrator/cycles/cycle-1781857401/reconciliations/
+     shape-environment-block.md.
+     ---
      cycle-1781857401 plan (2026-06-19): forward-mode speculation for
      change gptel-dynamic-environment-preamble. The markdown block appended
      to the TAIL of gptel--system-message on every send from a
      gptel-chat-mode buffer (interactive chat AND persistent agents — both
      are chat-mode). Speculated shape per design D3 (content) + D5
      (degradation). Pressure-tested by env-block-builder (the producer) and
-     pre-send-compose-and-wire (the composer that appends it). Status flips
-     at integrate once the builder lands and the spec scenarios pass.
+     pre-send-compose-and-wire (the composer that appends it).
    load_bearing: false
    title: |
      The dynamic environment block appended to a chat-mode system message
@@ -5199,15 +5235,40 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/environment-block-input-neutrality
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1781857401 integrate (2026-06-19): speculated → RECONCILED.
+     env-block-builder (merge 8f05e41e) implemented the builder; the
+     load-bearing CONTRACT held exactly (no workspaces symbol in executable
+     code — the `grep workspace` gate matched only docstring/prose negations;
+     reads only default-directory + the drawer; never the scope LOADER nor
+     the prior composed value; on-touch + author-blind review CLEAN). What
+     RECONCILED is the concrete read mechanism named in the speculation:
+       prior_form: "reads the GPTEL_SCOPE_* drawer keys via the existing
+         drawer scanner / +-collapse accessor".
+       new_form: the verbatim per-key glob LISTS are read via
+         org-entry-get-multivalued-property (org's native multi-value
+         property support — which IS the +-convention read-back, so no
+         custom +-collapse was re-implemented), behind a lazy (require 'org);
+         the "is this a scoped session at all?" presence gate uses
+         jf/gptel--scan-session-drawer-keys (a distinct, org-independent
+         reader). Two readers, complementary: scanner = presence gate
+         (drives D5 degradation), org-entry-get-multivalued-property = value
+         read.
+       why_tests_missed: the speculation named the scanner generically as
+         "the accessor"; it is actually the presence gate, while the value
+         read is org's multivalued-property accessor. The boundary contract
+         (inputs permitted/forbidden) was never wrong — only the prose about
+         WHICH primitive does the value read. Tests are green because both
+         readers satisfy the contract.
+     See .orchestrator/cycles/cycle-1781857401/reconciliations/
+     boundary-environment-block-input-neutrality.md.
+     ---
      cycle-1781857401 plan (2026-06-19): forward-mode speculation for
      change gptel-dynamic-environment-preamble. The hard constraint from the
      exploration log: gptel's environment surfacing MUST work with the
      workspaces package absent. Pressure-tested by env-block-builder; the
      verification greps for `workspace` inside the builder must NOT match.
-     Status flips at integrate once the builder lands and the
-     workspace-absent spec passes.
    load_bearing: true
    canonical_engine: gptel-chat--build-environment-block (config/gptel/chat/menu.org)
    title: |
@@ -7928,14 +7989,37 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/composed-system-message-write-only
    tier: invariant
-   status: speculated
+   status: confirmed
    status_note: |
+     cycle-1781857401 integrate (2026-06-19): speculated → CONFIRMED.
+     stable-role-base (merge 6807e0c2) added the buffer-local
+     gptel-chat--system-prompt-base (role-only at every install site);
+     pre-send-compose-and-wire (merge 4d8cad0e) widened the composer to
+     recompose gptel--system-message WHOLESALE from stable sources and
+     NEVER read back the composed value. Now ENFORCED by tests: the
+     two-send idempotency spec asserts exactly ONE "# Environment" block
+     after two composes (+ full-value equality), and the scope-grown spec
+     asserts a mid-session GPTEL_SCOPE_* edit appears on the second compose.
+     on-touch Architect + author-blind reviews CONFIRMED no read-back, single
+     advice, defensive fallback preserved. ENUMERATION REFINEMENT (from
+     stable-role-base ## Discoveries): the install sites are FOUR, not the
+     three obvious ones — the preset :system is installed via the generic
+     gptel--apply-preset SETTER LAMBDA in gptel-chat--apply-declared-preset
+     (no literal gptel--system-message assignment to grep), which is the
+     PRIMARY no-sibling path; the base is seeded there too. This refines the
+     statement's parenthetical site list but not the invariant itself.
+     OPEN (advisory, non-blocking, accepted-with-note): the "role base"
+     describe block lacks a DIRECT unit assertion for the preset-only :system
+     path; it is covered end-to-end by the composition specs. Low-priority
+     test-coverage nicety, not externalised.
+     See .orchestrator/cycles/cycle-1781857401/reconciliations/
+     invariant-composed-system-message-write-only.md.
+     ---
      cycle-1781857401 plan (2026-06-19): forward-mode speculation for
      change gptel-dynamic-environment-preamble (design D2). Pressure-tested
      by stable-role-base (introduces the stable role source) and
      pre-send-compose-and-wire (the composer + its two-send idempotency
-     spec). Status flips at integrate once the no-duplication and
-     scope-grown-reflection scenarios pass.
+     spec).
    load_bearing: true
    title: |
      The composed gptel--system-message is write-only output of the

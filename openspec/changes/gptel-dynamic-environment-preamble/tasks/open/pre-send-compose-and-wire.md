@@ -2,7 +2,7 @@
 name: pre-send-compose-and-wire
 description: Widen the pre-send function to compose gptel--system-message = role-base + env block at the tail, wholesale, on every send from a gptel-chat-mode buffer (chat and agents), behind the existing mode guard. Behavioral specs for tail placement, two-send idempotency, scope-grown reflection, and non-chat-mode no-op.
 change: gptel-dynamic-environment-preamble
-status: blocked
+status: done
 relations:
   - blocked-by:env-block-builder
   - blocked-by:stable-role-base

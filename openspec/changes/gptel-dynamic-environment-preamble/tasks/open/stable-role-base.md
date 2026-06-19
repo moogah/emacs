@@ -2,7 +2,7 @@
 name: stable-role-base
 description: Track the session's role content (system-prompt body) in a dedicated buffer-local gptel-chat--system-prompt-base, set wherever role content is installed, so the pre-send composer can rebuild the system message from a stable source without reading back its own composed output. Prerequisite for env-block idempotency in the no-sibling case.
 change: gptel-dynamic-environment-preamble
-status: ready
+status: done
 relations: []
 ---
 
