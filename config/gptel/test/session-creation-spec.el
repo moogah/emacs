@@ -144,16 +144,7 @@ value or nil when KEY is absent."
         (let ((content (captured-file-content
                         captured-files
                         "/sessions/test-session-123/branches/main/session.org")))
-          (expect content :to-equal "# My Session\n\n"))))
-
-    (it "creates current symlink pointing to branches/main"
-      (with-captured-io
-        (jf/gptel--create-session-core
-         "test-session-123" "/sessions/test-session-123" 'executor)
-        (let ((target (captured-symlink-target
-                       captured-symlinks
-                       "/sessions/test-session-123/current")))
-          (expect target :to-equal "branches/main")))))
+          (expect content :to-equal "# My Session\n\n")))))
 
   (describe "Return value"
 

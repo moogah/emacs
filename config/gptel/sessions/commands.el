@@ -7,7 +7,10 @@
 ;; Interactive commands for gptel session management.
 ;;
 ;; BREAKING CHANGE: Manual resume commands removed as of 2026-01-25
-;; Sessions now auto-initialize when opened via find-file-hook
+;; Sessions now activate by content recognition: a session.org's
+;; point-min :GPTEL_*: drawer signature drives `magic-mode-alist' into
+;; `gptel-chat-mode', whose mode hook binds the buffer-local session
+;; vars (`jf/gptel--bind-session-buffer').
 ;; Users should open session files directly (C-x C-f, dired, recentf, etc.)
 ;; The jf/gptel-resume-session, jf/gptel-list-sessions, and jf/gptel-resume-agent
 ;; commands have been removed. Use standard Emacs file navigation instead.
@@ -68,13 +71,6 @@ Returns the count of gptel--save-state hooks found."
           (insert (format "  - %s\n" hook)))
         (display-buffer (current-buffer))))
     save-state-count))
-
-(defun jf/gptel--ensure-mode-once ()
-  "Ensure `gptel-chat-mode' is the active major mode in the current buffer.
-No-op when chat-mode is already active. Never enables `gptel-mode'
-(minor mode) — session buffers run chat-mode exclusively (Decision 16)."
-  (unless (derived-mode-p 'gptel-chat-mode)
-    (gptel-chat-mode)))
 
 (defun jf/gptel--clean-duplicate-local-vars ()
   "Remove all but the last Local Variables block in current buffer.
@@ -140,154 +136,92 @@ Scans all sessions and removes duplicate blocks without opening buffers."
                     (jf/gptel--log 'info "Cleaned duplicates from: %s" session-file)))))))))
     (message "Cleaned %d of %d session files" cleaned total)))
 
-(defun jf/gptel--auto-init-session-buffer ()
-  "Auto-initialize gptel chat-mode session if current buffer is a session file.
-Detects session files by path pattern:
-  - Branch sessions: */<session-id>/branches/<branch-name>/session.org
-  - Nested agents:   */<session-id>/branches/<branch-name>/agents/<agent-name>/session.org
-  - Flat agents:     */<session-id>/agents/<agent-name>/session.org (legacy)
+(defun jf/gptel--bind-session-buffer ()
+  "Bind buffer-local session state for a content-addressed session buffer.
 
-On match:
-  1. Extracts session-id and branch-name from the path (via
-     dedicated per-layout regexes — never hardcoded).
-  2. Sets the four path-derived buffer-local session variables
-     (`jf/gptel--session-id', `jf/gptel--session-dir',
-     `jf/gptel--branch-name', `jf/gptel--branch-dir').
-  3. Ensures `gptel-chat-mode' is the active major mode.  Activating
-     chat-mode fires `gptel-chat-mode-hook', which runs
-     `gptel-chat--apply-declared-preset' to apply any preset declared
-     in the `:PROPERTIES:' drawer and to install
-     `GPTEL_PARENT_SESSION_ID' as `jf/gptel--parent-session-id'.
-  4. Registers the buffer in `jf/gptel--session-registry'.
-  5. Updates the `current' symlink to point at this branch (skipped
-     for the legacy flat agent layout, which has no `branches/' dir).
+Intended to run from `gptel-chat-mode-hook'.  No-op unless the current
+buffer visits a file AND carries a session content signature
+\(`jf/gptel--session-signature-p' — a `:GPTEL_*:' key in the point-min
+drawer); a `gptel-chat-new' scratch buffer or an ordinary `.org' file is
+left untouched.
 
-Runs on every file open via `find-file-hook', so fast-path guards are
-critical."
-  ;; Fast-path guards (runs on every file open).  The inner
-  ;; `string=' check against "session.org" (in both regex branches
-  ;; below) is stricter than a generic ".org" suffix test, so no
-  ;; outer suffix guard is needed here.
-  (when (and (buffer-file-name)                         ; Has file?
-             (not (bound-and-true-p jf/gptel--session-id))) ; Not already initialized?
-    (let* ((file-path (expand-file-name (buffer-file-name)))
-           (file-name (file-name-nondirectory file-path))
-           (session-id nil)
-           (branch-name nil)
-           (branch-dir nil)
-           (session-dir nil)
-           (session-type nil)
-           ;; Nested agent layout:
-           ;;   .../<session-id>/branches/<branch>/agents/<agent>/session.org
-           ;; Captures:
-           ;;   1 -> session-id
-           ;;   2 -> branch-name
-           ;;   3 -> agent-name
-           (nested-agent-re
-            "/\\([^/]+\\)/branches/\\([^/]+\\)/agents/\\([^/]+\\)/session\\.org\\'")
-           ;; Flat (legacy) agent layout:
-           ;;   .../<session-id>/agents/<agent>/session.org
-           ;; Captures:
-           ;;   1 -> session-id
-           ;;   2 -> agent-name
-           (flat-agent-re
-            "/\\([^/]+\\)/agents/\\([^/]+\\)/session\\.org\\'"))
+On a signature-bearing buffer:
+  1. Reads the live buffer's drawer alist (`jf/gptel--scan-session-drawer-keys').
+  2. `branch-dir' = the file's own directory (derived, never a `../..' walk).
+  3. Resolves identity drawer-first: session-id / branch-name via the
+     resolvers, session-type via `jf/gptel--session-type'.  The
+     branch-name resolver is fed the session.org FILE path (it carries
+     the trailing `branches/<branch>/' segment the fallback regex needs).
+  4. `session-dir' via `jf/gptel--session-dir-from-branch-dir' (the
+     structural `branches/' ancestor walk; move-safe, depth-independent).
+  5. `setq-local's the four session vars, plus `default-directory' from
+     the drawer's `GPTEL_WORK_ROOT' key (branch-dir fallback) so every
+     tool call resolves relative paths against the session work root.
+  6. Registers the buffer and enables `jf/gptel-autosave-enabled', wrapped
+     in `condition-case' so a registry failure does not abort var-setting.
 
-      (cond
-       ;; Branch session: */branches/<branch>/session.org
-       ;; (No agent component between branches/<branch>/ and session.org.)
-       ((and (string= file-name "session.org")
-             (string-match "/branches/\\([^/]+\\)/session\\.org\\'" file-path))
-        (setq branch-name (match-string 1 file-path)
-              branch-dir (file-name-directory file-path)
-              session-dir (expand-file-name "../.." branch-dir)
-              session-id (jf/gptel--session-id-from-directory session-dir)
-              session-type 'branch))
-
-       ;; Nested agent layout: agent lives under a specific branch.
-       ((and (string= file-name "session.org")
-             (string-match nested-agent-re file-path))
-        (let ((agent-dir (file-name-directory file-path)))
-          (setq session-id (match-string 1 file-path)
-                branch-name (match-string 2 file-path)
-                branch-dir agent-dir
-                ;; Walk up: agents/<agent>/ -> branches/<branch>/ -> <session-id>/
-                session-dir (expand-file-name "../../.." agent-dir)
-                session-type 'agent)))
-
-       ;; Legacy flat agent layout: no branches/ component.
-       ((and (string= file-name "session.org")
-             (string-match flat-agent-re file-path))
-        (let ((agent-dir (file-name-directory file-path)))
-          (setq session-id (match-string 1 file-path)
-                branch-name "main"
-                branch-dir agent-dir
-                ;; Walk up: agents/<agent>/ -> <session-id>/
-                session-dir (expand-file-name "../.." agent-dir)
-                session-type 'agent-flat))))
-
-      (when session-type
-        ;; Validate directories (branch sessions need both checks;
-        ;; agent sessions just need branch-dir).
-        (when (if (eq session-type 'branch)
-                  (and (jf/gptel--valid-session-directory-p session-dir)
-                       (jf/gptel--valid-branch-directory-p branch-dir))
-                (jf/gptel--valid-branch-directory-p branch-dir))
-          (jf/gptel--log 'debug "Auto-initializing %s session: %s/%s"
-                         session-type session-id branch-name)
-
-          ;; Mode flip is its own concern. A failing preset (e.g. one
-          ;; that references a tool not registered in this build) must
-          ;; not abort the buffer-local state-setting that follows.
-          ;; Activating chat-mode fires `gptel-chat-mode-hook', which
-          ;; runs `gptel-chat--apply-declared-preset' to apply the
-          ;; preset and `GPTEL_PARENT_SESSION_ID' declared in the
-          ;; `:PROPERTIES:' drawer (design.md §Decisions 5, 6, 9). If
-          ;; preset application errors (missing tool, schema drift,
-          ;; etc.), the buffer is left in whatever state mode-activation
-          ;; reached — preset NOT applied, session vars still set.
-          ;;
-          ;; Never calls (gptel-mode 1) — Decision 16.
-          (condition-case err
-              (jf/gptel--ensure-mode-once)
-            (error
-             (jf/gptel--log
-              'warn
-              "Mode activation/preset failed for %s/%s: %s; session vars set, preset NOT applied"
-              session-id branch-name (error-message-string err))))
-
-          ;; Buffer-local session vars: always set when validation
-          ;; passed. These do not depend on preset application
-          ;; succeeding. (Mode activation wipes buffer-locals via
-          ;; `kill-all-local-variables', so these run after.)
-          (setq-local jf/gptel--session-id session-id)
-          (setq-local jf/gptel--session-dir session-dir)
-          (setq-local jf/gptel--branch-name branch-name)
-          (setq-local jf/gptel--branch-dir branch-dir)
-
-          ;; Registry registration + current-symlink update: wrapped so
-          ;; a failure cannot abort the other, but independent of
-          ;; preset-application state. Skip the symlink update for
-          ;; legacy flat agent layout (no `branches/' dir).
-          (condition-case err
-              (progn
-                (jf/gptel--register-session session-dir
-                                            (current-buffer)
-                                            session-id
-                                            branch-name
-                                            branch-dir)
-                (setq-local jf/gptel-autosave-enabled t)
-                (unless (eq session-type 'agent-flat)
-                  (jf/gptel--update-current-symlink session-dir branch-name)))
-            (error
-             (jf/gptel--log 'warn
-                            "Post-init registry/symlink work failed for %s/%s: %s"
-                            session-id branch-name (error-message-string err))))
-
-          (jf/gptel--log 'info "Auto-initialized %s session: %s/%s"
-                         session-type session-id branch-name)
-          (message "Session initialized: %s (branch: %s)"
-                   session-id branch-name))))))
+Never enables `gptel-mode'; never calls `gptel--save-state' /
+`gptel--restore-state' (Decision 16).  Preset application and
+`GPTEL_PARENT_SESSION_ID' wiring are handled by the independent
+`gptel-chat--apply-declared-preset' hook entry, not here.  See design.md
+§Decision D4 and
+register/invariant/activation-and-identity-are-content-not-path."
+  (when (and (buffer-file-name)
+             (jf/gptel--session-signature-p))
+    (let* ((file-path (buffer-file-name))
+           (drawer-alist (jf/gptel--scan-session-drawer-keys))
+           (branch-dir (file-name-directory file-path))
+           (session-type (jf/gptel--session-type drawer-alist))
+           ;; session-dir: structural marker walk (navigation, not
+           ;; identity).  Pass the resolved TYPE symbol, not the
+           ;; drawer-alist (producer signature is `(branch-dir type)').
+           (session-dir (jf/gptel--session-dir-from-branch-dir
+                         branch-dir session-type))
+           ;; branch-name: feed the resolver the FILE path so its fallback
+           ;; regex sees the trailing `branches/<branch>/' segment (a bare
+           ;; branch-dir lacks the trailing separator the regex needs).
+           (branch-name (jf/gptel--resolve-branch-name drawer-alist file-path))
+           (session-id (jf/gptel--resolve-session-id drawer-alist session-dir)))
+      (jf/gptel--log 'debug "Binding %s session: %s/%s"
+                     session-type session-id branch-name)
+      ;; Buffer-local session vars: set unconditionally once the
+      ;; signature guard passed.  The hook fires after
+      ;; `kill-all-local-variables', so these land correctly.
+      (setq-local jf/gptel--session-id session-id)
+      (setq-local jf/gptel--session-dir session-dir)
+      (setq-local jf/gptel--branch-name branch-name)
+      (setq-local jf/gptel--branch-dir branch-dir)
+      ;; Work-root activation seam: establish the buffer-local
+      ;; `default-directory' that relative-path resolution uses for every
+      ;; tool call (chat + agent), since `gptel--handle-tool-use' runs each
+      ;; tool inside `(with-current-buffer info:buffer)'.  Read from the
+      ;; drawer key we already scanned; a keyless session falls back to
+      ;; `branch-dir' (byte-for-byte today's `find-file' behavior — a true
+      ;; no-op).  Set alongside the four identity vars and BEFORE the
+      ;; `condition-case' so a registry failure cannot abort it.  See
+      ;; design.md §Decisions D2/D3/D4 and
+      ;; register/boundary/work-root-activation-seam.
+      (setq-local default-directory
+                  (file-name-as-directory
+                   (expand-file-name
+                    (or (cdr (assoc "GPTEL_WORK_ROOT" drawer-alist))
+                        jf/gptel--branch-dir))))
+      ;; Registry registration + autosave: wrapped so a registry failure
+      ;; cannot abort the var-setting above.
+      (condition-case err
+          (progn
+            (jf/gptel--register-session session-dir
+                                        (current-buffer)
+                                        session-id
+                                        branch-name
+                                        branch-dir)
+            (setq-local jf/gptel-autosave-enabled t))
+        (error
+         (jf/gptel--log 'warn
+                        "Session-bind registry work failed for %s/%s: %s"
+                        session-id branch-name (error-message-string err))))
+      (jf/gptel--log 'info "Bound %s session: %s/%s"
+                     session-type session-id branch-name))))
 
 (defun jf/gptel--preset-source-file-extension (preset-name)
   "Return the file extension (\"md\" or \"org\") of preset PRESET-NAME.
@@ -427,9 +361,13 @@ Creates:
   preset has no `:system' or when INITIAL-CONTENT is caller-supplied)
 - session.org pre-populated with the drawer-resident scope (preset
   + scope keys + `:GPTEL_SYSTEM_PROMPT_FILE:' when the sibling file
-  was written) followed by an empty `#+begin_user' / `#+end_user'
+  was written + `:GPTEL_WORK_ROOT:' when PROJECT-ROOT is non-nil).
+  PROJECT-ROOT is canonicalized ONCE at entry via `expand-file-name',
+  and that single absolute string is fanned out to BOTH the
+  `${project_root}' scope-key expansion AND the `:GPTEL_WORK_ROOT:'
+  value — byte-identical and absolute, so the two agree by
+  construction.  Followed by an empty `#+begin_user' / `#+end_user'
   block
-- current symlink pointing to main branch
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
 The drawer embedded in `session.org' is the authoritative
@@ -443,6 +381,20 @@ Returns plist with:
   :branch-name - \"main\"
   :session-file - path to session.org"
 
+  ;; Canonicalize the incoming PROJECT-ROOT ONCE, at entry, before it
+  ;; fans out to its two consumers (the scope-profile expansion below
+  ;; and the `:GPTEL_WORK_ROOT:' drawer write).  Both consumers read
+  ;; this single canonical string, so the cwd↔scope agreement invariant
+  ;; (register/invariant/cwd-scope-agreement) holds — and now holds in
+  ;; ABSOLUTE form for ANY input shape (relative, trailing-slash, `~').
+  ;; `jf/gptel-scope-profile--expand-string' substitutes `${project_root}'
+  ;; VERBATIM (a raw `replace-regexp-in-string', NOT `expand-file-name';
+  ;; scope-profiles.org §expand-string), so the canonical-absolute form
+  ;; MUST be established HERE, at the source, rather than by the renderer.
+  ;; nil stays nil — a keyless session emits no `:GPTEL_WORK_ROOT:' and
+  ;; no `${project_root}' scope patterns.
+  (when project-root
+    (setq project-root (expand-file-name project-root)))
   (let* ((main-branch-dir (jf/gptel--create-branch-directory session-dir "main"))
          (session-file (jf/gptel--context-file-path main-branch-dir))
          ;; Resolve the preset spec for the chat-mode snapshot keys
@@ -494,12 +446,50 @@ Returns plist with:
                            drawer-text "GPTEL_SYSTEM_PROMPT_FILE"
                            sibling-basename)
                         drawer-text))
+         ;; Emit the authoritative identity keys
+         ;; (register/vocabulary/identity-drawer-keys): the session's
+         ;; own `:GPTEL_SESSION_ID:' and `:GPTEL_BRANCH: main'.  These
+         ;; make the drawer the authoritative identity source for the
+         ;; drawer-first resolvers (register/boundary/drawer-first-
+         ;; identity-resolution) — SESSION-ID is the canonical id
+         ;; string and the branch is the bare branch name, always
+         ;; "main" for a freshly-created session.  Spliced via the
+         ;; append helper so the `:PROPERTIES:' / `:END:' adjacency
+         ;; invariant (register/shape/drawer-text-block) is preserved.
+         (drawer-text (jf/gptel--append-drawer-property
+                       drawer-text "GPTEL_SESSION_ID" session-id))
+         (drawer-text (jf/gptel--append-drawer-property
+                       drawer-text "GPTEL_BRANCH" "main"))
+         ;; Persist the working directory as `:GPTEL_WORK_ROOT:' — a
+         ;; second output of the SAME (now CANONICAL-ABSOLUTE) PROJECT-ROOT
+         ;; input that expanded `${project_root}' into the `GPTEL_SCOPE_*'
+         ;; keys above (via `jf/gptel-scope-profile--create-for-session').
+         ;; Written VERBATIM relative to that canonical string — NOT
+         ;; re-expanded here.  PROJECT-ROOT was already passed through
+         ;; `expand-file-name' once at entry, so it is absolute; the
+         ;; renderer substitutes `${project_root}' VERBATIM (a raw
+         ;; `replace-regexp-in-string', NOT `expand-file-name';
+         ;; scope-profiles.org §expand-string), meaning the scope keys
+         ;; carry that SAME absolute string.  Both outputs are therefore
+         ;; the byte-identical canonical-absolute path, so the session's
+         ;; working directory and its scope boundary CANNOT disagree — the
+         ;; cwd↔scope agreement invariant (register/invariant/cwd-scope-
+         ;; agreement) is structural by construction (design.md D1), and
+         ;; now ABSOLUTE-and-agreeing for ANY input form (relative,
+         ;; trailing-slash, `~') rather than only already-absolute ones.
+         ;; The binder re-applies `expand-file-name' +
+         ;; `file-name-as-directory' at READ time (idempotent on an
+         ;; already-absolute value).  When PROJECT-ROOT is nil this is a
+         ;; keyless session: the key is SKIPPED so the binder falls back
+         ;; to `branch-dir'.  Spliced via the append helper to preserve
+         ;; the `:PROPERTIES:' / `:END:' adjacency invariant.
+         (drawer-text (if project-root
+                          (jf/gptel--append-drawer-property
+                           drawer-text "GPTEL_WORK_ROOT" project-root)
+                        drawer-text))
          (final-content (or initial-content
                             (concat drawer-text
                                     (jf/gptel--initial-session-body)))))
-
-    ;; Create current symlink pointing to main
-    (jf/gptel--update-current-symlink session-dir "main")
 
     ;; Create session file with initial content (file-level config
     ;; drawer followed by an empty `#+begin_user' / `#+end_user'
@@ -532,11 +522,13 @@ user-facing escape-hatch command is
 Prompts user to select projectile projects (0 or more).
 If projects selected, first project is used as project-root for scope expansion.
 
-Creates session with branches/main/ structure and current symlink.
-The session auto-initializes when opened (via find-file-hook).
+Creates session with branches/main/ structure.
+The session activates by content recognition when opened: its
+session.org drawer signature drives `magic-mode-alist' into
+`gptel-chat-mode', whose mode hook binds the session buffer.
 
 To open existing sessions: Just use find-file (C-x C-f) or dired on ~/.gptel/sessions/
-No special resume command needed - sessions auto-initialize when opened."
+No special resume command needed - sessions activate by content recognition when opened."
   (interactive
    (let* ((name (read-string "Session name: "))
           (preset (if current-prefix-arg
@@ -579,7 +571,9 @@ No special resume command needed - sessions auto-initialize when opened."
                          nil))       ; no parent-session-id (standalone)
            (session-file (plist-get session-info :session-file)))
 
-      ;; Open session file - auto-initialization hook will handle the rest
+      ;; Open the session file — content-addressed activation
+      ;; (magic-mode-alist recognises the drawer signature; the
+      ;; gptel-chat-mode-hook identity binder runs) takes over from here.
       (let ((buffer (find-file session-file)))
         (jf/gptel--log 'info "Created session: %s%s"
                       session-id
@@ -682,8 +676,10 @@ Useful if sessions were created outside Emacs or after startup."
 ;; This is just a forward declaration for documentation
 (declare-function jf/gptel-branch-session "branching" (&optional branch-name))
 
-;; Auto-initialize sessions when opened via find-file, dired, recentf, etc.
-(add-hook 'find-file-hook #'jf/gptel--auto-init-session-buffer)
+;; Bind buffer-local session state when chat-mode activates on a
+;; signature-bearing session buffer (content-addressed; scratch chat
+;; buffers are a no-op by construction).
+(add-hook 'gptel-chat-mode-hook #'jf/gptel--bind-session-buffer)
 
 (provide 'gptel-session-commands)
 ;;; commands.el ends here

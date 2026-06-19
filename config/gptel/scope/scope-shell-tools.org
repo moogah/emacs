@@ -301,7 +301,7 @@ Returns:
       ;; strings from pre-migration prompts (e.g. "read_file_in_scope").
       ((null op-key)
        (funcall callback
-                (json-serialize
+                (jf/gptel-scope--serialize-tool-result
                  `(:success :false
                    :error "unknown_operation"
                    :message ,(format "Unknown operation %S. Valid values: read, write, modify, execute, bash."

@@ -50,6 +50,14 @@
 (declare-function gptel-org-set-properties "gptel-org" (pt &optional msg))
 (declare-function org-entry-get "org" (pom property &optional inherit literal-nil))
 (declare-function org-entry-put "org" (pom property value))
+(declare-function org-entry-get-multivalued-property "org" (pom property))
+;; The point-min drawer scanner lives in
+;; `config/gptel/sessions/filesystem.el' (feature
+;; `gptel-session-filesystem'), which loads after `gptel/chat/chat' in
+;; `jf/enabled-modules'.  Declare it as a forward reference; the symbol
+;; resolves at runtime when the environment-block builder runs from a
+;; chat-mode buffer (which only exists after sessions have loaded).
+(declare-function jf/gptel--scan-session-drawer-keys "gptel-session-filesystem" ())
 ;; `jf/gptel--log' lives in `config/gptel/sessions/logging.el', which
 ;; loads after `gptel/chat/chat' in `jf/enabled-modules' (so requiring
 ;; the feature here would fail).  Declare it as a forward reference;
@@ -62,6 +70,21 @@
 ;; `config/gptel/sessions/constants.org'.  Declaring lets this module
 ;; compile and write the binding without pulling sessions in.
 (defvar jf/gptel--parent-session-id)
+
+;; Stable role source for the pre-send environment-block composer.
+;; Holds the ROLE content (the system-prompt body) WITHOUT any
+;; environment block, set wherever role content is installed into
+;; `gptel--system-message' (preset `:system', legacy `:GPTEL_SYSTEM:'
+;; drawer entry, or sibling system-prompt file).  The pre-send composer
+;; rebuilds `gptel--system-message' WHOLESALE as `role + env-block' from
+;; this base (no-sibling-file case) so the composed value never feeds
+;; back into the next composition — it is write-only output, never an
+;; input (register/invariant/composed-system-message-write-only).  The
+;; env block is NEVER written here.
+(defvar-local gptel-chat--system-prompt-base nil
+  "Role content (system-prompt body) without the dynamic environment block.
+The stable source the pre-send composer rebuilds from when the buffer
+has no sibling system-prompt file.")
 ;; Forward declarations:1 ends here
 
 ;; Preset resolution
@@ -233,7 +256,11 @@ preset's composite-key logic (design.md §Decision 5)."
         ((`(,_preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)
           (gptel-org--entry-properties (point-min))))
       (when system
-        (set (make-local-variable 'gptel--system-message) system))
+        (set (make-local-variable 'gptel--system-message) system)
+        ;; Capture the role body into the stable base alongside the
+        ;; system-message install — the base is role-only, never the
+        ;; composed `role + env-block' value.
+        (set (make-local-variable 'gptel-chat--system-prompt-base) system))
       (when backend
         (set (make-local-variable 'gptel-backend) backend))
       (when model
@@ -338,74 +365,277 @@ entry > preset `:system')."
                       (insert-file-contents path)
                       (buffer-string)))
               ((not (string-blank-p body))))
-    (set (make-local-variable 'gptel--system-message) body)))
+    (set (make-local-variable 'gptel--system-message) body)
+    ;; Keep the stable base consistent with the sibling-file body.  The
+    ;; composer prefers the freshly re-read sibling on each send, so this
+    ;; is belt-and-suspenders, but it keeps the base role-only (never the
+    ;; composed `role + env-block' value).
+    (set (make-local-variable 'gptel-chat--system-prompt-base) body)))
 ;; System Prompt sibling file:1 ends here
 
-;; Pre-send refresh
+;; Environment block builder
+
+;; =gptel-chat--build-environment-block= returns the markdown
+;; "# Environment" block that the pre-send composition step appends to
+;; =gptel--system-message= on every send from a chat-mode buffer.  It
+;; re-orients the model each turn: it names the working directory and
+;; states the file-access scope as VERBATIM glob patterns, with a
+;; live-note ("current as of this message") so the model treats the
+;; information as fresh rather than stale context (design.md D3).
+
+;; Inputs are INTRINSIC to the buffer only (=register/boundary/
+;; environment-block-input-neutrality=): the current buffer's
+;; =default-directory= for the working-directory line, and the point-min
+;; =:PROPERTIES:= drawer's =GPTEL_SCOPE_*= keys for the scope lines.  The
+;; builder reads the RAW drawer patterns AS WRITTEN — it does NOT route
+;; through =jf/gptel-scope--load-config=, which expands deny-all defaults
+;; for validation; the human-facing block wants exactly what the author
+;; typed.  It references NO workspaces-package symbol; with the
+;; workspaces package entirely unloaded the builder still returns a valid
+;; block and signals no error.
+
+;; Degradation (design.md D5): a chat-mode buffer that carries no
+;; =GPTEL_SCOPE_*= keys is not a scoped session.  Rather than render
+;; three empty scope bullets, the builder collapses them to a single
+;; "no scope restrictions" line.  The builder NEVER errors and NEVER
+;; returns an empty string — the worst case is the degraded block.
+
+;; Reading the pattern lists reuses the scope subsystem's accessor —
+;; =org-entry-get-multivalued-property= — so the multi-value (space-
+;; separated / =:KEY+:= continuation) collapse lives in exactly one
+;; place and is not re-implemented here.  =org= is required lazily inside
+;; the builder: in production a chat-mode =session.org= buffer always has
+;; =org= loaded, but the lazy require keeps this module load-safe in the
+;; minimal contexts the rest of the file is careful to support.
+
+;; The degradation gate uses =jf/gptel--scan-session-drawer-keys= (the
+;; shared point-min drawer scanner) to enumerate the GPTEL keys present;
+;; the presence of ANY of the three rendered scope keys
+;; (=GPTEL_SCOPE_READ= / =GPTEL_SCOPE_WRITE= / =GPTEL_SCOPE_DENY=)
+;; switches the block from the degraded form to the scoped form.
+
+
+;; [[file:menu.org::*Environment block builder][Environment block builder:1]]
+(defun gptel-chat--render-scope-line (label patterns)
+  "Render one scope bullet: LABEL with PATTERNS comma-joined.
+PATTERNS is a list of verbatim glob strings (possibly nil/empty).
+An empty list renders as a bare label with no patterns, so the block
+shows which buckets the session declares even when one is empty."
+  (format "- %s %s" label
+          (if patterns (mapconcat #'identity patterns ", ") "")))
+
+(defun gptel-chat--build-environment-block ()
+  "Return the markdown \"# Environment\" block for the current buffer.
+
+Built from INTRINSIC buffer inputs only (design.md D3):
+`default-directory' for the working-directory line, and the point-min
+`:PROPERTIES:' drawer's raw `GPTEL_SCOPE_READ' / `GPTEL_SCOPE_WRITE' /
+`GPTEL_SCOPE_DENY' patterns for the scope lines.  Scope patterns are
+rendered VERBATIM (comma-joined, as authored) — the builder reads the
+drawer directly via `org-entry-get-multivalued-property' rather than
+through `jf/gptel-scope--load-config', whose deny-all defaulting is for
+validation, not human display.
+
+Degradation (design.md D5): when the drawer carries NONE of the three
+rendered `GPTEL_SCOPE_*' keys, the three scope bullets collapse to a
+single \"no scope restrictions\" line.  The function NEVER signals and
+NEVER returns an empty string.
+
+References NO workspaces-package symbol (`register/boundary/
+environment-block-input-neutrality'): with the workspaces package
+unloaded the builder still returns a valid block."
+  (require 'org)
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let* ((keys (jf/gptel--scan-session-drawer-keys))
+             (scoped (seq-find
+                      (lambda (k)
+                        (member (car k)
+                                '("GPTEL_SCOPE_READ"
+                                  "GPTEL_SCOPE_WRITE"
+                                  "GPTEL_SCOPE_DENY")))
+                      keys))
+             (header
+              (concat
+               "# Environment\n"
+               "You are working in the directory below. The file-access scope lists what you may\n"
+               "read and write; this information is current as of this message.\n"
+               "\n"
+               (format "- Working directory: %s\n" default-directory))))
+        (if scoped
+            (concat
+             header
+             (gptel-chat--render-scope-line
+              "Readable:"
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ"))
+             "\n"
+             (gptel-chat--render-scope-line
+              "Writable:"
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_WRITE"))
+             "\n"
+             (gptel-chat--render-scope-line
+              "Denied:  "
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_DENY")))
+          (concat
+           header
+           "- File access: no scope restrictions (this buffer is not a scoped session)"))))))
+;; Environment block builder:1 ends here
+
+;; Emacs prelude
+
+;; Every chat-mode system prompt opens with a static prelude that frames
+;; the model's runtime: it is operating inside GNU Emacs through the gptel
+;; chat interface, so Org markup beats Markdown, file/editor tools are
+;; available within the session scope, and the user is an Emacs user.  The
+;; prelude is the analogue of the persistent agent's
+;; =jf/gptel-persistent-agent--system-preamble= for interactive sessions,
+;; but rides the per-send composer rather than being materialized into the
+;; role file at creation.
+
+;; The prelude leads the whole prompt (=PRELUDE + ROLE + ENV=), so it is
+;; present even when the buffer carries no role.  Because it is a
+;; =defconst= the composer joins by reference (never read back from the
+;; composed value), it never accumulates across sends — same wholesale-
+;; rebuild invariant as the environment block.  It carries no Org heading:
+;; like the agent preamble it opens as plain framing prose, and a heading
+;; containing "Environment" would collide with the env block's own
+;; =# Environment= heading.
+
+
+;; [[file:menu.org::*Emacs prelude][Emacs prelude:1]]
+(defconst gptel-chat--emacs-prelude
+  "You are operating inside GNU Emacs, through the gptel chat interface. Keep these in mind:
+- Responses render as Org-mode text in an Emacs buffer — prefer Org markup over Markdown.
+- You have tools that read and write files and inspect the user's editor, within the session's file-access scope.
+- The user is working in Emacs; assume familiarity with it."
+  "Static runtime-framing prelude prepended to every chat-mode system prompt.
+
+Prepended ahead of the ROLE and environment block by
+`gptel-chat--refresh-system-prompt-from-file' on every send (so it
+leads the composed `gptel--system-message' and is present even when
+the buffer has no role).  Tells the model it is operating inside GNU
+Emacs via gptel — the interactive-session analogue of
+`jf/gptel-persistent-agent--system-preamble'.  Carries no Org heading
+\(opens as plain framing prose) to avoid colliding with the
+environment block's `# Environment' heading.")
+;; Emacs prelude:1 ends here
+
+;; Pre-send composition
 
 ;; =gptel-chat--refresh-system-prompt-from-file= is the runtime
-;; counterpart of the activation-time installer above: every
-;; =gptel-request= dispatched from a chat-mode buffer re-reads the
-;; sibling file before the request body's keyword-argument defaulting
-;; picks up =gptel--system-message= (design.md §Decision 4).  A mid-
-;; session edit to =system-prompt.md= is therefore reflected on the
-;; next send without the user having to revert =session.org= or
-;; re-open the buffer.
+;; composer: every =gptel-request= dispatched from a chat-mode buffer
+;; recomposes =gptel--system-message= WHOLESALE as =emacs-prelude +
+;; "\n\n" + role + "\n\n" + environment-block= before the request body's
+;; keyword-argument defaulting picks =gptel--system-message= up
+;; (design.md §Decision 4, D1, D4).  The static =gptel-chat--emacs-
+;; prelude= always leads (present even with an empty role); two further
+;; things happen on every send:
 
-;; Wiring choice: an upstream =gptel-pre-send-hook= does not exist
+;; 1. The ROLE is resolved from a *stable source* — the sibling
+;;    =system-prompt.<ext>= file re-read fresh each send (so a mid-
+;;    session edit to =system-prompt.md= is reflected on the next send
+;;    without reverting =session.org=), else the buffer-local role base
+;;    =gptel-chat--system-prompt-base=.  The composed
+;;    =gptel--system-message= is NEVER read back as an input
+;;    (=register/invariant/composed-system-message-write-only=): it is
+;;    write-only output.
+;; 2. The =# Environment= block (=gptel-chat--build-environment-block=)
+;;    is built UNCONDITIONALLY and appended as the TAIL section, joined
+;;    to the role by a blank line (D4).  Because the role comes from a
+;;    stable source and the block is rebuilt each send, the block never
+;;    accumulates across sends and a mid-session scope-drawer edit shows
+;;    up in the next composition.
+
+;; Wiring choice (D1): an upstream =gptel-pre-send-hook= does not exist
 ;; (only =gptel-post-request-hook=, =gptel-request.el:180=), so this
-;; module installs a global =:before= advice on =gptel-request= and
-;; filters with =(derived-mode-p 'gptel-chat-mode)= so non-chat-mode
-;; callers pay zero cost.  The advice install runs at module load and
-;; is idempotent under re-tangle / reload.
+;; module installs a SINGLE global =:before= advice on =gptel-request=
+;; and filters with =(derived-mode-p 'gptel-chat-mode)= so non-chat-mode
+;; callers pay zero cost.  One widened composer, not a second advice —
+;; deterministic order (env always after the role read), no advice-
+;; ordering fragility.  The advice install runs at module load and is
+;; idempotent under re-tangle / reload.
 
-;; The function mirrors the activation-time installer's defensive
-;; behaviour: nil property → no-op; unreadable file → log + leave
-;; cache; blank body → leave cache.  Only a readable, non-blank file
-;; updates the buffer-local cache.
+;; Role resolution mirrors the activation-time installer's defensive
+;; behaviour: a set =:GPTEL_SYSTEM_PROMPT_FILE:= whose sibling file is
+;; unreadable logs a 'warn-level message and falls back to the role base
+;; rather than dropping the prompt; a blank sibling body also falls back
+;; to the base.  When no sibling property is set, the role is the base
+;; (or =""= when nil).  The env block is appended in every case.
 
 
-;; [[file:menu.org::*Pre-send refresh][Pre-send refresh:1]]
+;; [[file:menu.org::*Pre-send composition][Pre-send composition:1]]
 (defun gptel-chat--refresh-system-prompt-from-file (&rest _)
-  "Re-read sibling `system-prompt.<ext>' into `gptel--system-message'.
+  "Recompose `gptel--system-message' as role + environment block.
 
 Called via `:before' advice on `gptel-request' (see the wiring
 below) so every chat request submitted from a `gptel-chat-mode'
-buffer picks up the current contents of the sibling file before
-dispatch.  Because `gptel-request' defaults its `:system' keyword
-argument to `gptel--system-message' at call time (cl-defun keyword
-defaulting), updating the buffer-local value in `:before' advice
-is sufficient — the request body picks up the refreshed value
-automatically.
+buffer recomposes its system message before dispatch.  Because
+`gptel-request' defaults its `:system' keyword argument to
+`gptel--system-message' at call time (cl-defun keyword defaulting),
+updating the buffer-local value in `:before' advice is sufficient —
+the request body picks up the recomposed value automatically.
+
+The composed value is set WHOLESALE each send from STABLE sources
+only — never from the prior `gptel--system-message' — so the prelude
+and environment block never accumulate across sends and a mid-session
+scope change appears on the next send
+\(`register/invariant/composed-system-message-write-only', D1/D2/D4):
+
+  PRE   = `gptel-chat--emacs-prelude', the static runtime-framing
+          preamble, ALWAYS the leading section.
+  ROLE  = sibling `system-prompt.<ext>' body, re-read fresh each send
+          when `:GPTEL_SYSTEM_PROMPT_FILE:' is set and the file is
+          readable and non-blank; otherwise the buffer-local role
+          base `gptel-chat--system-prompt-base' (or \"\" when nil).
+  ENV   = `gptel-chat--build-environment-block', built UNCONDITIONALLY.
+  VALUE = PRE \"\\n\\n\" ENV when ROLE is empty, else
+          PRE \"\\n\\n\" ROLE \"\\n\\n\" ENV (env is the TAIL section, D4).
 
 No-op when the current buffer is not a `gptel-chat-mode' buffer
-(non-chat-mode `gptel-request' callers see zero cost) or when the
-drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:' property.
+\(non-chat-mode `gptel-request' callers see only the predicate check
+and never have their system message touched).
 
-When the property is set but the file is unreadable, logs a
-'warn-level message via `jf/gptel--log' and leaves the previously
-installed buffer-local value in place — mirrors
-`gptel-chat--apply-system-prompt-file's defensive behaviour and
-ensures a transient filesystem hiccup does not silently drop the
-system prompt.
-
-A blank file body also leaves the cache in place (consistent with
-the activation-time installer's `string-blank-p' check).
+When `:GPTEL_SYSTEM_PROMPT_FILE:' is set but the file is unreadable,
+logs a 'warn-level message via `jf/gptel--log' and falls back to the
+role base — mirrors `gptel-chat--apply-system-prompt-file's defensive
+behaviour and ensures a transient filesystem hiccup does not silently
+drop the system prompt.  A blank file body also falls back to the
+base.  The role base is also refreshed from a readable, non-blank
+sibling body so it stays role-only and aligned with the file.
 
 The `&rest _' parameter swallows whatever args advice forwards
 from `gptel-request' — the advice does not need to inspect them;
 the function operates on the buffer-local context."
   (when (derived-mode-p 'gptel-chat-mode)
-    (when-let* ((path (gptel-chat--system-prompt-file-path)))
-      (if (file-readable-p path)
-          (let ((body (with-temp-buffer
-                        (insert-file-contents path)
-                        (buffer-string))))
-            (unless (string-blank-p body)
-              (set (make-local-variable 'gptel--system-message) body)))
-        (jf/gptel--log 'warn
-                       "system-prompt sibling file unreadable: %s"
-                       path)))))
+    (let ((role
+           (or (when-let* ((path (gptel-chat--system-prompt-file-path)))
+                 (if (file-readable-p path)
+                     (let ((body (with-temp-buffer
+                                   (insert-file-contents path)
+                                   (buffer-string))))
+                       (unless (string-blank-p body)
+                         ;; Keep the stable base aligned with the
+                         ;; re-read sibling body — role-only, never the
+                         ;; composed value.
+                         (set (make-local-variable
+                               'gptel-chat--system-prompt-base)
+                              body)
+                         body))
+                   (jf/gptel--log 'warn
+                                  "system-prompt sibling file unreadable: %s"
+                                  path)
+                   nil))
+               gptel-chat--system-prompt-base
+               ""))
+          (env (gptel-chat--build-environment-block)))
+      (set (make-local-variable 'gptel--system-message)
+           (concat gptel-chat--emacs-prelude
+                   "\n\n"
+                   (if (string-empty-p role)
+                       env
+                     (concat role "\n\n" env)))))))
 
 ;; Install the :before advice at module load.  `advice-add' is
 ;; idempotent for the same (function, where, advice) triple, so
@@ -415,7 +645,7 @@ the function operates on the buffer-local context."
 ;; only the predicate check.
 (advice-add 'gptel-request :before
             #'gptel-chat--refresh-system-prompt-from-file)
-;; Pre-send refresh:1 ends here
+;; Pre-send composition:1 ends here
 
 ;; Edit affordance
 
@@ -583,7 +813,15 @@ triggers a `display-warning' rather than an error, matching upstream
         (progn
           (gptel--apply-preset
            preset
-           (lambda (sym val) (set (make-local-variable sym) val)))
+           (lambda (sym val)
+             (set (make-local-variable sym) val)
+             ;; Mirror the preset's `:system' role body into the stable
+             ;; base — the base holds role-only content (no environment
+             ;; block) and is the source the pre-send composer rebuilds
+             ;; from for the no-sibling-file case.
+             (when (eq sym 'gptel--system-message)
+               (set (make-local-variable 'gptel-chat--system-prompt-base)
+                    val))))
           (gptel-chat--apply-drawer-overrides))
       (display-warning
        '(gptel-chat presets)

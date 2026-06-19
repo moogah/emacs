@@ -10,21 +10,24 @@ Enables autonomous sub-agents with isolated configuration, full conversation his
 
 **CRITICAL PRINCIPLE**: Agents have ZERO inheritance from parent sessions.
 
-Agent configuration comes ONLY from the agent's `session.org` `:PROPERTIES:` drawer, populated at agent creation time and read at auto-init time:
+Agent configuration comes ONLY from the agent's `session.org` `:PROPERTIES:` drawer, populated at agent creation time and read at mode-activation time:
 1. **Drawer-declared preset** (`:GPTEL_PRESET:`) supplies backend, model, and tools. The agent's system message is the baseline agent-harness preamble followed by the preset's `:system` body (see *Agent System-Prompt Preamble* below), materialized in the sibling `system-prompt.<ext>` file.
-2. **Drawer-declared scope keys** (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) supply file-access permissions, populated from the `allowed_paths` parameter plus the codebase's fixed write/deny patterns.
+2. **Drawer-declared work root** (`:GPTEL_WORK_ROOT:`) supplies the agent's working directory, populated from the `work_root` parameter (defaulting to the parent's work root when omitted).
+3. **Drawer-declared scope keys** (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) supply file-access permissions: `:READ:` is populated from the `read_paths` parameter plus the work-root read pattern (`<work_root>/**`, auto-included so the work root is readable by construction); `:WRITE:` from the `write_paths` parameter plus `/tmp/**` scratch; deny patterns are the codebase's fixed defaults.
 
 Agents do NOT inherit:
 - Parent's drawer scope keys
+- Parent's work root / `default-directory` (the parent *passes* a default at spawn; it is then frozen in the agent's drawer)
 - Parent's backend/model/temperature
 - Parent's tools or system message
 
 **Path configuration**:
-- `allowed_paths` provided → agent uses exactly those patterns
-- `allowed_paths` nil/empty → agent's drawer omits `:GPTEL_SCOPE_READ:` (no read permissions)
-- **Never** inherits parent's allowed paths
+- `read_paths` provided → agent reads exactly those patterns, plus `<work_root>/**`
+- `read_paths` nil/empty → agent's `:GPTEL_SCOPE_READ:` carries only the work-root read pattern (`<work_root>/**`); no other read permissions
+- `write_paths` provided → agent writes those patterns, with `/tmp/**` auto-appended as scratch
+- **Never** inherits parent's scope paths
 
-The `denied_paths` parameter advertised by earlier implementations no longer exists on the tool surface; deny patterns are fixed (default deny list) and not configurable per agent.
+The `allowed_paths` parameter of earlier implementations has been replaced by `read_paths` (read scope) and `write_paths` (write scope). The `denied_paths` parameter advertised by earlier implementations no longer exists on the tool surface; deny patterns are fixed (default deny list) and not configurable per agent.
 
 ### Agent Session Structure
 
@@ -59,8 +62,9 @@ sibling file):
 :PROPERTIES:
 :GPTEL_PRESET: <preset-name>
 :GPTEL_PARENT_SESSION_ID: <parent-session-id>
-:GPTEL_SCOPE_READ: <pattern> <pattern> ...    # omitted if no read paths
-:GPTEL_SCOPE_WRITE: /tmp/**
+:GPTEL_WORK_ROOT: <work-root>                  # parent-supplied or parent-defaulted
+:GPTEL_SCOPE_READ: <work-root>/** <pattern> ... # always carries the work-root pattern
+:GPTEL_SCOPE_WRITE: <pattern> ... /tmp/**       # parent write_paths + /tmp scratch
 :GPTEL_SCOPE_DENY: **/.git/** **/runtime/** **/.env **/node_modules/**
 :GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md   # always present for agents
 :END:
@@ -82,7 +86,7 @@ non-empty system prompt and a `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key.
 
 1. **Validation**: Parent-session check + preset existence — raise user-error before any side effect on validation failure.
 2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys, plus `:GPTEL_SYSTEM_PROMPT_FILE:`, always present for agents) followed directly by the initial `#+begin_user` block (no `* System Prompt` or `* Chat` headings). Always write the sibling `system-prompt.<ext>` file holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Agent System-Prompt Preamble*). No sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) are written.
-3. **Initialization**: Open the agent file with `find-file-noselect`; the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
+3. **Initialization**: Open the agent file with `find-file-noselect`; the file's drawer signature triggers content-addressed activation (`magic-mode-alist`) into `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 4. **Execution**: Compose chat-mode's public API (`gptel-chat-parse-buffer`, `gptel-chat-turns-to-messages`, `gptel-chat-open-assistant-block`, `gptel-chat-stream-callback`, `gptel-chat-fsm-handlers`) to drive the request. The agent supplies its own FSM-handler-chained overlay updates and a parent-feedback overlay as `gptel-request`'s `:context`.
 5. **FSM States**: `WAIT` (overlay: "Waiting…"), `TOOL` (overlay: "Calling Tools… (+N)" with cumulative count).
 6. **Completion**: On `DONE`, read the last `#+begin_assistant` block from the agent buffer, extract the trailing text segment (skipping tool-call segments), delete the parent overlay, invoke the caller-supplied `main-cb` with that text. On `ERRS`/`ABRT`, also delete the overlay and invoke `main-cb` with an error/abort string.
@@ -103,9 +107,35 @@ non-empty system prompt and a `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key.
 
 ## Requirements
 
+### Requirement: Agent working directory (parent-supplied)
+
+The parent SHALL set the agent's working directory explicitly; the agent SHALL NOT inherit it by any runtime cascade. PersistentAgent SHALL accept a `work_root` parameter naming the absolute directory the agent operates in. When `work_root` is omitted, it SHALL default to the parent session's own work root (the value of the parent buffer's `GPTEL_WORK_ROOT` / `default-directory` at spawn time) — a single explicit default chosen at creation, written into the agent's drawer, not a live link to the parent. `jf/gptel-persistent-agent--task` SHALL write the resolved value into the agent's `session.org` drawer as `:GPTEL_WORK_ROOT:`, from which the standard activation binder sets the agent buffer's `default-directory` (see `gptel/sessions-persistence` Requirement: Default-directory resolution on session activation).
+
+To eliminate the silent-deny trap (a relative read resolving outside the agent's read scope), `jf/gptel-persistent-agent--task` SHALL make the resolved `work_root` readable by construction: it SHALL prepend the read pattern `<work_root>/**` to the agent's `read_paths` before building the scope plist, deduplicated against an identical caller-supplied pattern. Consequently a relative path resolving against the agent's `default-directory` (= work root) always lands in read scope, even when the caller supplies no `read_paths`. This is self-consistency (the agent's own work root joining its own read scope), NOT inheritance of the parent's scope. Write scope remains separately governed — the work root is readable, not writable, by construction (see *Requirement: Agent session creation* for write scope). No abort-or-warn guardrail is needed because the mismatch it would report can no longer occur.
+
+**Implementation**: `config/gptel/tools/persistent-agent.org` (`jf/gptel-persistent-agent--task`, drawer write, work-root read-pattern prepend).
+
+#### Scenario: Explicit work_root written to the agent drawer
+- **WHEN** an agent is created with `work_root "/Users/x/proj/worktree-a"`
+- **THEN** the agent's `session.org` drawer contains `:GPTEL_WORK_ROOT: /Users/x/proj/worktree-a`
+- **AND** on activation the agent buffer's `default-directory` is `/Users/x/proj/worktree-a/`
+
+#### Scenario: Omitted work_root defaults to the parent's work root
+- **WHEN** an agent is created without a `work_root` argument
+- **AND** the parent session's work root is `/Users/x/proj`
+- **THEN** the agent's drawer records `:GPTEL_WORK_ROOT: /Users/x/proj`
+- **AND** the value is frozen at creation time (not a live reference to the parent buffer)
+
+#### Scenario: Work root is readable by construction (auto-included in read scope)
+- **WHEN** an agent is created with `work_root "/Users/x/proj"` and no `read_paths`
+- **THEN** the agent's `:GPTEL_SCOPE_READ:` contains `/Users/x/proj/**`
+- **AND** a relative read resolving under the work root is allowed without scope expansion
+- **WHEN** the caller already supplied `/Users/x/proj/**` in `read_paths`
+- **THEN** the pattern is not duplicated
+
 ### Requirement: Tool invocation and validation
 
-PersistentAgent SHALL only operate within persistent session buffers and SHALL accept exactly four parameters: `preset`, `description`, `prompt`, and `allowed_paths`. The previously advertised `denied_paths` parameter SHALL NOT exist on the tool surface.
+PersistentAgent SHALL only operate within persistent session buffers and SHALL accept exactly six parameters: `preset`, `description`, `prompt`, `work_root`, `read_paths`, and `write_paths`. The previously advertised `allowed_paths` and `denied_paths` parameters SHALL NOT exist on the tool surface; `read_paths` replaces the read-scope role formerly played by `allowed_paths`, and `write_paths` makes write scope parent-controlled (see *Requirement: Agent session creation* for how `/tmp` scratch is handled).
 
 **Tool registration**:
 - `:async t` (non-blocking parent)
@@ -122,22 +152,22 @@ PersistentAgent SHALL only operate within persistent session buffers and SHALL a
 
 #### Scenario: Tool argument schema
 - **WHEN** the registered tool's `:args` are inspected
-- **THEN** the argument list contains exactly `preset`, `description`, `prompt`, and `allowed_paths`
-- **AND** does NOT contain `denied_paths`
+- **THEN** the argument list contains exactly `preset`, `description`, `prompt`, `work_root`, `read_paths`, and `write_paths`
+- **AND** does NOT contain `allowed_paths` or `denied_paths`
 
 #### Scenario: Explicit path configuration (zero inheritance)
-- **WHEN** `allowed_paths` is omitted, `nil`, or an empty array
+- **WHEN** `read_paths` is omitted, `nil`, or an empty array
 - **THEN** the agent's `session.org` `:PROPERTIES:` drawer omits `:GPTEL_SCOPE_READ:` (the validator loads `:read nil`, i.e. no read permissions)
 - **AND** the parent's drawer scope keys are NOT copied into the agent's drawer
-- **WHEN** `allowed_paths` is provided as a non-empty array of glob patterns
+- **WHEN** `read_paths` is provided as a non-empty array of glob patterns
 - **THEN** the agent's drawer declares `:GPTEL_SCOPE_READ:` containing exactly the supplied patterns
 - **AND** the parent's drawer scope keys are NOT merged in
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and auto-init pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and `:GPTEL_SYSTEM_PROMPT_FILE:` (always present for agents). The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. A sibling `system-prompt.<ext>` file SHALL always be written next to `session.org` holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Requirement: Agent system-prompt preamble* and `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
+The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and content-addressed activation pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), its working directory (`:GPTEL_WORK_ROOT:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and `:GPTEL_SYSTEM_PROMPT_FILE:` (always present for agents). The agent's write scope SHALL be the parent-supplied `write_paths` with `/tmp/**` auto-appended as scratch space; `/tmp/**` is a guaranteed scratch grant, NOT the write default it was when `write_paths` did not exist. The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. A sibling `system-prompt.<ext>` file SHALL always be written next to `session.org` holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Requirement: Agent system-prompt preamble* and `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
 
-The session file SHALL be opened with `find-file-noselect` so that the codebase's `find-file-hook`-driven auto-init pipeline activates `gptel-chat-mode`, applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
+The session file SHALL be opened with `find-file-noselect` so that the file's drawer signature triggers content-addressed activation (`magic-mode-alist`) into `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 
 The agent's directory SHALL live under the parent branch's `agents/` subdirectory and SHALL be named `<preset>-<timestamp>-<slug>`. Agents SHALL NOT have a `branches/` subdirectory or a `current` symlink — they remain single-timeline sessions.
 
@@ -154,28 +184,32 @@ The agent's directory SHALL live under the parent branch's `agents/` subdirector
 - **AND** the drawer contains `:GPTEL_PARENT_SESSION_ID: parent-20260425100000`
 - **AND** the drawer is followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading
 
-#### Scenario: Drawer scope keys written with explicit allowed paths
-- **WHEN** an agent is created with `allowed_paths ["/path/to/project/**"]`
-- **THEN** the session.org `:PROPERTIES:` drawer carries the agent's full scope:
+#### Scenario: Drawer scope and work-root keys written from parent-supplied paths
+- **WHEN** an agent is created with `work_root "/path/to/project"`, `read_paths ["/path/to/project/**"]`, and `write_paths ["/path/to/project/**"]`
+- **THEN** the session.org `:PROPERTIES:` drawer carries the agent's work root and full scope:
 ```org
 :PROPERTIES:
 :GPTEL_PRESET: researcher
 :GPTEL_PARENT_SESSION_ID: <parent-id>
+:GPTEL_WORK_ROOT: /path/to/project
 :GPTEL_SCOPE_READ: /path/to/project/**
-:GPTEL_SCOPE_WRITE: /tmp/**
+:GPTEL_SCOPE_WRITE: /path/to/project/**
+:GPTEL_SCOPE_WRITE+: /tmp/**
 :GPTEL_SCOPE_DENY: **/.git/**
 :GPTEL_SCOPE_DENY+: **/runtime/**
 :GPTEL_SCOPE_DENY+: **/.env
 :GPTEL_SCOPE_DENY+: **/node_modules/**
 :END:
 ```
+- **AND** `/tmp/**` appears in the write scope as auto-appended scratch, not as the sole write target
 - **AND** no `scope.yml` (or any other sidecar file) is written in the agent directory
 
-#### Scenario: Agent buffer auto-initializes via find-file-hook
+#### Scenario: Agent buffer activates via content-addressed signature
 - **WHEN** the agent's `session.org` is opened (whether at agent creation time or by a later `find-file`)
-- **THEN** `jf/gptel--auto-init-session-buffer` recognizes the agent path layout and runs
+- **THEN** the file's drawer signature selects `gptel-chat-mode` via `magic-mode-alist` and the `gptel-chat-mode-hook` binder runs
 - **AND** the buffer is in `gptel-chat-mode`
 - **AND** the preset declared in the `:PROPERTIES:` drawer has been applied buffer-local
+- **AND** the buffer's `default-directory` is the drawer's `:GPTEL_WORK_ROOT:`
 - **AND** the buffer is registered in `jf/gptel--session-registry`
 - **AND** `jf/gptel-autosave-enabled` is non-nil
 
@@ -213,7 +247,7 @@ The preamble SHALL establish the agent operating contract: (1) the agent does th
 
 ### Requirement: Configuration isolation (zero inheritance)
 
-The system SHALL enforce zero inheritance from the parent session. Agent configuration SHALL come from a single source: the agent's own `session.org` `:PROPERTIES:` drawer — the `:GPTEL_PRESET:` key (applied buffer-local at auto-init time by `gptel-chat--apply-declared-preset`) plus the agent's drawer scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`). The agent SHALL NOT inherit `gptel-backend`, `gptel-model`, `gptel-temperature`, `gptel-tools`, `gptel-system`, or any scope path from the parent buffer at runtime. Globals (the user's defaults outside any session) MAY fill gaps when the preset does not declare a key — globals are the user's standing intent, not parent-specific state.
+The system SHALL enforce zero inheritance from the parent session. Agent configuration SHALL come from a single source: the agent's own `session.org` `:PROPERTIES:` drawer — the `:GPTEL_PRESET:` key (applied buffer-local at mode-activation time by `gptel-chat--apply-declared-preset`), the agent's working directory (`:GPTEL_WORK_ROOT:`), and the agent's drawer scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`). The agent SHALL NOT inherit `gptel-backend`, `gptel-model`, `gptel-temperature`, `gptel-tools`, `gptel-system`, `default-directory`, or any scope path from the parent buffer at runtime. The agent's work root and scope are values the parent *passes* at spawn time and that are then frozen in the agent's own drawer — a parent-supplied default is not runtime inheritance. Globals (the user's defaults outside any session) MAY fill gaps when the preset does not declare a key — globals are the user's standing intent, not parent-specific state.
 
 #### Scenario: Backend, model, tools come only from the drawer-declared preset
 - **WHEN** the parent session has a non-default `gptel-backend` and `gptel-model` set buffer-local
@@ -227,12 +261,15 @@ The system SHALL enforce zero inheritance from the parent session. Agent configu
 - **AND** does NOT read from the parent's drawer or any `scope.yml`
 - **AND** validates the tool call against the agent's scope only
 
-#### Scenario: Path configuration never inherited
+#### Scenario: Path and work-root configuration never runtime-inherited
 - **WHEN** the parent's `session.org` drawer declares `:GPTEL_SCOPE_READ:` with patterns
-- **AND** the agent is created without `allowed_paths`
+- **AND** the agent is created without `read_paths`
 - **THEN** the agent's drawer omits `:GPTEL_SCOPE_READ:` (empty read paths)
 - **AND** the parent's drawer scope keys are NOT copied into the agent's drawer
 - **AND** the agent has read access only to the patterns its own drawer declares
+- **WHEN** the agent is created without `work_root`
+- **THEN** the agent's drawer records its own `:GPTEL_WORK_ROOT:` resolved to the parent's work root at spawn time
+- **AND** the agent buffer's `default-directory` is read from that drawer value, not from a live reference to the parent buffer
 
 ### Requirement: Execution lifecycle
 
@@ -301,11 +338,27 @@ The overlay in the parent buffer SHALL be created at the parent's response-track
 - **THEN** the agent code does NOT accumulate those chunks into a parallel string buffer
 - **AND** the result returned to the parent is derived from the agent buffer at terminal state, not from an in-flight accumulator
 
+### Requirement: Agent identity in the drawer
+
+An agent `session.org` SHALL carry drawer-resident identity exactly like a standalone session: `:GPTEL_SESSION_ID:` and `:GPTEL_BRANCH:` (in addition to the agent-distinguishing `:GPTEL_PARENT_SESSION_ID:`). These keys SHALL be emitted by agent creation (`jf/gptel-persistent-agent--task`) into the drawer it already writes, so that an agent's identity, like a branch's, is read from its drawer rather than reverse-engineered from the nested `agents/<agent>/` path layout.
+
+Agent activation SHALL flow through the same content-addressed path as any session: the agent file is written complete (drawer + body) before it is opened, so `find-file-noselect` triggers the `magic-mode-alist` session signature, and the `gptel-chat-mode-hook` binder establishes the agent buffer's state from the drawer. The agent module SHALL NOT depend on the retired global `find-file-hook` auto-init pipeline.
+
+#### Scenario: Agent drawer carries identity keys
+- **WHEN** an agent is created under parent `p-abc-20260424000000`
+- **THEN** the agent `session.org` drawer contains `:GPTEL_SESSION_ID:`, `:GPTEL_BRANCH:`, and `:GPTEL_PARENT_SESSION_ID: p-abc-20260424000000`
+
+#### Scenario: Agent activates via content-addressed signature
+- **WHEN** `jf/gptel-persistent-agent--task` opens the freshly written agent file with `find-file-noselect`
+- **THEN** the file's drawer signature selects `gptel-chat-mode` via `magic-mode-alist`
+- **AND** the `gptel-chat-mode-hook` binder sets the agent buffer's identity (from the drawer), registers it, and enables autosave
+- **AND** no `find-file-hook` entry is involved
+
 ### Requirement: Persistence and resumption
 
-The system SHALL rely on the chat-mode session-init pipeline for persistence: autosave is installed by auto-init when the session file is opened, and the buffer's contents (including streamed assistant text and tool blocks) are persisted incrementally through chat-mode's normal save path. The agent SHALL NOT install its own custom auto-save hook.
+The system SHALL rely on the chat-mode session-binding pipeline for persistence: autosave is enabled by the `gptel-chat-mode-hook` binder when the session file is activated, and the buffer's contents (including streamed assistant text and tool blocks) are persisted incrementally through chat-mode's normal save path. The agent SHALL NOT install its own custom auto-save hook.
 
-A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mode` session: opening the file via `find-file` SHALL auto-initialize it identically to a standalone session — same major mode, same drawer-declared preset application, same registry registration, same autosave behavior — with the only distinction being the presence of `GPTEL_PARENT_SESSION_ID` in the drawer.
+A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mode` session: opening the file via `find-file` SHALL activate and bind it identically to a standalone session — same major mode (selected by the content-addressed signature), same drawer-declared preset application, same registry registration, same autosave behavior — with the only distinction being the presence of `GPTEL_PARENT_SESSION_ID` in the drawer.
 
 #### Scenario: No agent-specific auto-save hook
 - **WHEN** the persistent-agent module is loaded
@@ -314,7 +367,7 @@ A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mo
 
 #### Scenario: Saved agent session reloads as interactive
 - **WHEN** an agent has completed and its `session.org` is later opened with `find-file`
-- **THEN** the buffer is in `gptel-chat-mode`
+- **THEN** the content-addressed signature selects `gptel-chat-mode`
 - **AND** the drawer-declared preset has been applied buffer-local
 - **AND** the user can invoke `gptel-chat-send` from the buffer to continue the conversation interactively
 - **AND** behavior is indistinguishable from a standalone chat session except for the presence of `GPTEL_PARENT_SESSION_ID` in the drawer
@@ -354,11 +407,11 @@ The system SHALL handle terminal FSM states (`ERRS`, `ABRT`) and creation-time v
 
 ### With Sessions Subsystem
 - Agent directory created by a private agent-specific helper that mirrors the session-directory layout under `<parent-branch>/agents/`.
-- Agent `session.org` is registered via `jf/gptel--register-session` by the auto-init pipeline when the file is opened.
+- Agent `session.org` is registered via `jf/gptel--register-session` by the `gptel-chat-mode-hook` binder when the file is opened.
 - All metadata (preset, parent session id) lives in the session file's `:PROPERTIES:` drawer — no sidecar `metadata.yml` is written.
 
 ### With Scope Subsystem
-- Agent scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) are written into the agent's `session.org` `:PROPERTIES:` drawer at creation time by a private fixed-shape wrapper inside the persistent-agent module — `allowed_paths` populates the `:READ:` key; write/deny are constants from the codebase's defaults. No `scope.yml` is written.
+- Agent scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) are written into the agent's `session.org` `:PROPERTIES:` drawer at creation time by a private fixed-shape wrapper inside the persistent-agent module — `read_paths` (plus the auto-included `<work_root>/**` pattern) populates the `:READ:` key; `write_paths` (plus `/tmp/**` scratch) populates the `:WRITE:` key; deny is constant from the codebase's defaults. No `scope.yml` is written.
 - The scope validator reads from the agent buffer's drawer (or, when called outside the buffer, from `<agent-dir>/session.org`'s drawer) at tool-validation time; it NEVER reads the parent's drawer.
 - Agent tools are validated against the agent's drawer only.
 - `meta` tool categorization bypasses parent scope checks for the PersistentAgent tool invocation itself.
@@ -371,18 +424,18 @@ The system SHALL handle terminal FSM states (`ERRS`, `ABRT`) and creation-time v
 ## Critical Invariants
 
 1. **Parent session required**: `jf/gptel--session-dir` must be non-nil in the calling buffer; otherwise `user-error` before any side effect.
-2. **Zero inheritance**: Paths ONLY from `allowed_paths` parameter; backend/model/tools/system ONLY from the drawer-declared preset; never from parent.
+2. **Zero inheritance**: Read scope ONLY from `read_paths` (plus the auto-included work-root pattern); write scope ONLY from `write_paths` (plus `/tmp/**` scratch); work root from `work_root` (parent-defaulted, then frozen in the drawer); backend/model/tools/system ONLY from the drawer-declared preset; never runtime-inherited from parent.
 3. **Drawer-driven init**: Agent configuration is fully recoverable from the on-disk `session.org` `:PROPERTIES:` drawer — opening the file via `find-file` produces the same buffer state as the original creation.
 4. **No agent-owned auto-save**: Persistence flows through chat-mode's standard save path; the persistent-agent module installs no save hook of its own.
 5. **No string accumulator**: The parent's callback receives text derived from the agent buffer at terminal state, not from an in-flight string accumulator.
 6. **Overlay cleanup on all paths**: Parent overlay is deleted on every terminal FSM state (`DONE`, `ERRS`, `ABRT`) before the parent callback is invoked.
 7. **Single-timeline agents**: No `branches/` subdirectory, no `current` symlink — agents are flat, single-timeline sessions.
-8. **No `denied_paths`**: The tool surface accepts exactly four parameters; per-agent deny configuration is not supported.
+8. **No `denied_paths`**: The tool surface accepts exactly six parameters (`preset`, `description`, `prompt`, `work_root`, `read_paths`, `write_paths`); per-agent deny configuration is not supported.
 
 ## Summary
 
 PersistentAgent provides autonomous sub-agents with:
-- **Zero inheritance** (isolated configuration; drawer-declared preset + explicit `allowed_paths`)
+- **Zero inheritance** (isolated configuration; drawer-declared preset + parent-supplied `work_root` / `read_paths` / `write_paths`)
 - **Chat-mode native** (composes the public programmatic-send API; agent sessions are reloadable as standard interactive chat-mode sessions)
 - **Async execution** (non-blocking parent)
 - **Progress feedback** (overlays in parent, FSM-handler-driven updates)

@@ -90,7 +90,17 @@ Any response content line matching `^#\+\(end_user\|end_assistant\|end_tool\)\b`
 
 ### Requirement: Mode definition and activation
 
-The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode`. Activation SHALL be possible via `M-x gptel-chat-mode`, file-local mode cookies (`-*- gptel-chat -*-`), or auto-mode-alist configuration. auto-mode-alist activation is a user-side configuration — users add their own pattern as desired; chat-mode does not register auto-mode-alist entries by default.
+The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode`. Activation SHALL be possible via `M-x gptel-chat-mode`, file-local mode cookies (`-*- gptel-chat -*-`), and **content-addressed recognition through `magic-mode-alist`**.
+
+The system SHALL register one `magic-mode-alist` entry whose predicate (the *session signature*) recognizes a gptel session by its content, not by its filename or path:
+
+- The predicate SHALL match a buffer whose first non-blank content at `point-min` is an Org `:PROPERTIES:` drawer that contains at least one property key whose name begins with `GPTEL_` (e.g. `:GPTEL_PRESET:`, `:GPTEL_SESSION_ID:`).
+- The predicate SHALL be anchored to a *real* drawer at `point-min` (a `:PROPERTIES:` line followed, before its `:END:`, by a `:GPTEL_…:` property line). Prose that merely quotes the string `:GPTEL_PRESET:` inside body text SHALL NOT match.
+- The predicate SHALL inspect only the buffer head (no whole-buffer scan) and SHALL be safe on non-org buffers (no parse error).
+
+Because `set-auto-mode` consults `magic-mode-alist` before `auto-mode-alist`, a signature-bearing `.org` file SHALL open in `gptel-chat-mode` rather than the default `org-mode`. As `gptel-chat-mode` derives from `org-mode`, all org features remain available.
+
+The system SHALL NOT register any `auto-mode-alist` entry of its own (activation is content-addressed, not filename-addressed). Users MAY still add their own `auto-mode-alist` pattern.
 
 #### Scenario: Interactive activation
 - **WHEN** running `M-x gptel-chat-mode` in a buffer
@@ -101,6 +111,21 @@ The system SHALL define `gptel-chat-mode` as a major mode derived from `org-mode
 #### Scenario: File-local cookie activation
 - **WHEN** opening a file with first line `# -*- gptel-chat -*-`
 - **THEN** the buffer is in `gptel-chat-mode` after load
+
+#### Scenario: Content-addressed activation by session signature
+- **WHEN** any `.org` file is opened (via `find-file`, `find-file-noselect`, dired, recentf, or a bookmark) whose `point-min` `:PROPERTIES:` drawer carries a `:GPTEL_`-prefixed key
+- **THEN** `magic-mode-alist` selects `gptel-chat-mode` as the major mode
+- **AND** the selection wins over the default `.org → org-mode` mapping
+
+#### Scenario: Signature does not false-match a quoting org file
+- **WHEN** opening an ordinary org file that mentions the text `:GPTEL_PRESET:` only inside a paragraph or source block (not in a `point-min` `:PROPERTIES:` drawer)
+- **THEN** the session signature predicate returns nil
+- **AND** the file opens in ordinary `org-mode`
+
+#### Scenario: Old session without identity keys still activates
+- **WHEN** opening a pre-existing `session.org` whose drawer carries `:GPTEL_PRESET:` but no `:GPTEL_SESSION_ID:`
+- **THEN** the signature still matches (any `:GPTEL_`-prefixed key qualifies)
+- **AND** the buffer activates in `gptel-chat-mode`
 
 ### Requirement: Buffer format validation
 
@@ -496,38 +521,6 @@ The previously-named internal symbols `gptel-chat--parse-buffer`, `gptel-chat--t
 - **WHEN** the chat-mode module is loaded
 - **THEN** the symbols `gptel-chat--parse-buffer`, `gptel-chat--turns-to-messages`, `gptel-chat--open-assistant-block`, `gptel-chat--stream-callback`, and `gptel-chat--fsm-handlers` are unbound (or have been removed from the source)
 - **AND** no `defalias` from the old names to the new names exists in the codebase
-
-### Requirement: Session-file auto-initialization
-
-When a chat-mode buffer visits a file whose absolute path matches `*/branches/<branch>/session.org` or `*/agents/<agent-name>/session.org` (the session directory layout defined in `sessions-persistence`), the session auto-initialization hook SHALL:
-
-1. Extract `session-id` and `branch-name` from the path
-2. Set the five buffer-local session variables (`jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`, and `jf/gptel--parent-session-id` when applicable)
-3. Register the buffer in `jf/gptel--session-registry` keyed `"<session-id>/<branch-name>"`
-4. Read `metadata.yml` from the branch directory and apply its `preset` via `gptel--apply-preset` with a buffer-local setter
-5. Ensure `gptel-chat-mode` is the active major mode (no-op if already active)
-6. Update the `current` symlink to point at this branch
-
-The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--save-state`, and SHALL NOT invoke `gptel--restore-state`.
-
-#### Scenario: Opening a session.org file activates chat-mode and registers the session
-- **WHEN** the user opens `~/.gptel/sessions/foo-20260420000000/branches/main/session.org`
-- **THEN** `gptel-chat-mode` is the active major mode
-- **AND** the five session buffer-local vars are set
-- **AND** the buffer is registered in `jf/gptel--session-registry`
-- **AND** `gptel-mode` is NOT enabled as a minor mode
-
-#### Scenario: Auto-init applies preset from metadata.yml
-- **WHEN** a `session.org` auto-inits and `metadata.yml` contains `preset: coding`
-- **THEN** `gptel--apply-preset` is called with `coding` and a buffer-local setter
-- **AND** buffer-local `gptel-model`, `gptel-backend`, `gptel-tools`, etc. reflect the coding preset
-
-#### Scenario: Path outside session layout does not auto-init session state
-- **WHEN** a `.org` file at an unrelated path (e.g., `~/notes/chat.org`) is opened in chat-mode
-- **THEN** the session auto-init hook does NOT fire
-- **AND** no session vars are set
-- **AND** no registry entry is created
-- **AND** the buffer is still a fully functional chat-mode buffer (preset may still apply via Requirement: Preset system integration)
 
 ### Requirement: Session file format and persistence
 

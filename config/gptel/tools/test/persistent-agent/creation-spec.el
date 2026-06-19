@@ -76,8 +76,6 @@
                    "\\`test-preset-[0-9]\\{14\\}-analyze-code\\'")
            (expect (file-directory-p agent-dir) :to-be t)
            (expect (file-directory-p (expand-file-name "branches" agent-dir))
-                   :to-be nil)
-           (expect (file-exists-p (expand-file-name "current" agent-dir))
                    :to-be nil))))))
 
   (it "writes session.org with a self-describing :PROPERTIES: drawer"
@@ -128,10 +126,16 @@
              ;; register/invariant/drawer-system-key-write-exclusion).
              (expect (org-entry-get (point-min) "GPTEL_SYSTEM")
                      :to-be nil)
-             ;; No allowed-paths supplied ⇒ no `:GPTEL_SCOPE_READ:'.
+             ;; read_paths omitted ⇒ read scope is the work root alone:
+             ;; `<work_root>/**' is auto-prepended so relative reads land
+             ;; in scope (design.md D6; supersedes the old D7 guardrail).
+             ;; Work root defaults to the parent buffer's `default-directory'.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_READ")
-                     :to-be nil)
+                     :to-equal
+                     (list (concat (directory-file-name
+                                    (expand-file-name default-directory))
+                                   "/**")))
              ;; Standard write target: `/tmp/**'.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_WRITE")
@@ -159,8 +163,12 @@
      (jf/persistent-agent-test--with-mock-preset 'test-preset
        (let ((captured nil))
          (jf/persistent-agent-test--with-mock-gptel-request captured
+           ;; New signature: (... prompt work-root read-paths write-paths).
+           ;; `read_paths' (6th positional, after `work_root') replaces the
+           ;; read role of the removed `allowed_paths' (design.md D6).
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "do the thing"
+            "/path/to/project"
             '("/path/to/project/**" "/another/**")))
          (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
@@ -192,16 +200,18 @@
            (expect (file-exists-p (expand-file-name "scope.yml" agent-dir))
                    :to-be nil))))))
 
-  (it "writes session.org drawer with no :GPTEL_SCOPE_READ when allowed-paths is omitted"
+  (it "writes :GPTEL_SCOPE_READ as the work root alone when read_paths is omitted"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Tool invocation
     ;; and validation" -> "Explicit path configuration (zero inheritance)".
     ;; Replaces the legacy "writes scope.yml with empty read paths" test.
-    ;; The drawer has `:GPTEL_PRESET:', `:GPTEL_PARENT_SESSION_ID:',
-    ;; `:GPTEL_SCOPE_WRITE:' and `:GPTEL_SCOPE_DENY:' but the
-    ;; `:GPTEL_SCOPE_READ:' key is absent (zero inheritance).
+    ;; Zero inheritance of the PARENT's read scope still holds — the agent
+    ;; gets NO parent read patterns.  But the agent's OWN work root is
+    ;; readable by construction: `<work_root>/**' is auto-prepended to
+    ;; `:read' (design.md D6; supersedes the old D7 guardrail).  This is
+    ;; self-consistency, not inheritance.
     ;;
     ;; Note: this test pins the agent-side renderer's behaviour only —
-    ;; downstream validator behaviour for the empty-allowed-paths case
+    ;; downstream validator behaviour for the empty-read-paths case
     ;; is still subject to `disposition-empty-drawer-collapse'.
     (jf/persistent-agent-test--with-mock-parent-session
      (jf/persistent-agent-test--with-mock-preset 'test-preset
@@ -217,10 +227,14 @@
                 (session-org (expand-file-name "session.org" agent-dir)))
            (expect (file-exists-p session-org) :to-be t)
            (jf/persistent-agent-test--with-agent-session-org agent-dir
-             ;; `:GPTEL_SCOPE_READ:' is absent (zero inheritance).
+             ;; `:GPTEL_SCOPE_READ:' is the work root alone — no parent
+             ;; patterns inherited.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_READ")
-                     :to-be nil)
+                     :to-equal
+                     (list (concat (directory-file-name
+                                    (expand-file-name default-directory))
+                                   "/**")))
              ;; Standard write + deny still present.
              (expect (org-entry-get-multivalued-property
                       (point-min) "GPTEL_SCOPE_WRITE")
@@ -279,17 +293,20 @@
         (expect (error-message-string err) :to-match
                 "PersistentAgent requires parent persistent session"))))
 
-  (it "tool registration drops denied_paths from the args"
+  (it "tool registration lists exactly the six params and excludes allowed_paths/denied_paths"
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Tool invocation
-    ;; and validation" -> "Tool argument schema"
+    ;; and validation" -> "Tool argument schema".  BREAKING rename
+    ;; (design.md D6): `allowed_paths' is gone; the surface is the closed
+    ;; six-param set {preset, description, prompt, work_root, read_paths,
+    ;; write_paths} (register/vocabulary/agent-path-params closed_set).
     (let* ((tool       (gptel-get-tool "PersistentAgent"))
            (args       (gptel-tool-args tool))
            (arg-names  (mapcar (lambda (a) (plist-get a :name)) args)))
       (expect tool :not :to-be nil)
-      (expect arg-names :to-contain "preset")
-      (expect arg-names :to-contain "description")
-      (expect arg-names :to-contain "prompt")
-      (expect arg-names :to-contain "allowed_paths")
+      (expect arg-names :to-equal
+              '("preset" "description" "prompt"
+                "work_root" "read_paths" "write_paths"))
+      (expect arg-names :not :to-contain "allowed_paths")
       (expect arg-names :not :to-contain "denied_paths"))))
 
 (describe "PersistentAgent session.org matches the canonical document layout"

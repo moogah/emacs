@@ -3,7 +3,7 @@ Test Report
 
 ERT: 0 ran, 0 passed
 
-Buttercup: 504 ran, 504 passed
+Buttercup: 562 ran, 562 passed
 
 ===========
-Total: 504 ran, 504 passed
+Total: 562 ran, 562 passed

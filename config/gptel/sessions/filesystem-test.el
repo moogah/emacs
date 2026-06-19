@@ -92,25 +92,6 @@ for any branch directory."
     ;; Should be inside the branch directory
     (should (string-prefix-p branch-dir context-path))))
 
-(ert-deftest test-directory-creation-org-symlink ()
-  "Spec: sessions § 'Current symlink points to active branch'
-
-Verify jf/gptel--update-current-symlink creates a working symlink
-to the current branch."
-  (unwind-protect
-      (let* ((temp-dir (filesystem-test--make-temp-dir))
-             (session-dir (expand-file-name "test-session" temp-dir)))
-        ;; Create branch directory first
-        (jf/gptel--create-branch-directory session-dir "main")
-        ;; Create symlink
-        (jf/gptel--update-current-symlink session-dir "main")
-        ;; Verify symlink exists
-        (let ((symlink (jf/gptel--current-symlink-path session-dir)))
-          (should (file-symlink-p symlink))
-          ;; Verify current branch name resolves correctly
-          (should (string= (jf/gptel--get-current-branch-name session-dir) "main"))))
-    (filesystem-test--cleanup)))
-
 (ert-deftest test-directory-creation-org-valid-session-p ()
   "Spec: sessions § 'Valid session directory has branches subdirectory'
 

@@ -146,6 +146,50 @@ BRANCH-POINT-POSITION is optional position in parent where branch was created."
         (insert "branch_point_position: " (number-to-string branch-point-position) "\n")))
     (jf/gptel--log 'info "Created branch-metadata.yml with parent: %s" parent-branch-name)))
 
+(defun jf/gptel--set-drawer-property-in-buffer (key value)
+  "Set drawer property KEY to VALUE in the current buffer's drawer.
+
+Operates on the `:PROPERTIES:' / `:END:' block at `point-min'
+\(`register/shape/drawer-text-block').  When a `:KEY: ...' line exists
+between the header and `:END:', its value is REPLACED in place (no
+duplicate key).  When the key is absent, a `:KEY: VALUE' line is
+inserted immediately before `:END:', preserving the block's adjacency
+invariant.  Assumes the drawer is present and well-formed; callers
+guard that precondition."
+  (save-excursion
+    (goto-char (point-min))
+    (let ((line-re (concat "^:" (regexp-quote key) ":[ \t].*$")))
+      (if (re-search-forward line-re nil t)
+          (replace-match (format ":%s: %s" key value) t t)
+        (when (re-search-forward "^:END:$" nil t)
+          (goto-char (match-beginning 0))
+          (insert (format ":%s: %s\n" key value)))))))
+
+(defun jf/gptel--rewrite-branch-identity-keys (session-file session-id branch-name)
+  "Set SESSION-FILE's drawer `:GPTEL_SESSION_ID:'/`:GPTEL_BRANCH:' keys.
+
+SESSION-FILE is the new branch's `session.org' path.  SESSION-ID is
+the shared session id (set as `:GPTEL_SESSION_ID:').  BRANCH-NAME is
+the new branch's own name (set as `:GPTEL_BRANCH:', overwriting any
+value the parent drawer carried — `register/invariant/branch-drawer-
+shares-id-not-branch').
+
+Reads SESSION-FILE, REPLACES the two identity keys in its leading
+`register/shape/drawer-text-block' (append-if-absent), and writes the
+content back.  When the file has no `:PROPERTIES:' / `:END:' drawer at
+`point-min', it is left untouched."
+  (with-temp-buffer
+    (insert-file-contents session-file)
+    (goto-char (point-min))
+    (when (and (looking-at-p ":PROPERTIES:\n")
+               (save-excursion (re-search-forward "^:END:$" nil t)))
+      (jf/gptel--set-drawer-property-in-buffer "GPTEL_SESSION_ID" session-id)
+      (jf/gptel--set-drawer-property-in-buffer "GPTEL_BRANCH" branch-name)
+      (write-region (point-min) (point-max) session-file nil 'silent)
+      (jf/gptel--log 'info
+                     "Rewrote branch identity keys: %s (session-id=%s branch=%s)"
+                     session-file session-id branch-name))))
+
 (defun jf/gptel--create-branch-session (session-dir parent-branch-name branch-name branch-position)
   "Create new branch inside SESSION-DIR.
 SESSION-DIR - session directory containing branches
@@ -185,8 +229,27 @@ Returns new branch directory path."
     ;; Copy and truncate session.org
     (jf/gptel--copy-truncated-context parent-context branch-context branch-position)
 
-    ;; Update current symlink to point to new branch
-    (jf/gptel--update-current-symlink session-dir new-branch-name)
+    ;; Overwrite the new branch's identity keys in the verbatim-copied
+    ;; drawer (register/invariant/branch-drawer-shares-id-not-branch):
+    ;; the branch SHARES the session id but gets its OWN branch name.
+    ;; The parent's `:GPTEL_BRANCH:' value (e.g. "main") rode along in
+    ;; the verbatim copy; it MUST be REPLACED with NEW-BRANCH-NAME (not
+    ;; appended) so two branches never collide on the registry key
+    ;; "session-id/branch-name" and no duplicate drawer key survives.
+    ;; `:GPTEL_SESSION_ID:' is re-asserted to the shared id (the copy
+    ;; already carries it, but a parent drawer predating identity-key
+    ;; emission would not).  The shared id is resolved drawer-first from
+    ;; the parent branch's `session.org' (`parent-context') and only
+    ;; falls back to the SESSION-DIR basename when that drawer omits
+    ;; `:GPTEL_SESSION_ID:' (register/boundary/drawer-first-identity-
+    ;; resolution), so a moved/renamed parent session contributes its
+    ;; REAL id rather than its current directory name.
+    (jf/gptel--rewrite-branch-identity-keys
+     branch-context
+     (jf/gptel--resolve-session-id
+      (jf/gptel--read-session-drawer-head parent-context)
+      session-dir)
+     new-branch-name)
 
     (jf/gptel--log 'info "Branch created successfully: %s" new-branch-name)
     branch-dir))
@@ -212,7 +275,6 @@ The new branch is created under the same session with:
   new branch inherits the parent's preset AND `:GPTEL_SCOPE_*:'
   keys automatically — gptel-scope-in-org-properties
   drawer-resident scope)
-- current symlink updated to point to the new branch
 
 After creation, the branch can evolve independently from the parent.
 
@@ -260,7 +322,10 @@ session uses plain `save-buffer' (no gptel--bounds drawer to manage)."
          (new-branch-file (jf/gptel--context-file-path new-branch-dir))
          (new-branch-name (file-name-nondirectory new-branch-dir)))
 
-    ;; Open new branch session buffer (auto-initializes via find-file-hook).
+    ;; Open new branch session buffer.  The session.org drawer signature
+    ;; drives `magic-mode-alist' into `gptel-chat-mode', whose mode hook
+    ;; (`jf/gptel--bind-session-buffer') binds the buffer-local session
+    ;; vars — activation is content-addressed, not path-triggered.
     (find-file new-branch-file)
 
     (message "Created branch: %s\nFrom parent: %s\nSession: %s"

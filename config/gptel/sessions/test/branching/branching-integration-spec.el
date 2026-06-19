@@ -10,14 +10,15 @@
 ;; End-to-end behavioural tests for `jf/gptel--create-branch-session',
 ;; mounted on a real temporary session directory. Exercises:
 ;;   - Parser-driven branch-point selection composed with truncation
-;;     and branch-directory creation (registry, metadata, symlink).
+;;     and branch-directory creation (registry, metadata).
 ;;   - Empty branch from first-turn EXCLUDE still produces a valid
 ;;     `session.org' in a real branch directory.
 ;;   - Org commentary before the first user turn is preserved verbatim
 ;;     in the new branch.
 ;;   - Registry-update ordering: `jf/gptel--create-branch-session' does
 ;;     NOT register the new branch; registration is a lazy side effect
-;;     of `find-file' → `jf/gptel--auto-init-session-buffer'.
+;;     of opening the branch's `session.org' — the content-addressed
+;;     `gptel-chat-mode-hook' binder `jf/gptel--bind-session-buffer'.
 ;;
 ;; Coverage (from
 ;; openspec/changes/gptel-chat-mode/specs/gptel/sessions-branching.md):
@@ -281,21 +282,21 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
           ;; drawer at the top of session.org (Decision 7).
           (expect (file-exists-p
                    (expand-file-name "metadata.yml" new-branch-dir))
-                  :not :to-be-truthy)
-          ;; Current symlink resolves to the new branch.
-          (let ((current-link (expand-file-name "current" session-dir)))
-            (expect (file-symlink-p current-link) :to-be-truthy)
-            (expect (file-truename (expand-file-name "session.org" current-link))
-                    :to-equal (file-truename new-ctx)))))))
+                  :not :to-be-truthy)))))
 
   (describe "Preset drawer inheritance (Decision 7)"
 
     ;; The parent's `:PROPERTIES:' drawer at the top of session.org is
-    ;; preserved verbatim by the truncated-context copy, so the new
-    ;; branch inherits the parent's preset without a separate
-    ;; metadata.yml copy step.
+    ;; copied verbatim by the truncated-context copy, so the new branch
+    ;; inherits the parent's preset (and scope keys) without a separate
+    ;; metadata.yml copy step.  After the copy,
+    ;; `jf/gptel--create-branch-session' rewrites the branch's identity
+    ;; keys (`:GPTEL_SESSION_ID:' shared, `:GPTEL_BRANCH:' set to the
+    ;; new branch name — register/invariant/branch-drawer-shares-id-
+    ;; not-branch), so the drawer is NOT byte-identical to the parent's
+    ;; — the non-identity keys (preset) are what carry through verbatim.
 
-    (it "starts the new branch's session.org with the parent's :PROPERTIES: drawer"
+    (it "starts the new branch's session.org with the parent's drawer keys plus its own identity"
       (let* ((root (jf-branching-integration--make-tempdir))
              (jf/gptel-sessions-directory root)
              (bootstrap (jf-branching-integration--bootstrap-parent
@@ -312,17 +313,22 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
         (let* ((new-branch-dir
                 (jf/gptel--create-branch-session
                  session-dir "main" "drawer-inherit" branch-pos))
+               (new-branch-name (file-name-nondirectory new-branch-dir))
                (new-ctx (jf/gptel--context-file-path new-branch-dir))
-               (written (jf-branching-integration--file-contents new-ctx))
-               (parent-drawer jf-branching-integration--parent-drawer))
-          ;; The new session.org starts with exactly the parent's
-          ;; drawer bytes (drawer is at point-min of parent, so
-          ;; truncation preserves it verbatim).
-          (expect (substring written 0 (length parent-drawer))
-                  :to-equal parent-drawer)
-          ;; The GPTEL_PRESET value matches the parent's.
+               (written (jf-branching-integration--file-contents new-ctx)))
+          ;; The new session.org still opens with the `:PROPERTIES:'
+          ;; header (drawer is at point-min of parent, preserved by the
+          ;; truncated copy).
+          (expect (string-prefix-p ":PROPERTIES:\n" written) :to-be t)
+          ;; The GPTEL_PRESET value carries through verbatim from the
+          ;; parent's drawer (non-identity keys are inherited).
           (expect (string-match-p
                    (regexp-quote ":GPTEL_PRESET: executor")
+                   written)
+                  :to-be-truthy)
+          ;; The branch gained its OWN identity keys via the rewrite.
+          (expect (string-match-p
+                   (concat ":GPTEL_BRANCH: " (regexp-quote new-branch-name))
                    written)
                   :to-be-truthy))))
 
@@ -369,7 +375,7 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
     ;;
     ;; Test shape: bootstrap a real session directory, attach a
     ;; buffer to `session.org' with the buffer-local session vars
-    ;; that `jf/gptel--auto-init-session-buffer' would set, append
+    ;; that `jf/gptel--bind-session-buffer' would set, append
     ;; a new user turn in-memory only (no save), and invoke
     ;; `jf/gptel-branch-session' with the unsaved user turn
     ;; selected INCLUDE. After branch creation:
@@ -401,18 +407,17 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
               ;; Bind the buffer to the parent session.org file
               ;; without going through `find-file-noselect' (which
               ;; would run `set-auto-mode' and pull in org-mode +
-              ;; the gptel auto-init find-file-hook). We only need
-              ;; a file-visiting buffer that `save-buffer' will
-              ;; write to the expected path.
+              ;; content-addressed `gptel-chat-mode' activation). We
+              ;; only need a file-visiting buffer that `save-buffer'
+              ;; will write to the expected path.
               (setq-local buffer-file-name parent-ctx)
               (insert-file-contents parent-ctx)
               (set-buffer-modified-p nil)
 
               ;; Wire up buffer-local session vars the way
-              ;; `jf/gptel--auto-init-session-buffer' would. We
-              ;; bypass the real auto-init (and its org-mode /
-              ;; yasnippet side-effects) by stubbing the mode check
-              ;; inside the call below.
+              ;; `jf/gptel--bind-session-buffer' would. We bypass the
+              ;; real content-addressed activation (and its org-mode /
+              ;; yasnippet side-effects) by setting the vars directly.
               (setq-local jf/gptel--session-dir session-dir)
               (setq-local jf/gptel--branch-name "main")
               (setq-local jf/gptel--session-id
@@ -461,10 +466,15 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
                       (progn
                         (jf/gptel-branch-session "dirty-buffer-regression")
                         ;; Re-compute: `jf/gptel-branch-session' does
-                        ;; not return the new branch dir, so find
-                        ;; it via the current symlink.
+                        ;; not return the new branch dir, so find it by
+                        ;; scanning `branches/' for the freshly-created
+                        ;; branch (the only one besides "main").
                         (file-truename
-                         (expand-file-name "current" session-dir)))))
+                         (jf/gptel--branch-dir-path
+                          session-dir
+                          (car (seq-remove
+                                (lambda (b) (string= b "main"))
+                                (jf/gptel--list-branches session-dir))))))))
 
               ;; Post-assertion (a): save fired. Parent file on
               ;; disk now contains the previously-unsaved turn.
@@ -514,9 +524,10 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
 
   ;; Finding #4: `jf/gptel--create-branch-session' does NOT register
   ;; the new branch in `jf/gptel--session-registry'. Registration is
-  ;; a side effect of opening the new branch's `session.org' (the
-  ;; `find-file-hook' → `jf/gptel--auto-init-session-buffer' path).
-  ;; These specs pin that asymmetric behaviour.
+  ;; a side effect of opening the new branch's `session.org' — under
+  ;; the content-addressed model, the `gptel-chat-mode-hook' binder
+  ;; (`jf/gptel--bind-session-buffer') registers a signature-bearing
+  ;; buffer.  These specs pin that asymmetric behaviour.
 
   (after-each
     (dolist (dir jf-branching-integration--tempdirs)
@@ -549,7 +560,7 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
       (expect (jf/gptel-session-find session-id new-branch-name)
               :to-be nil)))
 
-  (it "populates the registry lazily on first open via auto-init"
+  (it "populates the registry lazily on first open via the content-addressed binder"
     (let* ((root (jf-branching-integration--make-tempdir))
            (jf/gptel-sessions-directory root)
            (bootstrap (jf-branching-integration--bootstrap-parent
@@ -572,28 +583,22 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
       ;; Pre-condition: create-branch-session did not register.
       (expect (gethash registry-key jf/gptel--session-registry) :to-be nil)
       (unwind-protect
-          ;; Simulate `find-file' → `find-file-hook' → auto-init.
-          ;; We set `buffer-file-name' and invoke the hook directly
-          ;; (same pattern as `session-restoration-spec.el'). Real
-          ;; gptel mode activation and preset application are mocked
-          ;; — this spec cares only about registry side effects.
+          ;; Simulate opening the branch: a real `gptel-chat-mode'
+          ;; activation would fire `gptel-chat-mode-hook' and run the
+          ;; content-addressed binder.  Here we set `buffer-file-name',
+          ;; load the on-disk session.org content (so the buffer carries
+          ;; its `:GPTEL_*:' drawer signature), and invoke the binder
+          ;; directly — this spec cares only about registry side effects.
           (with-current-buffer buf
             (setq buffer-file-name new-ctx)
-            (cl-letf (((symbol-function 'gptel-chat-mode)
-                       (lambda (&optional _) nil))
-                      ((symbol-function 'jf/gptel--ensure-mode-once)
-                       (lambda () nil))
-                      ((symbol-function 'gptel-get-preset)
-                       (lambda (_) nil))
-                      ((symbol-function 'gptel--apply-preset)
-                       (lambda (_name _setter) nil)))
-              (jf/gptel--auto-init-session-buffer))
+            (insert-file-contents new-ctx)
+            (jf/gptel--bind-session-buffer)
             ;; Registry entry now exists for the new branch.
             (let ((entry (gethash registry-key jf/gptel--session-registry)))
               (expect entry :to-be-truthy)
               (expect (plist-get entry :session-id) :to-equal session-id)
               (expect (plist-get entry :branch-name) :to-equal new-branch-name)
-              ;; Auto-init stores branch-dir with a trailing slash
+              ;; The binder stores branch-dir with a trailing slash
               ;; (from `file-name-directory'), while
               ;; `jf/gptel--create-branch-session' returns the path
               ;; without one. Compare as directories so the test
@@ -604,6 +609,93 @@ Writes PARENT-CONTENT to `main/session.org' and returns a plist:
         ;; Cleanup: unregister and kill buffer.
         (remhash registry-key jf/gptel--session-registry)
         (kill-buffer buf)))))
+
+(describe "drawer-first session-id sourcing (move-safe identity)"
+
+  ;; `jf/gptel--create-branch-session' stamps the new branch's
+  ;; `:GPTEL_SESSION_ID:' with the PARENT session's resolved id
+  ;; (register/invariant/branch-drawer-shares-id-not-branch).  The id
+  ;; is resolved drawer-first from the parent branch's `session.org'
+  ;; and only falls back to the SESSION-DIR basename when the parent
+  ;; drawer omits the key (register/boundary/drawer-first-identity-
+  ;; resolution).  These specs pin both branches of that resolution.
+
+  (after-each
+    (dolist (dir jf-branching-integration--tempdirs)
+      (when (and dir (file-directory-p dir))
+        (delete-directory dir t)))
+    (setq jf-branching-integration--tempdirs nil))
+
+  (defun jf-branching-integration--branch-from-first-turn (session-dir branch-name)
+    "Create a branch off `main' at the first user turn (INCLUDE).
+Returns the new branch directory."
+    (let ((branch-pos
+           (with-temp-buffer
+             (insert-file-contents
+              (jf/gptel--context-file-path
+               (jf/gptel--branch-dir-path session-dir "main")))
+             (let ((first (nth 0 (jf/gptel--branching-user-turns))))
+               (jf/gptel--branching-turn-branch-point first t)))))
+      (jf/gptel--create-branch-session session-dir "main" branch-name branch-pos)))
+
+  (it "stamps the parent DRAWER id when it differs from the dir basename"
+    ;; Move-safe case: the parent session was authored/renamed so its
+    ;; directory basename no longer matches its drawer id.  The branch
+    ;; MUST inherit the DRAWER id, not the basename.
+    (let* ((root (jf-branching-integration--make-tempdir))
+           (jf/gptel-sessions-directory root)
+           (drawer-id "moved-real-session-id-20260101000000")
+           (parent-content
+            (concat ":PROPERTIES:\n"
+                    ":GPTEL_PRESET: executor\n"
+                    (format ":GPTEL_SESSION_ID: %s\n" drawer-id)
+                    ":GPTEL_BRANCH: main\n"
+                    ":END:\n"
+                    "#+begin_user\nFirst question?\n#+end_user\n"
+                    "\n#+begin_assistant\nFirst answer.\n#+end_assistant\n"))
+           (bootstrap (jf-branching-integration--bootstrap-parent
+                       root parent-content))
+           (session-dir (plist-get bootstrap :session-dir))
+           (basename (jf/gptel--session-id-from-directory session-dir)))
+      ;; Pre-condition: drawer id and dir basename genuinely differ, so
+      ;; the test distinguishes drawer-first from path-archaeology.
+      (expect drawer-id :not :to-equal basename)
+      (let* ((new-branch-dir
+              (jf-branching-integration--branch-from-first-turn
+               session-dir "moved-branch"))
+             (new-branch-name (file-name-nondirectory new-branch-dir))
+             (branch-drawer (jf/gptel--read-session-drawer-head
+                             (jf/gptel--context-file-path new-branch-dir))))
+        ;; The branch carries the parent's DRAWER session-id...
+        (expect (cdr (assoc "GPTEL_SESSION_ID" branch-drawer))
+                :to-equal drawer-id)
+        ;; ...NOT the parent dir basename.
+        (expect (cdr (assoc "GPTEL_SESSION_ID" branch-drawer))
+                :not :to-equal basename)
+        ;; ...and its OWN new branch name (parent's "main" does not leak).
+        (expect (cdr (assoc "GPTEL_BRANCH" branch-drawer))
+                :to-equal new-branch-name))))
+
+  (it "falls back to the dir basename when the parent drawer omits the id"
+    ;; Legacy / no-migration grace path: a parent authored before
+    ;; drawer-resident identity has no `:GPTEL_SESSION_ID:'.  The branch
+    ;; gets the basename — sibling branches still share an id.
+    (let* ((root (jf-branching-integration--make-tempdir))
+           (jf/gptel-sessions-directory root)
+           (bootstrap (jf-branching-integration--bootstrap-parent
+                       root jf-branching-integration--parent-session))
+           (session-dir (plist-get bootstrap :session-dir))
+           (basename (jf/gptel--session-id-from-directory session-dir))
+           (new-branch-dir
+            (jf-branching-integration--branch-from-first-turn
+             session-dir "legacy-branch"))
+           (new-branch-name (file-name-nondirectory new-branch-dir))
+           (branch-drawer (jf/gptel--read-session-drawer-head
+                           (jf/gptel--context-file-path new-branch-dir))))
+      (expect (cdr (assoc "GPTEL_SESSION_ID" branch-drawer))
+              :to-equal basename)
+      (expect (cdr (assoc "GPTEL_BRANCH" branch-drawer))
+              :to-equal new-branch-name))))
 
 (provide 'branching-integration-spec)
 ;;; branching-integration-spec.el ends here

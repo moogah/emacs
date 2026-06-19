@@ -23,7 +23,6 @@ Provides file-based persistence for gptel conversations across Emacs sessions. E
 │   ├── tools.org           # Tool log (optional)
 │   ├── system-prompts.org  # Prompt log (optional)
 │   └── agents/             # Sub-agents (optional)
-└── current -> branches/<branch-name>  # Active branch symlink
 ```
 
 `session.org` is the single authoritative file for session content AND session-level configuration. All preset, parent-session-id, and scope state lives in its file-level `:PROPERTIES:` drawer at `point-min`. The sessions subsystem does NOT write `metadata.yml`, `scope.yml`, `scope-plan.yml`, or any other session-level sidecar. (`branch-metadata.yml` is the lone exception — it carries branch lineage information and is documented in sessions-branching.md.)
@@ -93,7 +92,6 @@ The system SHALL create this hierarchy for each session:
 ├── branches/<branch-name>/
 │   ├── session.org
 │   └── branch-metadata.yml (if not main)
-└── current -> branches/<branch-name>
 ```
 
 **Implementation**: `config/gptel/sessions/filesystem.org`
@@ -101,7 +99,6 @@ The system SHALL create this hierarchy for each session:
 #### Scenario: New session creation
 - **WHEN** running `M-x jf/gptel-persistent-session`
 - **THEN** creates `branches/main/` directory
-- **AND** `current` symlink points to `branches/main`
 - **AND** no `branch-metadata.yml` in main branch
 - **AND** no `scope.yml`, `metadata.yml`, or other sidecar is created (preset and scope live in `session.org`'s `:PROPERTIES:` drawer)
 
@@ -109,7 +106,6 @@ The system SHALL create this hierarchy for each session:
 - **WHEN** running `M-x jf/gptel-branch-session`
 - **THEN** creates `branches/<timestamp>-<name>/` directory
 - **AND** includes `branch-metadata.yml` with parent reference
-- **AND** updates `current` symlink to new branch
 - **AND** the branch's `session.org` carries its own `:PROPERTIES:` drawer (preset, scope keys, parent-session-id when applicable) inherited verbatim from the parent branch's `session.org` (the drawer travels with the org file when context is copied — see sessions-branching.md)
 
 #### Scenario: Agent session creation
@@ -146,32 +142,100 @@ Legacy `session.md` branches from before the chat-mode cutover remain on disk in
 - **AND** branch directories containing only legacy `session.md` are filtered out inside the enumeration helper
 - **AND** a session directory whose branches all use legacy `session.md` still passes `jf/gptel--valid-session-directory-p` but contributes zero entries to enumeration
 
+### Requirement: Drawer-resident session identity
+
+The system SHALL store a session's identity in its `session.org` file-level `:PROPERTIES:` drawer at `point-min`, so that identity travels with the file and does not depend on the filesystem path.
+
+The drawer SHALL carry:
+- `:GPTEL_SESSION_ID:` — the session id (format `<slug>-<timestamp>`, see Session Identification).
+- `:GPTEL_BRANCH:` — the branch name (e.g. `main`).
+
+Session creation, agent creation, and branch creation SHALL emit these keys into the drawer they already render (alongside `:GPTEL_PRESET:`, the chat-mode snapshot keys, and the `:GPTEL_SCOPE_*:` keys).
+
+Identity resolution SHALL be **drawer-first, basename-fallback**:
+- When `:GPTEL_SESSION_ID:` / `:GPTEL_BRANCH:` are present in the drawer, those values are authoritative.
+- When absent (a pre-existing session created before this change), the system SHALL fall back to deriving the id from the directory basename (`jf/gptel--session-id-from-directory`) and the branch from the enclosing `branches/<branch>/` segment, preserving today's behavior. This fallback is a back-compat grace path, NOT an on-disk migration; no rewrite of old files is performed.
+
+Session type SHALL be inferred from drawer content, not from the path layout: a drawer carrying `:GPTEL_PARENT_SESSION_ID:` denotes an agent session; its absence denotes a branch session.
+
+#### Scenario: Fresh session carries identity keys in its drawer
+- **WHEN** a session `react-refactoring-20260120153042` is created on branch `main`
+- **THEN** the `session.org` drawer at `point-min` contains `:GPTEL_SESSION_ID: react-refactoring-20260120153042`
+- **AND** the drawer contains `:GPTEL_BRANCH: main`
+
+#### Scenario: Identity read from the drawer, not the path
+- **WHEN** a session buffer is activated and its drawer carries `:GPTEL_SESSION_ID:` / `:GPTEL_BRANCH:`
+- **THEN** the buffer-local `jf/gptel--session-id` / `jf/gptel--branch-name` take the drawer values
+- **AND** the directory basename is NOT consulted
+
+#### Scenario: Identity stable across a directory move
+- **WHEN** a session directory carrying drawer identity keys is moved or renamed on disk
+- **AND** its `session.org` is reopened
+- **THEN** the resolved session-id and branch-name are unchanged (they come from the drawer)
+
+#### Scenario: Old session falls back to basename identity
+- **WHEN** a `session.org` whose drawer omits `:GPTEL_SESSION_ID:` is opened
+- **THEN** the session-id is derived from the directory basename and the branch from the `branches/<branch>/` segment
+- **AND** no rewrite of the file is performed
+
+### Requirement: Content-addressed activation and binding
+
+The system SHALL activate and bind a session buffer through the major mode, not through a global file-open hook. When `gptel-chat-mode` becomes active (by any route — `magic-mode-alist` signature, mode cookie, `M-x`, or `find-file-noselect` of a signature-bearing file), `gptel-chat-mode-hook` SHALL run a guarded binder that establishes all session context.
+
+The binder SHALL:
+1. Guard on session content, not path: it SHALL proceed only when the buffer carries the session signature (a `point-min` drawer with a `:GPTEL_`-prefixed key). On a non-session chat buffer (e.g. a `gptel-chat-new` scratch buffer with no drawer) it SHALL be a no-op for session-identification.
+2. Resolve identity (drawer-first, basename-fallback per "Drawer-resident session identity") and set the four buffer-local session-identification variables: `jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`. `jf/gptel--branch-dir` SHALL be the directory of the buffer's own file (`file-name-directory` of `buffer-file-name`) — derived, not reverse-engineered.
+3. Register the buffer in `jf/gptel--session-registry` under the drawer-resolved key.
+4. Enable autosave (`jf/gptel-autosave-enabled`).
+
+The binder SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--save-state`, and SHALL NOT invoke `gptel--restore-state`. Preset application, drawer overlay, and parent-session-id installation continue to be performed by `gptel-chat--apply-declared-preset` on the same hook (unchanged).
+
+**Implementation**: `config/gptel/sessions/commands.org` — the binder runs from `gptel-chat-mode-hook` (registered in `config/gptel/chat/`); the `magic-mode-alist` signature is registered alongside the mode definition.
+
+#### Scenario: Binding happens on mode activation
+- **WHEN** a signature-bearing `session.org` is opened and `gptel-chat-mode` activates
+- **THEN** the four buffer-local session variables are set from drawer-resolved identity
+- **AND** the buffer is registered in `jf/gptel--session-registry`
+- **AND** `gptel-mode` minor mode is NOT enabled
+
+#### Scenario: Non-session chat buffer is not bound as a session
+- **WHEN** `gptel-chat-mode` is activated in a buffer with no `point-min` `:GPTEL_` drawer (e.g. a scratch chat buffer)
+- **THEN** the binder performs no session-identification and registers nothing
+- **AND** the buffer remains a usable chat buffer
+
+#### Scenario: branch-dir is the file's own directory
+- **WHEN** the binder sets `jf/gptel--branch-dir`
+- **THEN** the value is `(file-name-directory (buffer-file-name))`
+- **AND** no `../..` path-walking is performed to compute it
+
 ### Requirement: Session discovery and registry
 
-The system SHALL maintain global in-memory registry for active sessions.
+The system SHALL maintain a global in-memory registry for active sessions.
 
 **Registry structure**:
 - Key: `"session-id/branch-name"`
 - Value: `(:session-id :session-dir :branch-name :branch-dir :buffer)`
 - Metadata: NOT cached (read from disk on-demand)
 
-**Implementation**: `config/gptel/sessions/registry.org`
+Registry initialization (`jf/gptel--init-registry`) and the filesystem discovery helpers SHALL learn each session's identity by reading the `session.org` drawer (a cheap head-read reusing the session-signature parse), NOT by deriving it from directory names. The registry key is sourced from the drawer's `:GPTEL_SESSION_ID:` / `:GPTEL_BRANCH:` values, with the basename/segment fallback for files that lack them. Consequently the filesystem layout (`branches/`, `agents/`, directory names) is pure storage convention and carries no identity meaning.
 
-#### Scenario: Registry initialization
+**Implementation**: `config/gptel/sessions/registry.org`, `config/gptel/sessions/filesystem.org`.
+
+#### Scenario: Registry initialization reads drawers
 - **WHEN** gptel initializes
-- **THEN** `jf/gptel--init-registry` scans all session directories
-- **AND** creates entry for each session/branch pair
-- **AND** registry count matches number of valid branches
+- **THEN** `jf/gptel--init-registry` enumerates session files and reads each one's drawer head
+- **AND** creates an entry per session/branch keyed by the drawer's `:GPTEL_SESSION_ID:` / `:GPTEL_BRANCH:` (basename fallback when absent)
+- **AND** registry count matches the number of valid branches
 
 #### Scenario: Registry lookup
-- **WHEN** looking up session
-- **THEN** `jf/gptel-session-find` returns plist for session-id/branch-name
+- **WHEN** looking up a session
+- **THEN** `jf/gptel-session-find` returns the plist for `session-id/branch-name`
 - **AND** returns nil if not found
 
 #### Scenario: Buffer association
-- **WHEN** session opened
-- **THEN** registry stores buffer reference
-- **AND** `jf/gptel--update-session-buffer` updates registry
+- **WHEN** a session is opened
+- **THEN** the registry stores the buffer reference
+- **AND** `jf/gptel--update-session-buffer` updates the registry
 
 #### Scenario: Session-level configuration read on-demand
 - **WHEN** code needs the active preset, parent-session-id, or scope for a session
@@ -180,79 +244,21 @@ The system SHALL maintain global in-memory registry for active sessions.
 
 ### Requirement: Buffer-local session state
 
-The system SHALL track session metadata in buffer-local variables for runtime access.
+The system SHALL track session metadata in buffer-local variables for runtime access. The identity variables are populated from the drawer (drawer-first, basename-fallback), not from the file path.
 
 #### Scenario: Buffer-local vars set on session open
-- **WHEN** user opens `branches/main/session.org`
-- **THEN** auto-init sets:
-  - `jf/gptel--session-id` (from directory name)
-  - `jf/gptel--session-dir` (absolute path to session)
-  - `jf/gptel--branch-name` (extracted from file path)
-  - `jf/gptel--branch-dir` (absolute path to branch)
+- **WHEN** the user opens a session's `session.org`
+- **THEN** the `gptel-chat-mode-hook` binder sets:
+  - `jf/gptel--session-id` (from the drawer's `:GPTEL_SESSION_ID:`, basename fallback)
+  - `jf/gptel--branch-name` (from the drawer's `:GPTEL_BRANCH:`, segment fallback)
+  - `jf/gptel--branch-dir` (the file's own directory)
+  - `jf/gptel--session-dir` (the session root for this branch)
 - **AND** `gptel-chat-mode-hook` runs `gptel-chat--apply-declared-preset`, which reads the file-level `:PROPERTIES:` drawer and sets `jf/gptel--parent-session-id` from `:GPTEL_PARENT_SESSION_ID:` when present (agent sessions)
 
 #### Scenario: Agent session vars
-- **WHEN** opening agent session
+- **WHEN** opening an agent session
 - **THEN** `jf/gptel--parent-session-id` is set from the drawer's `:GPTEL_PARENT_SESSION_ID:` value
-- **AND** `jf/gptel--branch-name` set to "main" (agents don't branch)
-
-### Requirement: Auto-initialization enables `gptel-chat-mode`
-
-The auto-init hook (`jf/gptel--auto-init-session-buffer`) SHALL detect session files by matching the path pattern `*/branches/<branch-name>/session.org` (or the nested agent shape `*/<session-id>/branches/<branch>/agents/<agent>/session.org` and the flat legacy agent shape `*/<session-id>/agents/<agent>/session.org`). On match, it SHALL:
-
-1. Extract `session-id` and `branch-name` from the path (branch-name defaults to `"main"` for the flat legacy agent shape that has no `branches/` segment).
-2. Ensure the major mode is `gptel-chat-mode` (switching if necessary). The mode hook then runs `gptel-chat--apply-declared-preset`, which reads the file-level `:PROPERTIES:` drawer at `point-min` and applies its `:GPTEL_PRESET:` buffer-locally, sets `jf/gptel--parent-session-id` from `:GPTEL_PARENT_SESSION_ID:` (when present), and installs the scope keys.
-3. Set the four buffer-local session-identification variables (`jf/gptel--session-id`, `jf/gptel--session-dir`, `jf/gptel--branch-name`, `jf/gptel--branch-dir`). These run AFTER mode activation because mode-switch wipes buffer-locals via `kill-all-local-variables`.
-4. Register the buffer in `jf/gptel--session-registry`.
-5. Update the `current` symlink to point at this branch (suppressed for the flat legacy agent shape, which has no `branches/` directory).
-
-**Ordering is load-bearing.** Mode activation runs before session-var setup so that `gptel-chat-mode-hook`'s drawer-driven preset application sees a clean buffer; the session-identification vars are then re-set on top of the mode-cleared buffer-local table.
-
-The hook SHALL NOT enable `gptel-mode` (minor mode), SHALL NOT invoke `gptel--save-state`, and SHALL NOT invoke `gptel--restore-state`.
-
-**Implementation**: `config/gptel/sessions/commands.org` — `jf/gptel--auto-init-session-buffer` via find-file-hook.
-
-#### Scenario: Session file detection
-- **WHEN** file matches `*/branches/<branch-name>/session.org` pattern
-- **THEN** auto-init recognizes as branch session
-- **AND** extracts session-id and branch-name from path
-- **AND** enables `gptel-chat-mode` as the major mode
-
-#### Scenario: Agent file detection (nested)
-- **WHEN** file matches `*/<session-id>/branches/<branch>/agents/<agent>/session.org` pattern
-- **THEN** auto-init recognizes as nested agent session
-- **AND** extracts both session-id and branch-name from the path
-- **AND** enables `gptel-chat-mode` as the major mode
-- **AND** updates the `current` symlink (the `branches/` segment is present)
-
-#### Scenario: Agent file detection (flat legacy)
-- **WHEN** file matches `*/<session-id>/agents/<agent>/session.org` pattern (no `branches/` segment)
-- **THEN** auto-init recognizes as flat legacy agent session
-- **AND** extracts session-id from the path
-- **AND** sets branch-name to `"main"` as the default
-- **AND** enables `gptel-chat-mode` as the major mode
-- **AND** suppresses the `jf/gptel--update-current-symlink` side-effect
-
-#### Scenario: Parent session id is populated from the drawer
-- **WHEN** mode-activation runs `gptel-chat--apply-declared-preset` on an agent or branch `session.org`
-- **AND** the file-level `:PROPERTIES:` drawer contains a `:GPTEL_PARENT_SESSION_ID:` line
-- **THEN** the buffer-local `jf/gptel--parent-session-id` is set to that value
-- **WHEN** the drawer does NOT contain `:GPTEL_PARENT_SESSION_ID:`
-- **THEN** `jf/gptel--parent-session-id` remains nil (its `defvar-local` default)
-
-#### Scenario: New session (preset from drawer)
-- **WHEN** a freshly created `session.org` is opened for the first time
-- **THEN** `gptel-chat-mode-hook` reads the file-level drawer's `:GPTEL_PRESET:` value
-- **AND** `gptel-chat--apply-declared-preset` applies that preset via `gptel--apply-preset` with a buffer-local setter
-- **AND** `gptel-chat-mode` is active
-- **AND** `gptel-mode` minor mode is NOT enabled
-
-#### Scenario: Existing session (no Local Variables round-trip)
-- **WHEN** a previously-saved `session.org` is reopened
-- **THEN** mode-activation reads `:GPTEL_PRESET:` from the file-level drawer (the authoritative source)
-- **AND** applies it buffer-locally
-- **AND** does NOT call `gptel--restore-state` or parse any Local Variables block
-- **AND** does NOT read any `metadata.yml` sidecar (none exists)
+- **AND** `jf/gptel--branch-name` is `main` (from the drawer's `:GPTEL_BRANCH:` or the default; agents don't branch)
 
 ### Requirement: session.org as authoritative session file
 
@@ -407,16 +413,6 @@ The system SHALL support creating conversation branches within sessions.
 
 **Implementation**: `config/gptel/sessions/filesystem.org`
 
-#### Scenario: Current symlink tracking
-- **WHEN** new session created
-- **THEN** `current` symlink points to `branches/main`
-- **AND** `jf/gptel--get-current-branch-name` returns "main"
-
-#### Scenario: Switch to another branch
-- **WHEN** user opens different branch
-- **THEN** auto-init calls `jf/gptel--update-current-symlink`
-- **AND** `current` now points to new branch
-
 #### Scenario: List branches
 - **WHEN** calling `jf/gptel--list-branches`
 - **THEN** returns list of branch names
@@ -437,6 +433,46 @@ The system SHALL embed scope configuration from the preset's scope profile in th
 - **WHEN** selected project is `/Users/user/projects/my-project`
 - **AND** profile contains `${project_root}/src/**/*.ts`
 - **THEN** the corresponding `:GPTEL_SCOPE_READ:` (or similar) line in the drawer reads `/Users/user/projects/my-project/src/**/*.ts`
+
+### Requirement: Work-root drawer key
+
+The session-file `:PROPERTIES:` drawer SHALL carry a `GPTEL_WORK_ROOT` key recording the session's working directory — the project / work root, distinct from the bookkeeping `branch-dir`. `jf/gptel--create-session-core` SHALL write `GPTEL_WORK_ROOT` from the same `project-root` input it expands into the session's `GPTEL_SCOPE_*` keys, so the working directory and the scope boundary derive from a single value and cannot disagree. The value SHALL be stored as an absolute directory path, verbatim. The key SHALL be optional on read: sessions whose drawer predates it, or hand-authored sessions that omit it, SHALL remain valid.
+
+**Implementation**: `config/gptel/sessions/commands.org` (`jf/gptel--create-session-core`).
+
+#### Scenario: Created session records the work root from its project-root input
+- **WHEN** a session is created with `project-root` `/Users/x/proj`
+- **THEN** the session.org drawer contains `:GPTEL_WORK_ROOT: /Users/x/proj` (absolute)
+- **AND** the drawer's `GPTEL_SCOPE_*` write patterns are expanded from the same `/Users/x/proj`
+
+#### Scenario: Work root and scope derive from one input (agreement by construction)
+- **WHEN** `jf/gptel--create-session-core` runs with a single `project-root` value
+- **THEN** the persisted `GPTEL_WORK_ROOT` equals the root used to expand `${project_root}` in `GPTEL_SCOPE_*`
+- **AND** the two are not computed independently
+
+#### Scenario: Drawer without the key remains valid
+- **WHEN** a `session.org` has no `:GPTEL_WORK_ROOT:` key (pre-existing or hand-authored)
+- **THEN** the file is still recognized and activated as a session
+- **AND** no error is raised for the missing key
+
+### Requirement: Default-directory resolution on session activation
+
+When `gptel-chat-mode` activates a session buffer, the `gptel-chat-mode-hook` binder SHALL set the buffer-local `default-directory` from the drawer's `GPTEL_WORK_ROOT`, normalized to an absolute directory (trailing separator via `file-name-as-directory`). When the drawer omits `GPTEL_WORK_ROOT`, the binder SHALL fall back to `jf/gptel--branch-dir` (the buffer file's own directory — the pre-existing behavior), so keyless sessions are unchanged. This establishes the directory against which the model's relative paths resolve, and it SHALL be in effect before any tool call (tool calls execute in this buffer's context).
+
+**Implementation**: `config/gptel/sessions/commands.org` — the binder run from `gptel-chat-mode-hook`, alongside the buffer-local session-identification variables.
+
+#### Scenario: default-directory set from the work-root key
+- **WHEN** a `session.org` whose drawer declares `:GPTEL_WORK_ROOT: /Users/x/proj` is activated
+- **THEN** the buffer-local `default-directory` is `/Users/x/proj/`
+
+#### Scenario: Keyless session falls back to branch-dir
+- **WHEN** an activated `session.org` drawer omits `:GPTEL_WORK_ROOT:`
+- **THEN** the buffer-local `default-directory` equals `jf/gptel--branch-dir` (the file's own directory)
+- **AND** behavior is identical to before this change
+
+#### Scenario: Work-root value is normalized to a directory
+- **WHEN** the drawer's `:GPTEL_WORK_ROOT:` value lacks a trailing separator
+- **THEN** the binder sets `default-directory` with a trailing separator (via `file-name-as-directory` and `expand-file-name`)
 
 ### Requirement: Activities integration
 
@@ -477,7 +513,7 @@ The system SHALL support creating sessions tied to activities with project isola
 - Manages Local Variables for worktree tracking
 
 ### With File Discovery
-- Uses find-file-hook for auto-initialization
+- Uses content-addressed activation (`magic-mode-alist` signature) — no find-file-hook
 - Sessions openable via C-x C-f, dired, recentf, command line
 - No special resume commands needed
 

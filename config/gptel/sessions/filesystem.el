@@ -77,8 +77,103 @@ Example: 'react-refactoring-20260120153042'"
 
 (defun jf/gptel--session-id-from-directory (session-dir)
   "Extract session ID from SESSION-DIR path.
-Returns the directory name (last path component)."
+Returns the directory name (last path component).
+
+Legacy / back-compat path: this is the BASENAME fallback for
+`jf/gptel--resolve-session-id'.  Prefer the resolver, which reads the
+drawer `GPTEL_SESSION_ID' first and only consults the path (via this
+function) when the drawer omits the key — the no-migration grace path
+for sessions authored before drawer-resident identity.  See
+register/boundary/drawer-first-identity-resolution."
   (file-name-nondirectory (directory-file-name session-dir)))
+
+(defun jf/gptel--resolve-session-id (drawer-alist session-dir)
+  "Resolve a session's id from DRAWER-ALIST, falling back to SESSION-DIR.
+
+Returns the drawer `GPTEL_SESSION_ID' value when present; otherwise
+falls back to `jf/gptel--session-id-from-directory' (the SESSION-DIR
+basename).  When the drawer carries the key the path is never read.
+
+DRAWER-ALIST is the alist returned by
+`jf/gptel--read-session-drawer-head' (bare-string keys, string values;
+nil when the session file has no point-min drawer).  The fallback is the
+no-migration grace path for legacy sessions.  See
+register/boundary/drawer-first-identity-resolution."
+  (or (cdr (assoc "GPTEL_SESSION_ID" drawer-alist))
+      (jf/gptel--session-id-from-directory session-dir)))
+
+(defun jf/gptel--resolve-branch-name (drawer-alist path)
+  "Resolve a session's branch name from DRAWER-ALIST, falling back to PATH.
+
+Returns the drawer `GPTEL_BRANCH' value when present; otherwise extracts
+the enclosing `branches/<branch>/' segment from PATH with a single
+targeted regex.  Returns nil when neither source supplies a branch.
+
+DRAWER-ALIST is the alist returned by
+`jf/gptel--read-session-drawer-head' (bare-string keys, string values;
+nil when the session file has no point-min drawer).  The path-segment
+fallback is the no-migration grace path for legacy sessions; it does NOT
+revive the retired 3-layout matcher — one regex, one layout
+(`branches/<branch>/').  See
+register/boundary/drawer-first-identity-resolution."
+  (or (cdr (assoc "GPTEL_BRANCH" drawer-alist))
+      (and path
+           (string-match "/branches/\\([^/]+\\)/" path)
+           (match-string 1 path))))
+
+(defun jf/gptel--session-type (drawer-alist)
+  "Return the session type inferred from DRAWER-ALIST.
+
+`agent' when the drawer carries `GPTEL_PARENT_SESSION_ID', else
+`branch'.  The PRESENCE of the parent-id key is the SOLE discriminator
+of session type — no path layout (branch / nested-agent / flat-agent)
+is consulted.  If a path-regex `cond' over those layouts reappears in
+activation/identity/discovery code, that is a violation of
+register/invariant/activation-and-identity-are-content-not-path, not a
+second mapping.  See register/vocabulary/identity-drawer-keys."
+  (if (assoc "GPTEL_PARENT_SESSION_ID" drawer-alist)
+      'agent
+    'branch))
+
+(defun jf/gptel--session-dir-from-branch-dir (branch-dir type)
+  "Derive a session's session-dir from BRANCH-DIR and session TYPE.
+
+BRANCH-DIR is the directory of the open session buffer's file.  TYPE is
+the resolved session type (`branch' or `agent', from
+`jf/gptel--session-type').
+
+For an `agent' session, BRANCH-DIR is itself the session root (agents do
+not branch) and is returned unchanged.
+
+For a `branch' session, walk UP from BRANCH-DIR to the nearest ancestor
+D such that (file-directory-p D/branches) AND BRANCH-DIR lives under
+D/branches/; return D.  The walk is depth-independent — no fixed `../..'
+count — so a relocated or arbitrarily nested session tree still resolves.
+
+When no `branches/' ancestor is found (corrupt / standalone layout),
+return BRANCH-DIR unchanged and log at debug; never signals.  See
+register/boundary/session-dir-marker-walk."
+  (let ((branch-dir (file-name-as-directory (expand-file-name branch-dir))))
+    (if (eq type 'agent)
+        branch-dir
+      ;; Nearest ancestor whose child `branches/' both exists AND
+      ;; encloses BRANCH-DIR.  `locate-dominating-file' supplies the
+      ;; depth-independent upward walk; the enclosure check rejects a
+      ;; stray `branches/' that does not actually contain this buffer.
+      (let ((dir (locate-dominating-file
+                  branch-dir
+                  (lambda (d)
+                    (let ((branches (file-name-as-directory
+                                     (expand-file-name "branches" d))))
+                      (and (file-directory-p branches)
+                           (string-prefix-p branches branch-dir)))))))
+        (or dir
+            (progn
+              (jf/gptel--log
+               'debug
+               "session-dir-from-branch-dir: no branches/ ancestor for %s; using branch-dir"
+               branch-dir)
+              branch-dir))))))
 
 (defun jf/gptel--branches-dir-path (session-dir)
   "Get path to branches directory in SESSION-DIR."
@@ -87,24 +182,6 @@ Returns the directory name (last path component)."
 (defun jf/gptel--branch-dir-path (session-dir branch-name)
   "Get path to specific BRANCH-NAME directory in SESSION-DIR."
   (expand-file-name branch-name (jf/gptel--branches-dir-path session-dir)))
-
-(defun jf/gptel--current-symlink-path (session-dir)
-  "Get path to current symlink in SESSION-DIR."
-  (expand-file-name "current" session-dir))
-
-(defun jf/gptel--get-current-branch-name (session-dir)
-  "Get name of current branch in SESSION-DIR by following symlink.
-Returns branch name (e.g., \"main\" or \"20260128153042-feature\") or nil if symlink doesn't exist."
-  (let ((symlink (jf/gptel--current-symlink-path session-dir)))
-    (when (file-symlink-p symlink)
-      (file-name-nondirectory (file-truename symlink)))))
-
-(defun jf/gptel--get-current-branch-dir (session-dir)
-  "Get path to current branch directory in SESSION-DIR by following symlink.
-Returns absolute path or nil if symlink doesn't exist."
-  (let ((symlink (jf/gptel--current-symlink-path session-dir)))
-    (when (file-symlink-p symlink)
-      (file-truename symlink))))
 
 (defun jf/gptel--create-branch-directory (session-dir branch-name)
   "Create branch directory for BRANCH-NAME in SESSION-DIR.
@@ -117,19 +194,6 @@ Returns absolute path to created branch directory."
       (make-directory branch-dir t)
       (jf/gptel--log 'info "Created branch directory: %s" branch-dir))
     branch-dir))
-
-(defun jf/gptel--update-current-symlink (session-dir branch-name)
-  "Update current symlink in SESSION-DIR to point to BRANCH-NAME.
-Creates or updates the symlink. Returns path to symlink."
-  (let* ((symlink (jf/gptel--current-symlink-path session-dir))
-         (target (concat "branches/" branch-name)))
-    ;; Remove existing symlink if present
-    (when (file-exists-p symlink)
-      (delete-file symlink))
-    ;; Create new symlink (relative path)
-    (make-symbolic-link target symlink)
-    (jf/gptel--log 'debug "Updated current symlink to: %s" branch-name)
-    symlink))
 
 (defun jf/gptel--list-branches (session-dir)
   "List all branch names in SESSION-DIR.
@@ -199,28 +263,44 @@ Returns list of plists with:
 
 Only branch directories that pass `jf/gptel--valid-branch-directory-p'
 are included; branches without `session.org' are filtered out here so
-every consumer sees the same valid-branch view."
+every consumer sees the same valid-branch view.
+
+Identity (:session-id / :branch-name) is read from each branch
+`session.org' point-min `:GPTEL_*:' drawer via
+`jf/gptel--read-session-drawer-head' and resolved with
+`jf/gptel--resolve-session-id' / `jf/gptel--resolve-branch-name'
+(drawer-first, basename/segment fallback) — directory NAMES carry no
+identity meaning.  A located `session.org' that carries no `:GPTEL_'
+drawer at all (corrupt / partial) is skipped and logged at debug.  See
+register/boundary/drawer-first-identity-resolution."
   (let ((sessions-root (expand-file-name jf/gptel-sessions-directory))
         (results nil))
     (when (file-directory-p sessions-root)
       ;; Iterate over all session directories
       (dolist (session-dir (directory-files sessions-root t "^[^.]"))
         (when (jf/gptel--valid-session-directory-p session-dir)
-          (let ((session-id (jf/gptel--session-id-from-directory session-dir))
-                (branches (jf/gptel--list-branches session-dir)))
-            ;; Iterate over branches in this session
-            (dolist (branch-name branches)
-              (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name)))
-                (when (jf/gptel--valid-branch-directory-p branch-dir)
-                  (let* ((agents-dir (jf/gptel--agents-dir-path branch-dir))
-                         (agent-dirs (when (file-directory-p agents-dir)
-                                       (jf/gptel--list-agent-directories branch-dir))))
-                    (push (list :session-dir session-dir
-                                :session-id session-id
-                                :branch-dir branch-dir
-                                :branch-name branch-name
-                                :agent-dirs (or agent-dirs nil))
-                          results)))))))))
+          ;; Iterate over branches in this session
+          (dolist (branch-name (jf/gptel--list-branches session-dir))
+            (let* ((branch-dir (jf/gptel--branch-dir-path session-dir branch-name)))
+              (when (jf/gptel--valid-branch-directory-p branch-dir)
+                (let* ((session-file (jf/gptel--context-file-path branch-dir))
+                       (drawer (jf/gptel--read-session-drawer-head session-file)))
+                  (if (null drawer)
+                      (jf/gptel--log
+                       'debug "Skipping branch with no GPTEL drawer: %s" branch-dir)
+                    (let* ((resolved-id (jf/gptel--resolve-session-id
+                                         drawer session-dir))
+                           (resolved-branch (jf/gptel--resolve-branch-name
+                                             drawer session-file))
+                           (agents-dir (jf/gptel--agents-dir-path branch-dir))
+                           (agent-dirs (when (file-directory-p agents-dir)
+                                         (jf/gptel--list-agent-directories branch-dir))))
+                      (push (list :session-dir session-dir
+                                  :session-id resolved-id
+                                  :branch-dir branch-dir
+                                  :branch-name resolved-branch
+                                  :agent-dirs (or agent-dirs nil))
+                            results))))))))))
     (nreverse results)))
 
 (defun jf/gptel--create-agent-directory (parent-branch-dir preset description)
@@ -262,6 +342,92 @@ Checks for existence of branches directory."
 Checks for existence and presence of session.org file."
   (and (file-directory-p dir)
        (file-exists-p (jf/gptel--context-file-path dir))))
+
+(defun jf/gptel--scan-session-drawer-keys ()
+  "Scan the head of the current buffer for a gptel session drawer.
+
+Assumes the caller has positioned point and widened as needed.  Skips
+leading blank lines, then requires a `:PROPERTIES:' line as the first
+non-blank content.  If found, collects every `:GPTEL_<KEY>: VALUE' line
+before the drawer's `:END:' and returns them as an alist keyed by the
+bare key string (e.g. \"GPTEL_SESSION_ID\").
+
+Returns nil when the first non-blank content is not a `:PROPERTIES:'
+drawer, when the drawer has no `:END:', or when the drawer carries no
+`:GPTEL_*:' key.  Never signals on a non-org / plain-text buffer.
+
+Uses native `re-search-forward' (no dependency on `org-mode' being
+loaded) so it is safe to call at `magic-mode-alist' time."
+  (save-excursion
+    (save-restriction
+      (widen)
+      ;; Case-sensitive throughout: the signature is the *uppercase*
+      ;; :PROPERTIES: / :END: / :GPTEL_[A-Z0-9_]+: tokens, per
+      ;; register/invariant/signature-anchored-to-point-min-drawer.
+      ;; case-fold-search defaults to t, which would recognise a
+      ;; lowercase :properties:/:gptel_*: drawer and widen the surface
+      ;; magic-mode-alist hijacks into gptel-chat-mode; bind it off.
+      (let ((case-fold-search nil))
+        (goto-char (point-min))
+        ;; The drawer must be the first non-blank content for us to
+        ;; recognise it; skip leading blank lines only.
+        (while (and (not (eobp)) (looking-at-p "^[ \t]*$"))
+          (forward-line 1))
+        (when (looking-at-p "^[ \t]*:PROPERTIES:[ \t]*$")
+          (let ((drawer-end
+                 (save-excursion
+                   (when (re-search-forward "^[ \t]*:END:[ \t]*$" nil t)
+                     (line-beginning-position)))))
+            (when drawer-end
+              (let ((keys nil))
+                ;; Collect every :GPTEL_<KEY>: VALUE line before :END:.
+                ;; VALUE is optional (trailing whitespace allowed); the
+                ;; key match alone is sufficient for the signature.
+                (while (re-search-forward
+                        "^[ \t]*:\\(GPTEL_[A-Z0-9_]+\\):[ \t]*\\(.*?\\)[ \t]*$"
+                        drawer-end t)
+                  (push (cons (match-string-no-properties 1)
+                              (match-string-no-properties 2))
+                        keys))
+                (nreverse keys)))))))))
+
+(defun jf/gptel--session-signature-p ()
+  "Return non-nil if the current buffer is a gptel session by CONTENT.
+
+Recognizes a buffer iff, scanning only the head: the first non-blank
+content is a `:PROPERTIES:' drawer carrying at least one
+`:GPTEL_[A-Z0-9_]+:' key line before `:END:'.  Returns nil — without
+signaling — for a non-org / plain-text buffer, for an org buffer that
+merely mentions a `:GPTEL_' key in prose or a `#+begin_src' block, and
+for any buffer whose first content is not a `:PROPERTIES:' drawer.
+
+The match is anchored to a real drawer at `point-min' — NEVER a bare
+substring search.  Wired into `magic-mode-alist', so a false match would
+hijack an ordinary user file into `gptel-chat-mode' at open time."
+  (and (jf/gptel--scan-session-drawer-keys) t))
+
+(defun jf/gptel--read-session-drawer-head (file)
+  "Read FILE's head and return its gptel session-drawer keys, or nil.
+
+Reads FILE into a temp buffer and runs the same point-min drawer scan as
+`jf/gptel--session-signature-p', returning an alist of the `:GPTEL_*:'
+keys found, keyed by the bare key string (e.g. \"GPTEL_SESSION_ID\" ->
+\"<id>\").  Includes any identity keys present — at least
+`GPTEL_SESSION_ID', `GPTEL_BRANCH', `GPTEL_PARENT_SESSION_ID', and
+`GPTEL_PRESET' when authored.  Returns nil when FILE has no point-min
+session drawer or does not exist (never signals on a missing file).
+
+The session drawer is small and always at the file head, so reading the
+whole file is correct today.  A byte cap belongs at the
+`insert-file-contents' call below (its 3rd/4th args bound the read) —
+once the cap is added, choose a bound large enough to always contain the
+drawer."
+  (when (and file (file-readable-p file))
+    (with-temp-buffer
+      ;; NOTE: bounded head read — pass BEG/END to `insert-file-contents'
+      ;; here to cap the read at the file head once a byte cap is chosen.
+      (insert-file-contents file)
+      (jf/gptel--scan-session-drawer-keys))))
 
 (provide 'gptel-session-filesystem)
 ;;; filesystem.el ends here
