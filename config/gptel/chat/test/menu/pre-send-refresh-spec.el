@@ -85,7 +85,18 @@
                (file-directory-p jf-presend-test--tmp-dir))
       (delete-directory jf-presend-test--tmp-dir t)))
 
-  (it "re-reads sibling file before dispatch and updates buffer-local cache"
+  ;; NOTE: `gptel-chat--refresh-system-prompt-from-file' was widened from
+  ;; a sibling-file cache refresh into the per-send COMPOSER (task
+  ;; pre-send-compose-and-wire): it now recomposes `gptel--system-message'
+  ;; WHOLESALE as `role + "\n\n" + environment-block', with the env block
+  ;; as the unconditional tail.  These specs therefore assert the ROLE
+  ;; portion (sibling re-read / cache preservation / blank-body fallback)
+  ;; via the role base and the role prefix of the composed value, rather
+  ;; than `gptel--system-message' equalling the bare role.  The composition
+  ;; mechanics (tail order, idempotency, scope reflection) are covered in
+  ;; `environment-preamble-spec.el's "pre-send composition" block.
+
+  (it "re-reads sibling file before dispatch and updates the role base"
     (jf-presend-test--write-sibling "system-prompt.md" "Old prompt body.\n")
     (setq session-file
           (jf-presend-test--write-session
@@ -102,16 +113,21 @@
             ;; Seed the cache as if the activation-time installer ran
             ;; and read the file body.
             (setq-local gptel--system-message "Old prompt body.\n")
+            (setq-local gptel-chat--system-prompt-base "Old prompt body.\n")
             ;; A user edits the sibling file on disk; no buffer revert.
             (jf-presend-test--write-sibling
              "system-prompt.md" "New prompt body.\n")
-            ;; Invoke the refresh directly (the advice path is
+            ;; Invoke the composer directly (the advice path is
             ;; exercised by the `pre-send wiring' describe below).
             (gptel-chat--refresh-system-prompt-from-file)
-            (expect gptel--system-message :to-equal "New prompt body.\n"))
+            ;; Role base tracks the re-read sibling body (role-only).
+            (expect gptel-chat--system-prompt-base :to-equal "New prompt body.\n")
+            ;; The composed message leads with the fresh role.
+            (expect gptel--system-message :to-match "\\`New prompt body\\.")
+            (expect gptel--system-message :not :to-match "Old prompt body"))
         (kill-buffer buf))))
 
-  (it "no-ops when GPTEL_SYSTEM_PROMPT_FILE is unset"
+  (it "composes from the role base when GPTEL_SYSTEM_PROMPT_FILE is unset"
     (setq session-file
           (jf-presend-test--write-session
            ":GPTEL_PRESET: coding\n"))
@@ -119,14 +135,17 @@
       (unwind-protect
           (with-current-buffer buf
             (gptel-chat-mode)
-            ;; Stamp a known buffer-local value to confirm the
-            ;; refresh does not touch it.
-            (setq-local gptel--system-message "sentinel-untouched")
+            ;; With no sibling property the composer uses the role base.
+            (setq-local gptel-chat--system-prompt-base "sentinel-role")
             (gptel-chat--refresh-system-prompt-from-file)
-            (expect gptel--system-message :to-equal "sentinel-untouched"))
+            ;; Role base unchanged (no sibling to re-read), composed value
+            ;; leads with it and appends the env block.
+            (expect gptel-chat--system-prompt-base :to-equal "sentinel-role")
+            (expect gptel--system-message :to-match "\\`sentinel-role")
+            (expect gptel--system-message :to-match "# Environment"))
         (kill-buffer buf))))
 
-  (it "logs a warning and preserves cache when sibling file becomes unreadable"
+  (it "logs a warning and preserves the role base when sibling file becomes unreadable"
     (jf-presend-test--write-sibling "system-prompt.md" "Live prompt body.\n")
     (setq session-file
           (jf-presend-test--write-session
@@ -136,14 +155,16 @@
           (with-current-buffer buf
             (gptel-chat-mode)
             (setq-local gptel--system-message "Live prompt body.\n")
+            (setq-local gptel-chat--system-prompt-base "Live prompt body.\n")
             ;; Delete the sibling file to simulate an unreadable state.
             (let* ((sibling (gptel-chat--system-prompt-file-path)))
               (when (and sibling (file-exists-p sibling))
                 (delete-file sibling))
               (spy-on 'jf/gptel--log)
               (gptel-chat--refresh-system-prompt-from-file)
-              ;; Cache preserved.
-              (expect gptel--system-message :to-equal "Live prompt body.\n")
+              ;; Role base preserved (fallback), composed value leads with it.
+              (expect gptel-chat--system-prompt-base :to-equal "Live prompt body.\n")
+              (expect gptel--system-message :to-match "\\`Live prompt body\\.")
               ;; Warning logged with the resolver's path.
               (expect 'jf/gptel--log :to-have-been-called)
               (let ((args (spy-calls-args-for 'jf/gptel--log 0)))
@@ -154,7 +175,7 @@
                         :to-equal (file-truename sibling)))))
         (kill-buffer buf))))
 
-  (it "leaves cache untouched when sibling file is present but blank"
+  (it "leaves the role base untouched when sibling file is present but blank"
     (jf-presend-test--write-sibling "system-prompt.md" "Live prompt body.\n")
     (setq session-file
           (jf-presend-test--write-session
@@ -164,10 +185,12 @@
           (with-current-buffer buf
             (gptel-chat-mode)
             (setq-local gptel--system-message "Live prompt body.\n")
+            (setq-local gptel-chat--system-prompt-base "Live prompt body.\n")
             (jf-presend-test--write-sibling "system-prompt.md" "\n   \n")
             (gptel-chat--refresh-system-prompt-from-file)
-            ;; Blank body should not replace the live cache.
-            (expect gptel--system-message :to-equal "Live prompt body.\n"))
+            ;; Blank body should not replace the live role base.
+            (expect gptel-chat--system-prompt-base :to-equal "Live prompt body.\n")
+            (expect gptel--system-message :to-match "\\`Live prompt body\\."))
         (kill-buffer buf)))))
 
 (describe "pre-send wiring: :before advice on gptel-request"

@@ -299,4 +299,174 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
                       :not :to-match "# Environment"))
           (kill-buffer buf))))))
 
+;; ---------------------------------------------------------------------------
+;; pre-send composition (task: pre-send-compose-and-wire)
+;;
+;; The pre-send composer (`gptel-chat--refresh-system-prompt-from-file',
+;; widened from a sibling-file cache refresh into a wholesale composer)
+;; recomposes `gptel--system-message' as `role + "\n\n" + environment-block'
+;; on every `gptel-request' dispatched from a chat-mode buffer.  ROLE is the
+;; sibling file body (re-read each send) or the buffer-local role base
+;; `gptel-chat--system-prompt-base'; ENV is `gptel-chat--build-environment-
+;; block', appended as the TAIL.  The composed value is write-only output —
+;; never read back — so the env block never accumulates across sends
+;; (register/invariant/composed-system-message-write-only, D1/D2/D4).
+;; ---------------------------------------------------------------------------
+
+(defvar jf-compose-test--tmp-dir nil
+  "Temp directory holding the test session.org and sibling file.")
+
+(defun jf-compose-test--write-session (drawer)
+  "Write session.org with DRAWER as `:PROPERTIES:' body; return absolute path."
+  (let ((session-file (expand-file-name "session.org" jf-compose-test--tmp-dir)))
+    (with-temp-file session-file
+      (insert ":PROPERTIES:\n"
+              drawer
+              ":END:\n"
+              "#+begin_user\n\n#+end_user\n"))
+    session-file))
+
+(defun jf-compose-test--write-sibling (basename body)
+  "Write BODY to <tmp>/BASENAME; return its absolute path."
+  (let ((path (expand-file-name basename jf-compose-test--tmp-dir)))
+    (write-region body nil path nil 'silent)
+    path))
+
+(defun jf-compose-test--count-env-blocks (s)
+  "Return the number of \"# Environment\" markers in string S."
+  (let ((count 0)
+        (start 0))
+    (while (string-match "# Environment" s start)
+      (setq count (1+ count)
+            start (match-end 0)))
+    count))
+
+(describe "pre-send composition"
+
+  :var (session-file)
+
+  (before-each
+    (setq jf-compose-test--tmp-dir
+          (make-temp-file "jf-compose-" t)))
+
+  (after-each
+    (when (and jf-compose-test--tmp-dir
+               (file-directory-p jf-compose-test--tmp-dir))
+      (delete-directory jf-compose-test--tmp-dir t)))
+
+  (it "appends the environment block as the TAIL, role preceding it"
+    (jf-compose-test--write-sibling "system-prompt.md" "You are a careful assistant.")
+    (setq session-file
+          (jf-compose-test--write-session
+           (concat ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                   ":GPTEL_SCOPE_READ: src/**\n")))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (gptel-chat--refresh-system-prompt-from-file)
+            ;; Role appears, then the env block strictly after it.
+            (let ((role-pos (string-match "You are a careful assistant\\."
+                                          gptel--system-message))
+                  (env-pos (string-match "# Environment" gptel--system-message)))
+              (expect role-pos :not :to-be nil)
+              (expect env-pos :not :to-be nil)
+              (expect role-pos :to-be-less-than env-pos))
+            ;; The env block is the final section (tail): nothing of the
+            ;; role re-appears after it, and the block content is present.
+            (expect gptel--system-message :to-match "# Environment")
+            (expect gptel--system-message :to-match "- Readable: src/\\*\\*"))
+        (kill-buffer buf))))
+
+  (it "produces EXACTLY ONE environment block across two consecutive composes (no accumulation)"
+    ;; The most important guard: idempotency.  The composer must rebuild
+    ;; from the stable role source, NEVER from the prior composed value,
+    ;; so a second invocation does not stack a second env block.
+    (jf-compose-test--write-sibling "system-prompt.md" "Role body.")
+    (setq session-file
+          (jf-compose-test--write-session
+           (concat ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                   ":GPTEL_SCOPE_READ: src/**\n")))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (expect (jf-compose-test--count-env-blocks gptel--system-message)
+                    :to-equal 1)
+            ;; The role appears exactly once too — the value did not
+            ;; double up.
+            (expect gptel--system-message :to-equal
+                    (concat "Role body.\n\n"
+                            (with-current-buffer buf
+                              (gptel-chat--build-environment-block)))))
+        (kill-buffer buf))))
+
+  (it "no-sibling-file case: composes from the role base, still exactly one block"
+    (setq session-file
+          (jf-compose-test--write-session
+           ":GPTEL_SCOPE_READ: src/**\n"))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (setq-local gptel-chat--system-prompt-base "Base role content.")
+            (gptel-chat--refresh-system-prompt-from-file)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (expect (jf-compose-test--count-env-blocks gptel--system-message)
+                    :to-equal 1)
+            (expect gptel--system-message :to-match "\\`Base role content\\.")
+            (expect gptel--system-message :to-match "# Environment"))
+        (kill-buffer buf))))
+
+  (it "reflects a mid-session GPTEL_SCOPE drawer edit in the second composition"
+    (jf-compose-test--write-sibling "system-prompt.md" "Role body.")
+    (setq session-file
+          (jf-compose-test--write-session
+           (concat ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                   ":GPTEL_SCOPE_READ: src/**\n")))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (expect gptel--system-message :to-match "- Readable: src/\\*\\*")
+            (expect gptel--system-message :not :to-match "docs/\\*\\*")
+            ;; Extend the drawer's scope keys mid-session, then recompose.
+            (save-excursion
+              (goto-char (point-min))
+              (org-entry-put (point) "GPTEL_SCOPE_READ" "src/** docs/**"))
+            (gptel-chat--refresh-system-prompt-from-file)
+            (expect gptel--system-message :to-match "- Readable: src/\\*\\*, docs/\\*\\*")
+            ;; Still exactly one block — recomposition, not accumulation.
+            (expect (jf-compose-test--count-env-blocks gptel--system-message)
+                    :to-equal 1))
+        (kill-buffer buf))))
+
+  (it "appends the block even with no sibling file and a nil role base"
+    (setq session-file
+          (jf-compose-test--write-session
+           ":GPTEL_SCOPE_READ: src/**\n"))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            ;; No sibling property, base left nil → role is "".
+            (setq-local gptel-chat--system-prompt-base nil)
+            (gptel-chat--refresh-system-prompt-from-file)
+            ;; Block present; value starts with the env block (no role).
+            (expect gptel--system-message :to-match "\\`# Environment")
+            (expect (jf-compose-test--count-env-blocks gptel--system-message)
+                    :to-equal 1))
+        (kill-buffer buf))))
+
+  (it "no-ops for a non-chat-mode buffer (mode guard): no block, unchanged message"
+    (with-temp-buffer
+      (text-mode)
+      (set (make-local-variable 'gptel--system-message) "sentinel-plain-buf")
+      (gptel-chat--refresh-system-prompt-from-file)
+      (expect gptel--system-message :to-equal "sentinel-plain-buf")
+      (expect gptel--system-message :not :to-match "# Environment"))))
+
 ;;; environment-preamble-spec.el ends here
