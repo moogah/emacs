@@ -140,6 +140,12 @@ Run this after preset registration to inject skill content into presets."
 (jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
 
+;; Load the fragment renderer/parser (prompt-fragments capability foundation).
+;; Must load BEFORE preset registration and before the chat/agent/env consumers
+;; that compose system messages from fragments. Depends only on logging (used
+;; optionally, when present) so it sits right after constants/logging.
+(jf/load-module (expand-file-name "config/gptel/presets/fragments.el" jf/emacs-dir))
+
 ;; Ensure yaml parser is available
 (require 'yaml)
 
