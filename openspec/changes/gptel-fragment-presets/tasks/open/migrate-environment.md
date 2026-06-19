@@ -85,3 +85,22 @@ the cacheable static prefix stable.
 - **Reviewer note:** a fragment with no sections renders to `""`. Decide
   explicitly whether the composer skips/rejects empty fragments rather than
   silently emitting an empty block.
+
+## Cycle 2 updates (cycle-1781885402)
+
+> composer + registration landed; the compose API and the static/dynamic-timing
+> invariant are now **confirmed**. Build against these concrete facts:
+
+- **Compose API:** `jf/gptel-fragment-compose (composition backend &optional context)`
+  renders an ordered list of *fragment references* and joins with `"\n\n"`.
+  `register/boundary/composer-compose` and `register/invariant/static-prerender-dynamic-compose`
+  (load-bearing) both **confirmed**.
+- **Environment is THE canonical dynamic fragment:** wire it as a `:kind dynamic :fn FN`
+  reference (`register/shape/fragment-reference`), placed at the **tail**. The composer
+  already exposes the seam var **`jf/gptel-fragment-environment-fn`** (defaults to
+  `#'ignore`) — populate it with the environment-producing function (wrap/relocate the
+  existing `gptel-chat--build-environment-block` body). `--default-composition` puts the
+  dynamic env ref last for chat and agent.
+- Dynamic fns own their own output formatting; the composer's `backend` arg is currently
+  **inert** (static refs are pre-rendered) — do not rely on it for env formatting, and
+  flag it as a candidate drop.

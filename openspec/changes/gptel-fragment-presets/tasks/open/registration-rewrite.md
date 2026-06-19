@@ -2,7 +2,7 @@
 name: registration-rewrite
 description: Rewrite preset registration to load tangled preset .el artifacts; delete the YAML frontmatter pipeline; retain native-Elisp scope/mode extraction; rewrite the preset-registration tests.
 change: gptel-fragment-presets
-status: blocked
+status: done
 relations:
   - "blocked-by:fragment-core"
 ---

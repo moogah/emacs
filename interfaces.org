@@ -1722,13 +1722,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          per top-level Org heading in the source, in source order. A valid
          fragment has at least one section.
 
-   optional_keys:
-     - name: ":fn"
-       type: function | null
-       description: |
-         Present only for dynamic fragments — the function the composer
-         evaluates at compose time to produce the fragment's text. nil /
-         absent for static fragments (whose text is pre-rendered).
+   optional_keys: []
+   # cycle-1781885402 amendment (end-of-cycle Architect, arch-cycle-1781885402-2):
+   # the speculative optional :fn key is REMOVED. jf/gptel-fragment--parse-source
+   # never emits :fn. The compose-time function lives on the fragment-REFERENCE
+   # (register/shape/fragment-reference, :kind dynamic :fn FN), not on the parsed
+   # fragment plist. The composer consumes references, not fragment plists.
 
    producers:
      - file: config/gptel/presets/fragments.org
@@ -1737,9 +1736,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - file: config/gptel/presets/fragments.org
        function: jf/gptel-fragment-render
        reads_keys: [":kind", ":sections"]
-     - file: config/gptel/presets/fragments.org
-       function: <composer> (composer.md task)
-       reads_keys: [":kind", ":sections", ":fn"]
+     # NOTE: the composer does NOT consume this shape directly — it consumes
+     # register/shape/fragment-reference. A dynamic reference's :fn produces text
+     # that may itself be (or wrap) a rendered fragment, but the parsed fragment
+     # plist has no :fn.
 
    validator: |
      (defun shape/validate-fragment (val)
@@ -1832,9 +1832,27 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/composition
    tier: shape
-   status: speculated
+   status: reconciled
    load_bearing: false
-   title: Composition (ordered fragment list + preset config)
+   title: Composition (ordered fragment-reference list)
+   reconciliation:
+     prior_shape: |
+       Speculated as a plist (:fragments LIST :config PLIST) — the ordered
+       fragment list AND the preset config bundled together.
+     new_shape: |
+       Implemented as a BARE ordered list of fragment references (see
+       register/shape/fragment-reference); config is NOT part of a composition.
+     why_tests_missed: |
+       composer-spec asserts the list shape directly ([prelude, role, env]) and
+       never references the speculated plist; specs encode the implementation, not
+       the register, so the divergence from the speculated container was invisible.
+     rationale: |
+       Sound separation of concerns: config travels with the preset registration
+       (register/shape/preset-config-plist, owned by registration-rewrite); folding
+       it into a composition would couple the composer to registration. A
+       composition is purely the ordered reference list the composer renders+joins.
+     note_path: .orchestrator/cycles/cycle-1781885402/reconciliations/shape-composition.md
+     discovered_by: architect (end-of-cycle, arch-cycle-1781885402-3)
    purpose: |
      What a preset effectively is at compose time: an ordered list of
      fragments (register/shape/fragment) together with the config a preset
@@ -1889,6 +1907,51 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** fragment-reference
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-fragment-reference
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/fragment-reference
+   tier: shape
+   status: confirmed
+   load_bearing: false
+   title: Fragment reference (a composition element the composer realizes)
+   status_note: |
+     cycle-1781885402 integrate: created + confirmed in the same cycle. Surfaced by
+     the end-of-cycle Architect audit (arch-cycle-1781885402-2): the composer does
+     NOT consume fragment plists — it consumes fragment REFERENCES. A reference is
+     the runtime projection of a fragment's nature into a composition slot. Pinned
+     up front by the composer Implementor (value-pinning), so zero reconcile cost.
+   purpose: |
+     The element type of a composition (register/shape/composition). The composer
+     (jf/gptel-fragment-compose) realizes each reference in list order. Its :kind
+     intentionally mirrors the fragment plist's :kind (register/vocabulary/fragment-kind)
+     so the two shapes read symmetrically, but a reference is a DISTINCT shape: it
+     carries already-resolved realization data, not parsed sections.
+   variants:
+     - kind: static
+       shape: "(:kind static :text STRING)"
+       description: |
+         Pre-rendered text consumed verbatim at compose time (no call into
+         jf/gptel-fragment-render). Upholds register/invariant/static-prerender-dynamic-compose.
+     - kind: dynamic
+       shape: "(:kind dynamic :fn FUNCTION)"
+       description: |
+         :fn is funcalled at compose time to produce the text. NOTE: :fn lives on
+         the REFERENCE, not on the fragment plist — register/shape/fragment must
+         drop its speculative optional :fn key (the parser never emits :fn).
+   producers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment--ref-static / --ref-dynamic / --default-composition
+   consumers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment--realize-ref (dispatches on reference :kind)
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
 ** preset-config-plist
    :PROPERTIES:
    :CUSTOM_ID: register-shape-preset-config-plist
@@ -1897,7 +1960,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/preset-config-plist
    tier: shape
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781885402 integrate: speculated → confirmed. Native-Elisp config block
+     implemented with the speculated required keys (:description string, :backend
+     symbol, :model symbol) and optional keys (:tools, :temperature, scope keys,
+     :mode). No parse/normalize/coerce. Clarification: :system is supplied
+     PRE-RENDERED by the preset author (rendered at tangle time); the register helper
+     extracts scope/mode keys + forwards the rest, and does not call the renderer.
+     Value-pinning (cycle-1 meta-discovery) paid off — zero reconcile on this shape.
    load_bearing: false
    title: Native-Elisp preset config block (replaces YAML frontmatter)
    purpose: |
@@ -5911,7 +5982,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/composer-compose
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781885402 integrate: speculated → confirmed. jf/gptel-fragment-compose
+     implements all three stages (resolve-composition → realize-fragments → join)
+     as speculated; on-touch + end-of-cycle Architect both verified. One refinement
+     (not a divergence): the `backend` arg is currently inert at compose time
+     because static refs are pre-rendered (consistent with
+     static-prerender-dynamic-compose) and dynamic fns own their own formatting —
+     candidate to drop; probe in the migrate/source tasks.
    load_bearing: false
    title: ordered fragment list → effective system message (composer)
    purpose: |
@@ -5978,7 +6057,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/preset-org-to-registration
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781885402 integrate: speculated → confirmed. registration loads tangled
+     preset .el (loader convention config/gptel/presets/<name>/preset.el; preset name
+     = source basename); scope keys (:paths :shell-commands :bash-tools :scope-profile)
+     extracted into jf/gptel-preset--scope-defaults and stripped; :mode → --mode-defaults
+     (default "org-mode"); :org-roam-patterns warned+dropped, not extracted; register
+     idempotent (re-load updates, no duplicate). Render-locus clarified: the role text
+     is pre-rendered at TANGLE time inside preset.el; registration forwards that
+     pre-rendered :system and does NOT itself call jf/gptel-fragment-render (matches
+     stage-1 of the speculation). YAML pipeline deleted (parse/normalize/coerce gone).
    load_bearing: false
    title: preset .org → tangled .el → gptel-make-preset registration
    purpose: |
@@ -8802,7 +8891,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/static-prerender-dynamic-compose
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781885402 integrate: speculated → confirmed (load-bearing). composer
+     consumes static refs verbatim (jf/gptel-fragment--realize-ref reads :text, no
+     path through jf/gptel-fragment-render at compose time); dynamic refs funcall at
+     compose time and default to the tail. On-touch Architect confirmed the stable-
+     prefix property holds; one advisory (arch-cycle-1781885402-1): the
+     "two-composes-differ-only-in-tail" property is demonstrated by construction but
+     not asserted as a literal byte-identical-prefix spec — optional strengthening,
+     non-blocking; golden/idempotent enforcement belongs to the source/migrate tasks.
    load_bearing: true
    title: static fragments pre-render at tangle time; dynamic evaluate at compose time
    statement: |
@@ -8899,7 +8997,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/context-default-composition
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1781885402 integrate: speculated → confirmed. jf/gptel-fragment--default-composition
+     yields chat → [emacs-prelude(static), role, environment(dynamic)] and
+     agent → [agent-preamble(static), role, environment(dynamic)]; role injected via
+     an optional role-ref arg; the override seam exists. Decided + documented:
+     empty/nil contributions are SKIPPED (not rejected). The actual prelude/preamble/
+     environment CONTENT is wired via seam defvars (jf/gptel-fragment-chat-prelude-text,
+     -environment-fn, ...) whose population is deferred to the migrate/source tasks.
    load_bearing: false
    title: context-derived default composition (chat vs agent) with override seam
    statement: |

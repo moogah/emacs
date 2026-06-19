@@ -63,3 +63,19 @@ so a fixture dependency cannot silently break the suite (design Risks).
   file loads (verify in step 1): `config/gptel/tools/test/persistent-agent/error-handling-spec.el`,
   `config/gptel/tools/test/test-org-roam-integration.el`.
 - Design Risks/Migration Plan step 6–7.
+
+## Cycle 2 updates (cycle-1781885402)
+
+> registration-rewrite already did part of this task's deletion work — **scope reduced**.
+
+- **Already deleted by registration-rewrite:** `config/gptel/preset-registration.org`
+  and `.el` (the whole YAML parse/normalize/coerce module), and `(require 'yaml)` was
+  removed from the **preset path**. Do not re-attempt those deletions.
+- **Remaining scope for this task:** delete the old `.md` presets themselves (`executor`,
+  `explore`, `plan`, `research`, `zettelkasten`, `perplexity-researcher`, `minimal`,
+  `system-explorer.md`, `test-agent-*`) AFTER the snapshot/count-test grep (design step 6),
+  and the **global** yaml-dep check (verify no OTHER module still requires `yaml` before
+  dropping it project-wide — registration-rewrite only cleared the preset path).
+- `register/boundary/preset-org-to-registration` is **confirmed**; the new registration
+  ignores flat `.md` files in `presets/` (only descends `<name>/preset.el` subdirs), so
+  the old `.md` presets are already inert at runtime — deletion is cleanup, not behavior.

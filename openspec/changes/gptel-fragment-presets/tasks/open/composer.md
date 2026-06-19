@@ -2,7 +2,7 @@
 name: composer
 description: Implement the composer that assembles an ordered fragment list into the effective system message, with context-derived default compositions (chat/agent) and an override seam.
 change: gptel-fragment-presets
-status: blocked
+status: done
 relations:
   - "blocked-by:fragment-core"
 ---

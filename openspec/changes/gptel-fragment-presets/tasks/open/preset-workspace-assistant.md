@@ -90,3 +90,20 @@ validates the renderer against real content.
   specs' `require` and crashes the full buttercup load. Also: a directory-scoped
   green run does NOT imply full-suite green; the orchestrator gates on the full
   suite.
+
+## Cycle 2 updates (cycle-1781885402)
+
+> registration-rewrite landed; the preset pipeline is now **confirmed**. Build against
+> these concrete facts:
+
+- **Author the preset at `config/gptel/presets/workspace-assistant/preset.el`** (loader
+  convention `config/gptel/presets/<name>/preset.el`; preset name = basename). Register
+  is idempotent (re-load updates, no duplicate). `register/boundary/preset-org-to-registration`
+  **confirmed**.
+- **Config block** native Elisp (`register/shape/preset-config-plist`, confirmed):
+  `:description`/`:backend` (`claude`)/`:model` required; `:tools`, `:temperature`, scope
+  keys (`:paths :shell-commands :bash-tools :scope-profile` → extracted+stripped) + `:mode`
+  optional.
+- **`:system` = pre-rendered static role text** (rendered at tangle time via
+  `jf/gptel-fragment-render`; registration forwards it). No palette tools yet (per design
+  Decision 9 / Non-Goals).

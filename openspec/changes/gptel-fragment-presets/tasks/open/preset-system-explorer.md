@@ -87,3 +87,20 @@ machine state stays dynamic.
   specs' `require` and crashes the full buttercup load. Also: a directory-scoped
   green run does NOT imply full-suite green; the orchestrator gates on the full
   suite.
+
+## Cycle 2 updates (cycle-1781885402)
+
+> registration-rewrite landed; the preset pipeline is now **confirmed**. Build against
+> these concrete facts:
+
+- **Author the preset at `config/gptel/presets/system-explorer/preset.el`** (loader
+  convention: `config/gptel/presets/<name>/preset.el`; preset name = basename =
+  `system-explorer`). `register/boundary/preset-org-to-registration` **confirmed**.
+- **Config block** is native Elisp (`register/shape/preset-config-plist`, confirmed):
+  required `:description` (string), `:backend` (symbol `claude`), `:model` (symbol);
+  optional `:tools`, `:temperature`, and the scope keys `:paths :shell-commands
+  :bash-tools :scope-profile` (extracted into `jf/gptel-preset--scope-defaults` and
+  stripped) + `:mode`. `:org-roam-patterns` is NOT a scope key.
+- **`:system` is the PRE-RENDERED role text** — render the static role fragment at
+  **tangle time** via `jf/gptel-fragment-render`; registration forwards it (it does not
+  call the renderer itself). For read-only system-explorer, keep scope to read-only ops.

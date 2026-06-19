@@ -91,3 +91,25 @@ are prototypes (user-confirmed).
 - **Reviewer note:** a fragment with no sections renders to `""`. Decide
   explicitly whether the composer skips/rejects empty fragments rather than
   silently emitting an empty block.
+
+## Cycle 2 updates (cycle-1781885402)
+
+> composer + context-default composition landed and are **confirmed**. Build against
+> these concrete facts:
+
+- **Context defaults (confirmed):** `jf/gptel-fragment--default-composition (context
+  &optional role-ref)` yields chat → `[emacs-prelude(static), role, environment(dynamic)]`
+  and agent → `[agent-preamble(static), role, environment(dynamic)]`. Empty/nil
+  contributions are **skipped** (decided + documented), so an absent role collapses
+  cleanly while prelude/preamble still lead.
+- **Wire prelude/preamble via the seam defvars the composer already exposes** — do NOT
+  re-implement composition:
+  - `jf/gptel-fragment-chat-prelude-text` (currently `""`) — set to the pre-rendered
+    chat prelude fragment text (static, rendered at tangle time).
+  - `jf/gptel-fragment-agent-preamble-text` (currently `""`) — set to the pre-rendered
+    agent preamble text.
+- prelude/preamble are **static** references (`(:kind static :text STRING)`,
+  `register/shape/fragment-reference`) — pre-rendered, consumed verbatim, NOT re-rendered
+  per send (`register/invariant/static-prerender-dynamic-compose`, load-bearing, confirmed).
+- `register/shape/fragment` was amended: its speculative `:fn` key was removed — dynamic
+  behavior lives on the *reference*, not the parsed fragment.
