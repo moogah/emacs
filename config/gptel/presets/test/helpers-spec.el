@@ -36,5 +36,12 @@ and no whitespace normalization so the result can be compared
       (insert-file-contents path)
       (buffer-string))))
 
-(provide 'helpers-spec)
+;; NOTE: provide a sub-module-unique feature symbol.  `config/gptel/scope/test/
+;; helpers-spec.el' already provides the generic `helpers-spec' feature and is
+;; what the scope specs `(require 'helpers-spec ...)' resolve to.  Because the
+;; full buttercup batch loads `presets/test/' before `scope/test/' (recursive
+;; alphabetical order), providing the generic name here would satisfy that
+;; feature first and make the scope specs' `require' a no-op, leaving
+;; `helpers-spec-make-scope-config' undefined.  Use a distinct symbol instead.
+(provide 'presets-helpers-spec)
 ;;; helpers-spec.el ends here

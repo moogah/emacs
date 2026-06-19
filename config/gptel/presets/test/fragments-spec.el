@@ -25,7 +25,7 @@
 ;; Load the module under test and the golden-file reader.
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (presets-dir (expand-file-name ".." test-dir)))
-  (require 'helpers-spec (expand-file-name "helpers-spec.el" test-dir))
+  (require 'presets-helpers-spec (expand-file-name "helpers-spec.el" test-dir))
   (require 'jf-gptel-fragments (expand-file-name "fragments.el" presets-dir)))
 
 (describe "Fragment parsing"
