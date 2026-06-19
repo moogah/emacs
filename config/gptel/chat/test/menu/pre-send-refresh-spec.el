@@ -122,8 +122,9 @@
             (gptel-chat--refresh-system-prompt-from-file)
             ;; Role base tracks the re-read sibling body (role-only).
             (expect gptel-chat--system-prompt-base :to-equal "New prompt body.\n")
-            ;; The composed message leads with the fresh role.
-            (expect gptel--system-message :to-match "\\`New prompt body\\.")
+            ;; The composed message carries the fresh role (after the
+            ;; static Emacs prelude that now leads every prompt).
+            (expect gptel--system-message :to-match "New prompt body\\.")
             (expect gptel--system-message :not :to-match "Old prompt body"))
         (kill-buffer buf))))
 
@@ -141,7 +142,7 @@
             ;; Role base unchanged (no sibling to re-read), composed value
             ;; leads with it and appends the env block.
             (expect gptel-chat--system-prompt-base :to-equal "sentinel-role")
-            (expect gptel--system-message :to-match "\\`sentinel-role")
+            (expect gptel--system-message :to-match "sentinel-role")
             (expect gptel--system-message :to-match "# Environment"))
         (kill-buffer buf))))
 
@@ -162,9 +163,9 @@
                 (delete-file sibling))
               (spy-on 'jf/gptel--log)
               (gptel-chat--refresh-system-prompt-from-file)
-              ;; Role base preserved (fallback), composed value leads with it.
+              ;; Role base preserved (fallback), composed value carries it.
               (expect gptel-chat--system-prompt-base :to-equal "Live prompt body.\n")
-              (expect gptel--system-message :to-match "\\`Live prompt body\\.")
+              (expect gptel--system-message :to-match "Live prompt body\\.")
               ;; Warning logged with the resolver's path.
               (expect 'jf/gptel--log :to-have-been-called)
               (let ((args (spy-calls-args-for 'jf/gptel--log 0)))
@@ -190,7 +191,7 @@
             (gptel-chat--refresh-system-prompt-from-file)
             ;; Blank body should not replace the live role base.
             (expect gptel-chat--system-prompt-base :to-equal "Live prompt body.\n")
-            (expect gptel--system-message :to-match "\\`Live prompt body\\."))
+            (expect gptel--system-message :to-match "Live prompt body\\."))
         (kill-buffer buf)))))
 
 (describe "pre-send wiring: :before advice on gptel-request"

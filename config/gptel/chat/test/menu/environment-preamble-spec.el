@@ -396,9 +396,11 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             (expect (jf-compose-test--count-env-blocks gptel--system-message)
                     :to-equal 1)
             ;; The role appears exactly once too — the value did not
-            ;; double up.
+            ;; double up.  Composition leads with the static Emacs
+            ;; prelude, then role, then the env tail.
             (expect gptel--system-message :to-equal
-                    (concat "Role body.\n\n"
+                    (concat gptel-chat--emacs-prelude "\n\n"
+                            "Role body.\n\n"
                             (with-current-buffer buf
                               (gptel-chat--build-environment-block)))))
         (kill-buffer buf))))
@@ -416,7 +418,10 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             (gptel-chat--refresh-system-prompt-from-file)
             (expect (jf-compose-test--count-env-blocks gptel--system-message)
                     :to-equal 1)
-            (expect gptel--system-message :to-match "\\`Base role content\\.")
+            ;; Prelude leads; role follows it; env tails.
+            (expect gptel--system-message :to-match
+                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+            (expect gptel--system-message :to-match "Base role content\\.")
             (expect gptel--system-message :to-match "# Environment"))
         (kill-buffer buf))))
 
@@ -455,8 +460,11 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             ;; No sibling property, base left nil → role is "".
             (setq-local gptel-chat--system-prompt-base nil)
             (gptel-chat--refresh-system-prompt-from-file)
-            ;; Block present; value starts with the env block (no role).
-            (expect gptel--system-message :to-match "\\`# Environment")
+            ;; Prelude leads even with no role; env block follows it
+            ;; directly (PRELUDE + "\n\n" + ENV, no role section).
+            (expect gptel--system-message :to-match
+                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+            (expect gptel--system-message :to-match "# Environment")
             (expect (jf-compose-test--count-env-blocks gptel--system-message)
                     :to-equal 1))
         (kill-buffer buf))))
@@ -468,5 +476,98 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
       (gptel-chat--refresh-system-prompt-from-file)
       (expect gptel--system-message :to-equal "sentinel-plain-buf")
       (expect gptel--system-message :not :to-match "# Environment"))))
+
+;; ---------------------------------------------------------------------------
+;; Emacs prelude
+;;
+;; The static `gptel-chat--emacs-prelude' frames the model's runtime
+;; (operating inside GNU Emacs via gptel) and LEADS every chat-mode
+;; system prompt: VALUE = PRELUDE + "\n\n" + ROLE + "\n\n" + ENV (or
+;; PRELUDE + "\n\n" + ENV when the role is empty).  It is the
+;; interactive-session analogue of the persistent agent's
+;; `jf/gptel-persistent-agent--system-preamble', joined by reference so
+;; it never accumulates across sends.
+;; ---------------------------------------------------------------------------
+
+(defun jf-prelude-test--count (s)
+  "Return the number of Emacs-prelude marker sentences in string S."
+  (let ((count 0)
+        (start 0))
+    (while (string-match "operating inside GNU Emacs" s start)
+      (setq count (1+ count)
+            start (match-end 0)))
+    count))
+
+(describe "Emacs prelude"
+
+  :var (session-file)
+
+  (before-each
+    (setq jf-compose-test--tmp-dir
+          (make-temp-file "jf-prelude-" t)))
+
+  (after-each
+    (when (and jf-compose-test--tmp-dir
+               (file-directory-p jf-compose-test--tmp-dir))
+      (delete-directory jf-compose-test--tmp-dir t)))
+
+  (it "leads the composed message, ahead of both role and env"
+    (jf-compose-test--write-sibling "system-prompt.md" "You are a careful assistant.")
+    (setq session-file
+          (jf-compose-test--write-session
+           (concat ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                   ":GPTEL_SCOPE_READ: src/**\n")))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (gptel-chat--refresh-system-prompt-from-file)
+            ;; The message opens with the prelude verbatim.
+            (expect gptel--system-message :to-match
+                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+            ;; Prelude strictly precedes role, which precedes env.
+            (let ((prelude-pos (string-match "operating inside GNU Emacs"
+                                             gptel--system-message))
+                  (role-pos (string-match "You are a careful assistant\\."
+                                          gptel--system-message))
+                  (env-pos (string-match "# Environment" gptel--system-message)))
+              (expect prelude-pos :to-be-less-than role-pos)
+              (expect role-pos :to-be-less-than env-pos)))
+        (kill-buffer buf))))
+
+  (it "is present even when the buffer has no role"
+    (setq session-file
+          (jf-compose-test--write-session
+           ":GPTEL_SCOPE_READ: src/**\n"))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (setq-local gptel-chat--system-prompt-base nil)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (expect gptel--system-message :to-match
+                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+            ;; PRELUDE directly followed by the env tail, no role section.
+            (let ((prelude-pos (string-match "operating inside GNU Emacs"
+                                             gptel--system-message))
+                  (env-pos (string-match "# Environment" gptel--system-message)))
+              (expect prelude-pos :to-be-less-than env-pos)))
+        (kill-buffer buf))))
+
+  (it "appears EXACTLY ONCE across two consecutive composes (no accumulation)"
+    (jf-compose-test--write-sibling "system-prompt.md" "Role body.")
+    (setq session-file
+          (jf-compose-test--write-session
+           (concat ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                   ":GPTEL_SCOPE_READ: src/**\n")))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (expect (jf-prelude-test--count gptel--system-message)
+                    :to-equal 1))
+        (kill-buffer buf)))))
 
 ;;; environment-preamble-spec.el ends here

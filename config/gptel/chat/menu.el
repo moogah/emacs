@@ -483,14 +483,55 @@ unloaded the builder still returns a valid block."
            "- File access: no scope restrictions (this buffer is not a scoped session)"))))))
 ;; Environment block builder:1 ends here
 
+;; Emacs prelude
+
+;; Every chat-mode system prompt opens with a static prelude that frames
+;; the model's runtime: it is operating inside GNU Emacs through the gptel
+;; chat interface, so Org markup beats Markdown, file/editor tools are
+;; available within the session scope, and the user is an Emacs user.  The
+;; prelude is the analogue of the persistent agent's
+;; =jf/gptel-persistent-agent--system-preamble= for interactive sessions,
+;; but rides the per-send composer rather than being materialized into the
+;; role file at creation.
+
+;; The prelude leads the whole prompt (=PRELUDE + ROLE + ENV=), so it is
+;; present even when the buffer carries no role.  Because it is a
+;; =defconst= the composer joins by reference (never read back from the
+;; composed value), it never accumulates across sends — same wholesale-
+;; rebuild invariant as the environment block.  It carries no Org heading:
+;; like the agent preamble it opens as plain framing prose, and a heading
+;; containing "Environment" would collide with the env block's own
+;; =# Environment= heading.
+
+
+;; [[file:menu.org::*Emacs prelude][Emacs prelude:1]]
+(defconst gptel-chat--emacs-prelude
+  "You are operating inside GNU Emacs, through the gptel chat interface. Keep these in mind:
+- Responses render as Org-mode text in an Emacs buffer — prefer Org markup over Markdown.
+- You have tools that read and write files and inspect the user's editor, within the session's file-access scope.
+- The user is working in Emacs; assume familiarity with it."
+  "Static runtime-framing prelude prepended to every chat-mode system prompt.
+
+Prepended ahead of the ROLE and environment block by
+`gptel-chat--refresh-system-prompt-from-file' on every send (so it
+leads the composed `gptel--system-message' and is present even when
+the buffer has no role).  Tells the model it is operating inside GNU
+Emacs via gptel — the interactive-session analogue of
+`jf/gptel-persistent-agent--system-preamble'.  Carries no Org heading
+\(opens as plain framing prose) to avoid colliding with the
+environment block's `# Environment' heading.")
+;; Emacs prelude:1 ends here
+
 ;; Pre-send composition
 
 ;; =gptel-chat--refresh-system-prompt-from-file= is the runtime
 ;; composer: every =gptel-request= dispatched from a chat-mode buffer
-;; recomposes =gptel--system-message= WHOLESALE as =role + "\n\n" +
-;; environment-block= before the request body's keyword-argument
-;; defaulting picks =gptel--system-message= up (design.md §Decision 4,
-;; D1, D4).  Two things therefore happen on every send:
+;; recomposes =gptel--system-message= WHOLESALE as =emacs-prelude +
+;; "\n\n" + role + "\n\n" + environment-block= before the request body's
+;; keyword-argument defaulting picks =gptel--system-message= up
+;; (design.md §Decision 4, D1, D4).  The static =gptel-chat--emacs-
+;; prelude= always leads (present even with an empty role); two further
+;; things happen on every send:
 
 ;; 1. The ROLE is resolved from a *stable source* — the sibling
 ;;    =system-prompt.<ext>= file re-read fresh each send (so a mid-
@@ -537,18 +578,20 @@ updating the buffer-local value in `:before' advice is sufficient —
 the request body picks up the recomposed value automatically.
 
 The composed value is set WHOLESALE each send from STABLE sources
-only — never from the prior `gptel--system-message' — so the
-environment block never accumulates across sends and a mid-session
+only — never from the prior `gptel--system-message' — so the prelude
+and environment block never accumulate across sends and a mid-session
 scope change appears on the next send
 \(`register/invariant/composed-system-message-write-only', D1/D2/D4):
 
+  PRE   = `gptel-chat--emacs-prelude', the static runtime-framing
+          preamble, ALWAYS the leading section.
   ROLE  = sibling `system-prompt.<ext>' body, re-read fresh each send
           when `:GPTEL_SYSTEM_PROMPT_FILE:' is set and the file is
           readable and non-blank; otherwise the buffer-local role
           base `gptel-chat--system-prompt-base' (or \"\" when nil).
   ENV   = `gptel-chat--build-environment-block', built UNCONDITIONALLY.
-  VALUE = ENV when ROLE is empty, else ROLE \"\\n\\n\" ENV (env is the
-          TAIL section, D4).
+  VALUE = PRE \"\\n\\n\" ENV when ROLE is empty, else
+          PRE \"\\n\\n\" ROLE \"\\n\\n\" ENV (env is the TAIL section, D4).
 
 No-op when the current buffer is not a `gptel-chat-mode' buffer
 \(non-chat-mode `gptel-request' callers see only the predicate check
@@ -588,9 +631,11 @@ the function operates on the buffer-local context."
                ""))
           (env (gptel-chat--build-environment-block)))
       (set (make-local-variable 'gptel--system-message)
-           (if (string-empty-p role)
-               env
-             (concat role "\n\n" env))))))
+           (concat gptel-chat--emacs-prelude
+                   "\n\n"
+                   (if (string-empty-p role)
+                       env
+                     (concat role "\n\n" env)))))))
 
 ;; Install the :before advice at module load.  `advice-add' is
 ;; idempotent for the same (function, where, advice) triple, so
