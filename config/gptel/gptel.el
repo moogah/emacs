@@ -144,15 +144,15 @@ Run this after preset registration to inject skill content into presets."
 ;; Must load BEFORE preset registration and before the chat/agent/env consumers
 ;; that compose system messages from fragments. Depends only on logging (used
 ;; optionally, when present) so it sits right after constants/logging.
-(jf/load-module (expand-file-name "config/gptel/presets/fragments.el" jf/emacs-dir))
+(jf/load-module (jf/resolve-module-path "gptel/presets/fragments"))
 
-;; Ensure yaml parser is available
-(require 'yaml)
+;; Load the fragment-era preset registration module. Fragments must load first
+;; (a preset .el may render its role fragment at load time); registration must
+;; load before the scope/session consumers that read its side tables.
+(jf/load-module (jf/resolve-module-path "gptel/presets/registration"))
 
-;; Load preset registration module
-(jf/load-module (expand-file-name "config/gptel/preset-registration.el" jf/emacs-dir))
-
-;; Register all presets from config/gptel/presets/*.md
+;; Load and register all presets: each config/gptel/presets/<name>/preset.el
+;; self-registers via `jf/gptel-preset-register'.
 (jf/gptel-preset-register-all)
 
 ;; After preset registration, expand skills in preset system prompts

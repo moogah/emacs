@@ -10,7 +10,7 @@
 ;; Regression spec for scope-rearch-followups Bug 3.
 ;;
 ;; Cycle-3 removed the scope.yml writer and the scope-yaml module. But
-;; jf/gptel-preset--extract-scope (config/gptel/preset-registration.el)
+;; jf/gptel-preset--extract-scope (config/gptel/presets/registration.el)
 ;; still listed :org-roam-patterns in its `scope-keys' set, silently
 ;; harvesting the key into `jf/gptel-preset--scope-defaults' even though
 ;; nothing downstream consumes it.
@@ -34,7 +34,8 @@
 
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (gptel-dir (expand-file-name "../../../" test-dir)))
-  (require 'gptel-preset-registration (expand-file-name "preset-registration.el" gptel-dir)))
+  (require 'gptel-preset-registration
+           (expand-file-name "presets/registration.el" gptel-dir)))
 
 (describe "jf/gptel-preset--extract-scope"
 

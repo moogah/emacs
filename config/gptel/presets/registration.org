@@ -1,0 +1,266 @@
+#+title: GPTEL Preset Registration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle registration.el
+#+auto_tangle: y
+
+* Introduction
+
+Fragment-era preset registration for gptel. A preset is now authored as an
+=.org= source (an Elisp config block plus a static role fragment) that *tangles
+to an =.el= artifact*. The tangled =preset.el= renders its role fragment at
+tangle time and calls [[*Register a single preset][=jf/gptel-preset-register=]]
+with native-Elisp config keys and a pre-rendered =:system=. This module:
+
+1. Provides =jf/gptel-preset-register= — the public registration entry point each
+   tangled preset =.el= calls. It extracts scope and mode keys into side tables,
+   then registers the preset via upstream =gptel-make-preset=.
+2. Provides =jf/gptel-preset-register-all= — the loader that discovers tangled
+   preset =.el= artifacts (=config/gptel/presets/<name>/preset.el=) and =load=s
+   each so they self-register.
+
+The previous YAML pipeline (file parsing, snake-case key normalization, and
+value coercion) is *deleted*: Elisp config carries native types and needs no
+parsing / normalization / coercion (design §Decision 6). Scope and mode
+extraction are *retained* — they now read native Elisp directly. This module
+introduces *no* yaml dependency.
+
+This module supersedes the former =config/gptel/preset-registration.org=. It
+sits after the fragment renderer (=presets/fragments.el=) in the gptel load
+order so that any preset =.el= relying on the renderer at load time can find it.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; registration.el --- GPTEL Preset Registration -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; Fragment-era preset registration.  Each preset .org tangles to an .el that
+;; renders its role fragment at tangle time and calls `jf/gptel-preset-register'
+;; with native-Elisp config and a pre-rendered :system.  This module extracts
+;; scope/mode keys into side tables and registers via `gptel-make-preset'.
+;; The YAML parse/normalize/coerce pipeline has been removed.
+
+;;; Code:
+
+(require 'cl-lib)
+#+end_src
+
+* Scope Defaults Storage
+
+Alist mapping preset name symbols to scope plists extracted during registration.
+Scope keys (=:paths=, =:shell-commands=, =:bash-tools=, =:scope-profile=) are
+stripped from the preset plist and stored here for later use by the scope
+subsystem (=jf/gptel-scope-profile--resolve= in =scope-profiles.org= reads this
+alist). The legacy =:org-roam-patterns= key is *not* a scope key and is never
+extracted; a preset that still carries it triggers a =display-warning= but is
+otherwise registered without the legacy section flowing into scope-defaults.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-preset--scope-defaults nil
+  "Alist mapping preset name symbols to scope plists.
+Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
+keys :paths, :shell-commands, :bash-tools, :scope-profile that were
+extracted from the preset config during registration.  The legacy
+:org-roam-patterns key is not extracted; see
+`jf/gptel-preset--extract-scope' for the legacy-key warning behavior.")
+#+end_src
+
+* Mode Defaults Storage
+
+Alist mapping preset name symbols to mode plists extracted during registration.
+The =:mode= key is stripped from the preset plist and stored here for later use
+by the session subsystem when determining file format (org-mode vs
+markdown-mode). Defaults to ="org-mode"= when a preset does not declare =:mode=.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-preset--mode-defaults nil
+  "Alist mapping preset name symbols to mode plists.
+Each entry is (PRESET-NAME . MODE-PLIST) where MODE-PLIST contains
+the :mode key extracted from the preset config during registration.
+Valid :mode values are \"org-mode\" and \"markdown-mode\".
+Defaults to \"org-mode\" when not specified in the preset.")
+#+end_src
+
+* Extract Scope
+
+Strip scope-related keys from the config plist and store them in
+=jf/gptel-preset--scope-defaults=. Reads native Elisp keys directly — there is no
+YAML normalization step preceding extraction.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--extract-scope (plist preset-name)
+  "Extract scope keys from PLIST and store under PRESET-NAME.
+Scope keys are :paths, :shell-commands, :bash-tools, and :scope-profile.
+If any scope keys are present, store them in `jf/gptel-preset--scope-defaults'
+keyed by PRESET-NAME (a symbol).
+Return a new plist with scope keys removed.
+
+Legacy keys (currently `:org-roam-patterns'): cycle-3 removed pattern-based
+validation from the scope subsystem; the key no longer has a consumer.  Presets
+that still carry it trigger a `display-warning' naming the preset and the
+ignored key, and the key is dropped from both the scope plist and the returned
+config (it is not a scope key, so it never reaches scope-defaults)."
+  (let ((scope-keys '(:paths :shell-commands :bash-tools :scope-profile))
+        (legacy-scope-keys '(:org-roam-patterns))
+        (scope-plist nil)
+        (legacy-keys-present nil)
+        (result nil))
+    ;; Walk the plist once: collect live scope keys, note legacy keys (and
+    ;; drop them from both scope-plist and result), pass through everything
+    ;; else.
+    (let ((remaining plist))
+      (while remaining
+        (let ((key (pop remaining))
+              (val (pop remaining)))
+          (cond
+           ((memq key legacy-scope-keys)
+            (push key legacy-keys-present))
+           ((memq key scope-keys)
+            (setq scope-plist (plist-put scope-plist key val)))
+           (t
+            (setq result (plist-put result key val)))))))
+    ;; Surface legacy keys via display-warning so the user can clean up.
+    (when legacy-keys-present
+      (display-warning
+       'jf-gptel-preset
+       (format "Preset %S carries legacy scope key(s) %S; the key(s) are ignored. Remove from the preset definition."
+               preset-name (nreverse legacy-keys-present))
+       :warning))
+    ;; Store scope defaults if any live scope keys were found.
+    (when scope-plist
+      (let ((existing (assq preset-name jf/gptel-preset--scope-defaults)))
+        (if existing
+            (setcdr existing scope-plist)
+          (push (cons preset-name scope-plist) jf/gptel-preset--scope-defaults))))
+    result))
+#+end_src
+
+* Extract Mode
+
+Strip the =:mode= key from the config plist and store it in
+=jf/gptel-preset--mode-defaults=. Defaults to ="org-mode"= when not specified.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--extract-mode (plist preset-name)
+  "Extract :mode key from PLIST and store under PRESET-NAME.
+If :mode is present, validate it and store in `jf/gptel-preset--mode-defaults'
+keyed by PRESET-NAME (a symbol).  If :mode is absent, store the default
+\"org-mode\".  Valid values are \"org-mode\" and \"markdown-mode\".
+Return a new plist with :mode removed."
+  (let ((mode-val (plist-get plist :mode))
+        (result nil))
+    ;; Build result plist without :mode.
+    (let ((remaining plist))
+      (while remaining
+        (let ((key (pop remaining))
+              (val (pop remaining)))
+          (unless (eq key :mode)
+            (setq result (plist-put result key val))))))
+    ;; Default to "org-mode" if not specified.
+    (let ((effective-mode (or mode-val "org-mode")))
+      ;; Validate.
+      (unless (member effective-mode '("org-mode" "markdown-mode"))
+        (when (fboundp 'jf/gptel--log)
+          (jf/gptel--log 'warn "Preset %s has invalid :mode \"%s\", defaulting to org-mode"
+                         preset-name effective-mode))
+        (setq effective-mode "org-mode"))
+      ;; Store in side table.
+      (let ((mode-plist (list :mode effective-mode))
+            (existing (assq preset-name jf/gptel-preset--mode-defaults)))
+        (if existing
+            (setcdr existing mode-plist)
+          (push (cons preset-name mode-plist) jf/gptel-preset--mode-defaults))))
+    result))
+#+end_src
+
+* Register a Single Preset
+
+The public registration entry point. Each tangled preset =.el= calls this with
+its name symbol and a native-Elisp config plist (already carrying =:system= as
+the rendered role text). Scope and mode keys are extracted into the side tables;
+the remaining config is handed to upstream =gptel-make-preset=.
+
+Registration is idempotent: =gptel-make-preset= keys =gptel--known-presets= by
+NAME, so re-loading a preset =.el= (after an edit + re-tangle) updates the
+existing entry rather than duplicating it.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset-register (name &rest config)
+  "Register the preset NAME with native-Elisp CONFIG.
+NAME is a symbol (typically the preset's source basename).  CONFIG is a
+plist of native-Elisp gptel-preset keys; :system, when present, is the
+preset's pre-rendered role text.
+
+Scope keys (:paths :shell-commands :bash-tools :scope-profile) are
+extracted into `jf/gptel-preset--scope-defaults' and removed from the
+plist; the legacy :org-roam-patterns key is dropped (see
+`jf/gptel-preset--extract-scope').  The :mode key is extracted into
+`jf/gptel-preset--mode-defaults' (default \"org-mode\").  The remaining
+config is registered via upstream `gptel-make-preset', keyed by NAME.
+
+Idempotent: re-calling with the same NAME updates the existing entry.
+Returns NAME."
+  (let* ((scope-cleaned (jf/gptel-preset--extract-scope config name))
+         (cleaned (jf/gptel-preset--extract-mode scope-cleaned name)))
+    (apply #'gptel-make-preset name cleaned)
+    name))
+#+end_src
+
+* Register All Presets
+
+Discover and load the tangled preset =.el= artifacts so each self-registers.
+Preset sources live one-per-subdirectory under =jf/gptel-presets-directory= as
+=<name>/preset.org= tangling to =<name>/preset.el=; the preset name is the
+subdirectory basename. The loader =load=s each =preset.el= (which calls
+=jf/gptel-preset-register=). =load=ing is idempotent at the registration layer.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset-register-all ()
+  "Load all tangled preset .el artifacts so they self-register.
+Discovers `<jf/gptel-presets-directory>/<name>/preset.el' files and
+`load's each.  Each preset.el renders its role fragment (at tangle time)
+and calls `jf/gptel-preset-register', which extracts scope/mode keys and
+registers via `gptel-make-preset'.
+
+This function is idempotent -- re-loading a preset.el updates the
+existing entry.  Logs the count of loaded preset artifacts."
+  (interactive)
+  (let ((presets-dir (and (boundp 'jf/gptel-presets-directory)
+                          jf/gptel-presets-directory))
+        (count 0))
+    (if (or (null presets-dir) (not (file-directory-p presets-dir)))
+        (when (fboundp 'jf/gptel--log)
+          (jf/gptel--log 'warn "Presets directory does not exist: %s" presets-dir))
+      (dolist (subdir (directory-files presets-dir t directory-files-no-dot-files-regexp))
+        (when (file-directory-p subdir)
+          (let ((preset-el (expand-file-name "preset.el" subdir)))
+            (when (file-readable-p preset-el)
+              (condition-case err
+                  (progn
+                    (load preset-el nil t)
+                    (setq count (1+ count)))
+                (error
+                 (when (fboundp 'jf/gptel--log)
+                   (jf/gptel--log 'warn "Error loading preset %s: %s"
+                                  preset-el (error-message-string err)))))))))
+      (when (fboundp 'jf/gptel--log)
+        (jf/gptel--log 'info "Loaded %d preset artifacts from %s" count presets-dir)))
+    count))
+#+end_src
+
+* Provide Feature
+
+The =gptel-preset-registration= feature name is preserved from the superseded
+module so existing =(require 'gptel-preset-registration ...)= call sites continue
+to resolve.
+
+#+begin_src emacs-lisp
+(provide 'gptel-preset-registration)
+;;; registration.el ends here
+#+end_src
