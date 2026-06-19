@@ -50,6 +50,14 @@
 (declare-function gptel-org-set-properties "gptel-org" (pt &optional msg))
 (declare-function org-entry-get "org" (pom property &optional inherit literal-nil))
 (declare-function org-entry-put "org" (pom property value))
+(declare-function org-entry-get-multivalued-property "org" (pom property))
+;; The point-min drawer scanner lives in
+;; `config/gptel/sessions/filesystem.el' (feature
+;; `gptel-session-filesystem'), which loads after `gptel/chat/chat' in
+;; `jf/enabled-modules'.  Declare it as a forward reference; the symbol
+;; resolves at runtime when the environment-block builder runs from a
+;; chat-mode buffer (which only exists after sessions have loaded).
+(declare-function jf/gptel--scan-session-drawer-keys "gptel-session-filesystem" ())
 ;; `jf/gptel--log' lives in `config/gptel/sessions/logging.el', which
 ;; loads after `gptel/chat/chat' in `jf/enabled-modules' (so requiring
 ;; the feature here would fail).  Declare it as a forward reference;
@@ -340,6 +348,116 @@ entry > preset `:system')."
               ((not (string-blank-p body))))
     (set (make-local-variable 'gptel--system-message) body)))
 ;; System Prompt sibling file:1 ends here
+
+;; Environment block builder
+
+;; =gptel-chat--build-environment-block= returns the markdown
+;; "# Environment" block that the pre-send composition step appends to
+;; =gptel--system-message= on every send from a chat-mode buffer.  It
+;; re-orients the model each turn: it names the working directory and
+;; states the file-access scope as VERBATIM glob patterns, with a
+;; live-note ("current as of this message") so the model treats the
+;; information as fresh rather than stale context (design.md D3).
+
+;; Inputs are INTRINSIC to the buffer only (=register/boundary/
+;; environment-block-input-neutrality=): the current buffer's
+;; =default-directory= for the working-directory line, and the point-min
+;; =:PROPERTIES:= drawer's =GPTEL_SCOPE_*= keys for the scope lines.  The
+;; builder reads the RAW drawer patterns AS WRITTEN — it does NOT route
+;; through =jf/gptel-scope--load-config=, which expands deny-all defaults
+;; for validation; the human-facing block wants exactly what the author
+;; typed.  It references NO workspaces-package symbol; with the
+;; workspaces package entirely unloaded the builder still returns a valid
+;; block and signals no error.
+
+;; Degradation (design.md D5): a chat-mode buffer that carries no
+;; =GPTEL_SCOPE_*= keys is not a scoped session.  Rather than render
+;; three empty scope bullets, the builder collapses them to a single
+;; "no scope restrictions" line.  The builder NEVER errors and NEVER
+;; returns an empty string — the worst case is the degraded block.
+
+;; Reading the pattern lists reuses the scope subsystem's accessor —
+;; =org-entry-get-multivalued-property= — so the multi-value (space-
+;; separated / =:KEY+:= continuation) collapse lives in exactly one
+;; place and is not re-implemented here.  =org= is required lazily inside
+;; the builder: in production a chat-mode =session.org= buffer always has
+;; =org= loaded, but the lazy require keeps this module load-safe in the
+;; minimal contexts the rest of the file is careful to support.
+
+;; The degradation gate uses =jf/gptel--scan-session-drawer-keys= (the
+;; shared point-min drawer scanner) to enumerate the GPTEL keys present;
+;; the presence of ANY of the three rendered scope keys
+;; (=GPTEL_SCOPE_READ= / =GPTEL_SCOPE_WRITE= / =GPTEL_SCOPE_DENY=)
+;; switches the block from the degraded form to the scoped form.
+
+
+;; [[file:menu.org::*Environment block builder][Environment block builder:1]]
+(defun gptel-chat--render-scope-line (label patterns)
+  "Render one scope bullet: LABEL with PATTERNS comma-joined.
+PATTERNS is a list of verbatim glob strings (possibly nil/empty).
+An empty list renders as a bare label with no patterns, so the block
+shows which buckets the session declares even when one is empty."
+  (format "- %s %s" label
+          (if patterns (mapconcat #'identity patterns ", ") "")))
+
+(defun gptel-chat--build-environment-block ()
+  "Return the markdown \"# Environment\" block for the current buffer.
+
+Built from INTRINSIC buffer inputs only (design.md D3):
+`default-directory' for the working-directory line, and the point-min
+`:PROPERTIES:' drawer's raw `GPTEL_SCOPE_READ' / `GPTEL_SCOPE_WRITE' /
+`GPTEL_SCOPE_DENY' patterns for the scope lines.  Scope patterns are
+rendered VERBATIM (comma-joined, as authored) — the builder reads the
+drawer directly via `org-entry-get-multivalued-property' rather than
+through `jf/gptel-scope--load-config', whose deny-all defaulting is for
+validation, not human display.
+
+Degradation (design.md D5): when the drawer carries NONE of the three
+rendered `GPTEL_SCOPE_*' keys, the three scope bullets collapse to a
+single \"no scope restrictions\" line.  The function NEVER signals and
+NEVER returns an empty string.
+
+References NO workspaces-package symbol (`register/boundary/
+environment-block-input-neutrality'): with the workspaces package
+unloaded the builder still returns a valid block."
+  (require 'org)
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let* ((keys (jf/gptel--scan-session-drawer-keys))
+             (scoped (seq-find
+                      (lambda (k)
+                        (member (car k)
+                                '("GPTEL_SCOPE_READ"
+                                  "GPTEL_SCOPE_WRITE"
+                                  "GPTEL_SCOPE_DENY")))
+                      keys))
+             (header
+              (concat
+               "# Environment\n"
+               "You are working in the directory below. The file-access scope lists what you may\n"
+               "read and write; this information is current as of this message.\n"
+               "\n"
+               (format "- Working directory: %s\n" default-directory))))
+        (if scoped
+            (concat
+             header
+             (gptel-chat--render-scope-line
+              "Readable:"
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ"))
+             "\n"
+             (gptel-chat--render-scope-line
+              "Writable:"
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_WRITE"))
+             "\n"
+             (gptel-chat--render-scope-line
+              "Denied:  "
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_DENY")))
+          (concat
+           header
+           "- File access: no scope restrictions (this buffer is not a scoped session)"))))))
+;; Environment block builder:1 ends here
 
 ;; Pre-send refresh
 
