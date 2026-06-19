@@ -1691,7 +1691,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/fragment
    tier: shape
-   status: speculated
+   status: reconciled
+   status_note: "cycle-1781883616 integrate RECONCILED. prior_shape: representation unpinned (struct|cons|plist open). new_shape: plist (:kind SYMBOL :sections LIST), :kind a symbol in {static,dynamic}, :sections an ordered list of (name . body). why_tests_missed: representation was a free degree of freedom in the speculated entry; only the parse/render specs exercise the value, none asserted its concrete container until the implementation pinned plist."
    load_bearing: false
    title: Parsed fragment value (kind + ordered sections)
    purpose: |
@@ -1768,7 +1769,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/section
    tier: shape
-   status: speculated
+   status: confirmed
+   status_note: "cycle-1781883616 integrate: speculation matched. section is a cons (name . body); name is the verbatim trimmed heading text (string); body is a whitespace-trimmed string."
    load_bearing: false
    title: Section cons (name . body)
    purpose: |
@@ -3006,7 +3008,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/fragment-kind
    tier: vocabulary
-   status: speculated
+   status: confirmed
+   status_note: "cycle-1781883616 integrate: speculation matched. Closed set {static,dynamic} (jf/gptel-fragment-kinds), default static (jf/gptel-fragment-default-kind). NEW DETAIL: source declares kind via a #+fragment_kind: Org keyword (case-insensitive); unrecognized value falls back to static."
    load_bearing: false
    title: Fragment kind ({static, dynamic})
    purpose: |
@@ -3059,7 +3062,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/section-name-to-tag
    tier: vocabulary
-   status: speculated
+   status: reconciled
+   status_note: "cycle-1781883616 integrate RECONCILED. prior_form: tag = (replace-regexp-in-string " " "_" (downcase name)) -- naive, would not trim or collapse runs. new_form: jf/gptel-fragment--section-name-to-tag trims leading/trailing whitespace then collapses runs of whitespace to a single "_" ("Output   Format" -> output_format; no leading/trailing underscore). why_tests_missed: the speculated entry stated the naive regex and the only multi-word golden fixture used a single space, so run-collapsing/trimming edge cases were unpinned until the implementation added them."
    load_bearing: false
    title: Section-name → Claude XML tag derivation (snake_case)
    purpose: |
@@ -3113,7 +3117,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/render-backend
    tier: vocabulary
-   status: speculated
+   status: confirmed
+   status_note: "cycle-1781883616 integrate: speculation matched. claude is the only implemented backend; others are reported (log+signal), never silently rendered."
    load_bearing: false
    title: Renderer backend symbol set
    purpose: |
@@ -5778,7 +5783,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/fragment-render
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: "cycle-1781883616 integrate: speculation matched. jf/gptel-fragment-render (fragment backend); stages dispatch->render->join; claude section (name . body) -> "<tag>\nbody\n</tag>", body verbatim, sections joined with a blank line. Unimplemented backend logs-then-signals error symbol jf/gptel-fragment-unimplemented-backend (define-error deriving from error). Author-blind review confirmed no Claude/Markdown fall-through."
    load_bearing: true
    title: fragment → backend-delimited text (jf/gptel-fragment-render)
    purpose: |
@@ -5846,7 +5852,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/fragment-parse
    tier: boundary
-   status: speculated
+   status: confirmed
+   status_note: "cycle-1781883616 integrate: speculation matched. jf/gptel-fragment--parse-source accepts an Org string OR file path and is batch-loadable (heading regexp over a temp buffer; no org-mode/interactive deps), satisfying tangle-time pre-render."
    load_bearing: false
    title: org source → fragment (jf/gptel-fragment--parse-source)
    purpose: |
@@ -8845,7 +8852,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/renderer-never-markdown
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: "cycle-1781883616 integrate: speculation matched. fragments.el carries no markdown/yaml assumptions (grep guard clean); renderer emits only the backend format; unimplemented backend reported."
    load_bearing: false
    title: renderer never emits Markdown by default; unimplemented backend reported
    statement: |
