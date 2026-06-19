@@ -1,9 +1,9 @@
 Test Report
 ===========
 
-ERT: 8 ran, 8 passed
+ERT: 7 ran, 7 passed
 
-Buttercup: 98 ran, 98 passed
+Buttercup: 156 ran, 156 passed
 
 ===========
-Total: 106 ran, 106 passed
+Total: 163 ran, 163 passed

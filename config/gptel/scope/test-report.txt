@@ -3,7 +3,7 @@ Test Report
 
 ERT: 2 ran, 2 passed
 
-Buttercup: 517 ran, 514 passed
+Buttercup: 538 ran, 535 passed
 
 Buttercup failures:
   Bug 4: end-to-end add-to-scope should enable retry success gptel callback receives success after add-to-scope correctly expands scope
@@ -11,4 +11,4 @@ Buttercup failures:
   Bug: multi-violation add-to-scope leaks subsequent denials real-world session case: ls ABSPATH 2>/dev/null adds both paths
 
 ===========
-Total: 519 ran, 516 passed
+Total: 540 ran, 537 passed
