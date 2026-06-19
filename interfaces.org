@@ -1531,6 +1531,122 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** environment-block
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-environment-block
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/environment-block
+   tier: shape
+   status: speculated
+   status_note: |
+     cycle-1781857401 plan (2026-06-19): forward-mode speculation for
+     change gptel-dynamic-environment-preamble. The markdown block appended
+     to the TAIL of gptel--system-message on every send from a
+     gptel-chat-mode buffer (interactive chat AND persistent agents — both
+     are chat-mode). Speculated shape per design D3 (content) + D5
+     (degradation). Pressure-tested by env-block-builder (the producer) and
+     pre-send-compose-and-wire (the composer that appends it). Status flips
+     at integrate once the builder lands and the spec scenarios pass.
+   load_bearing: false
+   title: |
+     The dynamic environment block appended to a chat-mode system message
+   purpose: |
+     A short, always-current markdown block that tells the model its
+     environment — its working directory and file-access scope — so a chat
+     session or agent does not spend tool calls discovering its cwd and
+     boundary. Composed per-send from intrinsic buffer inputs only (the work
+     root = default-directory, established from GPTEL_WORK_ROOT; the
+     GPTEL_SCOPE_* drawer keys) and appended after the session's role
+     content. It is the structural payload the proposal
+     gptel-dynamic-environment-preamble delivers; its shape is what the
+     idempotency invariant (register/invariant/composed-system-message-
+     write-only) and the input-neutrality boundary
+     (register/boundary/environment-block-input-neutrality) constrain.
+   document_regions:
+     - region: block header + prose framing
+       location: |
+         First lines of the block, after a "# Environment" heading.
+       shape: |
+         A "# Environment" markdown heading followed by one short prose
+         sentence framing what the information is and stating it is current
+         as of this message (the live-note). Speculated text (design D3):
+         "You are working in the directory below. The file-access scope
+         lists what you may read and write; this information is current as
+         of this message."
+     - region: working-directory line
+       location: |
+         First bullet of the block.
+       shape: |
+         "- Working directory: <default-directory>" — the buffer's
+         default-directory verbatim (already a directory path).
+     - region: scope lines (scoped session)
+       location: |
+         Following bullets, present iff the buffer carries GPTEL_SCOPE_*
+         keys.
+       shape: |
+         Three bullets rendering the read / write / deny patterns VERBATIM
+         (the exact globs the validator enforces, comma-joined; not
+         summarised):
+           "- Readable: <GPTEL_SCOPE_READ globs>"
+           "- Writable: <GPTEL_SCOPE_WRITE globs>"
+           "- Denied:   <GPTEL_SCOPE_DENY globs>"
+     - region: degradation line (drawerless chat)
+       location: |
+         Replaces the three scope lines when NO GPTEL_SCOPE_* keys are
+         present (design D5).
+       shape: |
+         A single bullet, speculated text: "- File access: no scope
+         restrictions (this buffer is not a scoped session)". Never an
+         error, never an empty block.
+   structural_invariants:
+     - the block is the LAST section of the composed gptel--system-message
+       (tail placement, design D4); the role content precedes it, joined by
+       a blank line ("\n\n")
+     - the block is rebuilt wholesale each send and never read back from the
+       prior composed value (the idempotency contract lives in
+       register/invariant/composed-system-message-write-only; this shape is
+       the thing that would otherwise accumulate)
+     - scope patterns are rendered verbatim, not summarised — the model sees
+       the real boundary the validator enforces
+     - the block references no workspaces symbol — built from drawer +
+       default-directory only (boundary/environment-block-input-neutrality)
+   producers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--build-environment-block
+       usage: |
+         SPECULATED. No-arg builder operating on the current buffer. Reads
+         the scope drawer keys via jf/gptel--scan-session-drawer-keys (the
+         same scanner the binder uses; reuse the existing +-collapse
+         accessor, do not re-implement it), the work root from
+         default-directory, and returns the block string. Degrades per D5
+         when no GPTEL_SCOPE_* keys are present. Added by task
+         env-block-builder.
+   consumers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--refresh-system-prompt-from-file (widened to composer)
+       usage: |
+         SPECULATED. The existing pre-send :before advice on gptel-request,
+         widened to compose gptel--system-message = role + "\n\n" + block
+         wholesale, behind the (derived-mode-p 'gptel-chat-mode) guard.
+         Appends the block unconditionally (every chat-mode buffer, even
+         with no sibling system-prompt file). Added by task
+         pre-send-compose-and-wire. Touches register/shape/session-sibling-
+         system-prompt-file (that entry describes this consumer as a
+         "per-request cache refresh"; widening it to a composer is an
+         interface-drift candidate to reconcile at integrate).
+   related_entries:
+     - register/invariant/composed-system-message-write-only
+     - register/boundary/environment-block-input-neutrality
+     - register/shape/session-sibling-system-prompt-file
+   cited_by_tasks:
+     - env-block-builder
+     - pre-send-compose-and-wire
+   discovered_from: gptel-dynamic-environment-preamble
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -5075,6 +5191,70 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** environment-block-input-neutrality
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-environment-block-input-neutrality
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/environment-block-input-neutrality
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-1781857401 plan (2026-06-19): forward-mode speculation for
+     change gptel-dynamic-environment-preamble. The hard constraint from the
+     exploration log: gptel's environment surfacing MUST work with the
+     workspaces package absent. Pressure-tested by env-block-builder; the
+     verification greps for `workspace` inside the builder must NOT match.
+     Status flips at integrate once the builder lands and the
+     workspace-absent spec passes.
+   load_bearing: true
+   canonical_engine: gptel-chat--build-environment-block (config/gptel/chat/menu.org)
+   title: |
+     The environment block is built from intrinsic buffer inputs only —
+     never from the workspaces package
+   purpose: |
+     The environment block (register/shape/environment-block) must be
+     derivable from a single buffer with no live dependency on any external
+     producer. The block's two inputs are intrinsic to the buffer: the work
+     root (default-directory) and the file-access scope (the GPTEL_SCOPE_*
+     drawer keys, read via jf/gptel--scan-session-drawer-keys). This entry
+     is the boundary between "what the block may read" and "the rest of the
+     world": the builder names no workspaces symbol (no featurep/fboundp/
+     workspace-* reference), reads no home.org, calls no scope LOADER
+     (jf/gptel-scope--load-config expands deny-all defaults for validation —
+     the block wants the human-facing patterns AS WRITTEN, so it reads the
+     raw drawer keys, design D3).
+   boundary_contract: |
+     INPUTS the builder may touch: (1) the current buffer's
+     default-directory; (2) the buffer's point-min drawer GPTEL_SCOPE_*
+     keys, via the existing drawer scanner / +-collapse accessor. INPUTS the
+     builder may NOT touch: any workspaces-package symbol, home.org, the
+     scope config loader, or any value derived from the prior composed
+     gptel--system-message. With the workspaces package entirely unloaded,
+     gptel-chat--build-environment-block still returns a valid block and
+     signals no error referencing a workspaces function or variable.
+   producers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--build-environment-block
+       usage: |
+         SPECULATED. The single function on this boundary; reads only the
+         two permitted inputs above. Added by task env-block-builder.
+   consumers:
+     - file: config/gptel/chat/menu.org
+       function: gptel-chat--refresh-system-prompt-from-file (widened to composer)
+       usage: |
+         SPECULATED. Calls the builder unconditionally per send; carries no
+         workspaces dependency of its own.
+   related_entries:
+     - register/shape/environment-block
+     - register/boundary/session-content-signature
+   cited_by_tasks:
+     - env-block-builder
+   discovered_from: gptel-dynamic-environment-preamble
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -7740,9 +7920,77 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_class: invariant-gap
    #+end_src
 
+** composed-system-message-write-only
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-composed-system-message-write-only
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/composed-system-message-write-only
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1781857401 plan (2026-06-19): forward-mode speculation for
+     change gptel-dynamic-environment-preamble (design D2). Pressure-tested
+     by stable-role-base (introduces the stable role source) and
+     pre-send-compose-and-wire (the composer + its two-send idempotency
+     spec). Status flips at integrate once the no-duplication and
+     scope-grown-reflection scenarios pass.
+   load_bearing: true
+   title: |
+     The composed gptel--system-message is write-only output of the
+     pre-send composer — never an input to the next composition
+   statement: |
+     On every send from a gptel-chat-mode buffer, gptel--system-message is
+     recomposed WHOLESALE as role + "\n\n" + environment-block from STABLE
+     sources only — the sibling system-prompt file (re-read each send) when
+     :GPTEL_SYSTEM_PROMPT_FILE: is set and readable, else the buffer-local
+     gptel-chat--system-prompt-base (set wherever role content is installed:
+     preset application at activation, gptel-chat--apply-system-prompt-file,
+     and each sibling refresh). The composer MUST NOT read the prior
+     gptel--system-message as a composition input. Consequences: repeated
+     sends with no intervening change yield exactly ONE environment block
+     (no accumulation), and a scope change between sends is reflected in the
+     next send's block.
+   why_it_matters: |
+     The trap (design D2): the no-sibling-file case today sets
+     gptel--system-message once at activation. If the composer appended the
+     env block to that same variable and then read it back next send, every
+     send would graft another "# Environment" block onto the model-visible
+     system message — unbounded growth of model-visible text, and a system
+     message that drifts further from the role on each turn. The fix is a
+     dedicated role base that the composer rebuilds from, making
+     gptel--system-message purely the per-send composed result. The sibling
+     case is already safe (role re-read from the file); the base closes the
+     no-sibling gap. Rejected alternatives: string-surgery to strip the
+     known block before re-appending (fragile if the block format changes),
+     and re-resolving the preset :system from the drawer each send
+     (duplicates activation logic).
+   enforcement_mechanism:
+     kind: test
+     location: |
+       SPECULATED. Buttercup specs at config/gptel/chat/test/menu/
+       environment-preamble-spec.el MUST cover: (1) "role base" — after
+       activation/preset application gptel-chat--system-prompt-base equals
+       the installed role body and contains NO environment block
+       (stable-role-base); (2) two consecutive composer invocations →
+       exactly one environment block (pre-send-compose-and-wire); (3)
+       extending GPTEL_SCOPE_* between invocations is reflected in the
+       second block. Until those land the enforcement is review-discipline
+       only (flagged fragile per the tier preamble).
+   related_entries:
+     - register/shape/environment-block
+     - register/shape/session-sibling-system-prompt-file
+   cited_by_tasks:
+     - stable-role-base
+     - pre-send-compose-and-wire
+   discovered_from: gptel-dynamic-environment-preamble
+   discovered_by: architect
+   #+end_src
+
 * Status legend
 
-| Status      | Meaning                                                                                  |
+| Status      | Meaning                                                                                 |
 |-------------+------------------------------------------------------------------------------------------|
 | speculated  | Architect-proposed at plan; pressure-tested by implementation; reviewer ignores.        |
 | confirmed   | Implementation matched the speculation; entry is now load-bearing for next cycles.      |
