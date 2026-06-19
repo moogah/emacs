@@ -1683,6 +1683,305 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** fragment
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-fragment
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/fragment
+   tier: shape
+   status: speculated
+   load_bearing: false
+   title: Parsed fragment value (kind + ordered sections)
+   purpose: |
+     The in-memory value a fragment source parses into, flowing from the
+     parser to both the renderer and the composer. A fragment is one .org
+     source file's worth of content: a kind (static | dynamic) plus an
+     ordered list of section values (see register/shape/section). Producer
+     is jf/gptel-fragment--parse-source (config/gptel/presets/fragments.org);
+     consumers are jf/gptel-fragment-render (the renderer) and the composer.
+     Section order is significant — it is the order in which the renderer
+     emits blocks — so the shape MUST be an ordered list, not a hash/alist
+     keyed by name where order is incidental.
+
+   required_keys:
+     - name: ":kind"
+       type: symbol
+       description: |
+         One of the closed set register/vocabulary/fragment-kind
+         ({static, dynamic}). A source that declares no kind parses to
+         static (the default). The composer dispatches on this: static
+         fragments consume pre-rendered text; dynamic fragments are
+         evaluated at compose time.
+     - name: ":sections"
+       type: list
+       description: |
+         An ordered list of section values (register/shape/section), one
+         per top-level Org heading in the source, in source order. A valid
+         fragment has at least one section.
+
+   optional_keys:
+     - name: ":fn"
+       type: function | null
+       description: |
+         Present only for dynamic fragments — the function the composer
+         evaluates at compose time to produce the fragment's text. nil /
+         absent for static fragments (whose text is pre-rendered).
+
+   producers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment--parse-source
+   consumers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment-render
+       reads_keys: [":kind", ":sections"]
+     - file: config/gptel/presets/fragments.org
+       function: <composer> (composer.md task)
+       reads_keys: [":kind", ":sections", ":fn"]
+
+   validator: |
+     (defun shape/validate-fragment (val)
+       "Returns nil on success, an error symbol otherwise."
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (memq (plist-get val :kind) '(static dynamic)))
+              'bad-kind)
+             ((not (listp (plist-get val :sections))) 'sections-not-list)
+             ((null (plist-get val :sections)) 'no-sections)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { kind: static, sections: [ "(\"Role\" . \"You are X.\")" ] }
+     invalid:
+       - { kind: static, sections: [] }   # a fragment has >= 1 section
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** section
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-section
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/section
+   tier: shape
+   status: speculated
+   load_bearing: false
+   title: Section cons (name . body)
+   purpose: |
+     The atomic unit of a fragment: one top-level Org heading and its body.
+     A section is a cons (name . body) where name is the heading text (a
+     string, e.g. "Role", "Output Format") and body is the trimmed content
+     beneath that heading (a string). Produced by
+     jf/gptel-fragment--parse-source as the elements of a fragment's
+     :sections list; consumed by jf/gptel-fragment-render, which maps each
+     section to a backend-delimited block (name → tag via
+     register/vocabulary/section-name-to-tag; body → block content).
+
+   required_keys:
+     - name: "car (name)"
+       type: string
+       description: |
+         The top-level Org heading text, verbatim (case preserved). The
+         renderer derives the backend tag from it
+         (register/vocabulary/section-name-to-tag); the name itself is NOT
+         lowercased/snake_cased in the shape — only in the derived tag.
+     - name: "cdr (body)"
+       type: string
+       description: |
+         The content beneath the heading, trimmed of leading/trailing
+         whitespace. May be multi-line. Emitted verbatim as the block body
+         by the renderer (no Markdown re-formatting).
+
+   producers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment--parse-source
+   consumers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment-render
+       reads_keys: ["car (name)", "cdr (body)"]
+
+   validator: |
+     (defun shape/validate-section (val)
+       (cond ((not (consp val)) 'not-a-cons)
+             ((not (stringp (car val))) 'name-not-string)
+             ((not (stringp (cdr val))) 'body-not-string)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - "(\"Role\" . \"You are X.\")"
+       - "(\"Output Format\" . \"Reply in prose.\")"
+     invalid:
+       - "(\"Role\" . nil)"   # body must be a string, even if empty
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** composition
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-composition
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/composition
+   tier: shape
+   status: speculated
+   load_bearing: false
+   title: Composition (ordered fragment list + preset config)
+   purpose: |
+     What a preset effectively is at compose time: an ordered list of
+     fragments (register/shape/fragment) together with the config a preset
+     carries (register/shape/preset-config-plist). The composer consumes the
+     ordered fragment list, renders each fragment in order, and joins the
+     results into the effective system message. The default fragment list is
+     derived from send context (register/invariant/context-default-composition)
+     — chat vs agent — and a preset author normally supplies only config plus
+     a single role fragment that slots into the role position. The list is
+     ordered: order is the send order of blocks, so the static prefix stays
+     stable for prompt caching (register/invariant/static-prerender-dynamic-compose).
+
+   required_keys:
+     - name: "fragments"
+       type: list
+       description: |
+         An ordered list of fragment values. The default is the
+         context-derived list with the preset's role fragment in the role
+         position; a composition MAY override (add/remove/reorder) via the
+         composer seam, but the common case supplies only a role fragment.
+     - name: "config"
+       type: plist
+       description: |
+         The preset config plist (register/shape/preset-config-plist) —
+         backend/model/tools/etc. The :backend value selects the renderer
+         backend; the rest passes through to gptel-make-preset.
+
+   producers:
+     - file: config/gptel/presets/registration.org
+       function: <preset registration> (registration-rewrite.md task)
+     - file: config/gptel/presets/fragments.org
+       function: <context-default composition builder> (composer.md task)
+   consumers:
+     - file: config/gptel/presets/fragments.org
+       function: <composer> (composer.md task)
+       reads_keys: ["fragments", "config"]
+
+   validator: |
+     (defun shape/validate-composition (val)
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (listp (plist-get val :fragments))) 'fragments-not-list)
+             ((null (plist-get val :fragments)) 'no-fragments)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - { fragments: ["emacs-prelude", "role", "environment"], config: "(:backend claude)" }
+     invalid:
+       - { fragments: [], config: "(:backend claude)" }
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** preset-config-plist
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-preset-config-plist
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/preset-config-plist
+   tier: shape
+   status: speculated
+   load_bearing: false
+   title: Native-Elisp preset config block (replaces YAML frontmatter)
+   purpose: |
+     The Elisp config block authored in a preset .org source, which tangles
+     into a gptel-make-preset registration call. This REPLACES the old
+     YAML-frontmatter shape: because the block is native Elisp, there is no
+     parse / snake_case→kebab-case normalize / YAML-type coercion step
+     (that pipeline is deleted — design.md Decision 6). Registration
+     (config/gptel/presets/registration.org) reads native keys directly,
+     extracts the scope/mode keys into jf/gptel-preset--scope-defaults (an
+     alist of preset-name symbol → scope plist), and passes the remaining
+     keys to gptel-make-preset with :system set to the rendered role text.
+
+   required_keys:
+     - name: ":description"
+       type: string
+       description: |
+         Preset annotation shown in the transient menu and inline mentions.
+     - name: ":backend"
+       type: symbol
+       description: |
+         Selects the renderer backend (register/vocabulary/render-backend);
+         claude is the only implemented member this change.
+     - name: ":model"
+       type: symbol
+       description: |
+         A model symbol (NOT a YAML string needing interning — authored as a
+         symbol directly).
+
+   optional_keys:
+     - name: ":tools"
+       type: list of strings | null
+       description: Tool names enabled for the preset.
+     - name: ":temperature"
+       type: number | null
+       description: Passed through to gptel-make-preset.
+     - name: ":paths"
+       type: plist | null
+       description: |
+         Scope key — extracted into jf/gptel-preset--scope-defaults and
+         REMOVED from the plist passed to gptel-make-preset.
+     - name: ":shell-commands"
+       type: list | null
+       description: Scope key — extracted (not passed to gptel-make-preset).
+     - name: ":bash-tools"
+       type: list | null
+       description: Scope key — extracted (not passed to gptel-make-preset).
+     - name: ":scope-profile"
+       type: string | null
+       description: |
+         Scope key — extracted into the scope defaults entry; e.g.
+         "coding". The legacy :org-roam-patterns key is NOT a scope key and
+         is not extracted.
+
+   producers:
+     - file: config/gptel/presets/workspace-assistant/  (preset .org)
+       function: <config block>
+     - file: config/gptel/presets/system-explorer/  (preset .org)
+       function: <config block>
+   consumers:
+     - file: config/gptel/presets/registration.org
+       function: jf/gptel-preset--scope-defaults (scope-key extraction)
+       reads_keys: [":paths", ":shell-commands", ":bash-tools", ":scope-profile"]
+     - file: config/gptel/presets/registration.org
+       function: gptel-make-preset (post-extraction, with :system = rendered role)
+       reads_keys: [":description", ":backend", ":model", ":tools", ":temperature"]
+
+   validator: |
+     (defun shape/validate-preset-config-plist (val)
+       (cond ((not (plistp val)) 'not-a-plist)
+             ((not (stringp (plist-get val :description))) 'missing-description)
+             ((not (symbolp (plist-get val :backend))) 'backend-not-symbol)
+             ((and (plist-member val :model)
+                   (not (symbolp (plist-get val :model)))) 'model-not-symbol)
+             (t nil)))
+
+   test_corpus:
+     valid:
+       - "(:description \"d\" :backend claude :model claude-x :tools (\"read_file\"))"
+     invalid:
+       - "(:description \"d\" :backend claude :model \"claude-x\")"   # :model must be a symbol, not a YAML-style string
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -2696,6 +2995,161 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - docs-allowed-paths-rename
      - verify-change
    discovered_from: gptel-work-root-default-directory
+   discovered_by: architect
+   #+end_src
+
+** fragment-kind
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-fragment-kind
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/fragment-kind
+   tier: vocabulary
+   status: speculated
+   load_bearing: false
+   title: Fragment kind ({static, dynamic})
+   purpose: |
+     The closed set of fragment kinds a fragment source may declare. A
+     fragment that declares no kind defaults to static. The value is read
+     off the parsed fragment (register/shape/fragment, :kind) and the
+     composer dispatches on it: static → consume pre-rendered text (no
+     compose-time work); dynamic → evaluate the fragment function at compose
+     time (register/invariant/static-prerender-dynamic-compose). Chosen by
+     this change (design.md Decision 1).
+
+   members:
+     - value: static
+       description: |
+         Rendered text is fixed at tangle time (committed artifact). The
+         composer consumes the pre-rendered text and performs no rendering
+         per send. This is the default when no kind is declared.
+       producer:
+         file: config/gptel/presets/fragments.org
+         function: jf/gptel-fragment--parse-source
+     - value: dynamic
+       description: |
+         Text is produced by evaluating a function at compose time. Default
+         position is the composition tail (prompt-cache friendliness).
+       producer:
+         file: config/gptel/presets/fragments.org
+         function: jf/gptel-fragment--parse-source
+
+   consumer_mapping:
+     - consumer: <composer> (composer.md task)
+       consumer_field: per-fragment dispatch
+       accepts: [static, dynamic]
+       routing_function: <composer>
+
+   validator: |
+     (defun vocabulary/validate-fragment-kind (k)
+       (memq k '(static dynamic)))
+
+   closed_set: true
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** section-name-to-tag
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-section-name-to-tag
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/section-name-to-tag
+   tier: vocabulary
+   status: speculated
+   load_bearing: false
+   title: Section-name → Claude XML tag derivation (snake_case)
+   purpose: |
+     The single derivation from a section's Org-heading name to its Claude
+     XML tag. The casing convention is closed: snake_case. A section named N
+     yields tag = (replace-regexp-in-string " " "_" (downcase N)) — e.g.
+     "Output Format" → output_format, "Role" → role, "Constraints" →
+     constraints. The renderer (jf/gptel-fragment-render, claude branch)
+     wraps the body as "<tag>\nbody\n</tag>". This is a derivation, not an
+     enum of fixed values, but the casing rule is the closed contract: any
+     other casing (camelCase, kebab-case, preserved spaces) is a divergence.
+     Golden-snapshot specs pin the exact tag text per section, so a casing
+     drift shows up as a golden diff.
+
+   members:
+     - value: "downcase"
+       description: heading text is lowercased.
+       producer:
+         file: config/gptel/presets/fragments.org
+         function: jf/gptel-fragment-render
+     - value: "space → underscore"
+       description: |
+         each ASCII space in the (downcased) name becomes an underscore.
+       producer:
+         file: config/gptel/presets/fragments.org
+         function: jf/gptel-fragment-render
+
+   canonical_mapping_function: |
+     ;; The single source of truth for section-name → tag. If you find a
+     ;; second downcase/replace of heading text anywhere else, that's a
+     ;; duplication bug.
+     (defun vocabulary/section-name-to-tag (name)
+       (replace-regexp-in-string " " "_" (downcase name)))
+
+   validator: |
+     (defun vocabulary/validate-section-tag (tag)
+       ;; snake_case: lowercase letters, digits, underscores only.
+       (string-match-p "\\`[a-z0-9_]+\\'" tag))
+
+   closed_set: true   # the casing convention is closed (snake_case)
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** render-backend
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-render-backend
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/render-backend
+   tier: vocabulary
+   status: speculated
+   load_bearing: false
+   title: Renderer backend symbol set
+   purpose: |
+     The set of backend symbols jf/gptel-fragment-render dispatches on. The
+     set is OPEN for extension (the renderer takes backend as a seam so new
+     backends are a pure addition — design.md Decision 2), but unlike a
+     normal open enum, an unimplemented member MUST be reported (signal or
+     jf/gptel--log 'warn + signal), never silently rendered as Claude or
+     Markdown (register/invariant/renderer-never-markdown). claude is the
+     only implemented member this change.
+
+   members:
+     - value: claude
+       description: |
+         The only implemented rendering. Maps each section to an XML block
+         "<tag>\nbody\n</tag>" with tag per
+         register/vocabulary/section-name-to-tag.
+       producer:
+         file: config/gptel/presets/fragments.org
+         function: jf/gptel-fragment-render
+
+   consumer_mapping:
+     - consumer: jf/gptel-fragment-render
+       consumer_field: backend dispatch
+       accepts: [claude]
+       routing_function: jf/gptel-fragment-render
+
+   validator: |
+     (defun vocabulary/validate-render-backend (b)
+       ;; only claude is implemented; any other symbol must be reported,
+       ;; not silently rendered.
+       (eq b 'claude))
+
+   closed_set: false   # open for extension; unimplemented members reported, not rendered
+
+   discovered_from: gptel-fragment-presets
    discovered_by: architect
    #+end_src
 
@@ -5313,6 +5767,267 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    cited_by_tasks:
      - env-block-builder
    discovered_from: gptel-dynamic-environment-preamble
+   discovered_by: architect
+   #+end_src
+
+** fragment-render
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-fragment-render
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/fragment-render
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: fragment → backend-delimited text (jf/gptel-fragment-render)
+   purpose: |
+     The canonical section→block mapping: jf/gptel-fragment-render (fragment
+     backend) → a backend-delimited text string. This is THE place section
+     bodies become backend syntax; any other site emitting "<tag>...</tag>"
+     from a section is a duplication bug. load_bearing because it is the one
+     contract whose silent miswording (wrong tag, wrong casing, Markdown
+     leak) corrupts every system message and is only caught by golden
+     snapshots; golden-snapshot drift is the named risk (design.md Risks).
+
+   stages:
+     - n: 1
+       name: dispatch-on-backend
+       input: backend (register/vocabulary/render-backend)
+       output: per-backend renderer | reported-unavailable
+       can_fail_with: [unimplemented-backend]
+       short_circuit_policy: deliberate
+       notes: |
+         An unimplemented backend MUST be reported (signal / log+signal),
+         never fall through to Claude or Markdown
+         (register/invariant/renderer-never-markdown). This short-circuit is
+         a correctness gate, not an optimisation.
+     - n: 2
+       name: render-sections
+       input: fragment (register/shape/fragment), one section at a time
+       output: per-section delimited block
+       can_fail_with: []
+       notes: |
+         For claude: section (name . body) → "<tag>\nbody\n</tag>" where
+         tag = register/vocabulary/section-name-to-tag of name. Body emitted
+         verbatim (no Markdown re-formatting).
+     - n: 3
+       name: join
+       input: ordered list of per-section blocks
+       output: the fragment's rendered text
+       can_fail_with: []
+       notes: blocks joined in section order; order is significant.
+
+   cross_stage_invariants:
+     - register/invariant/renderer-never-markdown
+     - register/invariant/static-prerender-dynamic-compose
+
+   producers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment-render
+       enters_at_stage: 1
+   consumers:
+     - file: config/gptel/presets/fragments.org
+       function: <composer> (composer.md task)
+       reads_output_of_stage: 3
+     - file: config/gptel/presets/<preset>/  (tangle-time pre-render)
+       function: <static pre-render babel step>
+       reads_output_of_stage: 3
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** fragment-parse
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-fragment-parse
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/fragment-parse
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: org source → fragment (jf/gptel-fragment--parse-source)
+   purpose: |
+     The mapping from a fragment's Org source (string or file) to a parsed
+     fragment value (register/shape/fragment). Top-level Org headings become
+     sections (register/shape/section); the declared kind (or static default)
+     becomes :kind. MUST stay batch-loadable (no interactive deps) because
+     static fragments are pre-rendered at tangle time, when no interactive
+     Emacs is available (tangle-time renderer availability is a named risk —
+     design.md Risks).
+
+   stages:
+     - n: 1
+       name: read-source
+       input: org source string or file path
+       output: org buffer / element tree
+       can_fail_with: [io-error, parse-error]
+       notes: use org-element or a heading regexp; keep batch-loadable.
+     - n: 2
+       name: extract-kind
+       input: source directives
+       output: kind symbol (register/vocabulary/fragment-kind)
+       can_fail_with: []
+       notes: absent kind → static (default).
+     - n: 3
+       name: extract-sections
+       input: top-level headings + bodies
+       output: ordered list of (name . body) (register/shape/section)
+       can_fail_with: []
+       notes: bodies trimmed; order = source order.
+
+   cross_stage_invariants: []
+
+   producers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment--parse-source
+       enters_at_stage: 1
+   consumers:
+     - file: config/gptel/presets/fragments.org
+       function: jf/gptel-fragment-render
+       reads_output_of_stage: 3
+     - file: config/gptel/presets/fragments.org
+       function: <composer> (composer.md task)
+       reads_output_of_stage: 3
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** composer-compose
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-composer-compose
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/composer-compose
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: ordered fragment list → effective system message (composer)
+   purpose: |
+     The composer maps an ordered fragment list (register/shape/composition)
+     to the effective system message string: it renders each fragment in
+     order and joins them. Static fragments consume pre-rendered text (no
+     per-send rendering); dynamic fragments are evaluated at compose time and
+     default to the tail (register/invariant/static-prerender-dynamic-compose).
+     The default fragment list is context-derived
+     (register/invariant/context-default-composition) with an override seam.
+
+   stages:
+     - n: 1
+       name: resolve-composition
+       input: send context + preset config/role fragment
+       output: ordered fragment list (composition)
+       can_fail_with: []
+       notes: |
+         Default list is context-derived (chat vs agent); a composition MAY
+         override via the seam, but the common case supplies only a role
+         fragment in the role position.
+     - n: 2
+       name: realize-fragments
+       input: each fragment in order
+       output: per-fragment text
+       can_fail_with: []
+       notes: |
+         static fragment → its pre-rendered text (no rendering). dynamic
+         fragment → evaluate :fn at compose time. Order preserved.
+     - n: 3
+       name: join
+       input: ordered per-fragment texts
+       output: effective system message string
+       can_fail_with: []
+       notes: |
+         join in list order; dynamic-at-tail keeps the static prefix stable
+         for prompt caching.
+
+   cross_stage_invariants:
+     - register/invariant/static-prerender-dynamic-compose
+     - register/invariant/context-default-composition
+
+   producers:
+     - file: config/gptel/presets/fragments.org
+       function: <composer> (composer.md task)
+       enters_at_stage: 1
+   consumers:
+     - file: config/gptel/chat/menu.org
+       function: <chat composer wiring> (migrate-prelude-preamble.md task)
+       reads_output_of_stage: 3
+     - file: config/gptel/tools/persistent-agent.org
+       function: <agent system-prompt writer> (migrate-prelude-preamble.md task)
+       reads_output_of_stage: 3
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** preset-org-to-registration
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-preset-org-to-registration
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/preset-org-to-registration
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: preset .org → tangled .el → gptel-make-preset registration
+   purpose: |
+     The pipeline from a preset .org (config block + role fragment) to a
+     registered preset. Tangling produces an .el that, when loaded, calls
+     gptel-make-preset. Scope/mode keys are extracted into
+     jf/gptel-preset--scope-defaults and stripped before registration;
+     :system is set to the rendered role text. REPLACES the old YAML .md
+     pipeline (parse / normalize / coerce deleted — design.md Decision 6).
+     Load order is a named risk: the renderer/composer (fragments.org) must
+     load before registration and before chat/agent/env consumers — sequence
+     explicitly in gptel.org.
+
+   stages:
+     - n: 1
+       name: author + pre-render role
+       input: preset .org (config block + static role fragment)
+       output: tangled .el with rendered role text inlined
+       can_fail_with: [tangle-error, renderer-unavailable-at-tangle]
+       notes: |
+         role fragment pre-renders at tangle time via fragment-render;
+         needs the renderer batch-loadable (tangle-time availability risk).
+     - n: 2
+       name: extract-scope-keys
+       input: preset config plist (register/shape/preset-config-plist)
+       output: jf/gptel-preset--scope-defaults entry + config sans scope keys
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         extracts :paths :shell-commands :bash-tools :scope-profile into the
+         alist keyed by preset-name symbol; REMOVES them from the plist
+         passed downstream. :org-roam-patterns is NOT a scope key.
+     - n: 3
+       name: register
+       input: config plist (scope-stripped) + :system = rendered role
+       output: gptel-make-preset call (idempotent; updates existing entry)
+       can_fail_with: []
+       notes: |
+         preset name = source basename; re-loading updates rather than
+         duplicates (register idempotency).
+
+   cross_stage_invariants: []
+
+   producers:
+     - file: config/gptel/presets/registration.org
+       function: <tangled-preset loader> (registration-rewrite.md task)
+       enters_at_stage: 1
+   consumers:
+     - file: config/gptel/scope/...  (session creation)
+       function: <scope init reading jf/gptel-preset--scope-defaults>
+       reads_output_of_stage: 2
+     - file: <gptel upstream>
+       function: gptel-make-preset / gptel-get-preset
+       reads_output_of_stage: 3
+
+   discovered_from: gptel-fragment-presets
    discovered_by: architect
    #+end_src
 
@@ -8069,6 +8784,151 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - stable-role-base
      - pre-send-compose-and-wire
    discovered_from: gptel-dynamic-environment-preamble
+   discovered_by: architect
+   #+end_src
+
+** static-prerender-dynamic-compose
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-static-prerender-dynamic-compose
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/static-prerender-dynamic-compose
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: static fragments pre-render at tangle time; dynamic evaluate at compose time
+   statement: |
+     A static fragment SHALL render to committed text at tangle time, and the
+     composer SHALL consume that pre-rendered text with no compose-time
+     rendering work. A dynamic fragment SHALL produce its text by evaluating
+     a function at compose time, and its default position SHALL be the tail
+     of the composition. Consequently, the static prefix of every composed
+     system message is stable across sends (a cacheable prompt prefix) and
+     the only per-send work is the tail dynamic fragment(s).
+
+   why_it_matters: |
+     This preserves today's cost/cache profile, which the change is explicitly
+     required to keep (design.md Decision 4, Goals): the chat prelude / agent
+     preamble and the role content are constant (prelude/role pre-rendered,
+     committed, diffable), while the environment block is recomputed each send.
+     If a static fragment were re-rendered per send (or a dynamic fragment were
+     placed ahead of the static prefix), the cacheable prefix would change on
+     every send — silently inflating cost and defeating prompt caching with no
+     visible error. The split is also why static pre-render must run as a
+     batch/tangle step (renderer batch-loadable — tangle-time availability risk).
+
+   enforcement_mechanism:
+     kind: test
+     location: config/gptel/presets/test/  (golden snapshots + composition-order/tail specs)
+     notes: |
+       Golden snapshots pin static text (no per-send rendering); composer
+       specs assert dynamic fragments land at the tail and that two composes
+       with differing live input differ only in the tail. An idempotent-rebuild
+       spec asserts re-tangling a static fragment yields identical committed text.
+
+   related_entries:
+     - register/shape/fragment
+     - register/boundary/composer-compose
+     - register/boundary/fragment-render
+     - register/invariant/context-default-composition
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** renderer-never-markdown
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-renderer-never-markdown
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/renderer-never-markdown
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: renderer never emits Markdown by default; unimplemented backend reported
+   statement: |
+     The renderer (jf/gptel-fragment-render) SHALL NOT emit Markdown by
+     default. The output format SHALL be whatever the target backend's
+     rendering specifies (for claude: XML blocks). When invoked for a backend
+     with no implemented rendering, the renderer SHALL report the unavailable
+     backend (signal, or jf/gptel--log 'warn + signal) rather than silently
+     emitting Claude or Markdown output as if it were correct.
+
+   why_it_matters: |
+     The old preset model sent the Markdown body verbatim as :system; this
+     change deliberately leaves Markdown behind for backend-appropriate
+     delimiters (design.md Decision 2). A renderer that fell back to Markdown
+     (or to Claude) for an unrecognized backend would produce a plausible-
+     looking but wrong system message with no error — exactly the silent
+     mis-render the backend seam exists to prevent. Reporting the gap keeps
+     "add a backend" a visible, deliberate act rather than an accidental
+     Claude-shaped default.
+
+   enforcement_mechanism:
+     kind: test
+     location: config/gptel/presets/test/fragments-spec.el
+     notes: |
+       Spec asserts an unimplemented backend :to-throw (or logs+signals), and
+       golden snapshots assert claude output is XML, never Markdown. A grep
+       guard ("markdown"/"yaml" absent from fragments.el) is in the
+       fragment-core task verification.
+
+   related_entries:
+     - register/vocabulary/render-backend
+     - register/boundary/fragment-render
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** context-default-composition
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-context-default-composition
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/context-default-composition
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: context-derived default composition (chat vs agent) with override seam
+   statement: |
+     The default composition SHALL be derived from send context. An
+     interactive chat-mode context SHALL default to
+     [emacs-prelude (static), role, environment (dynamic)]. A persistent-agent
+     context SHALL default to [agent-preamble (static), role, environment
+     (dynamic)]. A preset author SHALL normally supply only config plus a
+     single role fragment that occupies the role position; the system SHALL
+     provide a seam by which a composition MAY override the default list
+     (add/remove/reorder) without requiring that of the common case.
+
+   why_it_matters: |
+     This reproduces today's hard-coded framing (prelude leads, env tails;
+     agent preamble leads for agents) as data instead of concat, keeping the
+     same mental model (design.md Decision 3). If the default list were not
+     context-derived, every preset would have to re-declare the prelude/
+     preamble and env wiring, re-introducing the duplication the fragment
+     model removes — and a preset that forgot the env fragment would silently
+     lose the environment block. The override seam exists so non-default
+     compositions are possible without forcing complexity on the common case.
+
+   enforcement_mechanism:
+     kind: test
+     location: config/gptel/presets/test/  (composition-default specs)
+     notes: |
+       Specs assert chat context composes [emacs-prelude, role, environment]
+       and agent context composes [agent-preamble, role, environment]; a spec
+       asserts a preset declaring only config + a role fragment yields the
+       context default with that role in the role position.
+
+   related_entries:
+     - register/shape/composition
+     - register/boundary/composer-compose
+     - register/invariant/static-prerender-dynamic-compose
+
+   discovered_from: gptel-fragment-presets
    discovered_by: architect
    #+end_src
 
