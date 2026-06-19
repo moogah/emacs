@@ -1,0 +1,197 @@
+#+title: Workspace Assistant Preset
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle preset.el
+#+auto_tangle: y
+
+* Introduction
+
+=workspace-assistant= is the general-purpose helper preset for the user's
+*active workspace* — the session auto-created at workspace birth (see
+=jf/gptel-workspace-initial-preset=). It replaces the legacy =executor= =.md=
+preset for the workspace package (design §Decision 9).
+
+A preset in the fragment era is authored as an =.org= source with two parts:
+
+1. A *role fragment* — semantic Org sections (=Role=, =Background=,
+   =Instructions=, =Constraints=) authored on system-prompt best practices
+   (role-first, right altitude, constraints restated near the end). The fragment
+   renders to backend-appropriate delimiters (Claude → XML tags) via
+   [[file:../fragments.org][=jf/gptel-fragment-render=]].
+
+2. A *native-Elisp config block* — =:description=, =:backend=, =:model=,
+   =:temperature=, and scope keys. This tangles to a =preset.el= that
+   self-registers via [[file:../registration.org][=jf/gptel-preset-register=]].
+
+** Render locus and the static-prerender invariant
+
+The role text is *static* — fixed at authoring time, not produced per send. It
+is rendered once when =preset.el= loads (a deterministic, side-effect-free
+transform of the section source) and passed to registration as a pre-rendered
+=:system= string. Registration forwards =:system= verbatim and never calls the
+renderer; the per-send composer treats this role text as a cacheable static
+prefix (invariant =register/invariant/static-prerender-dynamic-compose=). No
+palette/agent tools are wired yet — that is a near-future follow-up (design
+§Non-Goals).
+
+* Lexical Binding
+
+The first block uses =:comments no= so the =;;; … -*- lexical-binding: t; -*-=
+header lands on line 1 of the tangled =.el=.
+
+#+begin_src emacs-lisp :comments no
+;;; preset.el --- Workspace-assistant preset (fragment-era) -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; Tangled artifact for the `workspace-assistant' preset.  Loading this file
+;; renders the static role fragment for the Claude backend and self-registers
+;; the preset via `jf/gptel-preset-register' with the rendered text as :system.
+;; Edit the .org source, never this file.
+
+;;; Code:
+#+end_src
+
+* Dependencies
+
+The renderer (=fragments.el=) and registration (=registration.el=) load before
+this preset in the gptel load order; the explicit =require=s here make the
+artifact loadable on its own (and at tangle/batch time) without assuming a
+particular load sequence.
+
+#+begin_src emacs-lisp
+(require 'jf-gptel-fragments
+         (expand-file-name
+          "fragments.el"
+          (file-name-directory
+           (directory-file-name
+            (file-name-directory (or load-file-name buffer-file-name))))))
+
+(require 'gptel-preset-registration
+         (expand-file-name
+          "registration.el"
+          (file-name-directory
+           (directory-file-name
+            (file-name-directory (or load-file-name buffer-file-name))))))
+#+end_src
+
+* Role Fragment
+
+The role fragment is authored as an Org source string. Each top-level heading is
+a semantic section; the renderer maps the heading to a snake_case XML tag and
+emits the body verbatim. Section ordering follows the Claude best-practice
+brief: role and immediate task first, static domain knowledge next, numbered
+imperative instructions, then the hard constraints restated near the end.
+
+Authoring notes (kept at the *right altitude* — heuristics that generalize to
+novel inputs, not a brittle rule lookup):
+
+- *Role* states who the assistant is and the standing task up front.
+- *Background* is static domain knowledge: what a workspace is and what the
+  assistant can assume about it.
+- *Instructions* are numbered and imperative — the working loop, expressed as
+  judgement-calls rather than exhaustive procedures.
+- *Constraints* restate the load-bearing limits (stay within the workspace;
+  surface uncertainty) at the end, where they anchor the model's behavior.
+
+The source is assembled with =string-join= so the section-heading lines (=*
+Role= etc.) never sit at column 0 in this =.org= — a column-0 =*= would
+otherwise be read as an Org heading and split the source block. The assembled
+string still presents real =* Heading= lines to the parser.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-preset-workspace-assistant--role-source
+  (string-join
+   (list
+    "#+fragment_kind: static"
+    ""
+    "* Role"
+    "You are the user's workspace assistant: a general-purpose collaborator for"
+    "the single project workspace this session is scoped to. Help the user make"
+    "progress on whatever they are working on right now — understanding code,"
+    "drafting and editing files, planning changes, and answering questions"
+    "grounded in the workspace's own contents."
+    ""
+    "* Background"
+    "A workspace is one self-contained project rooted at a single home directory."
+    "This session is scoped to that home: the files, notes, and history under it"
+    "are the shared context you and the user reason about. Treat the workspace as"
+    "the source of truth — prefer what the project actually contains over general"
+    "assumptions, and read before you conclude. The user returns to this same"
+    "assistant across sessions, so continuity and a coherent picture of the"
+    "project matter more than any single answer."
+    ""
+    "* Instructions"
+    "1. Lead with the user's immediate goal. Restate it in your own words only"
+    "   when it is ambiguous; otherwise get to work."
+    "2. Ground claims in the workspace. When a question turns on what the project"
+    "   contains, inspect the relevant files before answering rather than"
+    "   guessing."
+    "3. Right-size your effort to the task: a quick question deserves a direct"
+    "   answer; a multi-step change deserves a short plan first, then execution."
+    "4. Make changes in coherent, reviewable steps and say what you changed and"
+    "   why. Prefer the smallest edit that fully solves the problem."
+    "5. When you are uncertain or an instruction is underspecified, state the"
+    "   ambiguity and your assumption, then proceed — do not stall on perfect"
+    "   information."
+    ""
+    "* Constraints"
+    "Stay within this workspace. Reason about and act on the project this session"
+    "is scoped to; do not reach for unrelated projects or assume context from"
+    "outside it. Do not fabricate file contents, results, or project facts — if"
+    "you have not verified something in the workspace, say so. Surface uncertainty"
+    "plainly instead of presenting a guess as fact. These limits hold even when a"
+    "shortcut looks faster: a grounded, in-scope answer is the goal.")
+   "\n")
+  "Org source of the `workspace-assistant' static role fragment.
+Top-level headings are semantic sections rendered to backend-appropriate
+delimiters by `jf/gptel-fragment-render'.")
+#+end_src
+
+* Rendered Role (static pre-render)
+
+Render the role fragment once for the Claude backend at load time. The result is
+a deterministic transform of the static source above; it is computed here so
+registration can forward it verbatim as =:system= (it never renders), and so the
+per-send composer sees a stable, cacheable static prefix.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-preset-workspace-assistant--system
+  (jf/gptel-fragment-render
+   (jf/gptel-fragment--parse-source
+    jf/gptel-preset-workspace-assistant--role-source)
+   'claude)
+  "Pre-rendered Claude role text for the `workspace-assistant' preset.
+Passed to registration as :system; not re-rendered per send.")
+#+end_src
+
+* Config Block + Registration
+
+Native-Elisp config (see =register/shape/preset-config-plist=):
+=:description=/=:backend=/=:model= required, =:temperature= and the scope keys
+optional. =:backend= is the renderer-backend symbol =claude=. =:scope-profile=
+="coding"= gives the workspace helper a read/write/edit working set
+(extracted into =jf/gptel-preset--scope-defaults= and stripped before
+=gptel-make-preset=). No =:tools= yet — palette/agent tools are out of scope for
+this change.
+
+#+begin_src emacs-lisp
+(jf/gptel-preset-register 'workspace-assistant
+  :description "General-purpose helper for the active project workspace."
+  :backend 'claude
+  :model 'claude-sonnet-4-6
+  :temperature 0.3
+  :scope-profile "coding"
+  :system jf/gptel-preset-workspace-assistant--system)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'gptel-preset-workspace-assistant)
+;;; preset.el ends here
+#+end_src
