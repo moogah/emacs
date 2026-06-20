@@ -63,6 +63,30 @@
 (require 'jf-gptel-fragment-emacs-prelude)
 (require 'org)
 
+;; Committed-mirror golden support.
+;;
+;; The fragment source's load-time mirror writer rewrites the working-tree
+;; `emacs-prelude.txt' from the freshly rendered text whenever they diverge
+;; (see `emacs-prelude.el').  A working-tree-vs-rendered assertion is therefore
+;; tautological: the mirror has already healed the file before any `it' runs.
+;; To catch *committed* drift (the property
+;; `register/invariant/static-prerender-dynamic-compose' relies on -- the
+;; committed `.txt' being an in-sync diffable mirror), read the bytes tracked
+;; at HEAD via git (immune to the working-tree mirror) and compare against a
+;; freshly rendered fragment value.
+(defun jf/prelude-golden--committed-bytes (relpath)
+  "Return the bytes of RELPATH as committed at HEAD, or signal on failure.
+RELPATH is relative to the repo root `jf/emacs-dir'.  Reads via `git show'
+so the value is immune to the working-tree mirror writer."
+  (with-temp-buffer
+    (let* ((default-directory jf/emacs-dir)
+           (status (call-process "git" nil t nil "show"
+                                 (concat "HEAD:" relpath))))
+      (unless (eq status 0)
+        (error "git show HEAD:%s failed (status %s): %s"
+               relpath status (buffer-string)))
+      (buffer-string))))
+
 (defun jf-envblk-test--with-drawer-buffer (drawer dir fn)
   "Call FN in a temp `org-mode' buffer holding DRAWER, with DIR as `default-directory'.
 DRAWER is the body between `:PROPERTIES:' / `:END:' (each key on its
@@ -602,20 +626,42 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
     ;; The prelude is no longer a hard-coded defconst — it is the
     ;; pre-rendered `emacs-prelude' static fragment, wired into the
     ;; composer's chat lead seam.  The seam holds the renderer's output
-    ;; (an XML-tagged block, consumed verbatim) and matches the committed
-    ;; `.txt' artifact byte-for-byte.
+    ;; (an XML-tagged block, consumed verbatim).
     (expect (stringp jf/gptel-fragment-chat-prelude-text) :to-be t)
     (expect (string-blank-p jf/gptel-fragment-chat-prelude-text) :to-be nil)
     (expect jf/gptel-fragment-chat-prelude-text
-            :to-match "operating inside GNU Emacs")
-    (expect jf/gptel-fragment-chat-prelude-text
-            :to-equal
-            (with-temp-buffer
-              (insert-file-contents
-               (expand-file-name
-                "config/gptel/presets/sources/emacs-prelude.txt"
-                jf/emacs-dir))
-              (buffer-string))))
+            :to-match "operating inside GNU Emacs"))
+
+  (it "keeps the committed .txt mirror in sync with the rendered fragment"
+    ;; The committed `.txt' artifact must mirror the rendered prelude text
+    ;; byte-for-byte.  This reads the bytes COMMITTED AT HEAD (via git), not
+    ;; the working tree: the source's load-time mirror writer silently heals
+    ;; the working-tree file, so a working-tree comparison can never observe
+    ;; committed drift.  Comparing the committed bytes against a freshly
+    ;; rendered value catches the real failure mode — a fragment-source
+    ;; change that did not refresh the committed mirror.
+    (let ((rendered (jf/gptel-fragment-render
+                     jf/gptel-fragment-emacs-prelude--fragment 'claude))
+          (committed (jf/prelude-golden--committed-bytes
+                      "config/gptel/presets/sources/emacs-prelude.txt")))
+      ;; Sanity: the seam holds exactly the rendered text.
+      (expect jf/gptel-fragment-chat-prelude-text :to-equal rendered)
+      ;; The committed mirror is in sync with the rendered fragment.
+      (expect committed :to-equal rendered)))
+
+  (it "FAILS when the committed mirror diverges from the rendered fragment"
+    ;; Negative case proving the golden is no longer tautological: inject a
+    ;; stale committed value and assert the in-sync comparison FAILS.  If
+    ;; the golden could not observe committed drift this would still pass,
+    ;; so it pins that the comparison has teeth.
+    (let ((rendered (jf/gptel-fragment-render
+                     jf/gptel-fragment-emacs-prelude--fragment 'claude)))
+      (cl-letf (((symbol-function 'jf/prelude-golden--committed-bytes)
+                 (lambda (&rest _)
+                   (concat rendered "\nSTALE COMMITTED LINE\n"))))
+        (let ((stale (jf/prelude-golden--committed-bytes
+                      "config/gptel/presets/sources/emacs-prelude.txt")))
+          (expect stale :not :to-equal rendered)))))
 
   (it "leads the composed message, ahead of both role and env"
     (jf-compose-test--write-sibling "system-prompt.md" "You are a careful assistant.")

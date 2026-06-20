@@ -84,4 +84,99 @@ enforce exactly that committed-mirror-is-in-sync property.
 
 ## Observations
 
+- **De-tautologizing mechanism chosen: read committed bytes via `git show
+  HEAD:<path>`, not a `cl-letf` stub of the mirror writer.** The task offered
+  two routes (stub the mirror writer, or snapshot committed bytes before load).
+  The stub route is unsound here: the mirror runs at top-of-file *load* time
+  (the spec's `(load ".../{emacs-prelude,agent-preamble}.el")` / `require`),
+  which completes before any `it` body or `before-each` runs. A `cl-letf` scoped
+  to an `it` cannot un-rewrite a working-tree file the mirror already healed at
+  load. Reading the bytes committed at HEAD sidesteps this entirely: the
+  working-tree mirror writer never touches the git object, so the committed
+  artifact is observable in its true (possibly-stale) state. This also matches
+  the invariant's wording precisely — "committed `.txt` is an in-sync diffable
+  mirror" is a property of the *committed* artifact, which is exactly what `git
+  show HEAD:` reads. Verified the golden FAILS when the committed `.txt`
+  diverges from the rendered fragment (proof in the commit body / report).
+
+- **`composer-spec.el` was NOT modified — it has no committed-`.txt`-vs-rendered
+  assertion to de-tautologize.** The Cycle 5 plan note named it as the location
+  of "the fragment-render comparison," but on inspection
+  `config/gptel/presets/test/composer-spec.el` only exercises the composition
+  algebra (`jf/gptel-fragment-compose`, `jf/gptel-fragment--default-composition`)
+  with synthetic fragment refs (`"PRELUDE"`, `"PREAMBLE"`, `"ROLE"`, `"ENV"`).
+  It never reads a `.txt` artifact nor compares committed bytes to rendered
+  output (`grep -n 'insert-file\|\.txt\|git show\|HEAD:' composer-spec.el`
+  returns only unrelated comment hits). Modifying it would have invented scope.
+  The two actual tautological goldens live only in `creation-spec.el` (agent
+  preamble) and `environment-preamble-spec.el` (chat prelude); both are now
+  restructured. See discovery `composer-spec-no-txt-golden`.
+
+- **Each golden now has a paired negative case** asserting the in-sync
+  comparison FAILS against an injected stale committed value (a `cl-letf` stub
+  of the local `jf/{preamble,prelude}-golden--committed-bytes` helper returning
+  rendered-text + `"STALE COMMITTED LINE"`). This is scoped to the `it` body
+  and commits no broken artifact. It pins that the positive golden has teeth: a
+  divergence is observable, so the positive assertion is not vacuously true.
+
+- **A residual (intentional) sanity assertion remains** in each positive golden:
+  `(expect <seam-var> :to-equal rendered)`. That sub-assertion *is* close to
+  tautological (the seam is `setq`'d from the same render call in the source
+  `.el`), but it is a cheap guard that the seam wiring still holds and is not
+  the load-bearing committed-mirror check — the `(expect committed :to-equal
+  rendered)` line is. Left in deliberately as a seam-wiring regression guard.
+
 ## Discoveries
+
+- discovery_id: composer-spec-no-txt-golden
+  class: spec-signal
+  description: >-
+    The Cycle 5 plan note (and the task's "Files to modify") name
+    `config/gptel/presets/test/composer-spec.el` as the home of "the
+    fragment-render comparison" golden. It is not. composer-spec.el tests only
+    the composition algebra with synthetic fragment refs; it never reads a
+    committed `.txt` nor compares committed bytes to rendered output. The two
+    tautological committed-`.txt` goldens are exclusively in `creation-spec.el`
+    (agent preamble) and `environment-preamble-spec.el` (chat prelude). I left
+    composer-spec.el untouched to avoid inventing scope.
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  recommendation: >-
+    Correct the task/plan's file inventory: drop composer-spec.el from the
+    de-tautologize write-set. If a future task wants composer coverage of the
+    *real* committed fragments (vs synthetic refs), that is a distinct,
+    additive piece of work, not a de-tautologization.
+
+- discovery_id: stub-route-unsound-for-load-time-mirror
+  class: deviation
+  description: >-
+    The task offered "cl-letf-stub the mirror writer (`write-region` or the
+    mirror fn)" as one of two de-tautologizing routes. That route is unsound for
+    this mirror: it fires at top-of-file *load* (the spec's `(load ...)` /
+    `require` of the source `.el`), which fully completes before any `it` or
+    `before-each`. A `cl-letf` scoped to a test body cannot prevent or undo a
+    rewrite the mirror already performed at load. I took the second offered
+    route (read committed bytes), implemented as `git show HEAD:<path>` so the
+    read is provably immune to the working-tree mirror.
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  recommendation: >-
+    Prefer the committed-bytes (git-object) read over mirror-writer stubbing for
+    any future load-time-mirror golden; stubbing only works for per-send /
+    per-test writers, not load-time ones.
+
+- discovery_id: static-prerender-invariant-reaffirmed
+  class: invariant-gap
+  description: >-
+    Pressure-tested `register/invariant/static-prerender-dynamic-compose`
+    (confirmed, load_bearing) against the restructured goldens. The reconciled
+    wording — "rendered ahead of send, once, into committed text" (load-time
+    render-once + committed mirror) — is exactly what the new goldens now
+    enforce: committed `.txt` bytes (at HEAD) must equal the freshly rendered
+    fragment, with a negative case proving divergence is observable. No gap
+    remains in the invariant's wording; the prior gap was purely that the
+    *golden* could not detect committed drift, now closed. Reaffirmed, no
+    change requested.
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  recommendation: >-
+    No edit to the register entry. The enforcing golden now matches the
+    reconciled normative mechanism; treat the committed-mirror-in-sync golden as
+    the canonical enforcement point for this invariant.
