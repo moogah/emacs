@@ -4,7 +4,7 @@
 (require 'gptel-session-filesystem)
 (require 'gptel-session-commands)
 
-(defcustom jf/gptel-workspace-initial-preset 'executor
+(defcustom jf/gptel-workspace-initial-preset 'workspace-assistant
   "Preset for the session auto-created at workspace birth; nil disables it."
   :type '(choice (const :tag "No auto-session" nil) symbol)
   :group 'gptel)
