@@ -395,61 +395,37 @@ entry > preset `:system')."
 
 
 ;; [[file:menu.org::*Environment block — dynamic fragment][Environment block — dynamic fragment:1]]
+(require 'jf-gptel-fragments nil t)
 (require 'jf-gptel-fragment-environment nil t)
+(require 'jf-gptel-fragment-emacs-prelude nil t)
 (declare-function jf/gptel-fragment-environment
                   "jf-gptel-fragment-environment" (&optional context))
+(declare-function jf/gptel-fragment--default-composition
+                  "jf-gptel-fragments" (context &optional role-ref))
+(declare-function jf/gptel-fragment-ref-static "jf-gptel-fragments" (text))
+(declare-function jf/gptel-fragment-compose
+                  "jf-gptel-fragments" (composition backend &optional context))
 (defvar jf/gptel-fragment-environment-fn)
+(defvar jf/gptel-fragment-chat-prelude-text)
 ;; Environment block — dynamic fragment:1 ends here
-
-;; Emacs prelude
-
-;; Every chat-mode system prompt opens with a static prelude that frames
-;; the model's runtime: it is operating inside GNU Emacs through the gptel
-;; chat interface, so Org markup beats Markdown, file/editor tools are
-;; available within the session scope, and the user is an Emacs user.  The
-;; prelude is the analogue of the persistent agent's
-;; =jf/gptel-persistent-agent--system-preamble= for interactive sessions,
-;; but rides the per-send composer rather than being materialized into the
-;; role file at creation.
-
-;; The prelude leads the whole prompt (=PRELUDE + ROLE + ENV=), so it is
-;; present even when the buffer carries no role.  Because it is a
-;; =defconst= the composer joins by reference (never read back from the
-;; composed value), it never accumulates across sends — same wholesale-
-;; rebuild invariant as the environment block.  It carries no Org heading:
-;; like the agent preamble it opens as plain framing prose, and a heading
-;; containing "Environment" would collide with the env block's own
-;; =# Environment= heading.
-
-
-;; [[file:menu.org::*Emacs prelude][Emacs prelude:1]]
-(defconst gptel-chat--emacs-prelude
-  "You are operating inside GNU Emacs, through the gptel chat interface. Keep these in mind:
-- Responses render as Org-mode text in an Emacs buffer — prefer Org markup over Markdown.
-- You have tools that read and write files and inspect the user's editor, within the session's file-access scope.
-- The user is working in Emacs; assume familiarity with it."
-  "Static runtime-framing prelude prepended to every chat-mode system prompt.
-
-Prepended ahead of the ROLE and environment block by
-`gptel-chat--refresh-system-prompt-from-file' on every send (so it
-leads the composed `gptel--system-message' and is present even when
-the buffer has no role).  Tells the model it is operating inside GNU
-Emacs via gptel — the interactive-session analogue of
-`jf/gptel-persistent-agent--system-preamble'.  Carries no Org heading
-\(opens as plain framing prose) to avoid colliding with the
-environment block's `# Environment' heading.")
-;; Emacs prelude:1 ends here
 
 ;; Pre-send composition
 
 ;; =gptel-chat--refresh-system-prompt-from-file= is the runtime
 ;; composer: every =gptel-request= dispatched from a chat-mode buffer
-;; recomposes =gptel--system-message= WHOLESALE as =emacs-prelude +
-;; "\n\n" + role + "\n\n" + environment-block= before the request body's
+;; recomposes =gptel--system-message= WHOLESALE before the request body's
 ;; keyword-argument defaulting picks =gptel--system-message= up
-;; (design.md §Decision 4, D1, D4).  The static =gptel-chat--emacs-
-;; prelude= always leads (present even with an empty role); two further
-;; things happen on every send:
+;; (design.md §Decision 4, D1, D4).  It does NOT re-implement composition:
+;; it resolves the ROLE from a stable source, wraps it in a static
+;; fragment reference, and hands it to the canonical composer
+;; (=jf/gptel-fragment--default-composition= + =jf/gptel-fragment-compose=,
+;; =register/boundary/composer-compose=).  The composer places the chat
+;; prelude (lead, from the =jf/gptel-fragment-chat-prelude-text= seam), the
+;; role, and the dynamic environment fragment (tail, from the
+;; =jf/gptel-fragment-environment-fn= seam) in
+;; =register/invariant/context-default-composition= order — chat →
+;; =[emacs-prelude(static), role, environment(dynamic)]= — skipping any
+;; empty contribution.  Two things matter on every send:
 
 ;; 1. The ROLE is resolved from a *stable source* — the sibling
 ;;    =system-prompt.<ext>= file re-read fresh each send (so a mid-
@@ -458,14 +434,12 @@ environment block's `# Environment' heading.")
 ;;    =gptel-chat--system-prompt-base=.  The composed
 ;;    =gptel--system-message= is NEVER read back as an input
 ;;    (=register/invariant/composed-system-message-write-only=): it is
-;;    write-only output.
-;; 2. The =# Environment= block is produced by the dynamic env fragment
-;;    (=jf/gptel-fragment-environment=, via the =jf/gptel-fragment-
-;;    environment-fn= seam) and appended as the TAIL section, joined to the
-;;    role by a blank line (D4).  Because the role comes from a stable
-;;    source and the block is rebuilt each send, the block never
-;;    accumulates across sends and a mid-session scope-drawer edit shows
-;;    up in the next composition.
+;;    write-only output, so the prelude/role/env never accumulate across
+;;    sends and a mid-session scope-drawer edit shows up next compose.
+;; 2. The static prelude leads and the dynamic =# Environment= block tails;
+;;    the prelude is pre-rendered (consumed verbatim, never re-rendered per
+;;    send), the env is the only per-send work — keeping the static prefix
+;;    cacheable (=register/invariant/static-prerender-dynamic-compose=).
 
 ;; Wiring choice (D1): an upstream =gptel-pre-send-hook= does not exist
 ;; (only =gptel-post-request-hook=, =gptel-request.el:180=), so this
@@ -500,19 +474,28 @@ The composed value is set WHOLESALE each send from STABLE sources
 only — never from the prior `gptel--system-message' — so the prelude
 and environment block never accumulate across sends and a mid-session
 scope change appears on the next send
-\(`register/invariant/composed-system-message-write-only', D1/D2/D4):
+\(`register/invariant/composed-system-message-write-only', D1/D2/D4).
 
-  PRE   = `gptel-chat--emacs-prelude', the static runtime-framing
-          preamble, ALWAYS the leading section.
-  ROLE  = sibling `system-prompt.<ext>' body, re-read fresh each send
-          when `:GPTEL_SYSTEM_PROMPT_FILE:' is set and the file is
-          readable and non-blank; otherwise the buffer-local role
-          base `gptel-chat--system-prompt-base' (or \"\" when nil).
-  ENV   = the dynamic env fragment `jf/gptel-fragment-environment'
-          (via the `jf/gptel-fragment-environment-fn' seam), evaluated
-          UNCONDITIONALLY at compose time.
-  VALUE = PRE \"\\n\\n\" ENV when ROLE is empty, else
-          PRE \"\\n\\n\" ROLE \"\\n\\n\" ENV (env is the TAIL section, D4).
+This function does NOT re-implement composition.  It resolves the ROLE
+from a stable source, wraps it in a static fragment reference, and
+hands it to the canonical composer (`jf/gptel-fragment--default-
+composition' + `jf/gptel-fragment-compose',
+`register/boundary/composer-compose').  The composer places the parts
+in `register/invariant/context-default-composition' order:
+
+  PRELUDE = the static `emacs-prelude' fragment text (via the
+            `jf/gptel-fragment-chat-prelude-text' seam), ALWAYS leading,
+            pre-rendered and consumed verbatim (never re-rendered).
+  ROLE    = sibling `system-prompt.<ext>' body, re-read fresh each send
+            when `:GPTEL_SYSTEM_PROMPT_FILE:' is set and the file is
+            readable and non-blank; otherwise the buffer-local role
+            base `gptel-chat--system-prompt-base' (or \"\" when nil).
+  ENV     = the dynamic env fragment `jf/gptel-fragment-environment'
+            (via the `jf/gptel-fragment-environment-fn' seam), evaluated
+            at compose time and placed at the TAIL (D4).
+
+Empty/whitespace contributions are skipped by the composer, so an
+absent role collapses cleanly while the prelude still leads.
 
 No-op when the current buffer is not a `gptel-chat-mode' buffer
 \(non-chat-mode `gptel-request' callers see only the predicate check
@@ -530,46 +513,35 @@ The `&rest _' parameter swallows whatever args advice forwards
 from `gptel-request' — the advice does not need to inspect them;
 the function operates on the buffer-local context."
   (when (derived-mode-p 'gptel-chat-mode)
-    (let ((role
-           (or (when-let* ((path (gptel-chat--system-prompt-file-path)))
-                 (if (file-readable-p path)
-                     (let ((body (with-temp-buffer
-                                   (insert-file-contents path)
-                                   (buffer-string))))
-                       (unless (string-blank-p body)
-                         ;; Keep the stable base aligned with the
-                         ;; re-read sibling body — role-only, never the
-                         ;; composed value.
-                         (set (make-local-variable
-                               'gptel-chat--system-prompt-base)
-                              body)
-                         body))
-                   (jf/gptel--log 'warn
-                                  "system-prompt sibling file unreadable: %s"
-                                  path)
-                   nil))
-               gptel-chat--system-prompt-base
-               ""))
-          ;; ENV is produced by the canonical dynamic fragment — the
-          ;; SAME function the composer's default composition places at
-          ;; the tail (`jf/gptel-fragment-environment-fn', set by the
-          ;; environment source module to `jf/gptel-fragment-
-          ;; environment').  Funcalling the seam keeps a single env
-          ;; producer and upholds dynamic-evaluate-at-compose-time
-          ;; (`register/invariant/static-prerender-dynamic-compose').
-          ;; The seam default is `ignore' (empty) until the source
-          ;; module loads; `or ""' keeps the concat total.
-          (env (or (funcall (if (boundp 'jf/gptel-fragment-environment-fn)
-                                jf/gptel-fragment-environment-fn
-                              #'ignore)
-                            'chat)
-                   "")))
+    (let* ((role
+            (or (when-let* ((path (gptel-chat--system-prompt-file-path)))
+                  (if (file-readable-p path)
+                      (let ((body (with-temp-buffer
+                                    (insert-file-contents path)
+                                    (buffer-string))))
+                        (unless (string-blank-p body)
+                          ;; Keep the stable base aligned with the
+                          ;; re-read sibling body — role-only, never the
+                          ;; composed value.
+                          (set (make-local-variable
+                                'gptel-chat--system-prompt-base)
+                               body)
+                          body))
+                    (jf/gptel--log 'warn
+                                   "system-prompt sibling file unreadable: %s"
+                                   path)
+                    nil))
+                gptel-chat--system-prompt-base
+                ""))
+           ;; Hand the composer the resolved ROLE as a static fragment
+           ;; reference; it places the chat prelude (lead) and the env
+           ;; (tail) from their seams in the canonical chat order and
+           ;; skips any empty contribution.  We do NOT concat the parts
+           ;; ourselves (`register/boundary/composer-compose').
+           (composition (jf/gptel-fragment--default-composition
+                         'chat (jf/gptel-fragment-ref-static role))))
       (set (make-local-variable 'gptel--system-message)
-           (concat gptel-chat--emacs-prelude
-                   "\n\n"
-                   (if (string-empty-p role)
-                       env
-                     (concat role "\n\n" env)))))))
+           (jf/gptel-fragment-compose composition 'claude 'chat)))))
 
 ;; Install the :before advice at module load.  `advice-add' is
 ;; idempotent for the same (function, where, advice) triple, so
