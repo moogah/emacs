@@ -79,3 +79,22 @@ so a fixture dependency cannot silently break the suite (design Risks).
 - `register/boundary/preset-org-to-registration` is **confirmed**; the new registration
   ignores flat `.md` files in `presets/` (only descends `<name>/preset.el` subdirs), so
   the old `.md` presets are already inert at runtime — deletion is cleanup, not behavior.
+
+## Cycle 3 updates (cycle-1781900938)
+
+> Both new presets landed; this task picked up a new blocker.
+
+- **New blocker: `wire-fragment-sources-load`** (created this cycle). Do not delete legacy
+  presets / drop `yaml` until the fragment SOURCE-load wiring is real — deleting while the
+  env (and next cycle's prelude/preamble) seams are still dark would conflate two failures.
+  Current `blocked_by`: `workspace-flip`, `wire-fragment-sources-load` (the two presets and
+  registration-rewrite blockers are now satisfied).
+- **Both new presets exist and register** (`workspace-assistant`, `system-explorer` via
+  `<name>/preset.el`). The legacy `system-explorer.md` (flat file) is now safely deletable —
+  it is shadowed by the new `system-explorer/preset.el` and inert at runtime.
+- `register/boundary/preset-org-to-registration` gained an addendum (forwards `:backend`
+  unchanged; render-locus = load-time defconst) and `register/shape/preset-config-plist`
+  was reconciled (`:backend` = gptel backend NAME STRING). Neither changes this task's
+  deletion scope, but the `:backend "Claude"` form is what the surviving presets carry.
+- Pre-deletion safety grep (design step 1) still stands; additionally confirm no test loads
+  a legacy `.md` preset as a fixture now that the new pipeline is the only live path.

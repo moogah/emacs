@@ -2,7 +2,7 @@
 name: preset-workspace-assistant
 description: Author the workspace-assistant preset (Elisp config block + role fragment) tangling to a registering .el, following system-prompt best practices, with a golden snapshot of its rendered role.
 change: gptel-fragment-presets
-status: blocked
+status: done
 relations:
   - "blocked-by:fragment-core"
   - "blocked-by:registration-rewrite"

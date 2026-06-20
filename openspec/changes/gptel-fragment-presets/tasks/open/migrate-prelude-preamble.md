@@ -113,3 +113,34 @@ are prototypes (user-confirmed).
   per send (`register/invariant/static-prerender-dynamic-compose`, load-bearing, confirmed).
 - `register/shape/fragment` was amended: its speculative `:fn` key was removed — dynamic
   behavior lives on the *reference*, not the parsed fragment.
+
+## Cycle 3 updates (cycle-1781900938)
+
+> migrate-environment + both presets landed this cycle. This task now REBASES on a
+> changed `menu.org` and shares infrastructure with two new in-change tasks. Read
+> before starting:
+
+- **`config/gptel/chat/menu.org/el` already changed** by migrate-environment (merged
+  5e583755): the `gptel-chat--build-environment-block` defun is **GONE** and the env is
+  now a dynamic tail reference wired via `jf/gptel-fragment-environment-fn`. Rebase your
+  prelude rewiring onto the new menu.org — do NOT reintroduce or assume the old env
+  builder. The composer + `jf/gptel-fragment--default-composition` are the integration
+  point for prelude (lead) and env (tail); your job is the prelude/preamble seam
+  defvars (`jf/gptel-fragment-chat-prelude-text`, `jf/gptel-fragment-agent-preamble-text`).
+- **Source-load wiring is NOT your job — it is `wire-fragment-sources-load`'s.** That new
+  task (created this cycle) loads `presets/sources/*.el` in `gptel.org`. Your
+  `emacs-prelude.org` / `agent-preamble.org` sources will be picked up by the SAME
+  directory-load mechanism — author them under `presets/sources/` and coordinate; do not
+  add ad-hoc `gptel.org` load lines (you'd collide with wire-fragment-sources-load).
+  Without that task landing, your prelude/preamble seam stays dark in production too — the
+  two are coupled; sequence accordingly.
+- **TANGLE HAZARD — column-0 `*` headings inside a `#+begin_src` string silently truncate
+  the tangled block** (bit BOTH presets this cycle; arch-cycle-1781900938-3; durable fix
+  tracked in `.tasks/harden-tangle-against-silent-block-drop.md`). When authoring the
+  prelude/preamble fragment `.org`, avoid literal column-0 `*` inside src strings. Two
+  proven precedents: `workspace-assistant/preset.org` uses `string-join` of lines;
+  `system-explorer/preset.org` authors the fragment as an Elisp `(:kind static :sections
+  ((NAME . BODY) ...))` plist literal instead of an embedded Org string. Prefer the plist
+  form — it sidesteps the hazard entirely and matches the parser's output shape.
+- `:backend` reconcile (preset-config-plist) does NOT apply here — prelude/preamble are
+  *fragments*, not presets; they never call `gptel-make-preset`.

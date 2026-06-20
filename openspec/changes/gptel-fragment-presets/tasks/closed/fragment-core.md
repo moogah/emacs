@@ -2,7 +2,7 @@
 name: fragment-core
 description: Create the presets sub-module skeleton, the fragment/section parser, and the backend-parametrized renderer (Claude/XML), with a golden-snapshot test harness.
 change: gptel-fragment-presets
-status: ready
+status: done
 relations: []
 ---
 

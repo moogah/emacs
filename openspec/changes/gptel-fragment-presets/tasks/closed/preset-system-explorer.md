@@ -2,7 +2,7 @@
 name: preset-system-explorer
 description: Author the read-only system-explorer preset (Elisp config block + role fragment) tangling to a registering .el, specializing in environment analysis with no write/modify operations.
 change: gptel-fragment-presets
-status: blocked
+status: done
 relations:
   - "blocked-by:fragment-core"
   - "blocked-by:registration-rewrite"

@@ -1960,15 +1960,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/preset-config-plist
    tier: shape
-   status: confirmed
+   status: reconciled
    status_note: |
-     cycle-1781885402 integrate: speculated → confirmed. Native-Elisp config block
-     implemented with the speculated required keys (:description string, :backend
-     symbol, :model symbol) and optional keys (:tools, :temperature, scope keys,
-     :mode). No parse/normalize/coerce. Clarification: :system is supplied
-     PRE-RENDERED by the preset author (rendered at tangle time); the register helper
-     extracts scope/mode keys + forwards the rest, and does not call the renderer.
-     Value-pinning (cycle-1 meta-discovery) paid off — zero reconcile on this shape.
+     cycle-1781900938 integrate: confirmed → RECONCILED. The :backend key was
+     wrong: cycle-1781885402 confirmed it as a "renderer-backend symbol" (claude),
+     but :backend is forwarded UNCHANGED to gptel-make-preset, whose apply path
+     (gptel--apply-preset, gptel.el:2207) resolves a backend by cl-etypecase
+     (gptel-backend | NAME STRING). The symbol `claude' fails it — a reproducible
+     full-suite regression (drawer-fontification spec applies :GPTEL_PRESET:
+     system-explorer via gptel-chat-mode). Reconciled: :backend is the gptel
+     backend NAME STRING ("Claude", as registered by gptel-make-anthropic). The
+     RENDERER backend symbol (claude) is a SEPARATE concern, supplied directly at
+     the jf/gptel-fragment-render call inside preset.el — NOT carried in this
+     config key. Resolved in code by orchestrator inline fix ec6b951a (user-chosen
+     Option B: presets declare :backend "Claude"). See reconciliation note +
+     finding arch-cycle-1781900938-2.
+     prior cycle-1781885402 integrate: speculated → confirmed (the :backend type
+     was mis-confirmed as symbol; only manifested when a preset was APPLIED, which
+     no preset spec exercised against the real gptel apply path).
    load_bearing: false
    title: Native-Elisp preset config block (replaces YAML frontmatter)
    purpose: |
@@ -1988,10 +1997,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        description: |
          Preset annotation shown in the transient menu and inline mentions.
      - name: ":backend"
-       type: symbol
+       type: string
        description: |
-         Selects the renderer backend (register/vocabulary/render-backend);
-         claude is the only implemented member this change.
+         The gptel backend NAME STRING ("Claude" — the name gptel-make-anthropic
+         registered). Forwarded UNCHANGED to gptel-make-preset; gptel's apply
+         path (gptel--apply-preset) resolves the backend by name via
+         cl-etypecase (gptel-backend | string). A SYMBOL here breaks that
+         etypecase — do not author :backend 'claude. NOTE: the fragment RENDERER
+         backend (the symbol `claude', register/vocabulary/render-backend) is a
+         DISTINCT concept, passed directly to jf/gptel-fragment-render inside the
+         preset .org at render time; it is NOT this config key. Reconciled
+         cycle-1781900938 (was mis-typed as a renderer symbol).
      - name: ":model"
        type: symbol
        description: |
@@ -5991,6 +6007,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      because static refs are pre-rendered (consistent with
      static-prerender-dynamic-compose) and dynamic fns own their own formatting —
      candidate to drop; probe in the migrate/source tasks.
+     cycle-1781900938 (migrate-environment, a second consumer): the backend-arg-inert
+     refinement is now CORROBORATED — the dynamic env fragment funcalls its :fn and
+     owns its own output formatting, never reading `backend' at compose time. The
+     drop candidate stands (would simplify jf/gptel-fragment-compose's signature);
+     not dropped this cycle (no behaviour change), carried as a future cleanup.
    load_bearing: false
    title: ordered fragment list → effective system message (composer)
    purpose: |
@@ -6068,6 +6089,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      is pre-rendered at TANGLE time inside preset.el; registration forwards that
      pre-rendered :system and does NOT itself call jf/gptel-fragment-render (matches
      stage-1 of the speculation). YAML pipeline deleted (parse/normalize/coerce gone).
+     cycle-1781900938 addendum (two presets authored against this boundary): (1)
+     registration forwards the post-extraction keys to gptel-make-preset UNCHANGED —
+     so each forwarded key's VALUE must satisfy gptel's own contract; in particular
+     :backend must be the gptel backend NAME STRING, not a renderer symbol (see
+     register/shape/preset-config-plist reconcile + arch-cycle-1781900938-2). (2)
+     Render-locus realized concretely as LOAD-TIME render-once cached in a defconst
+     inside preset.el (jf/gptel-preset-<name>--system), evaluated when the .el loads;
+     functionally equivalent to tangle-time bake for the static-prerender invariant
+     (no per-send re-render), via a constant rather than a baked string literal.
    load_bearing: false
    title: preset .org → tangled .el → gptel-make-preset registration
    purpose: |
@@ -8901,6 +8931,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      "two-composes-differ-only-in-tail" property is demonstrated by construction but
      not asserted as a literal byte-identical-prefix spec — optional strengthening,
      non-blocking; golden/idempotent enforcement belongs to the source/migrate tasks.
+     cycle-1781900938 (migrate-environment): RE-AFFIRMED + the advisory CLOSED. On-touch
+     architect arch-cycle-1781900938-1 verified all five checks; environment-preamble-spec.el
+     now adds a spec that literally asserts the static prefix is byte-identical across two
+     composes with differing live input (substring equality), while the tail differs —
+     satisfying arch-cycle-1781885402-1's optional strengthening. Env wired as the dynamic
+     (:kind dynamic :fn FN) tail ref via jf/gptel-fragment-environment-fn; no static
+     re-render at compose time. (NB production-load wiring of the env source is tracked by
+     wire-fragment-sources-load; the invariant property itself holds.)
    load_bearing: true
    title: static fragments pre-render at tangle time; dynamic evaluate at compose time
    statement: |

@@ -2,7 +2,7 @@
 name: migrate-environment
 description: Move the dynamic environment block into a dynamic fragment evaluated at the existing pre-send seam, and delete the builder defun, preserving tail placement and wholesale rebuild.
 change: gptel-fragment-presets
-status: blocked
+status: done
 relations:
   - "blocked-by:composer"
 ---
