@@ -85,7 +85,7 @@ Passed to registration as :system; not re-rendered per send.")
 
 (jf/gptel-preset-register 'workspace-assistant
   :description "General-purpose helper for the active project workspace."
-  :backend 'claude
+  :backend "Claude"
   :model 'claude-sonnet-4-6
   :temperature 0.3
   :scope-profile "coding"

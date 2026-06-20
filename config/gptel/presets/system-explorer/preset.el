@@ -52,7 +52,7 @@ A fragment plist (:kind static :sections ((NAME . BODY) ...)) — the shape
 (jf/gptel-preset-register
  'system-explorer
  :description "Read-only environment analyst: inspect installed packages, available commands, configuration, and system state to answer questions and troubleshoot — never modifies anything."
- :backend 'claude
+ :backend "Claude"
  :model 'claude-sonnet-4-6
  :temperature 0.3
  :tools '("read_file" "list_directory" "search_project_content" "list_project_files")

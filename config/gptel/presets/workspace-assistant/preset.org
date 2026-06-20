@@ -173,7 +173,10 @@ Passed to registration as :system; not re-rendered per send.")
 
 Native-Elisp config (see =register/shape/preset-config-plist=):
 =:description=/=:backend=/=:model= required, =:temperature= and the scope keys
-optional. =:backend= is the renderer-backend symbol =claude=. =:scope-profile=
+optional. =:backend= is the gptel backend *name string* ="Claude"= (the name
+=gptel-make-anthropic= registered) — it is forwarded to =gptel-make-preset=,
+whose apply path resolves a backend by name; the renderer-backend symbol =claude=
+is supplied separately at the =jf/gptel-fragment-render= call. =:scope-profile=
 ="coding"= gives the workspace helper a read/write/edit working set
 (extracted into =jf/gptel-preset--scope-defaults= and stripped before
 =gptel-make-preset=). No =:tools= yet — palette/agent tools are out of scope for
@@ -182,7 +185,7 @@ this change.
 #+begin_src emacs-lisp
 (jf/gptel-preset-register 'workspace-assistant
   :description "General-purpose helper for the active project workspace."
-  :backend 'claude
+  :backend "Claude"
   :model 'claude-sonnet-4-6
   :temperature 0.3
   :scope-profile "coding"

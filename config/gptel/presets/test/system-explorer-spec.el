@@ -17,8 +17,8 @@
 ;;     equals the committed golden snapshot byte-for-byte (static pre-render,
 ;;     register/invariant/static-prerender-dynamic-compose).
 ;;   - The native config carries the confirmed shape
-;;     (register/shape/preset-config-plist): :backend symbol `claude', :model a
-;;     symbol, a :description string.
+;;     (register/shape/preset-config-plist): :backend the gptel backend name
+;;     string "Claude", :model a symbol, a :description string.
 ;;   - It is READ-ONLY: its :scope-profile is the read-only "system-explorer"
 ;;     profile (extracted into `jf/gptel-preset--scope-defaults', stripped from
 ;;     the registration plist), and no write/modify-capable tool, :paths,
@@ -97,10 +97,12 @@
         (expect (stringp desc) :to-be t)
         (expect (length desc) :to-be-greater-than 0)))
 
-    (it "uses the claude backend symbol and a model symbol"
+    (it "uses the Claude backend name string and a model symbol"
       (let ((spec (gptel-get-preset 'system-explorer)))
-        ;; register/shape/preset-config-plist: :backend and :model are symbols.
-        (expect (plist-get spec :backend) :to-equal 'claude)
+        ;; register/shape/preset-config-plist: :backend is the gptel backend
+        ;; NAME STRING ("Claude") forwarded to gptel-make-preset (whose apply
+        ;; path resolves a backend by name); :model is a symbol.
+        (expect (plist-get spec :backend) :to-equal "Claude")
         (expect (symbolp (plist-get spec :model)) :to-be t)
         (expect (plist-get spec :model) :to-equal 'claude-sonnet-4-6))))
 

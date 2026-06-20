@@ -75,7 +75,7 @@
     (let ((spec (gptel-get-preset 'workspace-assistant)))
       (expect (plist-get spec :description)
               :to-equal "General-purpose helper for the active project workspace.")
-      (expect (plist-get spec :backend) :to-equal 'claude)
+      (expect (plist-get spec :backend) :to-equal "Claude")
       (expect (plist-get spec :model) :to-equal 'claude-sonnet-4-6)
       (expect (plist-get spec :temperature) :to-equal 0.3)))
 
