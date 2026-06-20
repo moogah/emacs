@@ -65,6 +65,103 @@ so a fixture dependency cannot silently break the suite (design Risks).
   `config/gptel/tools/test/test-org-roam-integration.el`.
 - Design Risks/Migration Plan step 6–7.
 
+## Observations (cycle-1781944619 — executed inline by orchestrator)
+
+- **Safety grep (design step 1) cleared deletion.** No tracked snapshot or test
+  enumerates the preset directory or a preset count; every `jf/gptel-presets-directory`
+  consumer reads the NEW `<name>/preset.el` + sibling `system-prompt.<ext>` structure
+  (or is a test that rebinds it to a temp dir), none load the flat `.md` files. The
+  `test-agent-*` hits are `"*test-agent-buffer*"` buffer names; the `executor` hits are
+  the `'executor` preset NAME symbol, not `.md` file loads. Deleting the 11 flat `.md`
+  files (`executor explore minimal perplexity-researcher plan research system-explorer
+  test-agent-{basic,fs-scope,bash-scope} zettelkasten`) is pure cleanup — they were
+  already inert at runtime (the registration only descends `<name>/preset.el` subdirs).
+  Full-suite failing-set stayed BYTE-IDENTICAL to baseline (5 buttercup + 9 ERT) after
+  deletion.
+
+- **`yaml` dependency NOT dropped — there is a remaining live consumer.** Design step 4
+  says drop `(require 'yaml)` only after confirming no remaining consumer. There IS one:
+  `config/gptel/scope-profiles.el` (a production module, not test) still
+  `(require 'yaml)` and calls `yaml-parse-string`. (`config/gptel/test/persistence-test-helpers.el`
+  is a second, test-only, consumer.) So `yaml` stays. This matches the Cycle 2 stanza:
+  registration-rewrite already removed yaml from the PRESET path in cycle 2; the
+  project-wide drop is correctly blocked by the scope-profiles consumer. No yaml change
+  this task.
+
+- **Pre-existing, out-of-scope: `'executor` is still the session-creation default.**
+  `config/gptel/sessions/commands.el` defaults `preset-name` to `'executor`
+  (`(or preset-name 'executor)`), and several session specs assert `:GPTEL_PRESET: executor`
+  in the drawer. There is NO `executor/preset.el`, so `'executor` already resolves to an
+  UNregistered preset — this was true BEFORE this deletion (executor.md was inert since
+  cycle 2). Deleting executor.md introduces no new breakage (those references use the
+  name symbol / drawer string; none load the file; suite stays green). But the
+  session-creation default still naming a now-nonexistent preset is a latent gap the
+  proposal's "fresh-start the preset set" arguably implies cleaning. It is NOT in this
+  task's write-set (sessions/commands.org) and NOT a named proposal outcome → see
+  Discovery `executor-default-still-unregistered` (recommend externalise).
+
+- **Snapshot-refresh (design step 5) is a no-op this cycle — refusing to churn.** The
+  git-tracked `test-report.txt` snapshots are inconsistently maintained (e.g.
+  `config/gptel/chat/test/menu/test-report.txt` reads "0 ran"; `config/gptel/test-report.txt`
+  is a scoped subset). They were captured GREEN, but the current full suite carries the
+  pre-existing 5-buttercup + 9-ERT failing-set, some of which live under
+  `config/gptel/{tools,scope}`. Regenerating them would inject those pre-existing flaky
+  failures into snapshots that don't currently show them — churn that misrepresents
+  pre-existing flakiness as this change's doing, the opposite of the verification's
+  "refreshed snapshots ONLY where expected." Nothing this task changes maps to a tracked
+  snapshot (no snapshot enumerates presets; the loader specs live under `presets/` which
+  has no tracked snapshot). So no snapshot is refreshed. See Discovery
+  `stale-gptel-test-report-snapshots` (recommend externalise: a dedicated snapshot-hygiene
+  pass that first triages the pre-existing failing-set).
+
+## Discoveries
+
+- discovery_id: disc-delete-old-presets-1
+  class: invariant-gap
+  description: |
+    Design step 4 (drop the yaml dependency) is unsatisfiable project-wide:
+    config/gptel/scope-profiles.el (production) still requires 'yaml and calls
+    yaml-parse-string. The yaml dep is correctly retained. The "drop yaml" sub-goal
+    was already scoped to the preset path only (done in cycle 2); the global drop is
+    out of reach while scope-profiles consumes yaml.
+  affected_register_entry: register/boundary/preset-org-to-registration
+  recommendation: |
+    No action. Note in the change record that yaml remains a live gptel dependency
+    via scope-profiles; the preset pipeline no longer uses it (the proposal's stated
+    "removes the yaml.el dependency from the preset pipeline" is satisfied — it is the
+    PIPELINE, not the project, that drops yaml).
+
+- discovery_id: executor-default-still-unregistered
+  class: dead-branch
+  description: |
+    sessions/commands.el defaults session-creation preset to 'executor, which has no
+    <name>/preset.el and is therefore unregistered (already true pre-deletion). The
+    workspace initial preset was flipped to 'workspace-assistant (workspace-flip), but
+    the general session-creation default still names 'executor. Latent: a default-path
+    session records a :GPTEL_PRESET: executor drawer for a preset gptel can't resolve.
+  affected_register_entry: register/boundary/preset-org-to-registration
+  recommendation: |
+    Externalise (cross-cutting; sessions/commands.org is outside this change's write-set
+    and "pick the new default session preset" is not a named gptel-fragment-presets
+    outcome). Follow-up: repoint the session-creation default to a registered preset
+    (workspace-assistant or system-explorer) and update the asserting session specs.
+
+- discovery_id: stale-gptel-test-report-snapshots
+  class: invariant-gap
+  description: |
+    The git-tracked config/gptel/**/test-report.txt snapshots are inconsistent (some
+    "0 ran"/"not run", top-level is a scoped subset) and were captured green while the
+    live suite carries a stable 5-buttercup + 9-ERT pre-existing failing-set. They are
+    not maintained per-cycle and don't track presets, so they are not a reliable
+    regression artifact in their current state.
+  affected_register_entry: null
+  recommendation: |
+    Externalise: a snapshot-hygiene pass that first triages/owns the pre-existing
+    failing-set (.tasks already has scope/bash items for several), then regenerates the
+    snapshots from a known state so they become a trustworthy regression baseline.
+    Refreshing them mechanically THIS cycle would bake pre-existing flakiness into the
+    committed artifacts and is therefore deliberately deferred.
+
 ## Cycle 2 updates (cycle-1781885402)
 
 > registration-rewrite already did part of this task's deletion work — **scope reduced**.
