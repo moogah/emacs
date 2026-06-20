@@ -2,7 +2,8 @@
 name: extract-shared-loader-helper-failpolicy
 description: Extract one shared directory-loader helper for the presets/sources/*.el (fragment sources) and <name>/preset.el (register-all) loaders, and give it a symmetric, non-silent load-error fail-policy so a source/preset whose .el throws on load no longer leaves its composer seam dark (#'ignore) with only a warn-log.
 change: gptel-fragment-presets
-status: ready
+status: needs_review
+merge_commit: 865f39c9
 task_class: refactor
 on_critical_path: false
 cites_register_entries:
