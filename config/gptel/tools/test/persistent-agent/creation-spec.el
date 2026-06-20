@@ -47,6 +47,30 @@
       nil t)
 (require 'jf-gptel-fragment-agent-preamble)
 
+;; Committed-mirror golden support.
+;;
+;; The fragment source's load-time mirror writer rewrites the working-tree
+;; `agent-preamble.txt' from the freshly rendered text whenever they diverge
+;; (see `agent-preamble.el').  That makes a working-tree-vs-rendered assertion
+;; tautological: by the time any `it' runs, the mirror has already healed the
+;; file.  To catch *committed* drift (the property the
+;; `register/invariant/static-prerender-dynamic-compose' invariant actually
+;; relies on -- the committed `.txt' being an in-sync diffable mirror), read
+;; the bytes tracked at HEAD via git, which the working-tree mirror cannot
+;; touch, and compare them against a freshly rendered fragment value.
+(defun jf/preamble-golden--committed-bytes (relpath)
+  "Return the bytes of RELPATH as committed at HEAD, or signal on failure.
+RELPATH is relative to the repo root `jf/emacs-dir'.  Reads via `git show'
+so the value is immune to the working-tree mirror writer."
+  (with-temp-buffer
+    (let* ((default-directory jf/emacs-dir)
+           (status (call-process "git" nil t nil "show"
+                                 (concat "HEAD:" relpath))))
+      (unless (eq status 0)
+        (error "git show HEAD:%s failed (status %s): %s"
+               relpath status (buffer-string)))
+      (buffer-string))))
+
 ;; Helper: open AGENT-DIR's `session.org' in `org-mode' so drawer
 ;; queries (`org-entry-get', `org-entry-get-multivalued-property')
 ;; route through the same parser the production loader uses
@@ -501,19 +525,40 @@
     (expect (stringp jf/gptel-fragment-agent-preamble-text) :to-be t)
     (expect (string-blank-p jf/gptel-fragment-agent-preamble-text) :to-be nil))
 
-  (it "is sourced from the agent-preamble fragment's committed artifact"
+  (it "keeps the committed .txt mirror in sync with the rendered fragment"
     ;; The preamble is no longer a hard-coded defconst — it is the
     ;; pre-rendered `agent-preamble' static fragment, consumed verbatim
-    ;; through the composer's agent lead seam, and matches the committed
-    ;; `.txt' artifact byte-for-byte.
-    (expect jf/gptel-fragment-agent-preamble-text
-            :to-equal
-            (with-temp-buffer
-              (insert-file-contents
-               (expand-file-name
-                "config/gptel/presets/sources/agent-preamble.txt"
-                jf/emacs-dir))
-              (buffer-string))))
+    ;; through the composer's agent lead seam.  The committed `.txt'
+    ;; artifact must mirror that rendered text byte-for-byte.
+    ;;
+    ;; This reads the bytes COMMITTED AT HEAD (via git), not the working
+    ;; tree: the source's load-time mirror writer silently heals the
+    ;; working-tree file, so a working-tree comparison can never observe
+    ;; committed drift.  Comparing the committed bytes against a freshly
+    ;; rendered value catches the real failure mode — a fragment-source
+    ;; change that did not refresh the committed mirror.
+    (let ((rendered (jf/gptel-fragment-render
+                     jf/gptel-fragment-agent-preamble--fragment 'claude))
+          (committed (jf/preamble-golden--committed-bytes
+                      "config/gptel/presets/sources/agent-preamble.txt")))
+      ;; Sanity: the seam holds exactly the rendered text.
+      (expect jf/gptel-fragment-agent-preamble-text :to-equal rendered)
+      ;; The committed mirror is in sync with the rendered fragment.
+      (expect committed :to-equal rendered)))
+
+  (it "FAILS when the committed mirror diverges from the rendered fragment"
+    ;; Negative case proving the golden is no longer tautological: inject a
+    ;; stale committed value and assert the in-sync comparison FAILS.  If
+    ;; the golden could not observe committed drift this would still pass,
+    ;; so it pins that the comparison has teeth.
+    (let ((rendered (jf/gptel-fragment-render
+                     jf/gptel-fragment-agent-preamble--fragment 'claude)))
+      (cl-letf (((symbol-function 'jf/preamble-golden--committed-bytes)
+                 (lambda (&rest _)
+                   (concat rendered "\nSTALE COMMITTED LINE\n"))))
+        (let ((stale (jf/preamble-golden--committed-bytes
+                      "config/gptel/presets/sources/agent-preamble.txt")))
+          (expect stale :not :to-equal rendered)))))
 
   (it "forbids self-delegation via the PersistentAgent tool"
     ;; Scenario: Preamble forbids self-delegation — the delegation-loop fix.
