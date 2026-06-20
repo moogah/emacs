@@ -11,20 +11,24 @@
 ;; gptel-chat-mode appends to `gptel--system-message' on every send.
 ;;
 ;; This file is shared across three tasks of the
-;; `gptel-dynamic-environment-preamble' change:
+;; `gptel-dynamic-environment-preamble' change, and was migrated by the
+;; `migrate-environment' task of `gptel-fragment-presets':
 ;;
-;;   * `gptel-chat--build-environment-block' (this task,
-;;     env-block-builder) — builds the "# Environment" markdown block
-;;     from `default-directory' + the point-min drawer's raw
-;;     `GPTEL_SCOPE_*' keys, rendered as verbatim globs (design.md D3),
-;;     degrading gracefully when no scope keys exist (design.md D5).
+;;   * `jf/gptel-fragment-environment' (the canonical dynamic fragment,
+;;     in `config/gptel/presets/sources/environment.org') — produces the
+;;     "# Environment" markdown block at compose time from
+;;     `default-directory' + the point-min drawer's raw `GPTEL_SCOPE_*'
+;;     keys, rendered as verbatim globs (design.md D3), degrading
+;;     gracefully when no scope keys exist (design.md D5).  This is the
+;;     relocated body of the former `gptel-chat--build-environment-block'
+;;     defun (wrap-and-relocate, behaviour-preserving).
 ;;   * role-base composition (a sibling task) — appends its
 ;;     describe-block below.
 ;;   * pre-send composition (a sibling task) — appends its
 ;;     describe-block below.
 ;;
-;; The builder describe-block below is the ONLY block this task owns.
-;; Other tasks append their describe-blocks to this same file.
+;; The env-fragment describe-block below is the ONLY block this task
+;; owns.  Other tasks append their describe-blocks to this same file.
 ;;
 ;; Test approach: real buffer state, no mocking.  Each scenario inserts
 ;; a `:PROPERTIES:' drawer, enables `org-mode' (so
@@ -39,6 +43,16 @@
 
 (require 'gptel-chat-menu)
 (require 'gptel-session-filesystem)
+(require 'jf-gptel-fragments)
+;; The env dynamic-fragment source lives under presets/sources/, which
+;; is not on `load-path' and is not loaded by `gptel.org' yet (the
+;; presets sub-module's load wiring is owned by a sibling task).  Load
+;; it by absolute path so this spec exercises the real fragment fn and
+;; its seam wiring regardless of init-time load order.
+(load (expand-file-name "config/gptel/presets/sources/environment.el"
+                        jf/emacs-dir)
+      nil t)
+(require 'jf-gptel-fragment-environment)
 (require 'org)
 
 (defun jf-envblk-test--with-drawer-buffer (drawer dir fn)
@@ -56,14 +70,21 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
     (goto-char (point-min))
     (funcall fn)))
 
-(describe "gptel-chat--build-environment-block"
+(describe "jf/gptel-fragment-environment (dynamic env fragment)"
+
+  ;; The env block is now produced by the canonical dynamic fragment
+  ;; `jf/gptel-fragment-environment' (in presets/sources/environment.el),
+  ;; the relocated body of the former `gptel-chat--build-environment-
+  ;; block'.  It takes (and ignores) the compose-time CONTEXT argument
+  ;; the composer passes to every dynamic reference's :fn; these specs
+  ;; call it with no arg, exercising the same compose-time evaluation.
 
   (it "reports the work root from default-directory"
     (jf-envblk-test--with-drawer-buffer
      ":GPTEL_SCOPE_READ: src/**\n"
      "/tmp/my-work-root/"
      (lambda ()
-       (let ((block (gptel-chat--build-environment-block)))
+       (let ((block (jf/gptel-fragment-environment)))
          (expect block :to-match
                  "- Working directory: /tmp/my-work-root/")))))
 
@@ -74,18 +95,36 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
              ":GPTEL_SCOPE_DENY: secrets/**\n")
      "/tmp/work/"
      (lambda ()
-       (let ((block (gptel-chat--build-environment-block)))
+       (let ((block (jf/gptel-fragment-environment)))
          ;; Verbatim globs, comma-joined, not summarised.
          (expect block :to-match "- Readable: src/\\*\\*, docs/\\*\\*")
          (expect block :to-match "- Writable: build/\\*\\*")
          (expect block :to-match "- Denied:  *secrets/\\*\\*")))))
+
+  (it "ignores the compose-time CONTEXT argument (block depends only on the buffer)"
+    ;; The composer funcalls the dynamic ref's :fn with the send context
+    ;; (e.g. `chat'); the env block is INTRINSIC to the buffer, so the
+    ;; argument must not change the output.
+    (jf-envblk-test--with-drawer-buffer
+     ":GPTEL_SCOPE_READ: src/**\n"
+     "/tmp/work/"
+     (lambda ()
+       (expect (jf/gptel-fragment-environment 'chat)
+               :to-equal (jf/gptel-fragment-environment)))))
+
+  (it "is wired into the composer via the jf/gptel-fragment-environment-fn seam"
+    ;; Loading the env source module populates the composer's tail seam
+    ;; with this function (default was `ignore'); the chat default
+    ;; composition therefore places it at the tail.
+    (expect jf/gptel-fragment-environment-fn
+            :to-be #'jf/gptel-fragment-environment))
 
   (it "includes the live-note sentence"
     (jf-envblk-test--with-drawer-buffer
      ":GPTEL_SCOPE_READ: src/**\n"
      "/tmp/work/"
      (lambda ()
-       (expect (gptel-chat--build-environment-block)
+       (expect (jf/gptel-fragment-environment)
                :to-match "current as of this message"))))
 
   (it "renders the Environment heading"
@@ -93,7 +132,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
      ":GPTEL_SCOPE_READ: src/**\n"
      "/tmp/work/"
      (lambda ()
-       (expect (gptel-chat--build-environment-block)
+       (expect (jf/gptel-fragment-environment)
                :to-match "# Environment"))))
 
   (it "switches to scoped form when only GPTEL_SCOPE_DENY is present"
@@ -103,7 +142,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
      ":GPTEL_SCOPE_DENY: /etc/**\n"
      "/tmp/work/"
      (lambda ()
-       (let ((block (gptel-chat--build-environment-block)))
+       (let ((block (jf/gptel-fragment-environment)))
          (expect block :to-match "- Denied:  */etc/\\*\\*")
          (expect block :not :to-match "no scope restrictions")))))
 
@@ -114,7 +153,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
        ":GPTEL_PRESET: coding\n"
        "/tmp/unscoped/"
        (lambda ()
-         (let ((block (gptel-chat--build-environment-block)))
+         (let ((block (jf/gptel-fragment-environment)))
            (expect block :to-match "- Working directory: /tmp/unscoped/")
            (expect block :to-match
                    "no scope restrictions (this buffer is not a scoped session)")))))
@@ -124,7 +163,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
        ":GPTEL_PRESET: coding\n"
        "/tmp/unscoped/"
        (lambda ()
-         (let ((block (gptel-chat--build-environment-block)))
+         (let ((block (jf/gptel-fragment-environment)))
            (expect block :not :to-match "- Readable:")
            (expect block :not :to-match "- Writable:")
            (expect block :not :to-match "- Denied:")))))
@@ -134,26 +173,26 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
        ""
        "/tmp/bare/"
        (lambda ()
-         (let ((block (gptel-chat--build-environment-block)))
+         (let ((block (jf/gptel-fragment-environment)))
            (expect (stringp block) :to-be t)
            (expect (length block) :to-be-greater-than 0))))))
 
   (describe "input neutrality (register/boundary/environment-block-input-neutrality)"
 
     (it "builds from a plain temp buffer with no workspaces context (no workspaces symbol referenced)"
-      ;; The builder must touch no workspaces-package symbol — its
+      ;; The fragment must touch no workspaces-package symbol — its
       ;; inputs are INTRINSIC (default-directory + drawer keys) only.
       ;; A temp buffer is not associated with any workspace, so a
-      ;; correct builder produces a valid block here regardless of
+      ;; correct fragment produces a valid block here regardless of
       ;; whether the workspaces package happens to be loaded in the
       ;; test image.  The complementary static guarantee — that the
       ;; source references no `workspace' symbol — is enforced by the
-      ;; task's grep gate over menu.org.
+      ;; task's grep gate over environment.org.
       (jf-envblk-test--with-drawer-buffer
        ":GPTEL_SCOPE_READ: src/**\n"
        "/tmp/work/"
        (lambda ()
-         (let ((block (gptel-chat--build-environment-block)))
+         (let ((block (jf/gptel-fragment-environment)))
            (expect (stringp block) :to-be t)
            (expect block :to-match "- Working directory: /tmp/work/")))))))
 
@@ -402,7 +441,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
                     (concat gptel-chat--emacs-prelude "\n\n"
                             "Role body.\n\n"
                             (with-current-buffer buf
-                              (gptel-chat--build-environment-block)))))
+                              (jf/gptel-fragment-environment)))))
         (kill-buffer buf))))
 
   (it "no-sibling-file case: composes from the role base, still exactly one block"
@@ -447,6 +486,43 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             ;; Still exactly one block — recomposition, not accumulation.
             (expect (jf-compose-test--count-env-blocks gptel--system-message)
                     :to-equal 1))
+        (kill-buffer buf))))
+
+  (it "static prefix is byte-identical across composes; only the dynamic tail differs"
+    ;; Optional strengthening of register/invariant/static-prerender-
+    ;; dynamic-compose (load-bearing): with the role (static prefix)
+    ;; unchanged and only the live env input (scope drawer) changing
+    ;; between two composes, the two composed messages must share a
+    ;; byte-identical prefix up to the env tail's `# Environment'
+    ;; marker — the per-send work is confined to the trailing dynamic
+    ;; fragment, keeping the static prefix cacheable.
+    (jf-compose-test--write-sibling "system-prompt.md" "Role body.")
+    (setq session-file
+          (jf-compose-test--write-session
+           (concat ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"
+                   ":GPTEL_SCOPE_READ: src/**\n")))
+    (let ((buf (find-file-noselect session-file)))
+      (unwind-protect
+          (with-current-buffer buf
+            (gptel-chat-mode)
+            (gptel-chat--refresh-system-prompt-from-file)
+            (let ((first gptel--system-message))
+              ;; Change ONLY the live env input (scope), not the role.
+              (save-excursion
+                (goto-char (point-min))
+                (org-entry-put (point) "GPTEL_SCOPE_READ" "src/** docs/**"))
+              (gptel-chat--refresh-system-prompt-from-file)
+              (let* ((second gptel--system-message)
+                     (marker "# Environment")
+                     (p1 (string-match marker first))
+                     (p2 (string-match marker second)))
+                (expect p1 :not :to-be nil)
+                (expect p2 :not :to-be nil)
+                ;; Tail differs (the live input changed)...
+                (expect first :not :to-equal second)
+                ;; ...but the prefix up to the env tail is byte-identical.
+                (expect (substring first 0 p1)
+                        :to-equal (substring second 0 p2)))))
         (kill-buffer buf))))
 
   (it "appends the block even with no sibling file and a nil role base"

@@ -104,3 +104,108 @@ the cacheable static prefix stable.
 - Dynamic fns own their own output formatting; the composer's `backend` arg is currently
   **inert** (static refs are pre-rendered) — do not rely on it for env formatting, and
   flag it as a candidate drop.
+
+## Observations
+
+- **Wrap-and-relocate chosen over rewrite** (design.md §Open Questions, resolved).
+  The former `gptel-chat--build-environment-block` body and its sole helper
+  `gptel-chat--render-scope-line` moved verbatim into
+  `config/gptel/presets/sources/environment.org` as
+  `jf/gptel-fragment-environment` / `jf/gptel-fragment-environment--render-scope-line`.
+  The only adaptation is the new `(&optional _context)` parameter the composer
+  passes to every dynamic reference's `:fn`; it is ignored because the block's
+  inputs are INTRINSIC to the buffer (default-directory + drawer keys),
+  preserving `register/boundary/environment-block-input-neutrality`. Behaviour is
+  byte-for-byte preserved (same header prose, same verbatim glob rendering, same
+  degraded fallback).
+
+- **Single env producer.** The env block now has exactly one producer
+  (`jf/gptel-fragment-environment`). Both the composer's tail dynamic reference
+  (via `jf/gptel-fragment-environment-fn`, set by the source module) and the
+  chat-mode pre-send composer funcall the SAME seam variable. The pre-send
+  composer in `menu.org` was changed from `(gptel-chat--build-environment-block)`
+  to `(funcall jf/gptel-fragment-environment-fn 'chat)` with an `ignore`/`""`
+  guard for the not-yet-loaded case.
+
+- **Seam timing.** `jf/gptel-fragment--default-composition` reads
+  `jf/gptel-fragment-environment-fn` at composition-BUILD time (not at the moment
+  the reference is realized). Loading `environment.el` sets the seam, so any
+  composition built after the source module loads carries the live env fn. The
+  chat-mode pre-send composer reads the seam var directly at send time, so it
+  picks up the fn as soon as the source is loaded regardless of build order.
+
+- **Load wiring is NOT yet in `gptel.org`.** `environment.el` lives under
+  `presets/sources/`, which is neither on `load-path` nor loaded by `gptel.org`
+  (the presets sub-module load wiring belongs to the registration/composer
+  integration task, outside this task's write-set). The env spec therefore loads
+  `environment.el` by absolute path before requiring its feature, so the spec
+  exercises the real fn + seam regardless of init-time order. menu.org's
+  `(require 'jf-gptel-fragment-environment nil t)` is a SOFT require (fails
+  silently until the source is on load-path) — production correctness depends on
+  a follow-up that loads the env source in `gptel.org`. See Discoveries.
+
+- **Optional load-bearing strengthening added.** Per the cited advisory on
+  `register/invariant/static-prerender-dynamic-compose`, the spec now asserts
+  that two composes differing ONLY in live env input share a byte-identical
+  static prefix up to the `# Environment` marker and differ only in the tail
+  ("static prefix is byte-identical across composes; only the dynamic tail
+  differs").
+
+- Full `config/gptel/chat/test/menu` suite: 165 specs, 0 failed.
+
+## Discoveries
+
+- class: interface-drift
+  affected_register_entry: register/boundary/composer-compose
+  severity: low
+  summary: |
+    Confirmed the `backend` arg of `jf/gptel-fragment-compose` is inert at
+    compose time, as flagged in the entry's status_note. This task's dynamic env
+    fragment owns its own output formatting entirely (it returns a finished
+    markdown block, never routing through `jf/gptel-fragment-render`), and static
+    refs are pre-rendered — so no compose-time consumer reads `backend`. The
+    arg is a candidate to DROP from the compose signature (and from
+    `--default-composition`'s contract). Push-back: keeping it "for signature
+    parity with the renderer" is weak justification given it is `(ignore backend)`
+    in the body; dropping it removes a misleading parameter. Non-blocking for this
+    task (the env fragment does not depend on it either way).
+
+- class: invariant-gap
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  severity: low
+  summary: |
+    The load-bearing invariant's enforcement_mechanism names
+    `config/gptel/presets/test/` for the "two composes differ only in the tail"
+    property. This task added that assertion in the CHAT spec
+    (`config/gptel/chat/test/menu/environment-preamble-spec.el`) instead, because
+    that is where the real per-send composer (`gptel-chat--refresh-system-prompt-
+    from-file`) runs the env tail end-to-end with live drawer input — the
+    composer-level golden specs under presets/test/ exercise the composer in
+    isolation, not the chat pre-send seam. Both locations are legitimate; flagging
+    so the Architect can reconcile the enforcement_mechanism location (the
+    byte-identical-prefix spec now exists, just not under presets/test/).
+
+- class: scope-question
+  affected_register_entry: register/boundary/composer-compose
+  severity: medium
+  summary: |
+    `environment.el` is not loaded by `gptel.org` and `presets/sources/` is not on
+    `load-path`. The env tail is therefore "off" in production until a follow-up
+    loads the env source in the gptel load order (after `presets/fragments.el`,
+    which defines the seam var). This task's write-set excludes `gptel.org`, so the
+    spec loads the source by path; production wiring is owned by the
+    registration/composer integration task. Filing so the orchestrator routes a
+    "load env source in gptel.org" step to that task (or a new one) before archive
+    — otherwise the migrated env block silently stops appearing in real sessions.
+
+- class: deviation
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  severity: low
+  summary: |
+    Pressure-tested the load-bearing invariant: the env fragment is dynamic,
+    evaluated at compose time, placed at the tail (both via the composer's default
+    composition and via the chat pre-send seam). No static fragment is re-rendered
+    per send; no dynamic fragment is placed ahead of the static prefix. The new
+    byte-identical-prefix spec demonstrates the cacheable-prefix property holds.
+    No deviation from the invariant — recorded here as the required pressure-test
+    note for the on-touch Architect review.
