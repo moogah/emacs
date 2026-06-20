@@ -2,9 +2,11 @@
 name: migrate-prelude-preamble
 description: Move the chat Emacs-prelude and the persistent-agent preamble into static fragment sources (pre-rendered at tangle), rewire the chat composer and agent system-prompt writer to consume them, and delete the two defconsts.
 change: gptel-fragment-presets
-status: ready
+status: done
 task_class: refactor
 on_critical_path: true
+merge_commit: a63f90e0
+findings_path: .orchestrator/cycles/cycle-1781941375/reviews/migrate-prelude-preamble.md
 cites_register_entries:
   - register/boundary/composer-compose
   - register/invariant/context-default-composition

@@ -2,9 +2,11 @@
 name: wire-fragment-sources-load
 description: Load the fragment source modules (presets/sources/*.el) in gptel.org's load order so dynamic/static fragment seams are populated in production, not just under tests.
 change: gptel-fragment-presets
-status: ready
+status: done
 task_class: infrastructure
 on_critical_path: true
+merge_commit: eda66755
+findings_path: .orchestrator/cycles/cycle-1781941375/reviews/wire-fragment-sources-load.md
 cites_register_entries:
   - register/boundary/sources-directory-load
   - register/boundary/preset-org-to-registration

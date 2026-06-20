@@ -2,9 +2,11 @@
 name: workspace-flip
 description: Flip the workspace package's initial gptel preset from executor to workspace-assistant.
 change: gptel-fragment-presets
-status: ready
+status: done
 task_class: feature
 on_critical_path: true
+merge_commit: b4d68f82
+findings_path: .orchestrator/cycles/cycle-1781941375/reviews/workspace-flip.md
 cites_register_entries:
   - register/boundary/preset-org-to-registration
 relations:
