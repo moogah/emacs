@@ -237,7 +237,60 @@
           (make-directory (expand-file-name "not-a-preset" tmp-dir) t)
           (write-preset "real" "(jf/gptel-preset-register 'real :description \"R\")")
           (expect (jf/gptel-preset-register-all) :to-equal 1)
-          (expect (gptel-get-preset 'real) :not :to-be nil))))))
+          (expect (gptel-get-preset 'real) :not :to-be nil))
+
+        (describe "load-error fail-policy (preset .el that throws on load)"
+          ;; Symmetric with the source loader: a preset whose .el signals on load
+          ;; must NOT be swallowed with only a warn-log.  The shared loader helper
+          ;; logs at ERROR level naming the file and seam, and records the failure
+          ;; so a post-init self-check can surface it.
+
+          (before-each
+            (jf/gptel-loader-clear-failures))
+
+          (after-each
+            (jf/gptel-loader-clear-failures))
+
+          (it "does not hard-fail the whole load when one preset throws"
+            ;; The good preset still registers; the throwing one does not abort it.
+            (write-preset "good"
+                          "(jf/gptel-preset-register 'good :description \"G\")")
+            (write-preset "bad" "(error \"boom from bad preset\")")
+            (expect (jf/gptel-preset-register-all) :to-equal 1)
+            (expect (gptel-get-preset 'good) :not :to-be nil))
+
+          (it "records the failure (not a silent warn) naming the file and seam"
+            (write-preset "bad" "(error \"boom from bad preset\")")
+            (jf/gptel-preset-register-all)
+            (let ((failures (jf/gptel-loader-failures)))
+              (expect (length failures) :to-equal 1)
+              (let ((rec (car failures)))
+                (expect (plist-get rec :file) :to-match "preset\\.el\\'")
+                (expect (plist-get rec :seam) :to-equal 'gptel--known-presets))))
+
+          (it "logs the load error at ERROR level (not warn)"
+            (write-preset "bad" "(error \"boom from bad preset\")")
+            (let ((logged nil))
+              (cl-letf (((symbol-function 'jf/gptel--log)
+                         (lambda (level &rest args)
+                           (push (cons level (apply #'format args)) logged))))
+                (jf/gptel-preset-register-all))
+              (expect (cl-find-if
+                       (lambda (e) (and (eq (car e) 'error)
+                                        (string-match-p "preset\\.el" (cdr e))))
+                       logged)
+                      :to-be-truthy)
+              (expect (cl-find-if
+                       (lambda (e) (and (eq (car e) 'warn)
+                                        (string-match-p "preset\\.el" (cdr e))))
+                       logged)
+                      :to-be nil)))
+
+          (it "flags the preset-registration seam as dark via the self-check"
+            (write-preset "bad" "(error \"boom from bad preset\")")
+            (jf/gptel-preset-register-all)
+            (expect (jf/gptel-loader-seam-dark-p 'gptel--known-presets)
+                    :to-be-truthy)))))))
 
 (provide 'gptel-presets-registration-spec)
 
