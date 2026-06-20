@@ -160,56 +160,41 @@ writing the file, so that the composed
 the user turn block."
   (format "#+begin_user\n%s\n#+end_user\n" prompt))
 
-(defconst jf/gptel-persistent-agent--system-preamble
-  "You are an autonomous sub-agent launched by a parent agent to carry out one task.
-
-Operating rules:
-- Do the task YOURSELF, directly, using the tools available to you. Do
-  NOT delegate it to another agent — never call the PersistentAgent
-  tool to perform your work. You are the agent that does the work.
-- You run headless and cannot ask the user follow-up questions. When
-  something is ambiguous, make a reasonable assumption, state it, and
-  proceed.
-- Stay within the task you were given and the file scope you were
-  granted. If an operation is refused as out of scope and the task
-  genuinely needs it, request a scope expansion rather than abandoning
-  the task.
-- When the task is complete, STOP and write a single final message
-  that fully answers it (results, file paths, and anything the parent
-  needs). That final message is the ONLY thing returned to the parent,
-  so make it self-contained — do not rely on intermediate tool output
-  being visible upstream."
-  "Baseline system-prompt preamble prepended to every persistent agent.
-
-Prepended ahead of the agent preset's `:system' by
-`jf/gptel-persistent-agent--write-system-prompt'.  Tells the spawned
-model that it is a headless sub-agent that must do the work itself
-\(not delegate via `PersistentAgent'), cannot ask follow-up questions,
-and must terminate with one self-contained final message — the only
-text returned to the parent.")
+(require 'jf-gptel-fragment-agent-preamble nil t)
+(defvar jf/gptel-fragment-agent-preamble-text)
 
 (defun jf/gptel-persistent-agent--write-system-prompt (session-dir preset-name preset-spec)
   "Write the agent's `system-prompt.<ext>' into SESSION-DIR; return its basename.
 
-Composes the agent's effective system prompt as the baseline
-`jf/gptel-persistent-agent--system-preamble' followed by the preset's
-`:system' body (PRESET-SPEC is the plist from `gptel-get-preset').
-When the preset declares no non-empty `:system', the file is the
-preamble alone.  PRESET-NAME resolves the file extension via
-`jf/gptel--preset-source-file-extension', matching the sibling-file
-convention used by interactive sessions.
+Composes the agent's effective system prompt as the static
+agent-preamble fragment text (the `jf/gptel-fragment-agent-preamble-text'
+composer seam, set by the `agent-preamble' source) followed by the
+preset's `:system' body (PRESET-SPEC is the plist from
+`gptel-get-preset').  When the preset declares no non-empty `:system',
+the file is the preamble alone.  PRESET-NAME resolves the file
+extension via `jf/gptel--preset-source-file-extension', matching the
+sibling-file convention used by interactive sessions.
+
+The preamble is the canonical static leading fragment of the agent
+context (`register/invariant/context-default-composition'): pre-rendered
+and consumed verbatim, never re-rendered here
+\(`register/invariant/static-prerender-dynamic-compose').  Reading it
+through the seam keeps a single preamble producer shared with the per-send
+composer's agent default.
 
 Always writes (the preamble is always present) and always returns the
 basename, so the caller always threads a `:GPTEL_SYSTEM_PROMPT_FILE:'
 drawer key — every agent has a system prompt.  Uses `write-region' to
 avoid mutating buffer-local state (mirrors
 `jf/gptel--write-system-prompt-sibling-file' §Decision 3)."
-  (let* ((preset-system (plist-get preset-spec :system))
+  (let* ((preamble (if (boundp 'jf/gptel-fragment-agent-preamble-text)
+                       jf/gptel-fragment-agent-preamble-text
+                     ""))
+         (preset-system (plist-get preset-spec :system))
          (body (if (and (stringp preset-system)
                         (not (string-blank-p preset-system)))
-                   (concat jf/gptel-persistent-agent--system-preamble
-                           "\n\n" preset-system)
-                 jf/gptel-persistent-agent--system-preamble))
+                   (concat preamble "\n\n" preset-system)
+                 preamble))
          (ext (jf/gptel--preset-source-file-extension preset-name))
          (basename (concat "system-prompt." ext))
          (path (expand-file-name basename session-dir)))

@@ -173,3 +173,105 @@ are prototypes (user-confirmed).
   form — it sidesteps the hazard entirely and matches the parser's output shape.
 - `:backend` reconcile (preset-config-plist) does NOT apply here — prelude/preamble are
   *fragments*, not presets; they never call `gptel-make-preset`.
+
+## Observations
+
+- **Composer rewiring (chat) — no re-implementation.** `gptel-chat--refresh-system-prompt-from-file`
+  now resolves the role, wraps it in `(jf/gptel-fragment-ref-static role)`, and
+  hands it to `jf/gptel-fragment--default-composition` + `jf/gptel-fragment-compose`.
+  The old `concat prelude "\n\n" (if empty role env (concat role ... env))` is gone.
+  The composer skips empty contributions, so the prior explicit empty-role branch
+  is now handled by the seam. Verified observable order (prelude → role → env) and
+  no-accumulation idempotency still hold via the existing menu specs (566 pass).
+
+- **Agent writer (creation-time) reads the seam, not the per-send composer.**
+  `jf/gptel-persistent-agent--write-system-prompt` materializes the sibling
+  `system-prompt.<ext>` as `preamble "\n\n" preset-:system` (preamble alone when no
+  role). It reads `jf/gptel-fragment-agent-preamble-text` (the composer seam set by
+  the `agent-preamble` source). I deliberately did NOT route this through
+  `jf/gptel-fragment-compose`: the env tail must NOT be baked into the sibling file
+  (env is composed per send when the agent reloads as a chat-mode buffer, which is
+  already wired by the chat composer). Routing the writer through the full default
+  composition would have embedded a stale env block into the on-disk role file.
+  This is a real divergence from "consume via the composer seam defvars" only in
+  that the writer uses the seam TEXT directly rather than calling the compose
+  function — which is correct for a static-prefix-only artifact. See Discoveries.
+
+- **Static pre-render satisfied without a true tangle-time hook.** `org-babel-tangle-file`
+  does not execute code blocks, so I could not literally render the `.txt` "at
+  tangle time" from babel. Instead the source `.el` renders the fragment plist once
+  at LOAD time (system-explorer precedent) and idempotently mirrors the rendered
+  text to the committed `.txt` (write only when content differs, wrapped in
+  `ignore-errors` for read-only load locations). The committed `.txt` is the
+  diffable artifact and the spec golden; the seam holds the same rendered string.
+  Load-time render (not per-send) upholds `register/invariant/static-prerender-
+  dynamic-compose`. I generated the committed `.txt` files by loading the modules in
+  batch and committed them.
+
+- **Tangle hazard avoided.** Both sources author the fragment as an Elisp
+  `(:kind static :sections ((NAME . BODY) ...))` plist literal (system-explorer
+  precedent), so no column-0 `*` appears inside a `#+begin_src` string. Tangle of
+  all four `.org` exits 0 and check-parens passes.
+
+- **Test sourcing assertions added.** Both specs now assert the prelude/preamble
+  text equals the committed `.txt` artifact byte-for-byte AND leads the composition
+  (chat) / heads the sibling (agent). Old defconst symbols are no longer referenced
+  anywhere in the specs.
+
+- **Source-load wiring (production) is the sibling `wire-fragment-sources-load`
+  task's job (Cycle 3).** I did NOT add load lines to `gptel.org`. The specs load
+  the two sources by absolute path so they exercise the real seam wiring regardless
+  of init-time load order. Until `wire-fragment-sources-load` lands, the
+  prelude/preamble seams stay `""` (empty, skipped) in production — the two tasks
+  are coupled, as the task body notes.
+
+## Discoveries
+
+- discovery_id: disc-migrate-prelude-preamble-1
+  class: scope-question
+  description: |
+    The task says "rewire ... to consume the fragments via the composer seam
+    defvars" and "Do NOT re-implement composition — the composer already places
+    prelude (lead) and env (tail)." For the CHAT path this maps cleanly: the
+    refresh fn calls `jf/gptel-fragment--default-composition` + `compose`. For the
+    AGENT path it does NOT: the agent system-prompt WRITER produces an on-disk
+    sibling file at agent-creation time, and that file must contain only the static
+    prefix (preamble + role) — never the dynamic env block, which is composed per
+    send when the agent reloads as a chat-mode buffer (the chat composer already
+    handles env for reloaded agent buffers). So the writer reads the preamble seam
+    TEXT directly and concats preamble + role, rather than calling
+    `jf/gptel-fragment-compose` (which would append the env tail into the file).
+  affected_register_entry: register/invariant/context-default-composition
+  recommendation: |
+    Treat the agent default composition `[agent-preamble, role, environment]` as the
+    PER-SEND composition that applies when the agent buffer is live, NOT as the
+    shape of the on-disk creation-time sibling file. The sibling file is the static
+    prefix only (`[agent-preamble, role]`); the env tail is added by the same chat
+    composer the agent reuses on reload. Consider noting in the register that the
+    agent preamble seam has two consumers with different obligations: the per-send
+    composer (full default composition) and the creation-time writer (static prefix
+    only). No code change needed — flagging the dual-consumer semantics so a future
+    reader does not "fix" the writer to call compose and bake in a stale env block.
+
+- discovery_id: disc-migrate-prelude-preamble-2
+  class: interface-drift
+  description: |
+    `register/invariant/static-prerender-dynamic-compose` reads as "pre-rendered to
+    committed .txt at TANGLE time." In practice `org-babel-tangle-file` (the repo's
+    tangle path, `bin/tangle-org.sh`) does NOT execute source blocks, so a literal
+    tangle-time render-and-write of the `.txt` is not achievable with plain babel.
+    The realized mechanism is LOAD-time render (once, at module load — not per send)
+    plus an idempotent mirror-to-`.txt`. This still satisfies the load-bearing
+    property (no per-send re-render; static prefix is cacheable) but the artifact is
+    produced/refreshed at load, not at tangle. The same applies to the existing
+    `system-explorer` preset, which renders at load and does not write a `.txt` at
+    all.
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  recommendation: |
+    Reword the invariant from "pre-rendered at tangle time" to "pre-rendered once
+    ahead of send (at module load), committed as a diffable .txt artifact, consumed
+    verbatim, never re-rendered per send." The cacheable-prefix / no-per-send-render
+    guarantee is the load-bearing part and is fully upheld; "tangle time" is an
+    implementation detail that the babel tangler cannot literally provide. If a true
+    tangle-time write is desired later, it needs a dedicated build step (emacs
+    --batch load + write) rather than a `:tangle` block — out of scope here.

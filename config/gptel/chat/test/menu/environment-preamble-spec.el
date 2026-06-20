@@ -53,6 +53,14 @@
                         jf/emacs-dir)
       nil t)
 (require 'jf-gptel-fragment-environment)
+;; The chat-prelude static-fragment source likewise lives under
+;; presets/sources/; load it by absolute path so the composer's chat
+;; lead seam `jf/gptel-fragment-chat-prelude-text' is populated with the
+;; pre-rendered prelude text (default is "" until this loads).
+(load (expand-file-name "config/gptel/presets/sources/emacs-prelude.el"
+                        jf/emacs-dir)
+      nil t)
+(require 'jf-gptel-fragment-emacs-prelude)
 (require 'org)
 
 (defun jf-envblk-test--with-drawer-buffer (drawer dir fn)
@@ -438,7 +446,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             ;; double up.  Composition leads with the static Emacs
             ;; prelude, then role, then the env tail.
             (expect gptel--system-message :to-equal
-                    (concat gptel-chat--emacs-prelude "\n\n"
+                    (concat jf/gptel-fragment-chat-prelude-text "\n\n"
                             "Role body.\n\n"
                             (with-current-buffer buf
                               (jf/gptel-fragment-environment)))))
@@ -459,7 +467,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
                     :to-equal 1)
             ;; Prelude leads; role follows it; env tails.
             (expect gptel--system-message :to-match
-                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+                    (concat "\\`" (regexp-quote jf/gptel-fragment-chat-prelude-text)))
             (expect gptel--system-message :to-match "Base role content\\.")
             (expect gptel--system-message :to-match "# Environment"))
         (kill-buffer buf))))
@@ -539,7 +547,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             ;; Prelude leads even with no role; env block follows it
             ;; directly (PRELUDE + "\n\n" + ENV, no role section).
             (expect gptel--system-message :to-match
-                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+                    (concat "\\`" (regexp-quote jf/gptel-fragment-chat-prelude-text)))
             (expect gptel--system-message :to-match "# Environment")
             (expect (jf-compose-test--count-env-blocks gptel--system-message)
                     :to-equal 1))
@@ -556,13 +564,16 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
 ;; ---------------------------------------------------------------------------
 ;; Emacs prelude
 ;;
-;; The static `gptel-chat--emacs-prelude' frames the model's runtime
-;; (operating inside GNU Emacs via gptel) and LEADS every chat-mode
-;; system prompt: VALUE = PRELUDE + "\n\n" + ROLE + "\n\n" + ENV (or
-;; PRELUDE + "\n\n" + ENV when the role is empty).  It is the
-;; interactive-session analogue of the persistent agent's
-;; `jf/gptel-persistent-agent--system-preamble', joined by reference so
-;; it never accumulates across sends.
+;; The static chat prelude is sourced from the `emacs-prelude' fragment
+;; (config/gptel/presets/sources/emacs-prelude.org), pre-rendered to a
+;; committed `.txt' artifact and wired into the composer's chat lead seam
+;; `jf/gptel-fragment-chat-prelude-text' (the former hard-coded
+;; `gptel-chat--emacs-prelude' defconst is deleted).  It frames the
+;; model's runtime (operating inside GNU Emacs via gptel) and LEADS every
+;; chat-mode system prompt: VALUE = PRELUDE + "\n\n" + ROLE + "\n\n" + ENV
+;; (or PRELUDE + "\n\n" + ENV when the role is empty).  The composer
+;; consumes it verbatim (static, never re-rendered per send) so it never
+;; accumulates across sends.
 ;; ---------------------------------------------------------------------------
 
 (defun jf-prelude-test--count (s)
@@ -587,6 +598,25 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
                (file-directory-p jf-compose-test--tmp-dir))
       (delete-directory jf-compose-test--tmp-dir t)))
 
+  (it "is sourced from the emacs-prelude fragment via the composer seam"
+    ;; The prelude is no longer a hard-coded defconst — it is the
+    ;; pre-rendered `emacs-prelude' static fragment, wired into the
+    ;; composer's chat lead seam.  The seam holds the renderer's output
+    ;; (an XML-tagged block, consumed verbatim) and matches the committed
+    ;; `.txt' artifact byte-for-byte.
+    (expect (stringp jf/gptel-fragment-chat-prelude-text) :to-be t)
+    (expect (string-blank-p jf/gptel-fragment-chat-prelude-text) :to-be nil)
+    (expect jf/gptel-fragment-chat-prelude-text
+            :to-match "operating inside GNU Emacs")
+    (expect jf/gptel-fragment-chat-prelude-text
+            :to-equal
+            (with-temp-buffer
+              (insert-file-contents
+               (expand-file-name
+                "config/gptel/presets/sources/emacs-prelude.txt"
+                jf/emacs-dir))
+              (buffer-string))))
+
   (it "leads the composed message, ahead of both role and env"
     (jf-compose-test--write-sibling "system-prompt.md" "You are a careful assistant.")
     (setq session-file
@@ -600,7 +630,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             (gptel-chat--refresh-system-prompt-from-file)
             ;; The message opens with the prelude verbatim.
             (expect gptel--system-message :to-match
-                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+                    (concat "\\`" (regexp-quote jf/gptel-fragment-chat-prelude-text)))
             ;; Prelude strictly precedes role, which precedes env.
             (let ((prelude-pos (string-match "operating inside GNU Emacs"
                                              gptel--system-message))
@@ -622,7 +652,7 @@ no-scope buffer.  DIR is bound buffer-locally as `default-directory'."
             (setq-local gptel-chat--system-prompt-base nil)
             (gptel-chat--refresh-system-prompt-from-file)
             (expect gptel--system-message :to-match
-                    (concat "\\`" (regexp-quote gptel-chat--emacs-prelude)))
+                    (concat "\\`" (regexp-quote jf/gptel-fragment-chat-prelude-text)))
             ;; PRELUDE directly followed by the env tail, no role section.
             (let ((prelude-pos (string-match "operating inside GNU Emacs"
                                              gptel--system-message))

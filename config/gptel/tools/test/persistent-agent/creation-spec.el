@@ -36,6 +36,17 @@
   (require 'gptel-persistent-agent
            (expand-file-name "persistent-agent.el" tools-dir)))
 
+;; The agent preamble is now sourced from the `agent-preamble' static
+;; fragment under presets/sources/, which is not on `load-path' and is
+;; loaded by `gptel.org' in production.  Load it by absolute path so the
+;; composer's agent lead seam `jf/gptel-fragment-agent-preamble-text' is
+;; populated with the pre-rendered preamble text (default is "" until
+;; this loads).  The system-prompt writer reads that seam.
+(load (expand-file-name "config/gptel/presets/sources/agent-preamble.el"
+                        jf/emacs-dir)
+      nil t)
+(require 'jf-gptel-fragment-agent-preamble)
+
 ;; Helper: open AGENT-DIR's `session.org' in `org-mode' so drawer
 ;; queries (`org-entry-get', `org-entry-get-multivalued-property')
 ;; route through the same parser the production loader uses
@@ -429,7 +440,7 @@
                  (expect (file-exists-p sibling) :to-be t)
                  (expect sibling-content
                          :to-equal
-                         (concat jf/gptel-persistent-agent--system-preamble
+                         (concat jf/gptel-fragment-agent-preamble-text
                                  "\n\n"
                                  "Agent operating instructions.\nBe terse."))
                  ;; Drawer carries :GPTEL_SYSTEM_PROMPT_FILE:.
@@ -468,7 +479,7 @@
                                         (buffer-string)))))
            (expect (file-exists-p sibling) :to-be t)
            (expect sibling-content
-                   :to-equal jf/gptel-persistent-agent--system-preamble)
+                   :to-equal jf/gptel-fragment-agent-preamble-text)
            (jf/persistent-agent-test--with-agent-session-org agent-dir
              (expect (org-entry-get (point-min) "GPTEL_SYSTEM_PROMPT_FILE")
                      :to-equal "system-prompt.md"))))))))
@@ -476,28 +487,46 @@
 (describe "PersistentAgent system-prompt preamble"
 
   ;; openspec/specs/gptel/persistent-agent.md §Requirement: Agent
-  ;; system-prompt preamble.  A fixed harness prepended to every
-  ;; agent's system prompt by
-  ;; `jf/gptel-persistent-agent--write-system-prompt', independent of
-  ;; the preset.  Content-contract + writer-composition unit tests (no
-  ;; gptel-request, no parent-session fixture needed).
+  ;; system-prompt preamble.  The preamble is the `agent-preamble' static
+  ;; fragment (config/gptel/presets/sources/agent-preamble.org), wired
+  ;; into the composer's agent lead seam `jf/gptel-fragment-agent-preamble-
+  ;; text' and prepended to every agent's system prompt by
+  ;; `jf/gptel-persistent-agent--write-system-prompt', independent of the
+  ;; preset (the former hard-coded `jf/gptel-persistent-agent--system-
+  ;; preamble' defconst is deleted).  Content-contract + writer-
+  ;; composition unit tests (no gptel-request, no parent-session fixture
+  ;; needed).
 
   (it "is a non-empty string"
-    (expect (stringp jf/gptel-persistent-agent--system-preamble) :to-be t)
-    (expect (string-blank-p jf/gptel-persistent-agent--system-preamble) :to-be nil))
+    (expect (stringp jf/gptel-fragment-agent-preamble-text) :to-be t)
+    (expect (string-blank-p jf/gptel-fragment-agent-preamble-text) :to-be nil))
+
+  (it "is sourced from the agent-preamble fragment's committed artifact"
+    ;; The preamble is no longer a hard-coded defconst — it is the
+    ;; pre-rendered `agent-preamble' static fragment, consumed verbatim
+    ;; through the composer's agent lead seam, and matches the committed
+    ;; `.txt' artifact byte-for-byte.
+    (expect jf/gptel-fragment-agent-preamble-text
+            :to-equal
+            (with-temp-buffer
+              (insert-file-contents
+               (expand-file-name
+                "config/gptel/presets/sources/agent-preamble.txt"
+                jf/emacs-dir))
+              (buffer-string))))
 
   (it "forbids self-delegation via the PersistentAgent tool"
     ;; Scenario: Preamble forbids self-delegation — the delegation-loop fix.
-    (expect jf/gptel-persistent-agent--system-preamble :to-match "PersistentAgent")
-    (expect (downcase jf/gptel-persistent-agent--system-preamble)
+    (expect jf/gptel-fragment-agent-preamble-text :to-match "PersistentAgent")
+    (expect (downcase jf/gptel-fragment-agent-preamble-text)
             :to-match "do the task yourself"))
 
   (it "instructs the agent to return a single final message"
-    (expect (downcase jf/gptel-persistent-agent--system-preamble)
+    (expect (downcase jf/gptel-fragment-agent-preamble-text)
             :to-match "final message"))
 
   (it "tells the agent it is headless and cannot ask follow-up questions"
-    (expect (downcase jf/gptel-persistent-agent--system-preamble)
+    (expect (downcase jf/gptel-fragment-agent-preamble-text)
             :to-match "follow-up question"))
 
   (describe "jf/gptel-persistent-agent--write-system-prompt"
@@ -513,7 +542,7 @@
                              (buffer-string))))
               (expect basename :to-equal "system-prompt.md")
               (expect content :to-equal
-                      (concat jf/gptel-persistent-agent--system-preamble
+                      (concat jf/gptel-fragment-agent-preamble-text
                               "\n\n" "Role body.")))
           (delete-directory dir t))))
 
@@ -527,7 +556,7 @@
                              (insert-file-contents (expand-file-name basename dir))
                              (buffer-string))))
               (expect basename :to-equal "system-prompt.md")
-              (expect content :to-equal jf/gptel-persistent-agent--system-preamble))
+              (expect content :to-equal jf/gptel-fragment-agent-preamble-text))
           (delete-directory dir t))))
 
     (it "treats a whitespace-only :system as no :system (preamble alone)"
@@ -538,7 +567,7 @@
             (let ((content (with-temp-buffer
                              (insert-file-contents (expand-file-name basename dir))
                              (buffer-string))))
-              (expect content :to-equal jf/gptel-persistent-agent--system-preamble))
+              (expect content :to-equal jf/gptel-fragment-agent-preamble-text))
           (delete-directory dir t)))))
 
   (it "leaves the shared interactive writer's output free of the preamble"
@@ -554,7 +583,7 @@
             (expect content :to-equal "Interactive role body.")
             (expect content :not
                     :to-match (regexp-quote
-                               (substring jf/gptel-persistent-agent--system-preamble
+                               (substring jf/gptel-fragment-agent-preamble-text
                                           0 30))))
         (delete-directory dir t)))))
 

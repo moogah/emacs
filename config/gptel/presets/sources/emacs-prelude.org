@@ -1,0 +1,155 @@
+#+title: Emacs prelude fragment (static)
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle emacs-prelude.el
+#+auto_tangle: y
+#+fragment_kind: static
+
+* Introduction
+
+This is the canonical *static* leading fragment for the *chat* context: the
+runtime-framing prelude that opens every chat-mode system prompt. It frames the
+model's runtime — it is operating inside GNU Emacs through the gptel chat
+interface, so Org markup beats Markdown, file/editor tools are available within
+the session's file-access scope, and the user is an Emacs user.
+
+Being *static* (=register/shape/fragment-reference=,
+=register/invariant/static-prerender-dynamic-compose=, load-bearing) it is
+pre-rendered to a committed =.txt= artifact and consumed *verbatim* by the
+composer — never re-rendered per send. It lives in the cacheable static prefix of
+every chat composition, ahead of the role and the dynamic environment tail
+(=register/invariant/context-default-composition=: chat →
+=[emacs-prelude(static), role, environment(dynamic)]=).
+
+This module's only runtime job is to populate the composer's *chat lead* seam
+=jf/gptel-fragment-chat-prelude-text= with the pre-rendered text. The composer's
+=jf/gptel-fragment--default-composition= reads that seam at composition-build time
+and places it as the leading static reference; until this assignment runs the seam
+holds =""= (empty, skipped contribution). Loading this module is therefore what
+turns the chat prelude "on" — exactly parallel to how the environment source wires
+the dynamic tail seam.
+
+The previous hard-coded =gptel-chat--emacs-prelude= defconst (in
+=config/gptel/chat/menu.org=) is deleted in favour of this fragment (design.md
+§Decision 3 / §Decision 5). The prose is free to improve — there is no
+byte-identical obligation (design.md §Decision 8).
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; emacs-prelude.el --- Static chat-prelude fragment -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; The canonical static leading fragment for the chat context: the
+;; runtime-framing prelude prepended to every chat-mode system prompt.  This
+;; file is tangled from emacs-prelude.org -- edit the .org, never this .el.
+;; On load it renders its static fragment plist once for the `claude' backend
+;; (a load-time pre-render, never per-send) and populates the composer's chat
+;; lead seam `jf/gptel-fragment-chat-prelude-text'.  The rendered text is also
+;; mirrored to the committed sibling `emacs-prelude.txt' artifact for diffing.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'subr-x)
+#+end_src
+
+* Dependencies
+
+The renderer and the composer seam are loaded ahead of the sources by the gptel
+load order; we =require= them defensively (by path) so this source also loads
+cleanly in isolation (batch specs, ad-hoc =load=).
+
+#+begin_src emacs-lisp
+(let ((presets-dir
+       (file-name-directory
+        (directory-file-name
+         (file-name-directory (or load-file-name buffer-file-name))))))
+  (require 'jf-gptel-fragments
+           (expand-file-name "fragments.el" presets-dir)))
+#+end_src
+
+* The static fragment
+
+The runtime-framing prelude, authored as a fragment plist =(:kind static
+:sections ((NAME . BODY) ...))= — the exact shape =jf/gptel-fragment--parse-source=
+emits. We build the sections directly in Elisp rather than embedding an Org string
+with column-0 =*= headings (those silently truncate the tangled block —
+=.tasks/harden-tangle-against-silent-block-drop.md=); either way the renderer
+(=jf/gptel-fragment-render=) remains the single source of truth for the emitted
+Claude format.
+
+The prelude opens with plain framing prose under a single =Runtime= section, so
+the rendered block carries no =# Environment=-style markdown heading that would
+collide with the dynamic environment fragment's own heading.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-fragment-emacs-prelude--fragment
+  '(:kind static
+    :sections
+    (("Runtime" .
+      "You are operating inside GNU Emacs, through the gptel chat interface. Keep these in mind:\n- Your responses render as Org-mode text in an Emacs buffer — prefer Org markup over Markdown.\n- You have tools that read and write files and inspect the user's editor, within the session's file-access scope.\n- The user works in Emacs; assume familiarity with it.")))
+  "Static runtime-framing prelude fragment for the chat context.
+A fragment plist (:kind static :sections ((NAME . BODY) ...)) — the shape
+`jf/gptel-fragment--parse-source' produces — rendered once at load time by
+`jf/gptel-fragment-render' and wired into the composer's chat lead seam.")
+#+end_src
+
+* Render the prelude at load time
+
+Render the fragment once for the =claude= backend. This is a load-time pre-render
+(not per-send), so the resulting text is a stable cacheable prefix
+(=register/invariant/static-prerender-dynamic-compose=). The rendered string is
+what the seam, the committed =.txt= artifact, and the spec golden assert against.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-fragment-emacs-prelude--text
+  (jf/gptel-fragment-render
+   jf/gptel-fragment-emacs-prelude--fragment
+   'claude)
+  "Pre-rendered Claude text of the static chat prelude fragment.")
+#+end_src
+
+* Mirror the rendered text to the committed artifact
+
+Keep the committed =emacs-prelude.txt= sibling in sync with the rendered text so
+the diffable artifact never drifts from the source (design.md §Decision 4: static
+fragments render to committed text artifacts). The write is idempotent — it only
+touches the file when the content differs — and is wrapped in =ignore-errors= so a
+read-only load location never breaks loading.
+
+#+begin_src emacs-lisp
+(let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (artifact (expand-file-name "emacs-prelude.txt" this-dir)))
+  (ignore-errors
+    (unless (and (file-readable-p artifact)
+                 (string= (with-temp-buffer
+                            (insert-file-contents artifact)
+                            (buffer-string))
+                          jf/gptel-fragment-emacs-prelude--text))
+      (write-region jf/gptel-fragment-emacs-prelude--text nil artifact nil 'silent))))
+#+end_src
+
+* Wire the chat lead seam
+
+Populate the composer's chat lead seam with the pre-rendered text. The composer's
+=jf/gptel-fragment--default-composition= reads =jf/gptel-fragment-chat-prelude-text=
+at composition-build time and wraps it in a leading static reference; until this
+assignment runs the seam holds =""= (empty, skipped). Loading this module is what
+turns the chat prelude "on".
+
+#+begin_src emacs-lisp
+(setq jf/gptel-fragment-chat-prelude-text jf/gptel-fragment-emacs-prelude--text)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'jf-gptel-fragment-emacs-prelude)
+;;; emacs-prelude.el ends here
+#+end_src
