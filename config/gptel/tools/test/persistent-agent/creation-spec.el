@@ -546,19 +546,20 @@ so the value is immune to the working-tree mirror writer."
       ;; The committed mirror is in sync with the rendered fragment.
       (expect committed :to-equal rendered)))
 
-  (it "FAILS when the committed mirror diverges from the rendered fragment"
-    ;; Negative case proving the golden is no longer tautological: inject a
-    ;; stale committed value and assert the in-sync comparison FAILS.  If
-    ;; the golden could not observe committed drift this would still pass,
-    ;; so it pins that the comparison has teeth.
-    (let ((rendered (jf/gptel-fragment-render
-                     jf/gptel-fragment-agent-preamble--fragment 'claude)))
-      (cl-letf (((symbol-function 'jf/preamble-golden--committed-bytes)
-                 (lambda (&rest _)
-                   (concat rendered "\nSTALE COMMITTED LINE\n"))))
-        (let ((stale (jf/preamble-golden--committed-bytes
-                      "config/gptel/presets/sources/agent-preamble.txt")))
-          (expect stale :not :to-equal rendered)))))
+  (it "the in-sync golden has teeth: a one-line drift from committed is detected"
+    ;; Proves the positive golden's `:to-equal' is not vacuously true, WITHOUT
+    ;; stubbing the function under proof.  Reads the REAL committed bytes via the
+    ;; same `git show HEAD:' path the positive test uses, derives a drifted
+    ;; variant (one extra line), and asserts that variant does NOT compare equal
+    ;; to the render.  Since the committed bytes are in sync with the render (the
+    ;; positive `it' asserts that), a drifted copy must be caught — pinning that
+    ;; the equality the golden relies on distinguishes committed drift.
+    (let* ((rendered (jf/gptel-fragment-render
+                      jf/gptel-fragment-agent-preamble--fragment 'claude))
+           (committed (jf/preamble-golden--committed-bytes
+                       "config/gptel/presets/sources/agent-preamble.txt"))
+           (drifted (concat committed "\nSTALE COMMITTED LINE\n")))
+      (expect drifted :not :to-equal rendered)))
 
   (it "forbids self-delegation via the PersistentAgent tool"
     ;; Scenario: Preamble forbids self-delegation — the delegation-loop fix.
