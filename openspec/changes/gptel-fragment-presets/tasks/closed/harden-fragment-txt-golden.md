@@ -2,7 +2,7 @@
 name: harden-fragment-txt-golden
 description: Make the static fragment .txt golden tests actually catch committed drift — currently the load-time mirror rewrites the artifact before the assertion reads it, so the goldens are tautological in a writable checkout.
 change: gptel-fragment-presets
-status: needs_review
+status: done
 merge_commit: 90d02802
 task_class: test
 on_critical_path: false

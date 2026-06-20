@@ -2,7 +2,8 @@
 name: delete-old-presets
 description: Verify no snapshot/count test depends on the presets directory, delete the legacy .md presets, drop the yaml dependency if now unused, and refresh test-report snapshots.
 change: gptel-fragment-presets
-status: ready
+status: done
+merge_commit: cc3f081c
 relations:
   - "blocked-by:registration-rewrite"
   - "blocked-by:preset-workspace-assistant"
