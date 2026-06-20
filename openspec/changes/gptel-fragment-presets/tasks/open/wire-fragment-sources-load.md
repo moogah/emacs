@@ -135,3 +135,110 @@ two future sources without further `gptel.org` edits.
   the `<name>/preset.el` discovery to mirror).
 - gptel load order: `config/gptel/gptel.org` (lines ~274–278).
 - Reviewer finding: `.orchestrator/cycles/cycle-1781900938/reviews/migrate-environment.md`.
+
+## Observations
+
+- **Directory-loader mechanism confirmed as correct.** The flat `sources/*.el`
+  loader (`jf/gptel-fragment--load-sources-all`) cleanly mirrors
+  `jf/gptel-preset-register-all`'s discovery, but applied to a flat directory
+  rather than `<name>/preset.el` subdirs (sources are not one-per-subdir and are
+  not self-registering into a side table). No inter-source ordering dependency
+  exists today: each source only depends on `jf-gptel-fragments` (loaded by
+  `gptel.org` before this call). The loader sorts filenames (`string<`) purely
+  for determinism — sort order is incidental, not load-bearing. This future-proofs
+  `migrate-prelude-preamble`'s `emacs-prelude.el` / `agent-preamble.el` with zero
+  further `gptel.org` edits, exactly as the cycle plan requires.
+
+- **`presets/sources/` does NOT need to be on `load-path`.** The loader `load`s
+  each source by absolute path. `environment.el`'s `(require 'jf-gptel-fragments)`
+  resolves because `gptel.org` loads `presets/fragments.el` (which `provide`s
+  `jf-gptel-fragments`) two steps earlier; and `environment.el`'s
+  `(provide 'jf-gptel-fragment-environment)` then satisfies `menu.el`'s soft
+  `(require … nil t)`. No `add-to-list 'load-path` was added or needed.
+
+- **`menu.org` left untouched (Cycle 4 scoping honored).** The soft require in
+  `menu.el` resolves naturally once the directory loader runs at init; no
+  hardening to a hard require (that would collide with `migrate-prelude-preamble`).
+
+- **Load-order placement.** The source-load step is inserted in `gptel.org`
+  immediately after `jf/gptel-preset-register-all` (gptel.el line ~167), which is
+  after `presets/fragments.el` (line ~147) and `presets/registration.el` (line
+  ~152) and before the chat/agent/env consumers. Verified by inspecting the
+  tangled `gptel.el` ordering.
+
+- **Idempotency note.** Re-running the loader re-`load`s each source, which
+  re-runs its `(setq jf/gptel-fragment-environment-fn …)` — the same assignment,
+  so re-load is safe (covered by a spec). This matches the register-layer
+  idempotency story for `register-all`.
+
+- **Test approach.** The new `load-sources-spec.el` exercises the DISCOVERY +
+  WIRING mechanism against the REAL `presets/sources/` directory (via
+  `jf/gptel-fragment-sources-directory`), deliberately NOT loading
+  `environment.el` by absolute path — that is what the env source's own unit spec
+  already covers. It asserts the stage-3 post-condition (seam ≠ `#'ignore` after
+  load) and the feature-provide that resolves the menu soft require, plus the
+  missing-dir no-op and idempotency edges.
+
+- **Adjacent (out of scope, not touched):** the full suite still carries the
+  known baseline failures (5 buttercup + 9 ERT: 8 `test-pattern-flow-*` +
+  `test-corpus-integration-002`). This task added none; the failing set is
+  byte-identical to baseline.
+
+## Discoveries
+
+- discovery_id: disc-wire-fragment-sources-load-1
+  class: spec-signal
+  description: |
+    register/boundary/sources-directory-load (status: SPECULATED) was
+    pressure-tested by implementing the directory-loader mechanism it
+    speculates. The implementation realizes the entry as specified:
+      - stage-1 (discover-sources): `jf/gptel-fragment--load-sources-all`
+        enumerates the flat `sources/*.el` via `jf/gptel-fragment-sources-directory`
+        (derived from `jf/gptel-presets-directory`), the preferred directory-loader
+        alternative — NOT an explicit per-source list. Contract met: every `*.el`
+        under `sources/` is `load`ed exactly once at init.
+      - stage-2 (load-in-order): the source-load step is sequenced in `gptel.org`
+        AFTER `presets/fragments.el` (seam defvars) and BEFORE chat/agent/env
+        consumers, near the `register-all` call (gptel.el ~167), respecting the
+        gptel load-order invariant.
+      - stage-3 (seam-populated): post-condition holds — after the loader runs,
+        `jf/gptel-fragment-environment-fn` is NOT `#'ignore` (it is the env
+        producer); verified by a behavioral spec against the real source dir.
+    The speculation's two open questions both resolved in favor of the directory
+    loader: (a) no inter-source ordering dependency exists (sort order incidental),
+    and (b) no source must be prevented from auto-loading. The loader's producer
+    sits in registration.org (`jf/gptel-fragment--load-sources-all` +
+    `jf/gptel-fragment-sources-directory`), and the call-site producer sits in
+    gptel.org — matching the entry's two `producers` rows.
+  affected_register_entry: register/boundary/sources-directory-load
+  recommendation: |
+    RECONCILE speculated → confirmed. Update status_note to record:
+    (1) chosen mechanism = directory loader `jf/gptel-fragment--load-sources-all`
+    over a flat `sources/` dir keyed off `jf/gptel-fragment-sources-directory`
+    (new defvar in registration.org), NOT an explicit per-source list;
+    (2) discovery is flat `sources/*.el` (sorted, `string<` deterministic),
+    deliberately distinct from register-all's `<name>/preset.el` subdir descent
+    because sources are flat + not self-registering;
+    (3) no `load-path` addition needed — sources `load`ed by absolute path; the
+    renderer feature is already `provide`d by the earlier `fragments.el` load and
+    each source `provide`s its own feature (resolving menu.el's soft require);
+    (4) call-site in gptel.org is at the line after `register-all` (gptel.el ~167).
+    Concrete producer function names that replace the `<source-load step>` /
+    `<jf/gptel-fragment--load-sources-all OR register-all extension>` placeholders:
+    `jf/gptel-fragment--load-sources-all` (registration.org, stages 1+2) and the
+    bare `(jf/gptel-fragment--load-sources-all)` call (gptel.org, stage 2).
+
+- discovery_id: disc-wire-fragment-sources-load-2
+  class: invariant-gap
+  description: |
+    register/invariant/static-prerender-dynamic-compose is upheld and unchanged:
+    loading the env source only sets the composer SEAM (`jf/gptel-fragment-environment-fn`)
+    to the dynamic producer; it does not move any render. Static preset role text
+    remains pre-rendered (at preset .el load time, into a defconst); the dynamic
+    env fragment still evaluates at compose-time tail via the seam. This task
+    fixes WHERE the producer is registered, not WHEN rendering happens. No change
+    to the invariant entry is warranted.
+  affected_register_entry: register/invariant/static-prerender-dynamic-compose
+  recommendation: |
+    No change. Note in reconciliation that wire-fragment-sources-load verified
+    the invariant is render-timing-neutral (seam wiring only).

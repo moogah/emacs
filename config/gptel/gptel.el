@@ -155,6 +155,17 @@ Run this after preset registration to inject skill content into presets."
 ;; self-registers via `jf/gptel-preset-register'.
 (jf/gptel-preset-register-all)
 
+;; Load the fragment SOURCE modules (flat config/gptel/presets/sources/*.el).
+;; Each source populates a composer seam as a side effect (the dynamic
+;; environment fragment today; the static prelude/preamble fragments next).
+;; Sequenced AFTER presets/fragments.el (loaded above with registration; it
+;; defvars the seam vars) and BEFORE the chat/agent/env consumers (menu.el,
+;; persistent-agent.el) that read those seams. `load'ing a source `provide's
+;; its feature, so menu.el's soft (require 'jf-gptel-fragment-environment nil t)
+;; resolves naturally. A directory loader (not an explicit per-source list)
+;; means new sources need no further gptel.org edit.
+(jf/gptel-fragment--load-sources-all)
+
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
 

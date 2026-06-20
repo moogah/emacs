@@ -161,5 +161,47 @@ existing entry.  Logs the count of loaded preset artifacts."
         (jf/gptel--log 'info "Loaded %d preset artifacts from %s" count presets-dir)))
     count))
 
+(defvar jf/gptel-fragment-sources-directory
+  (and (boundp 'jf/gptel-presets-directory)
+       (expand-file-name "sources/" jf/gptel-presets-directory))
+  "Directory holding flat fragment SOURCE .el files.
+Each file under this directory is `load'ed at gptel init by
+`jf/gptel-fragment--load-sources-all' so its composer-seam side effect
+runs in production.  Derived from `jf/gptel-presets-directory'.")
+
+(defun jf/gptel-fragment--load-sources-all ()
+  "Load every fragment SOURCE .el under `jf/gptel-fragment-sources-directory'.
+Sources are flat `.el' files (not `<name>/' subdirs); each `load's the
+renderer feature and populates a composer seam as a side effect.  Files
+are loaded once each, in sorted filename order (no inter-source ordering
+dependency exists today).  Must be called AFTER `presets/fragments.el'
+(which defines the seam vars) and BEFORE the chat/agent/env consumers.
+
+Idempotent at the source layer: re-loading a source re-runs its
+seam-population `setq', which is the same assignment.  Logs the count of
+loaded sources.  Returns the count."
+  (interactive)
+  (let ((sources-dir jf/gptel-fragment-sources-directory)
+        (count 0))
+    (if (or (null sources-dir) (not (file-directory-p sources-dir)))
+        (when (fboundp 'jf/gptel--log)
+          (jf/gptel--log 'warn "Fragment sources directory does not exist: %s"
+                         sources-dir))
+      (dolist (source-el (sort (directory-files sources-dir t "\\.el\\'")
+                               #'string<))
+        (when (file-readable-p source-el)
+          (condition-case err
+              (progn
+                (load source-el nil t)
+                (setq count (1+ count)))
+            (error
+             (when (fboundp 'jf/gptel--log)
+               (jf/gptel--log 'warn "Error loading fragment source %s: %s"
+                              source-el (error-message-string err)))))))
+      (when (fboundp 'jf/gptel--log)
+        (jf/gptel--log 'info "Loaded %d fragment source(s) from %s"
+                       count sources-dir)))
+    count))
+
 (provide 'gptel-preset-registration)
 ;;; registration.el ends here
