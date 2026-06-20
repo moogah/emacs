@@ -101,7 +101,81 @@
       (let ((jf/gptel-fragment-sources-directory
              (expand-file-name "does-not-exist-xyzzy/"
                                jf/gptel-presets-directory)))
-        (expect (jf/gptel-fragment--load-sources-all) :to-equal 0)))))
+        (expect (jf/gptel-fragment--load-sources-all) :to-equal 0))))
+
+  (describe "load-error fail-policy (source .el that throws on load)"
+    ;; A source whose .el signals while loading must NOT be swallowed with only
+    ;; a warn-log that leaves its composer seam dark.  The shared loader helper
+    ;; (a) logs at ERROR level naming the file AND the seam, and (b) records the
+    ;; failure so a post-init self-check can assert "N source(s) failed; seam X
+    ;; is dark".  Here we point the loader at a TEMP fixture dir (not the real
+    ;; sources/) holding one good and one throwing source.
+
+    (let (tmp-dir orig-dir)
+
+      (before-each
+        (setq orig-dir jf/gptel-fragment-sources-directory)
+        (setq tmp-dir (make-temp-file "gptel-sources-failpolicy-test" t))
+        (setq jf/gptel-fragment-sources-directory (file-name-as-directory tmp-dir))
+        (jf/gptel-loader-clear-failures))
+
+      (after-each
+        (when (and tmp-dir (file-directory-p tmp-dir))
+          (delete-directory tmp-dir t))
+        (setq jf/gptel-fragment-sources-directory orig-dir)
+        (jf/gptel-loader-clear-failures))
+
+      (cl-flet ((write-source
+                  (name body)
+                  (with-temp-file (expand-file-name name tmp-dir)
+                    (insert body))))
+
+        (it "does not hard-fail the whole load when one source throws"
+          ;; A bad source must not abort the others: gptel init survives.
+          (write-source "good.el"
+                        "(provide 'gptel-test-good-source)")
+          (write-source "bad.el"
+                        "(error \"boom from bad source\")")
+          ;; The good source still loads (count 1), no error escapes.
+          (expect (jf/gptel-fragment--load-sources-all) :to-equal 1))
+
+        (it "records the failure (not a silent warn) naming the file and seam"
+          (write-source "bad.el" "(error \"boom from bad source\")")
+          (jf/gptel-fragment--load-sources-all)
+          (let ((failures (jf/gptel-loader-failures)))
+            (expect (length failures) :to-equal 1)
+            (let ((rec (car failures)))
+              (expect (plist-get rec :file) :to-match "bad\\.el\\'")
+              ;; The seam this source failed to populate is named, so a
+              ;; self-check can report which seam is dark.
+              (expect (plist-get rec :seam)
+                      :to-equal 'jf/gptel-fragment-environment-fn))))
+
+        (it "logs the load error at ERROR level (not warn)"
+          (write-source "bad.el" "(error \"boom from bad source\")")
+          (let ((logged nil))
+            (cl-letf (((symbol-function 'jf/gptel--log)
+                       (lambda (level &rest args)
+                         (push (cons level (apply #'format args)) logged))))
+              (jf/gptel-fragment--load-sources-all))
+            ;; The per-entry failure log is ERROR level and names the file.
+            (expect (cl-find-if
+                     (lambda (e) (and (eq (car e) 'error)
+                                      (string-match-p "bad\\.el" (cdr e))))
+                     logged)
+                    :to-be-truthy)
+            ;; And it must NOT be downgraded to a bare warn.
+            (expect (cl-find-if
+                     (lambda (e) (and (eq (car e) 'warn)
+                                      (string-match-p "bad\\.el" (cdr e))))
+                     logged)
+                    :to-be nil)))
+
+        (it "flags the env seam as dark via the post-init self-check"
+          (write-source "bad.el" "(error \"boom from bad source\")")
+          (jf/gptel-fragment--load-sources-all)
+          (expect (jf/gptel-loader-seam-dark-p 'jf/gptel-fragment-environment-fn)
+                  :to-be-truthy))))))
 
 (provide 'load-sources-spec)
 ;;; load-sources-spec.el ends here

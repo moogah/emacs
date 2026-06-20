@@ -49,6 +49,7 @@ order so that any preset =.el= relying on the renderer at load time can find it.
 ;;; Code:
 
 (require 'cl-lib)
+(require 'seq)
 #+end_src
 
 * Scope Defaults Storage
@@ -179,6 +180,128 @@ Return a new plist with :mode removed."
     result))
 #+end_src
 
+* Shared Directory Loader and Load-Error Fail-Policy
+
+The two directory loaders below — =jf/gptel-preset-register-all= (descends
+=<name>/preset.el=) and =jf/gptel-fragment--load-sources-all= (globs flat
+=sources/*.el=) — share their entire skeleton: check the directory exists,
+discover the entries, =load= each one inside a =condition-case=, count the
+successes, and log the total. They also shared a *defect*: a single entry whose
+=.el= signalled on load was swallowed with only a *warn*-level log, leaving the
+composer seam that entry was meant to populate at its dark default
+(=#'ignore= for the env seam; an unregistered preset for the preset seam) —
+the exact dark-seam outcome these loaders exist to prevent, now reachable via a
+runtime load error instead of a missing load step.
+
+This section extracts ONE shared helper, =jf/gptel--load-directory=, that both
+loaders route through. It owns directory globbing, the per-entry
+=condition-case=, and the **non-silent load-error fail-policy**:
+
+- A single bad entry does *not* hard-fail the load — the remaining entries still
+  load, so one broken source/preset never darkens the whole of gptel init.
+- A load error is logged at **error** level (not warn), naming the *file* AND
+  the *seam* it failed to populate.
+- The failure is *recorded* in =jf/gptel--loader-failures= so a post-init
+  self-check (=jf/gptel-loader-seam-dark-p=) can assert "N entr(ies) failed;
+  seam X is dark" rather than the failure being silently warn-and-forgotten.
+
+The recorded-failure approach (over fail-loud re-signal) is deliberate: the
+cited boundary contract for both loaders is "a single bad source/preset SHOULD
+NOT hard-fail all of gptel init", and gptel init runs unattended at startup —
+re-signalling would abort the whole subsystem on one bad entry. Recording +
+error-logging keeps the failure loud and *detectable* without taking down the
+seams that loaded fine.
+
+** Failure registry
+
+#+begin_src emacs-lisp
+(defvar jf/gptel--loader-failures nil
+  "List of load-error failure records from the directory loaders.
+Each element is a plist (:file FILE :seam SEAM :error MESSAGE) recorded
+by `jf/gptel--load-directory' when an entry's `.el' signals on load.
+SEAM is the composer-seam symbol that entry failed to populate (e.g.
+`jf/gptel-fragment-environment-fn' for a fragment source,
+`gptel--known-presets' for a preset).  A post-init self-check
+(`jf/gptel-loader-seam-dark-p') reads this to report which seams are
+dark.  Cleared with `jf/gptel-loader-clear-failures'.")
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-loader-clear-failures ()
+  "Clear the recorded directory-loader failure registry.
+Call before a fresh (re-)load pass so stale failures from a previous
+pass do not linger in `jf/gptel--loader-failures'."
+  (setq jf/gptel--loader-failures nil))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-loader-failures (&optional seam)
+  "Return recorded directory-loader failures.
+With SEAM non-nil, return only the failure records whose :seam matches
+SEAM; otherwise return all records.  Each record is a plist
+\(:file FILE :seam SEAM :error MESSAGE)."
+  (if seam
+      (seq-filter (lambda (rec) (eq (plist-get rec :seam) seam))
+                  jf/gptel--loader-failures)
+    jf/gptel--loader-failures))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-loader-seam-dark-p (seam)
+  "Return non-nil if SEAM has a recorded load failure.
+A truthy result means at least one entry that should have populated SEAM
+failed to load, so SEAM may still hold its dark default.  This is the
+post-init self-check the load-error fail-policy exposes: callers can
+assert seams are live, or surface which seams are dark, instead of a
+silent warn-and-continue."
+  (and (jf/gptel-loader-failures seam) t))
+#+end_src
+
+** Shared glob-and-load helper
+
+#+begin_src emacs-lisp
+(defun jf/gptel--load-directory (directory discover-fn seam label)
+  "Load every entry DISCOVER-FN finds under DIRECTORY, guarding each load.
+DISCOVER-FN is a function of one argument (DIRECTORY) returning the
+ordered list of `.el' files to `load'.  SEAM is the composer-seam symbol
+the loaded entries are expected to populate (used in error logs and
+recorded against failures).  LABEL is a short human string for log
+messages (e.g. \"fragment source\", \"preset\").
+
+Each entry is `load'ed inside a `condition-case'.  A load that signals is
+NOT swallowed silently: it is logged at ERROR level naming the file and
+SEAM, and recorded in `jf/gptel--loader-failures' so
+`jf/gptel-loader-seam-dark-p' can report SEAM as dark.  One bad entry
+does not abort the others.
+
+A missing DIRECTORY is a graceful no-op (warn-logged) returning 0.
+Returns the count of entries that loaded successfully."
+  (let ((count 0))
+    (if (or (null directory) (not (file-directory-p directory)))
+        (when (fboundp 'jf/gptel--log)
+          (jf/gptel--log 'warn "%s directory does not exist: %s"
+                         (capitalize label) directory))
+      (dolist (entry (funcall discover-fn directory))
+        (when (file-readable-p entry)
+          (condition-case err
+              (progn
+                (load entry nil t)
+                (setq count (1+ count)))
+            (error
+             (let ((msg (error-message-string err)))
+               (when (fboundp 'jf/gptel--log)
+                 (jf/gptel--log
+                  'error
+                  "Error loading %s %s: %s (seam %s left unpopulated)"
+                  label entry msg seam))
+               (push (list :file entry :seam seam :error msg)
+                     jf/gptel--loader-failures))))))
+      (when (fboundp 'jf/gptel--log)
+        (jf/gptel--log 'info "Loaded %d %s(s) from %s"
+                       count label directory)))
+    count))
+#+end_src
+
 * Register a Single Preset
 
 The public registration entry point. Each tangled preset =.el= calls this with
@@ -220,6 +343,27 @@ Preset sources live one-per-subdirectory under =jf/gptel-presets-directory= as
 subdirectory basename. The loader =load=s each =preset.el= (which calls
 =jf/gptel-preset-register=). =load=ing is idempotent at the registration layer.
 
+Discovery (which =<name>/preset.el= files exist) is its own thin function so
+the shared =jf/gptel--load-directory= helper owns only globbing + the per-entry
+guard; the subdir-descent shape stays here.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--discover-preset-els (presets-dir)
+  "Return the list of `<name>/preset.el' files under PRESETS-DIR.
+Descends each immediate subdirectory of PRESETS-DIR and collects its
+`preset.el' (the tangled, self-registering preset artifact).
+Subdirectories without a `preset.el' are skipped.  This is the
+discovery half of `jf/gptel-preset-register-all'; the load + fail-policy
+half lives in `jf/gptel--load-directory'."
+  (let (entries)
+    (dolist (subdir (directory-files presets-dir t directory-files-no-dot-files-regexp))
+      (when (file-directory-p subdir)
+        (let ((preset-el (expand-file-name "preset.el" subdir)))
+          (when (file-exists-p preset-el)
+            (push preset-el entries)))))
+    (nreverse entries)))
+#+end_src
+
 #+begin_src emacs-lisp
 (defun jf/gptel-preset-register-all ()
   "Load all tangled preset .el artifacts so they self-register.
@@ -229,29 +373,17 @@ and calls `jf/gptel-preset-register', which extracts scope/mode keys and
 registers via `gptel-make-preset'.
 
 This function is idempotent -- re-loading a preset.el updates the
-existing entry.  Logs the count of loaded preset artifacts."
+existing entry.  Routes through `jf/gptel--load-directory', which owns the
+per-entry `condition-case' and the non-silent load-error fail-policy: a
+preset whose .el signals on load is logged at ERROR level and recorded in
+`jf/gptel--loader-failures' (seam `gptel--known-presets'), not silently
+swallowed.  Logs the count of loaded preset artifacts."
   (interactive)
-  (let ((presets-dir (and (boundp 'jf/gptel-presets-directory)
-                          jf/gptel-presets-directory))
-        (count 0))
-    (if (or (null presets-dir) (not (file-directory-p presets-dir)))
-        (when (fboundp 'jf/gptel--log)
-          (jf/gptel--log 'warn "Presets directory does not exist: %s" presets-dir))
-      (dolist (subdir (directory-files presets-dir t directory-files-no-dot-files-regexp))
-        (when (file-directory-p subdir)
-          (let ((preset-el (expand-file-name "preset.el" subdir)))
-            (when (file-readable-p preset-el)
-              (condition-case err
-                  (progn
-                    (load preset-el nil t)
-                    (setq count (1+ count)))
-                (error
-                 (when (fboundp 'jf/gptel--log)
-                   (jf/gptel--log 'warn "Error loading preset %s: %s"
-                                  preset-el (error-message-string err)))))))))
-      (when (fboundp 'jf/gptel--log)
-        (jf/gptel--log 'info "Loaded %d preset artifacts from %s" count presets-dir)))
-    count))
+  (jf/gptel--load-directory
+   (and (boundp 'jf/gptel-presets-directory) jf/gptel-presets-directory)
+   #'jf/gptel-preset--discover-preset-els
+   'gptel--known-presets
+   "preset"))
 #+end_src
 
 * Load All Fragment Sources
@@ -300,30 +432,33 @@ dependency exists today).  Must be called AFTER `presets/fragments.el'
 (which defines the seam vars) and BEFORE the chat/agent/env consumers.
 
 Idempotent at the source layer: re-loading a source re-runs its
-seam-population `setq', which is the same assignment.  Logs the count of
-loaded sources.  Returns the count."
+seam-population `setq', which is the same assignment.  Routes through
+`jf/gptel--load-directory', which owns the per-entry `condition-case' and
+the non-silent load-error fail-policy: a source whose .el signals on load
+is logged at ERROR level and recorded in `jf/gptel--loader-failures'
+\(seam `jf/gptel-fragment-environment-fn'), not silently swallowed.  Logs
+the count of loaded sources.  Returns the count."
   (interactive)
-  (let ((sources-dir jf/gptel-fragment-sources-directory)
-        (count 0))
-    (if (or (null sources-dir) (not (file-directory-p sources-dir)))
-        (when (fboundp 'jf/gptel--log)
-          (jf/gptel--log 'warn "Fragment sources directory does not exist: %s"
-                         sources-dir))
-      (dolist (source-el (sort (directory-files sources-dir t "\\.el\\'")
-                               #'string<))
-        (when (file-readable-p source-el)
-          (condition-case err
-              (progn
-                (load source-el nil t)
-                (setq count (1+ count)))
-            (error
-             (when (fboundp 'jf/gptel--log)
-               (jf/gptel--log 'warn "Error loading fragment source %s: %s"
-                              source-el (error-message-string err)))))))
-      (when (fboundp 'jf/gptel--log)
-        (jf/gptel--log 'info "Loaded %d fragment source(s) from %s"
-                       count sources-dir)))
-    count))
+  (jf/gptel--load-directory
+   jf/gptel-fragment-sources-directory
+   #'jf/gptel-fragment--discover-source-els
+   'jf/gptel-fragment-environment-fn
+   "fragment source"))
+#+end_src
+
+The discovery half (which =sources/*.el= exist, in sorted order) is its own
+thin function, parallel to =jf/gptel-preset--discover-preset-els=; the shared
+helper owns only the load + fail-policy.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--discover-source-els (sources-dir)
+  "Return the flat `.el' files under SOURCES-DIR in sorted filename order.
+Fragment SOURCE modules are flat `.el' files (not `<name>/' subdirs).
+Sorted with `string<' for determinism; no inter-source ordering
+dependency exists today.  This is the discovery half of
+`jf/gptel-fragment--load-sources-all'; the load + fail-policy half lives
+in `jf/gptel--load-directory'."
+  (sort (directory-files sources-dir t "\\.el\\'") #'string<))
 #+end_src
 
 * Provide Feature
