@@ -3,12 +3,39 @@ name: wire-fragment-sources-load
 description: Load the fragment source modules (presets/sources/*.el) in gptel.org's load order so dynamic/static fragment seams are populated in production, not just under tests.
 change: gptel-fragment-presets
 status: ready
+task_class: infrastructure
+on_critical_path: true
+cites_register_entries:
+  - register/boundary/sources-directory-load
+  - register/boundary/preset-org-to-registration
+  - register/invariant/static-prerender-dynamic-compose
 relations:
   - "discovered-from:migrate-environment"
   - "enables:delete-old-presets"
+discovered_from: migrate-environment
 discovered_by: reviewer+implementor
 discovered_class: scope-question
 ---
+
+## Cited register entries
+
+- **register/boundary/sources-directory-load** — *This entry is SPECULATED* (seeded
+  this cycle by forward-mode from the source-load-wiring meta-discovery). It is the
+  whole point of this task: pressure-test whether a single **directory loader** for
+  `presets/sources/*.el` (mirroring `<name>/preset.el` discovery) is the right
+  mechanism, vs. an explicit per-source load list. The entry's stage-1 contract is
+  "every `*.el` under `sources/` is loaded exactly once at init"; stage-3
+  post-condition is "`jf/gptel-fragment-environment-fn` is NOT `#'ignore` after
+  init." If a directory loader proves wrong (e.g. ordering among sources matters,
+  or a source must NOT auto-load), push back via `## Discoveries`.
+- **register/boundary/preset-org-to-registration** (confirmed) — the loader you add
+  must respect the SAME load-order risk this boundary names: sources load AFTER
+  `presets/fragments.el` (composer/renderer + seam defvars) and BEFORE the
+  chat/agent/env consumers. Mirror its `<name>/preset.el` discovery convention.
+- **register/invariant/static-prerender-dynamic-compose** (confirmed, load-bearing)
+  — loading the env SOURCE must not change WHEN rendering happens: static refs stay
+  pre-rendered, the dynamic env ref still evaluates at compose-time tail. You are
+  fixing *where the producer is registered*, not the render timing.
 
 ## Why this exists
 
@@ -76,6 +103,28 @@ file list that must be extended per source.
 - In a loaded session: `jf/gptel-fragment-environment-fn` is NOT `#'ignore`.
 - `./bin/run-tests.sh -d config/gptel/chat/test/menu` and `-d config/gptel/presets`.
 - Full suite green (set vs baseline).
+
+## Cycle 4 scoping (cycle plan — parallel-safe with migrate-prelude-preamble)
+
+This task runs **in the same batch** as `migrate-prelude-preamble`, which owns
+`config/gptel/chat/menu.org`. To keep the two write-sets **disjoint**, this task
+**MUST NOT edit `menu.org`**. Do step 4 the soft-require way: the directory loader
+in `gptel.org` makes the source loadable at init, so `menu.el`'s existing
+`(require 'jf-gptel-fragment-environment nil t)` resolves naturally — leave it as is.
+Do not "harden" it into a hard require here (that would collide with
+migrate-prelude-preamble's menu.org edits). If you believe a menu.org change is
+unavoidable, STOP and raise it in `## Discoveries` rather than editing menu.org.
+
+**Merge order:** this task merges BEFORE `migrate-prelude-preamble` so that
+task's new `emacs-prelude.el` / `agent-preamble.el` sources are picked up by the
+loader you add (not shipped dark). The directory loader you build must cover those
+two future sources without further `gptel.org` edits.
+
+## Out-of-scope
+
+- Editing `config/gptel/chat/menu.org` (owned by migrate-prelude-preamble this cycle).
+- Authoring the prelude/preamble sources (migrate-prelude-preamble).
+- Deleting legacy `.md` presets / dropping `yaml` (delete-old-presets, next cycle).
 
 ## Context pointers
 

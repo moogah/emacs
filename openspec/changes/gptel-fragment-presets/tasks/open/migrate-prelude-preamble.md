@@ -2,10 +2,39 @@
 name: migrate-prelude-preamble
 description: Move the chat Emacs-prelude and the persistent-agent preamble into static fragment sources (pre-rendered at tangle), rewire the chat composer and agent system-prompt writer to consume them, and delete the two defconsts.
 change: gptel-fragment-presets
-status: blocked
+status: ready
+task_class: refactor
+on_critical_path: true
+cites_register_entries:
+  - register/boundary/composer-compose
+  - register/invariant/context-default-composition
+  - register/invariant/static-prerender-dynamic-compose
+  - register/shape/fragment-reference
 relations:
   - "blocked-by:composer"
 ---
+
+## Cited register entries
+
+- **register/boundary/composer-compose** (confirmed) — the prelude (lead) and
+  preamble (lead) wire through this composer; do NOT re-implement composition.
+  Set the seam defvars (`jf/gptel-fragment-chat-prelude-text`,
+  `jf/gptel-fragment-agent-preamble-text`) to your pre-rendered text and let the
+  composer place them. Note the inert-`backend`-arg refinement: static refs are
+  consumed verbatim, so the composer never re-renders your prelude/preamble.
+- **register/invariant/context-default-composition** (confirmed) — chat default is
+  `[emacs-prelude(static), role, environment(dynamic)]`, agent default is
+  `[agent-preamble(static), role, environment(dynamic)]`. Empty/nil contributions
+  are SKIPPED, so the prelude/preamble still lead even with no role. Confirm the
+  defaults already produce this once you populate the seam text.
+- **register/invariant/static-prerender-dynamic-compose** (confirmed, load-bearing)
+  — prelude/preamble are STATIC: pre-render to committed `.txt` at tangle time and
+  consume verbatim. They must land in the stable (cacheable) prefix; never re-render
+  per send. This is the load-bearing property — if your wiring would re-render a
+  static fragment per send, push back in `## Discoveries`.
+- **register/shape/fragment-reference** (confirmed) — prelude/preamble are static
+  references `(:kind static :text STRING)`, not parsed fragments re-rendered each
+  send. The `:fn` key lives on dynamic refs only.
 
 ## Files to modify
 

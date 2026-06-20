@@ -2,10 +2,24 @@
 name: workspace-flip
 description: Flip the workspace package's initial gptel preset from executor to workspace-assistant.
 change: gptel-fragment-presets
-status: blocked
+status: ready
+task_class: feature
+on_critical_path: true
+cites_register_entries:
+  - register/boundary/preset-org-to-registration
 relations:
   - "blocked-by:preset-workspace-assistant"
 ---
+
+## Cited register entries
+
+- **register/boundary/preset-org-to-registration** (confirmed) — this flip
+  presupposes `workspace-assistant` is a registered preset via this boundary
+  (it landed in cycle-1781900938 as `presets/workspace-assistant/preset.el`).
+  Pressure-test that the `defcustom` value (`'workspace-assistant`) matches the
+  preset NAME the boundary registers (source basename), so the workspace package
+  resolves the new preset at session creation. If the name doesn't match what
+  `gptel-get-preset` expects, raise it in `## Discoveries`.
 
 ## Files to modify
 

@@ -6157,6 +6157,114 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** sources-directory-load
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-sources-directory-load
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/sources-directory-load
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-1781901xxx plan forward-mode: NEW speculative boundary. Seeded from
+     cycle-1781900938 handshake meta-discovery #3 (source-load-wiring): migrating a
+     defun into presets/sources/*.el creates a production-dark seam until gptel.org
+     loads it. migrate-environment shipped its env tail dark (the source is never
+     loaded at runtime; jf/gptel-fragment-environment-fn stays #'ignore, menu.el's
+     soft (require … nil t) silently no-ops). migrate-prelude-preamble will add two
+     MORE such sources (emacs-prelude.el, agent-preamble.el) with the same need.
+     This boundary speculates a SINGLE directory-load mechanism for presets/sources/
+     mirroring the <name>/preset.el discovery in preset-org-to-registration, so one
+     task (wire-fragment-sources-load) covers all three sources rather than an
+     explicit per-source load list that must be extended each time. Pressure-tested
+     by wire-fragment-sources-load this cycle.
+   load_bearing: false
+   title: presets/sources/*.el → loaded at gptel init (directory loader)
+   purpose: |
+     The pipeline by which fragment SOURCE modules under
+     config/gptel/presets/sources/ (the dynamic environment fragment today;
+     the static emacs-prelude / agent-preamble fragments next) are loaded at
+     gptel initialization so their seam-population side effects run in
+     production, not only under absolute-path test loads. Mirrors
+     register/boundary/preset-org-to-registration's <name>/preset.el
+     discovery, but for flat source files in a single sources/ directory.
+     Load order is the named risk: the sources must load AFTER the
+     renderer/composer (config/gptel/presets/fragments.el) — they reference
+     composer seam defvars — and BEFORE the chat/agent/env consumers that
+     read those seams (menu.el, persistent-agent.el). Sequence explicitly in
+     gptel.org, consistent with the load-order risk already named in
+     preset-org-to-registration and static-prerender-dynamic-compose.
+
+   stages:
+     - n: 1
+       name: discover-sources
+       input: config/gptel/presets/sources/ directory
+       output: ordered list of source .el files to load
+       can_fail_with: [sources-dir-missing]
+       notes: |
+         SPECULATED: a directory loader (e.g. jf/gptel-fragment--load-sources-all)
+         enumerates presets/sources/*.el, parallel to register-all's <name>/preset.el
+         descent. Alternative under consideration: an explicit per-source load list
+         in gptel.org. The directory loader is preferred (handshake meta-discovery #3)
+         so emacs-prelude.el / agent-preamble.el are picked up without editing gptel.org
+         again. Whichever wins, this stage's CONTRACT is "every *.el under sources/ is
+         loaded exactly once at init".
+     - n: 2
+       name: load-in-order
+       input: discovered source list
+       output: sources loaded (seam defvars populated)
+       can_fail_with: [load-error]
+       notes: |
+         loaded AFTER fragments.el (composer/renderer + seam defvars defined) and
+         BEFORE the consumers (menu.el chat composer, persistent-agent.el writer).
+         Respects the gptel load-order invariant (skills → gptel-agent → tool defs
+         → sessions → … ). Inserted near the jf/gptel-preset-register-all call
+         (gptel.org ~274–278).
+     - n: 3
+       name: seam-populated
+       input: loaded sources
+       output: composer seams are live producers, not defaults
+       can_fail_with: []
+       notes: |
+         POST-CONDITION: after gptel init, jf/gptel-fragment-environment-fn is NOT
+         #'ignore (env source loaded); migrate-prelude-preamble's prelude/preamble
+         seam defvars are likewise non-empty once its sources land. This is the
+         observable property the "dark seam" failure violated.
+
+   cross_stage_invariants:
+     - register/invariant/static-prerender-dynamic-compose
+     - register/invariant/context-default-composition
+
+   producers:
+     - file: config/gptel/gptel.org
+       function: <source-load step> (wire-fragment-sources-load.md task)
+       enters_at_stage: 2
+     - file: config/gptel/presets/registration.org
+       function: <jf/gptel-fragment--load-sources-all OR register-all extension> (wire-fragment-sources-load.md task)
+       enters_at_stage: 1
+   consumers:
+     - file: config/gptel/chat/menu.org
+       function: env tail via jf/gptel-fragment-environment-fn (depends on stage 3)
+       reads_output_of_stage: 3
+     - file: config/gptel/presets/sources/emacs-prelude.org
+       function: <prelude source loaded by this mechanism> (migrate-prelude-preamble.md task)
+       reads_output_of_stage: 2
+     - file: config/gptel/presets/sources/agent-preamble.org
+       function: <preamble source loaded by this mechanism> (migrate-prelude-preamble.md task)
+       reads_output_of_stage: 2
+
+   validator: |
+     wire-fragment-sources-load proves this boundary. Acceptance: (1) grep shows
+     gptel.el loads the sources at init (sources/environment | load-sources |
+     fragment-environment); (2) in a loaded session jf/gptel-fragment-environment-fn
+     is NOT #'ignore; (3) the chat menu + presets suites stay green; (4) full-suite
+     failing-set == baseline.
+
+   discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
