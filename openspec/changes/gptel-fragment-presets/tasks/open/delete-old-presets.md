@@ -2,12 +2,13 @@
 name: delete-old-presets
 description: Verify no snapshot/count test depends on the presets directory, delete the legacy .md presets, drop the yaml dependency if now unused, and refresh test-report snapshots.
 change: gptel-fragment-presets
-status: blocked
+status: ready
 relations:
   - "blocked-by:registration-rewrite"
   - "blocked-by:preset-workspace-assistant"
   - "blocked-by:preset-system-explorer"
   - "blocked-by:workspace-flip"
+  - "blocked-by:wire-fragment-sources-load"
 ---
 
 ## Files to modify
@@ -79,6 +80,33 @@ so a fixture dependency cannot silently break the suite (design Risks).
 - `register/boundary/preset-org-to-registration` is **confirmed**; the new registration
   ignores flat `.md` files in `presets/` (only descends `<name>/preset.el` subdirs), so
   the old `.md` presets are already inert at runtime — deletion is cleanup, not behavior.
+
+## Cycle 4 updates (cycle-1781941375)
+
+> ALL blockers cleared — this task is now **ready** and is the last remaining
+> substantive in-change task (alongside the test-quality followup
+> `harden-fragment-txt-golden`). It is the change's final cleanup cycle.
+
+- **Blockers satisfied:** `wire-fragment-sources-load`, `migrate-prelude-preamble`,
+  and `workspace-flip` all landed done+reviewed this cycle (eda66755, a63f90e0,
+  b4d68f82). registration-rewrite + both presets were already done. Status flipped
+  blocked → ready.
+- **DO NOT delete `config/gptel/presets/registration.{org,el}`.** That is the ACTIVE
+  presets sub-module and now hosts BOTH loaders: `jf/gptel-preset-register-all`
+  (`<name>/preset.el` discovery) AND the new `jf/gptel-fragment-sources-directory` /
+  load-sources-all (flat `presets/sources/*.el` discovery, added by
+  wire-fragment-sources-load). The deletion target named in step 3 was the OLD
+  top-level `config/gptel/preset-registration.{org,el}` (YAML pipeline) — already
+  deleted by registration-rewrite in cycle 2. Re-confirm it's gone; do not touch the
+  active `presets/registration.*`.
+- **New source files exist under `presets/sources/`** (`environment.*`,
+  `emacs-prelude.*`, `agent-preamble.*` + committed `.txt`). These are live fragment
+  sources, NOT legacy presets — do not delete them. Only the flat legacy `.md` files
+  directly under `config/gptel/presets/` are in scope.
+- `register/boundary/preset-org-to-registration` gained a cycle-4 addendum (the
+  sources-discovery sibling loader); `register/boundary/sources-directory-load` is now
+  confirmed. Neither expands this task's deletion scope.
+- Safety grep (design step 1) still stands before any deletion.
 
 ## Cycle 3 updates (cycle-1781900938)
 

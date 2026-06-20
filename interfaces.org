@@ -6012,6 +6012,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      owns its own output formatting, never reading `backend' at compose time. The
      drop candidate stands (would simplify jf/gptel-fragment-compose's signature);
      not dropped this cycle (no behaviour change), carried as a future cleanup.
+     cycle-1781941375 (migrate-prelude-preamble) addendum — CONSUMER CLARIFICATION
+     (not a divergence; arch-cycle-1781941375-eoc-2, design-sanctioned): the chat
+     consumer (menu.org) DOES go through the composer (prelude lead via the seam, env
+     dynamic tail). The persistent-agent consumer (persistent-agent.org) does NOT call
+     jf/gptel-fragment-compose: at session-CREATION it materializes only the static
+     prefix (agent-preamble seam text + the preset's rendered role) into the on-disk
+     sibling system-prompt file; the dynamic environment is composed PER SEND on agent
+     reload, deliberately kept OUT of the on-disk static prefix (preserves the cacheable
+     prefix per static-prerender-dynamic-compose). So this boundary's "consumers read
+     stage-3 output" is exact for chat; for the agent the composer's static-prefix
+     contract is honored via direct seam read at creation time + per-send env. The
+     consumers list below overstated the agent coupling; treat the agent as a
+     static-prefix consumer of the seam, env-as-per-send.
    load_bearing: false
    title: ordered fragment list → effective system message (composer)
    purpose: |
@@ -6098,6 +6111,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      inside preset.el (jf/gptel-preset-<name>--system), evaluated when the .el loads;
      functionally equivalent to tangle-time bake for the static-prerender invariant
      (no per-send re-render), via a constant rather than a baked string literal.
+     cycle-1781941375 addendum (wire-fragment-sources-load): the <name>/preset.el
+     discovery this entry describes gained a SIBLING — a flat-glob loader for
+     presets/sources/*.el (register/boundary/sources-directory-load, confirmed this
+     cycle) loading fragment SOURCE modules (the dynamic env, the static prelude/
+     preamble). Both run from config/gptel/presets/registration.* and are sequenced in
+     gptel.org after presets/fragments.el. arch-cycle-1781941375-eoc-1 flags the two
+     loaders share ~all skeleton (differ only in subdir-descent vs flat-glob); a
+     shared-helper extraction is the next-plan meta-discovery. workspace-flip relies on
+     this boundary: it sets jf/gptel-workspace-initial-preset to the preset NAME symbol
+     'workspace-assistant (= source basename registered via <name>/preset.el).
    load_bearing: false
    title: preset .org → tangled .el → gptel-make-preset registration
    purpose: |
@@ -6165,9 +6188,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/sources-directory-load
    tier: boundary
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-1781901xxx plan forward-mode: NEW speculative boundary. Seeded from
+     cycle-1781941375 plan forward-mode: NEW speculative boundary. Seeded from
      cycle-1781900938 handshake meta-discovery #3 (source-load-wiring): migrating a
      defun into presets/sources/*.el creates a production-dark seam until gptel.org
      loads it. migrate-environment shipped its env tail dark (the source is never
@@ -6179,6 +6202,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      task (wire-fragment-sources-load) covers all three sources rather than an
      explicit per-source load list that must be extended each time. Pressure-tested
      by wire-fragment-sources-load this cycle.
+     cycle-1781941375 integrate: speculated → CONFIRMED. wire-fragment-sources-load
+     implemented all three stages exactly as speculated: a flat-glob directory loader
+     (jf/gptel-fragment-sources-directory / load-sources-all) loads presets/sources/*.el
+     once at gptel init, AFTER presets/fragments.el (seam defvars defined) and BEFORE
+     the chat/agent/env consumers; post-condition holds (jf/gptel-fragment-environment-fn
+     is the env producer, not #'ignore, in a loaded session). Implementor push-back
+     confirmed the directory loader is the right mechanism (both open questions —
+     inter-source ordering, must-not-autoload — resolved in its favor). On-touch
+     architect (arch-cycle-1781941375-1) verified load order; end-of-cycle architect
+     (arch-cycle-1781941375-eoc-3) confirmed implemented-as-speculated. The prior
+     env-source production-wiring NB on static-prerender-dynamic-compose is now CLEARED
+     (env source is loaded at init). KNOWN REFINEMENT (advisory, not divergent): the
+     loader swallows a per-source load-time error with a warn-only log, leaving that
+     source's seam at its default (dark) — same gap as the mirrored
+     jf/gptel-preset-register-all. Externalised to
+     .tasks/harden-sources-loader-against-partial-load-failure.md (reviewer +
+     arch-cycle-1781941375-eoc-1/eoc-4); next plan meta-discovery proposes extracting
+     ONE shared loader helper and setting the load-error policy symmetrically for
+     presets and sources at once. Stage-2 can_fail_with:[load-error] remains the
+     accurate contract; the failure POLICY is the open refinement, not the shape.
    load_bearing: false
    title: presets/sources/*.el → loaded at gptel init (directory loader)
    purpose: |
@@ -9047,6 +9090,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (:kind dynamic :fn FN) tail ref via jf/gptel-fragment-environment-fn; no static
      re-render at compose time. (NB production-load wiring of the env source is tracked by
      wire-fragment-sources-load; the invariant property itself holds.)
+     cycle-1781941375 RE-AFFIRMED + NB CLEARED. (1) wire-fragment-sources-load loads the
+     env source at gptel init, so the dynamic env tail is now live in production (the prior
+     NB is resolved). (2) migrate-prelude-preamble migrated the chat prelude and agent
+     preamble from defconsts into STATIC fragment sources (presets/sources/{emacs-prelude,
+     agent-preamble}) consumed verbatim via the composer seam defvars — no per-send render.
+     SPEC-SIGNAL noted (migrate reviewer + arch eoc): "render at tangle time" is realized
+     as a LOAD-TIME render-once cached in the source .el + an idempotent committed .txt
+     mirror, because org-babel-tangle-file cannot run jf/gptel-fragment-render during
+     tangling. This preserves the invariant's INTENT (no per-send re-render; static prefix
+     byte-stable & cacheable; committed text diffable) and is functionally equivalent to a
+     tangle-time bake (a constant rather than a baked literal). The statement's "at tangle
+     time" wording is therefore read as "ahead of send, once, into committed text", NOT as
+     "literally during org-babel-tangle". On-touch (arch-cycle-1781941375-1) CLEARED all
+     five checks incl. static-prefix byte-stability and env-out-of-prefix. KNOWN test gap
+     (advisory, not a property failure): the .txt golden specs are tautological in a
+     writable checkout (the load-time mirror rewrites the artifact before the spec reads it)
+     → in-change followup harden-fragment-txt-golden.
    load_bearing: true
    title: static fragments pre-render at tangle time; dynamic evaluate at compose time
    statement: |
