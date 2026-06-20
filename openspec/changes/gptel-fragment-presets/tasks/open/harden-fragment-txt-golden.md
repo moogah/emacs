@@ -29,12 +29,36 @@ that.
 Advisory (non-blocking): the migrate task merged clean and the failing-set stayed
 at baseline. This is a test-quality follow-up, not a correctness regression.
 
+## Cycle 5 plan note (cycle-1781944619 — final cycle)
+
+The prelude/preamble `.txt` goldens live in (verified at plan): the agent-preamble
+golden in `config/gptel/tools/test/persistent-agent/creation-spec.el`, the prelude
+golden in `config/gptel/chat/test/menu/environment-preamble-spec.el`, and the
+fragment-render comparison in `config/gptel/presets/test/composer-spec.el`. The
+load-time mirror writers are in `config/gptel/presets/sources/emacs-prelude.el`
+(`write-region` of `jf/gptel-fragment-emacs-prelude--text` → `emacs-prelude.txt`)
+and `config/gptel/presets/sources/agent-preamble.el`. Stub/avoid that mirror writer
+(via `cl-letf`) — or read the committed bytes before any load runs — so the golden
+observes committed-vs-rendered drift.
+
+**Batch & merge order this cycle:** [extract-shared-loader-helper-failpolicy →
+**this task** → delete-old-presets]. This task OWNS the three golden spec files
+above; it must NOT touch `registration.{org,el}`/`load-sources-spec.el`/
+`registration-spec.el` (owned by extract-shared-loader-helper-failpolicy) nor delete
+`presets/*.md` (owned by delete-old-presets). `delete-old-presets` merges last and
+refreshes the snapshot AFTER this task's restructured golden lands.
+
+This task's `register/invariant/static-prerender-dynamic-compose` citation: the
+invariant's wording was reconciled this plan (load-time render-once + committed
+mirror is the normative mechanism — see interfaces.org status_note); the golden must
+enforce exactly that committed-mirror-is-in-sync property.
+
 ## Files to modify
 
-- `config/gptel/presets/sources/*-spec.el` (or wherever the prelude/preamble `.txt`
-  goldens live — the spec added/changed by migrate-prelude-preamble) — restructure
-  so the assertion compares the **on-disk committed** `.txt` against a freshly
-  rendered value WITHOUT the load-time mirror having rewritten it first.
+- The three golden spec files named above — restructure so the assertion compares
+  the **on-disk committed** `.txt` against a freshly rendered value WITHOUT the
+  load-time mirror having rewritten it first (stub the mirror writer with `cl-letf`,
+  or snapshot the committed bytes before load).
 
 ## Implementation steps
 

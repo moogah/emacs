@@ -81,6 +81,31 @@ so a fixture dependency cannot silently break the suite (design Risks).
   ignores flat `.md` files in `presets/` (only descends `<name>/preset.el` subdirs), so
   the old `.md` presets are already inert at runtime — deletion is cleanup, not behavior.
 
+## Cycle 5 updates (cycle-1781944619 — final cycle)
+
+> This is the change's **final** cycle. This task is batched with two
+> robustness/test-quality tasks and **merges LAST** so its snapshot refresh
+> captures the complete, final test suite.
+
+- **Batch = [extract-shared-loader-helper-failpolicy, harden-fragment-txt-golden,
+  delete-old-presets]**; merge order: loader-helper → txt-golden → **this task last**.
+  Both sibling tasks ADD/restructure specs (a load-error spec in
+  `load-sources-spec.el`/`registration-spec.el`; a drift-catching golden in
+  `creation-spec.el`/`environment-preamble-spec.el`/`composer-spec.el`). The
+  test-report snapshot this task refreshes (step 5) MUST be taken **after** those
+  land — refreshing earlier would commit a snapshot that goes stale the moment the
+  sibling specs merge.
+- **Re-run the snapshot refresh against the merged tree**, not against an
+  intermediate state. If executed in a worktree, rebase/refresh the snapshot at
+  merge time (merge-order-3) rather than at implementation time.
+- Write-set is otherwise disjoint from the siblings: this task deletes flat
+  `presets/*.md` and refreshes `test-report` snapshots; it does **not** touch
+  `registration.{org,el}` (owned by extract-shared-loader-helper-failpolicy) or the
+  golden specs (owned by harden-fragment-txt-golden).
+- Everything from the Cycle 4 stanza below still holds (protect active
+  `presets/registration.*` and `presets/sources/*`; only flat legacy `.md` in scope;
+  safety grep first).
+
 ## Cycle 4 updates (cycle-1781941375)
 
 > ALL blockers cleared — this task is now **ready** and is the last remaining

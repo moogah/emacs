@@ -9105,12 +9105,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      "literally during org-babel-tangle". On-touch (arch-cycle-1781941375-1) CLEARED all
      five checks incl. static-prefix byte-stability and env-out-of-prefix. KNOWN test gap
      (advisory, not a property failure): the .txt golden specs are tautological in a
-     writable checkout (the load-time mirror rewrites the artifact before the spec reads it)
+     writable checkout (the load-time mirror rewrites the artifact before the spec reads it,
+     cycle-1781944619 in-change followup harden-fragment-txt-golden).
+     cycle-1781944619 (plan) WORDING RECONCILED per user disposition of
+     ask-cycle-1781941375-invariant-wording: the user accepted that load-time render-once +
+     committed .txt mirror satisfies this invariant and chose to reconcile the statement
+     phrasing (no code change). The normative mechanism is now "rendered ahead of send, once,
+     into committed text" rather than "literally during org-babel-tangle"; INTENT unchanged
+     (no per-send re-render; static prefix byte-stable & cacheable; committed text diffable).
+     title/statement/why_it_matters edited to match; the literal "tangle-time availability
+     risk" retired (load-time render-once carries no tangle-step dependency). ORIGINAL spec-signal note follows:
      → in-change followup harden-fragment-txt-golden.
    load_bearing: true
-   title: static fragments pre-render at tangle time; dynamic evaluate at compose time
+   title: static fragments pre-render ahead of send (once, into committed text); dynamic evaluate at compose time
    statement: |
-     A static fragment SHALL render to committed text at tangle time, and the
+     A static fragment SHALL render to committed text ahead of send — once, at
+     load time, into a committed mirror artifact — and the
      composer SHALL consume that pre-rendered text with no compose-time
      rendering work. A dynamic fragment SHALL produce its text by evaluating
      a function at compose time, and its default position SHALL be the tail
@@ -9126,8 +9136,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      If a static fragment were re-rendered per send (or a dynamic fragment were
      placed ahead of the static prefix), the cacheable prefix would change on
      every send — silently inflating cost and defeating prompt caching with no
-     visible error. The split is also why static pre-render must run as a
-     batch/tangle step (renderer batch-loadable — tangle-time availability risk).
+     visible error. The split is realized by rendering each static fragment
+     once at load time into a committed text mirror (org-babel-tangle-file
+     cannot run the renderer mid-tangle); the renderer remains batch-loadable
+     so this load-time render-once has no interactive-Emacs dependency.
 
    enforcement_mechanism:
      kind: test
