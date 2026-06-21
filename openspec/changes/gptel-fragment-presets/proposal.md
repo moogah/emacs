@@ -1,3 +1,25 @@
+---
+status: confirmed
+status_set_at: 2026-06-21T00:00:00Z
+status_set_by: pm
+confirmed_after_cycle: cycle-1781944619
+confirmed_basis: |
+  Five forward-chain cycles executed cleanly with no goal-drift signals
+  (cycle-1781883616, -1781885402, -1781900938, -1781941375, -1781944619).
+  All named outcomes are reached: the fragment/composition/section model +
+  backend-parametrized renderer + composer; static pre-render / dynamic
+  compose-time split; migration of all three hard-coded pieces (chat prelude,
+  agent preamble, environment block) to fragment sources; the .org->.el preset
+  pipeline replacing the YAML .md frontmatter pipeline; two new presets
+  (workspace-assistant, system-explorer); the workspace initial-preset flip;
+  and the final fresh-start deletion of the 11 legacy .md presets. The final
+  cycle's batch landed done + author-blind reviewed with the full-suite
+  failing-set byte-identical to baseline (no regressions). tasks/open/ is empty.
+  Ready for verify + archive. Two cross-cutting residues were externalised to
+  .tasks/ (session-creation default 'executor; gptel test-report snapshot hygiene)
+  — both out of this change's scope.
+---
+
 ## Why
 
 The gptel presets (markdown files with YAML frontmatter, body sent verbatim as

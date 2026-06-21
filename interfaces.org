@@ -6121,6 +6121,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      shared-helper extraction is the next-plan meta-discovery. workspace-flip relies on
      this boundary: it sets jf/gptel-workspace-initial-preset to the preset NAME symbol
      'workspace-assistant (= source basename registered via <name>/preset.el).
+     cycle-1781944619 (FINAL) addendum: (1) the register-all <name>/preset.el discovery
+     now routes through the shared jf/gptel--load-directory helper (with
+     jf/gptel-preset--discover-preset-els as its thin discovery fn) alongside the sources
+     loader — the eoc-1 duplication between them is closed; the descent contract itself is
+     unchanged. (2) delete-old-presets removed the 11 legacy flat .md presets, which this
+     boundary already ignored (it descends <name>/preset.el subdirs only) — confirming the
+     flat .md files were inert at registration. NOTE (out-of-scope, externalised
+     .tasks/repoint-session-creation-default-preset-off-executor): the session-creation
+     default 'executor names a preset with no <name>/preset.el, so it resolves to nothing —
+     pre-existing (executor.md was already inert), now without an on-disk trace.
    load_bearing: false
    title: preset .org → tangled .el → gptel-make-preset registration
    purpose: |
@@ -6222,6 +6232,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      ONE shared loader helper and setting the load-error policy symmetrically for
      presets and sources at once. Stage-2 can_fail_with:[load-error] remains the
      accurate contract; the failure POLICY is the open refinement, not the shape.
+     cycle-1781944619 (FINAL) RECONCILED — the open load-error POLICY is now closed.
+     extract-shared-loader-helper-failpolicy extracted ONE shared
+     jf/gptel--load-directory(directory discover-fn seam label) helper that BOTH this
+     loader and jf/gptel-preset-register-all route through (closing
+     arch-cycle-1781941375-eoc-1 duplication→blocking), and gave it a symmetric
+     NON-silent fail-policy: a per-entry condition-case logs the load error at ERROR
+     level (naming the file + dark seam) and records it in jf/gptel--loader-failures,
+     queryable via jf/gptel-loader-failures / jf/gptel-loader-seam-dark-p — a single bad
+     source no longer hard-fails gptel init, but its dark seam is now DETECTABLE rather
+     than silently warn-logged (closing eoc-4 invariant-gap). Stage-3's "seam NOT
+     #'ignore after init" post-condition is now observably checkable. Author-blind
+     review CLEAN (0 findings); duplication verified genuinely eliminated (the two
+     discovery halves — subdir-descent vs flat-glob — are legitimately distinct, not
+     copy-paste). The externalised .tasks/harden-sources-loader-against-partial-load-failure
+     was PROMOTED in-change this cycle to realize this.
    load_bearing: false
    title: presets/sources/*.el → loaded at gptel init (directory loader)
    purpose: |
