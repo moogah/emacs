@@ -1,0 +1,116 @@
+#+title: Workspaces — home.org Reader
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle home-org.el
+#+auto_tangle: y
+
+Lightweight reader for a workspace's =home.org= file.  Lives separately
+from =data-model.org= because it performs file I/O — =data-model= is
+the pure, side-effect-free layer and that property must be preserved.
+
+This module exposes three functions:
+
+- =workspace-home-org-path HOME= — pure path resolver.
+- =workspace-home-org-exists-p HOME= — readability check.
+- =workspace-home-org-title HOME= — live regex read of the =#+TITLE:=
+  keyword.
+
+The reader has two contractual properties pinned by
+=register/boundary/home-org-read-pipeline=:
+
+1. *NO caching layer.*  Every call re-reads the file.  Callers compose
+   =(or (workspace-home-org-title home) basename)= and pay the read
+   cost on each lookup; the cost stays acceptable because of property 2.
+2. *NO =org-mode= load.*  The implementation uses =with-temp-buffer=
+   plus =insert-file-contents= and a regex; it deliberately avoids
+   =org-collect-keywords= because activating =org-mode= for this lookup
+   would be ~10× slower and would pull =org-load-hook= side-effects
+   into a display-name query (design.md §D4).
+
+The reader also pins =register/invariant/home-org-user-authored-after-
+creation=: this file MUST contain zero file-write primitives
+(=write-region=, =with-temp-file=, =append-to-file=, =delete-file=,
+=rename-file=, =copy-file=, =write-file=, =save-buffer=).  The package
+writes =home.org= exactly once, in the scaffolder (cycle 2); nothing
+in this module ever mutates the file.
+
+* Lexical Binding
+
+The =:comments no= header keeps =org-babel-tangle= from inserting
+structure comments above the mode-line — without it, =lexical-binding:
+t= would not land on line 1 of the tangled file and Emacs would
+silently fall back to dynamic binding.
+
+#+begin_src emacs-lisp :comments no
+;;; home-org.el --- Workspaces home.org reader -*- lexical-binding: t; -*-
+#+end_src
+
+* Path resolution (stage 1)
+
+Pure helper: turn a workspace =HOME= directory into the absolute path
+of its =home.org= file.  No I/O, no environment lookups, no defcustom
+consultation — just =expand-file-name=.
+
+#+begin_src emacs-lisp
+(defun workspace-home-org-path (home)
+  "Return the absolute path to `home.org' inside HOME directory.
+HOME is the workspace's home directory (an absolute path)."
+  (expand-file-name "home.org" home))
+#+end_src
+
+* Existence check (stage 2)
+
+Standalone readability check.  Used both by the anchor-existing flow
+(cycle 2) to distinguish "repo + home.org" from "repo + no home.org",
+and as stage 2 of the title-read pipeline below.  Both consumers want
+the same answer; do not fork the predicate.
+
+#+begin_src emacs-lisp
+(defun workspace-home-org-exists-p (home)
+  "Return non-nil if HOME contains a readable `home.org' file."
+  (file-readable-p (workspace-home-org-path home)))
+#+end_src
+
+* Title reader (stages 3-5)
+
+Regex scan for the =#+TITLE:= keyword.  Returns a trimmed non-empty
+string, or nil at any short-circuit:
+
+- Stage 2 short-circuit: file is missing or unreadable.
+- Stage 4 short-circuit: no =#+TITLE:= line in the file.
+- Stage 5 short-circuit: the matched value is empty after trimming.
+
+Case-insensitive: =case-fold-search= defaults to =t= in temp buffers,
+so the regex matches =#+title:=, =#+Title:=, etc.  If a future Emacs
+release changes that default the spec scenario for lowercase keywords
+will fail and the test will signal the need for an explicit
+=(let ((case-fold-search t)) ...)= wrap.
+
+The =#+TITLE:= keyword need not be on the first line — comments above
+it are permitted (and exist in some user dashboards).  The regex
+anchors to the start of a line via =^=, so it skips intervening lines
+without confusion.
+
+#+begin_src emacs-lisp
+(defun workspace-home-org-title (home)
+  "Return the trimmed `#+TITLE:' keyword value from HOME/home.org, or nil.
+Returns nil if the file is missing, unreadable, has no `#+TITLE:'
+keyword, or has only whitespace after the keyword.
+
+Live read on every call — no caching.  Implementation uses a regex
+on a temp buffer; `org-mode' is never activated."
+  (let ((path (workspace-home-org-path home)))
+    (when (file-readable-p path)
+      (with-temp-buffer
+        (insert-file-contents path)
+        (goto-char (point-min))
+        (when (re-search-forward "^#\\+TITLE:[ \t]+\\(.*\\)$" nil t)
+          (let ((title (string-trim (match-string 1))))
+            (and (not (string-empty-p title)) title)))))))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspace-home-org)
+;;; home-org.el ends here
+#+end_src

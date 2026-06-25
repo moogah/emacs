@@ -71,6 +71,8 @@
   ;; Production scope modules
   (require 'jf-gptel-scope-shell-tools
            (expand-file-name "scope/scope-shell-tools.el" gptel-dir))
+  (require 'jf-gptel-scope-filesystem-tools
+           (expand-file-name "scope/scope-filesystem-tools.el" gptel-dir))
   (require 'jf-gptel-scope-expansion
            (expand-file-name "scope/scope-expansion.el" gptel-dir))
   (require 'gptel))
@@ -251,59 +253,70 @@ Increments the shared counter and records the result."
       ;; tool-1's result is LOST
       (expect (assoc :tool-1 parallel--tool-results) :to-be nil)))
 
-  (it "CORRECT: both callbacks fire via queue when user responds to each prompt"
-    ;; Uses the REAL queue-aware prompt-expansion. Mocks transient-setup
-    ;; to capture scopes, then simulates user responding to each sequentially.
-    (let* ((config (parallel--make-empty-scope-config))
-           (tool (parallel--find-tool "run_bash_command"))
+  (it "CORRECT: both callbacks fire via queue driving the REAL deny suffix (non-empty scope)"
+    ;; CORRECTED: the former version used an EMPTY scope and funcalled the
+    ;; captured :callback with a hand-built denial JSON.  Empty scope means the
+    ;; denial payload's allowed-patterns is empty, so it never exercised the
+    ;; list->array serialization that crashed under a REAL scope
+    ;; (.tasks/scope-deny-symbolp-crash-parallel-tools.md).  This version uses a
+    ;; NON-EMPTY scope and drives the production `jf/gptel-scope--deny-expansion'
+    ;; suffix, so the denial payload carries allowed-patterns and must serialize.
+    ;; Uses the filesystem tool (not bash) so the assertion does not depend on
+    ;; bash-parser state, which is shared/fragile across specs in batch runs.
+    (let* ((root (file-name-as-directory (make-temp-file "ptc-root-" t)))
+           (config (helpers-spec-make-scope-config
+                    :read (list (concat root "**")) :write '() :execute '()
+                    :modify '() :deny '() :auth-detection "warn"))
+           (a (make-temp-file "ptc-a-"))   ; OUTSIDE root -> denied read
+           (b (make-temp-file "ptc-b-"))
+           (read-tool (parallel--find-tool "read_file_in_scope"))
            (ntools 2)
            (transient-scopes nil))
+      (unwind-protect
+          (progn
+            (spy-on 'jf/gptel-scope--load-config :and-return-value config)
 
-      (spy-on 'jf/gptel-scope--load-config :and-return-value config)
+            ;; Let prompt-expansion run (queue-aware), capture transient-setup.
+            (spy-on 'transient-setup
+                    :and-call-fake
+                    (lambda (_prefix &rest args)
+                      (push (plist-get (cddr args) :scope) transient-scopes)))
+            (spy-on 'transient-quit-one)
 
-      ;; Let prompt-expansion run (queue-aware), but capture transient-setup calls
-      (spy-on 'transient-setup
-              :and-call-fake
-              (lambda (_prefix &rest args)
-                (let ((scope (plist-get (cddr args) :scope)))
-                  (push scope transient-scopes))))
+            (setq jf/gptel-scope--expansion-active nil)
+            (setq jf/gptel-scope--expansion-queue nil)
 
-      ;; Reset queue state
-      (setq jf/gptel-scope--expansion-active nil)
-      (setq jf/gptel-scope--expansion-queue nil)
+            ;; Fire both tools (simulating gptel's mapc).  Both read outside the
+            ;; root, so both deny with a non-empty allowed-patterns list.
+            (funcall (gptel-tool-function read-tool)
+                     (parallel--make-process-tool-result :tool-1) a)
+            (funcall (gptel-tool-function read-tool)
+                     (parallel--make-process-tool-result :tool-2) b)
 
-      ;; Fire both tools (simulating mapc)
-      (let ((default-directory "/"))
-        (funcall (gptel-tool-function tool)
-                 (parallel--make-process-tool-result :tool-1)
-                 "which brew")
+            ;; First transient shown, second queued.
+            (expect (length transient-scopes) :to-equal 1)
+            (expect (length jf/gptel-scope--expansion-queue) :to-equal 1)
 
-        (funcall (gptel-tool-function tool)
-                 (parallel--make-process-tool-result :tool-2)
-                 "ls -la /usr/local/bin/brew"))
+            ;; Drive the REAL deny suffix for the shown transient; it pumps the
+            ;; queue, which shows (captures) the next one.  Deny that too.
+            (cl-letf (((symbol-function 'transient-scope)
+                       (lambda (&rest _) (car transient-scopes))))
+              (jf/gptel-scope--deny-expansion))
+            (expect (length transient-scopes) :to-equal 2)
+            (cl-letf (((symbol-function 'transient-scope)
+                       (lambda (&rest _) (car transient-scopes))))
+              (jf/gptel-scope--deny-expansion))
 
-      ;; First transient shown, second queued
-      (expect (length transient-scopes) :to-equal 1)
-      (expect (length jf/gptel-scope--expansion-queue) :to-equal 1)
-
-      ;; User responds to first prompt (deny)
-      (let ((cb-1 (plist-get (car transient-scopes) :callback)))
-        (funcall cb-1 (json-serialize (list :success :false :user_denied t))))
-      ;; Process queue — shows second prompt
-      (jf/gptel-scope--process-expansion-queue)
-
-      ;; Second transient now shown
-      (expect (length transient-scopes) :to-equal 2)
-
-      ;; User responds to second prompt (deny)
-      (let ((cb-2 (plist-get (car transient-scopes) :callback)))
-        (funcall cb-2 (json-serialize (list :success :false :user_denied t))))
-      (jf/gptel-scope--process-expansion-queue)
-
-      ;; Both callbacks fired
-      (expect parallel--callback-count :to-equal ntools)
-      (expect (assoc :tool-1 parallel--tool-results) :to-be-truthy)
-      (expect (assoc :tool-2 parallel--tool-results) :to-be-truthy)))
+            ;; Both callbacks fired with a real, serialized denial — FSM advances.
+            (expect parallel--callback-count :to-equal ntools)
+            (expect (assoc :tool-1 parallel--tool-results) :to-be-truthy)
+            (expect (assoc :tool-2 parallel--tool-results) :to-be-truthy)
+            ;; And the delivered denial carries the array field that crashed.
+            (let ((r (cdr (assoc :tool-1 parallel--tool-results))))
+              (expect (plist-get r :success) :not :to-be t)))
+        (delete-file a)
+        (delete-file b)
+        (delete-directory root t))))
 
 
   (it "CORRECT: FSM counter reaches ntools via queue for session to advance"

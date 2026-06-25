@@ -140,14 +140,31 @@ Run this after preset registration to inject skill content into presets."
 (jf/load-module (expand-file-name "config/gptel/sessions/constants.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/sessions/logging.el" jf/emacs-dir))
 
-;; Ensure yaml parser is available
-(require 'yaml)
+;; Load the fragment renderer/parser (prompt-fragments capability foundation).
+;; Must load BEFORE preset registration and before the chat/agent/env consumers
+;; that compose system messages from fragments. Depends only on logging (used
+;; optionally, when present) so it sits right after constants/logging.
+(jf/load-module (jf/resolve-module-path "gptel/presets/fragments"))
 
-;; Load preset registration module
-(jf/load-module (expand-file-name "config/gptel/preset-registration.el" jf/emacs-dir))
+;; Load the fragment-era preset registration module. Fragments must load first
+;; (a preset .el may render its role fragment at load time); registration must
+;; load before the scope/session consumers that read its side tables.
+(jf/load-module (jf/resolve-module-path "gptel/presets/registration"))
 
-;; Register all presets from config/gptel/presets/*.md
+;; Load and register all presets: each config/gptel/presets/<name>/preset.el
+;; self-registers via `jf/gptel-preset-register'.
 (jf/gptel-preset-register-all)
+
+;; Load the fragment SOURCE modules (flat config/gptel/presets/sources/*.el).
+;; Each source populates a composer seam as a side effect (the dynamic
+;; environment fragment today; the static prelude/preamble fragments next).
+;; Sequenced AFTER presets/fragments.el (loaded above with registration; it
+;; defvars the seam vars) and BEFORE the chat/agent/env consumers (menu.el,
+;; persistent-agent.el) that read those seams. `load'ing a source `provide's
+;; its feature, so menu.el's soft (require 'jf-gptel-fragment-environment nil t)
+;; resolves naturally. A directory loader (not an explicit per-source list)
+;; means new sources need no further gptel.org edit.
+(jf/gptel-fragment--load-sources-all)
 
 ;; After preset registration, expand skills in preset system prompts
 (jf/gptel-preset--expand-all-preset-skills)
@@ -194,17 +211,19 @@ Run this after preset registration to inject skill content into presets."
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
 
+;; Load workspace integration (gptel-side consumer of the workspace
+;; integration registry; depends on `jf/gptel--create-session-core' /
+;; `jf/gptel--generate-session-id' from commands.el / filesystem.el).
+;; Registration is wrapped in `with-eval-after-load 'workspaces' so it
+;; is load-order-independent and inert when workspaces is absent.
+(jf/load-module (expand-file-name "config/gptel/sessions/workspace-integration.el" jf/emacs-dir))
+
 ;; Load PersistentAgent tool (requires session modules + commands to be loaded first;
 ;; depends on `jf/gptel--create-session-core' from sessions/commands.el)
 (jf/load-module (expand-file-name "config/gptel/tools/persistent-agent.el" jf/emacs-dir))
 
 ;; Load scope-aware filesystem tools (read_file_in_scope, write_file_in_scope, edit_file_in_scope)
 (jf/load-module (expand-file-name "config/gptel/scope/scope-filesystem-tools.el" jf/emacs-dir))
-
-;; Load activities integration (optional - only if activities package is loaded)
-;; Enables creating persistent gptel sessions as part of activity creation
-(when (featurep 'activities)
-  (jf/load-module (expand-file-name "config/gptel/sessions/activities-integration.el" jf/emacs-dir)))
 
 ;; Drawer corruption trace — standalone diagnostic for the property
 ;; drawer stacking bug. Commented out to rule out trace hooks as a

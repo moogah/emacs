@@ -62,6 +62,21 @@
 ;; `config/gptel/sessions/constants.org'.  Declaring lets this module
 ;; compile and write the binding without pulling sessions in.
 (defvar jf/gptel--parent-session-id)
+
+;; Stable role source for the pre-send environment-block composer.
+;; Holds the ROLE content (the system-prompt body) WITHOUT any
+;; environment block, set wherever role content is installed into
+;; `gptel--system-message' (preset `:system', legacy `:GPTEL_SYSTEM:'
+;; drawer entry, or sibling system-prompt file).  The pre-send composer
+;; rebuilds `gptel--system-message' WHOLESALE as `role + env-block' from
+;; this base (no-sibling-file case) so the composed value never feeds
+;; back into the next composition — it is write-only output, never an
+;; input (register/invariant/composed-system-message-write-only).  The
+;; env block is NEVER written here.
+(defvar-local gptel-chat--system-prompt-base nil
+  "Role content (system-prompt body) without the dynamic environment block.
+The stable source the pre-send composer rebuilds from when the buffer
+has no sibling system-prompt file.")
 ;; Forward declarations:1 ends here
 
 ;; Preset resolution
@@ -233,7 +248,11 @@ preset's composite-key logic (design.md §Decision 5)."
         ((`(,_preset ,system ,backend ,model ,temperature ,tokens ,num ,tools)
           (gptel-org--entry-properties (point-min))))
       (when system
-        (set (make-local-variable 'gptel--system-message) system))
+        (set (make-local-variable 'gptel--system-message) system)
+        ;; Capture the role body into the stable base alongside the
+        ;; system-message install — the base is role-only, never the
+        ;; composed `role + env-block' value.
+        (set (make-local-variable 'gptel-chat--system-prompt-base) system))
       (when backend
         (set (make-local-variable 'gptel-backend) backend))
       (when model
@@ -338,74 +357,191 @@ entry > preset `:system')."
                       (insert-file-contents path)
                       (buffer-string)))
               ((not (string-blank-p body))))
-    (set (make-local-variable 'gptel--system-message) body)))
+    (set (make-local-variable 'gptel--system-message) body)
+    ;; Keep the stable base consistent with the sibling-file body.  The
+    ;; composer prefers the freshly re-read sibling on each send, so this
+    ;; is belt-and-suspenders, but it keeps the base role-only (never the
+    ;; composed `role + env-block' value).
+    (set (make-local-variable 'gptel-chat--system-prompt-base) body)))
 ;; System Prompt sibling file:1 ends here
 
-;; Pre-send refresh
+;; Environment block — dynamic fragment
+
+;; The =# Environment= block is no longer built by an inline =defun= here.
+;; It is the canonical *dynamic fragment* of the =prompt-fragments=
+;; capability: =jf/gptel-fragment-environment=, evaluated at compose time
+;; and placed at the *tail* of the chat/agent default composition
+;; (=register/invariant/static-prerender-dynamic-compose=, load-bearing).
+;; Its source — including the verbatim-glob scope rendering, the "current
+;; as of this message" live note, and the degraded single-line fallback —
+;; lives in =config/gptel/presets/sources/environment.org=. The former
+;; =gptel-chat--build-environment-block= / =gptel-chat--render-scope-line=
+;; defuns were *relocated* there unchanged (wrap-and-relocate, not
+;; rewrite — design.md §Open Questions), so observable behaviour is
+;; preserved while the env block joins the fragment model.
+
+;; The function is wired into the composer through the seam variable
+;; =jf/gptel-fragment-environment-fn= (set by the environment source
+;; module to =#'jf/gptel-fragment-environment=). The pre-send composer
+;; below produces the env block by funcalling that seam — the SAME
+;; function the composer's default composition places at the tail — so
+;; there is exactly one producer.
+
+;; =jf-gptel-fragment-environment= is required softly (=nil t=) so this
+;; module stays load-safe when the presets sub-module has not loaded; the
+;; symbol resolves at pre-send time (chat-mode buffers exist only after
+;; the gptel subsystem, including the presets sources, has loaded). The
+;; forward declaration suppresses the byte-compiler warning.
+
+
+;; [[file:menu.org::*Environment block — dynamic fragment][Environment block — dynamic fragment:1]]
+(require 'jf-gptel-fragments nil t)
+(require 'jf-gptel-fragment-environment nil t)
+(require 'jf-gptel-fragment-emacs-prelude nil t)
+(declare-function jf/gptel-fragment-environment
+                  "jf-gptel-fragment-environment" (&optional context))
+(declare-function jf/gptel-fragment--default-composition
+                  "jf-gptel-fragments" (context &optional role-ref))
+(declare-function jf/gptel-fragment-ref-static "jf-gptel-fragments" (text))
+(declare-function jf/gptel-fragment-compose
+                  "jf-gptel-fragments" (composition backend &optional context))
+(defvar jf/gptel-fragment-environment-fn)
+(defvar jf/gptel-fragment-chat-prelude-text)
+;; Environment block — dynamic fragment:1 ends here
+
+;; Pre-send composition
 
 ;; =gptel-chat--refresh-system-prompt-from-file= is the runtime
-;; counterpart of the activation-time installer above: every
-;; =gptel-request= dispatched from a chat-mode buffer re-reads the
-;; sibling file before the request body's keyword-argument defaulting
-;; picks up =gptel--system-message= (design.md §Decision 4).  A mid-
-;; session edit to =system-prompt.md= is therefore reflected on the
-;; next send without the user having to revert =session.org= or
-;; re-open the buffer.
+;; composer: every =gptel-request= dispatched from a chat-mode buffer
+;; recomposes =gptel--system-message= WHOLESALE before the request body's
+;; keyword-argument defaulting picks =gptel--system-message= up
+;; (design.md §Decision 4, D1, D4).  It does NOT re-implement composition:
+;; it resolves the ROLE from a stable source, wraps it in a static
+;; fragment reference, and hands it to the canonical composer
+;; (=jf/gptel-fragment--default-composition= + =jf/gptel-fragment-compose=,
+;; =register/boundary/composer-compose=).  The composer places the chat
+;; prelude (lead, from the =jf/gptel-fragment-chat-prelude-text= seam), the
+;; role, and the dynamic environment fragment (tail, from the
+;; =jf/gptel-fragment-environment-fn= seam) in
+;; =register/invariant/context-default-composition= order — chat →
+;; =[emacs-prelude(static), role, environment(dynamic)]= — skipping any
+;; empty contribution.  Two things matter on every send:
 
-;; Wiring choice: an upstream =gptel-pre-send-hook= does not exist
+;; 1. The ROLE is resolved from a *stable source* — the sibling
+;;    =system-prompt.<ext>= file re-read fresh each send (so a mid-
+;;    session edit to =system-prompt.md= is reflected on the next send
+;;    without reverting =session.org=), else the buffer-local role base
+;;    =gptel-chat--system-prompt-base=.  The composed
+;;    =gptel--system-message= is NEVER read back as an input
+;;    (=register/invariant/composed-system-message-write-only=): it is
+;;    write-only output, so the prelude/role/env never accumulate across
+;;    sends and a mid-session scope-drawer edit shows up next compose.
+;; 2. The static prelude leads and the dynamic =# Environment= block tails;
+;;    the prelude is pre-rendered (consumed verbatim, never re-rendered per
+;;    send), the env is the only per-send work — keeping the static prefix
+;;    cacheable (=register/invariant/static-prerender-dynamic-compose=).
+
+;; Wiring choice (D1): an upstream =gptel-pre-send-hook= does not exist
 ;; (only =gptel-post-request-hook=, =gptel-request.el:180=), so this
-;; module installs a global =:before= advice on =gptel-request= and
-;; filters with =(derived-mode-p 'gptel-chat-mode)= so non-chat-mode
-;; callers pay zero cost.  The advice install runs at module load and
-;; is idempotent under re-tangle / reload.
+;; module installs a SINGLE global =:before= advice on =gptel-request=
+;; and filters with =(derived-mode-p 'gptel-chat-mode)= so non-chat-mode
+;; callers pay zero cost.  One widened composer, not a second advice —
+;; deterministic order (env always after the role read), no advice-
+;; ordering fragility.  The advice install runs at module load and is
+;; idempotent under re-tangle / reload.
 
-;; The function mirrors the activation-time installer's defensive
-;; behaviour: nil property → no-op; unreadable file → log + leave
-;; cache; blank body → leave cache.  Only a readable, non-blank file
-;; updates the buffer-local cache.
+;; Role resolution mirrors the activation-time installer's defensive
+;; behaviour: a set =:GPTEL_SYSTEM_PROMPT_FILE:= whose sibling file is
+;; unreadable logs a 'warn-level message and falls back to the role base
+;; rather than dropping the prompt; a blank sibling body also falls back
+;; to the base.  When no sibling property is set, the role is the base
+;; (or =""= when nil).  The env block is appended in every case.
 
 
-;; [[file:menu.org::*Pre-send refresh][Pre-send refresh:1]]
+;; [[file:menu.org::*Pre-send composition][Pre-send composition:1]]
 (defun gptel-chat--refresh-system-prompt-from-file (&rest _)
-  "Re-read sibling `system-prompt.<ext>' into `gptel--system-message'.
+  "Recompose `gptel--system-message' as role + environment block.
 
 Called via `:before' advice on `gptel-request' (see the wiring
 below) so every chat request submitted from a `gptel-chat-mode'
-buffer picks up the current contents of the sibling file before
-dispatch.  Because `gptel-request' defaults its `:system' keyword
-argument to `gptel--system-message' at call time (cl-defun keyword
-defaulting), updating the buffer-local value in `:before' advice
-is sufficient — the request body picks up the refreshed value
-automatically.
+buffer recomposes its system message before dispatch.  Because
+`gptel-request' defaults its `:system' keyword argument to
+`gptel--system-message' at call time (cl-defun keyword defaulting),
+updating the buffer-local value in `:before' advice is sufficient —
+the request body picks up the recomposed value automatically.
+
+The composed value is set WHOLESALE each send from STABLE sources
+only — never from the prior `gptel--system-message' — so the prelude
+and environment block never accumulate across sends and a mid-session
+scope change appears on the next send
+\(`register/invariant/composed-system-message-write-only', D1/D2/D4).
+
+This function does NOT re-implement composition.  It resolves the ROLE
+from a stable source, wraps it in a static fragment reference, and
+hands it to the canonical composer (`jf/gptel-fragment--default-
+composition' + `jf/gptel-fragment-compose',
+`register/boundary/composer-compose').  The composer places the parts
+in `register/invariant/context-default-composition' order:
+
+  PRELUDE = the static `emacs-prelude' fragment text (via the
+            `jf/gptel-fragment-chat-prelude-text' seam), ALWAYS leading,
+            pre-rendered and consumed verbatim (never re-rendered).
+  ROLE    = sibling `system-prompt.<ext>' body, re-read fresh each send
+            when `:GPTEL_SYSTEM_PROMPT_FILE:' is set and the file is
+            readable and non-blank; otherwise the buffer-local role
+            base `gptel-chat--system-prompt-base' (or \"\" when nil).
+  ENV     = the dynamic env fragment `jf/gptel-fragment-environment'
+            (via the `jf/gptel-fragment-environment-fn' seam), evaluated
+            at compose time and placed at the TAIL (D4).
+
+Empty/whitespace contributions are skipped by the composer, so an
+absent role collapses cleanly while the prelude still leads.
 
 No-op when the current buffer is not a `gptel-chat-mode' buffer
-(non-chat-mode `gptel-request' callers see zero cost) or when the
-drawer carries no `:GPTEL_SYSTEM_PROMPT_FILE:' property.
+\(non-chat-mode `gptel-request' callers see only the predicate check
+and never have their system message touched).
 
-When the property is set but the file is unreadable, logs a
-'warn-level message via `jf/gptel--log' and leaves the previously
-installed buffer-local value in place — mirrors
-`gptel-chat--apply-system-prompt-file's defensive behaviour and
-ensures a transient filesystem hiccup does not silently drop the
-system prompt.
-
-A blank file body also leaves the cache in place (consistent with
-the activation-time installer's `string-blank-p' check).
+When `:GPTEL_SYSTEM_PROMPT_FILE:' is set but the file is unreadable,
+logs a 'warn-level message via `jf/gptel--log' and falls back to the
+role base — mirrors `gptel-chat--apply-system-prompt-file's defensive
+behaviour and ensures a transient filesystem hiccup does not silently
+drop the system prompt.  A blank file body also falls back to the
+base.  The role base is also refreshed from a readable, non-blank
+sibling body so it stays role-only and aligned with the file.
 
 The `&rest _' parameter swallows whatever args advice forwards
 from `gptel-request' — the advice does not need to inspect them;
 the function operates on the buffer-local context."
   (when (derived-mode-p 'gptel-chat-mode)
-    (when-let* ((path (gptel-chat--system-prompt-file-path)))
-      (if (file-readable-p path)
-          (let ((body (with-temp-buffer
-                        (insert-file-contents path)
-                        (buffer-string))))
-            (unless (string-blank-p body)
-              (set (make-local-variable 'gptel--system-message) body)))
-        (jf/gptel--log 'warn
-                       "system-prompt sibling file unreadable: %s"
-                       path)))))
+    (let* ((role
+            (or (when-let* ((path (gptel-chat--system-prompt-file-path)))
+                  (if (file-readable-p path)
+                      (let ((body (with-temp-buffer
+                                    (insert-file-contents path)
+                                    (buffer-string))))
+                        (unless (string-blank-p body)
+                          ;; Keep the stable base aligned with the
+                          ;; re-read sibling body — role-only, never the
+                          ;; composed value.
+                          (set (make-local-variable
+                                'gptel-chat--system-prompt-base)
+                               body)
+                          body))
+                    (jf/gptel--log 'warn
+                                   "system-prompt sibling file unreadable: %s"
+                                   path)
+                    nil))
+                gptel-chat--system-prompt-base
+                ""))
+           ;; Hand the composer the resolved ROLE as a static fragment
+           ;; reference; it places the chat prelude (lead) and the env
+           ;; (tail) from their seams in the canonical chat order and
+           ;; skips any empty contribution.  We do NOT concat the parts
+           ;; ourselves (`register/boundary/composer-compose').
+           (composition (jf/gptel-fragment--default-composition
+                         'chat (jf/gptel-fragment-ref-static role))))
+      (set (make-local-variable 'gptel--system-message)
+           (jf/gptel-fragment-compose composition 'claude 'chat)))))
 
 ;; Install the :before advice at module load.  `advice-add' is
 ;; idempotent for the same (function, where, advice) triple, so
@@ -415,7 +551,7 @@ the function operates on the buffer-local context."
 ;; only the predicate check.
 (advice-add 'gptel-request :before
             #'gptel-chat--refresh-system-prompt-from-file)
-;; Pre-send refresh:1 ends here
+;; Pre-send composition:1 ends here
 
 ;; Edit affordance
 
@@ -583,7 +719,15 @@ triggers a `display-warning' rather than an error, matching upstream
         (progn
           (gptel--apply-preset
            preset
-           (lambda (sym val) (set (make-local-variable sym) val)))
+           (lambda (sym val)
+             (set (make-local-variable sym) val)
+             ;; Mirror the preset's `:system' role body into the stable
+             ;; base — the base holds role-only content (no environment
+             ;; block) and is the source the pre-send composer rebuilds
+             ;; from for the no-sibling-file case.
+             (when (eq sym 'gptel--system-message)
+               (set (make-local-variable 'gptel-chat--system-prompt-base)
+                    val))))
           (gptel-chat--apply-drawer-overrides))
       (display-warning
        '(gptel-chat presets)

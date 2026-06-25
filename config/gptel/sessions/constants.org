@@ -82,9 +82,6 @@ Uses org-mode format for better structure and linking.")
   "File name for system prompt change log.
 Uses org-mode format for better structure.")
 
-(defconst jf/gptel-session--current-link "current"
-  "Name of symlink pointing to current conversation position.")
-
 (defconst jf/gptel-session--agents-dir "agents"
   "Directory name for agent sessions within parent session.")
 

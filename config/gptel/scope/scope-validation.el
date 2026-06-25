@@ -957,12 +957,109 @@ CHECK-RESULT is the validation result plist."
           :command command
           :directory directory
           :required-scope required-scope
-          :allowed-patterns patterns
-          :deny-patterns deny-patterns
+          ;; JSON arrays MUST be vectors — `json-serialize' rejects a
+          ;; Lisp list (it reads it as an alist/object).  Empty -> [].
+          ;; See `jf/gptel-scope--serialize-tool-result'.
+          :allowed-patterns (vconcat patterns)
+          :deny-patterns (vconcat deny-patterns)
           :message (or custom-message
                       (format "Tool '%s' denied for resource '%s'. Use request_scope_expansion to ask user for approval."
                              tool-name resource)))))
 ;; Error Formatting:1 ends here
+
+;; Tool Result Serialization
+
+;; The single canonical exit for EVERY scope tool result — allow, deny,
+;; allow-once, add-to-scope, and the bare-tool acknowledgements. Routing
+;; every result through one serializer means the model-facing JSON contract
+;; (array fields are JSON arrays; string leaves are UTF-8 safe) is enforced
+;; in exactly one place instead of being re-decided at each =json-serialize=
+;; call site. This module owns it because it is the common ancestor every
+;; scope module already requires (=scope-tool-wrapper=, =scope-expansion=,
+;; =scope-shell-tools=, =scope-filesystem-tools= all depend on it
+;; transitively), so no new requires are introduced.
+
+;; =json-serialize= signals =wrong-type-argument= in two situations we must
+;; absorb:
+
+;; 1. *Array shape.* Emacs =json-serialize= has no list→array rule: a
+;;    non-keyword-headed list is treated as an alist/object, so a list of
+;;    scalars (e.g. the =:allowed-patterns= denial payload built by
+;;    =format-tool-error=) raises =(wrong-type-argument symbolp "<first
+;;    element>")=. This was the parallel-deny crash / session hang
+;;    (=.tasks/scope-deny-symbolp-crash-parallel-tools.md=).
+;; 2. *String bytes.* A string leaf containing raw bytes that are not valid
+;;    UTF-8 — e.g. =run_bash_command= subprocess output under a broken
+;;    locale.
+
+
+;; [[file:scope-validation.org::*Tool Result Serialization][Tool Result Serialization:1]]
+(defun jf/gptel-scope--sanitize-for-json (value)
+  "Return VALUE reshaped so `json-serialize' always accepts it.
+Applied recursively through plists, alists, lists, and vectors:
+
+1. ARRAY SHAPE.  A non-keyword-headed list of scalars is coerced to a
+   vector (JSON array).  A genuine alist (every element a cons) is a
+   valid JSON object and is preserved as-is; a plist (keyword-headed) is
+   walked key/value with keys preserved verbatim.
+2. STRING BYTES.  String leaves that `json-serialize' rejects (raw bytes
+   that are not valid UTF-8) are decoded as Latin-1 so every byte maps to
+   a valid Unicode code point.  Multibyte UTF-8 content is preserved (the
+   sanitizer only descends into a string when `json-serialize' rejected
+   it)."
+  (cond
+   ((stringp value)
+    (condition-case nil
+        (progn (json-serialize value) value)
+      (wrong-type-argument
+       (decode-coding-string
+        (if (multibyte-string-p value)
+            (encode-coding-string value 'utf-8 t)
+          value)
+        'latin-1))))
+   ((vectorp value)
+    (vconcat (mapcar #'jf/gptel-scope--sanitize-for-json
+                     (append value nil))))
+   ((and (consp value) (keywordp (car value)))
+    ;; plist — walk key/value pairs, preserve keys verbatim
+    (cl-loop for (k v) on value by #'cddr
+             append (list k (jf/gptel-scope--sanitize-for-json v))))
+   ((and (consp value) (cl-every #'consp value))
+    ;; alist — a legitimate JSON object; leave its shape intact
+    value)
+   ((consp value)
+    ;; any other list is a JSON array — coerce to a vector
+    (vconcat (mapcar #'jf/gptel-scope--sanitize-for-json value)))
+   (t value)))
+
+(defun jf/gptel-scope--serialize-tool-result (result)
+  "Serialize RESULT to a multibyte JSON string for the model.
+Single canonical exit for every scope tool result; see the section
+commentary for why the JSON contract is enforced here.
+
+`json-serialize' returns a UNIBYTE string of UTF-8 bytes, which a later
+serialization pass (upstream gptel re-encoding our result as the
+`:content' of a `tool_result' message) REJECTS when bytes are >= #x80.
+Decoding back to a multibyte string sidesteps that check.
+
+Total by construction: a first `wrong-type-argument' retries through
+`jf/gptel-scope--sanitize-for-json'; a second failure degrades to a
+serializable error payload rather than throwing, so the caller's callback
+always receives a string and gptel's tool FSM can never wedge on a
+serialization error (the session-hang failure mode)."
+  (let ((unibyte
+         (condition-case _err
+             (json-serialize result)
+           (wrong-type-argument
+            (condition-case _err2
+                (json-serialize (jf/gptel-scope--sanitize-for-json result))
+              (error
+               (json-serialize
+                (list :success :false
+                      :error "serialization_error"
+                      :message "Tool result could not be serialized to JSON."))))))))
+    (decode-coding-string unibyte 'utf-8)))
+;; Tool Result Serialization:1 ends here
 
 ;; Trigger Inline Expansion
 

@@ -108,8 +108,16 @@ body (i.e., where `#+end_assistant' will eventually be inserted)."
   "Return a minimal `gptel-tool' struct with NAME for test fixtures.
 Only the `name' slot is consulted by the stream callback; the
 other required slots (`function', `description') are set to
-benign stand-ins so `gptel-make-tool' accepts the spec."
-  (gptel-make-tool
+benign stand-ins.
+
+Uses `gptel--make-tool' (the bare struct constructor), NOT
+`gptel-make-tool': the latter REGISTERS the tool in the global
+`gptel--known-tools' alist by name, so a fixture named after a real
+tool (e.g. \"run_bash_command\") clobbers the real tool's function
+with `ignore' for the rest of the batch run, silently breaking every
+later spec that invokes it.  The struct is passed directly into the
+stream event, so registration is unnecessary as well as harmful."
+  (gptel--make-tool
    :name name
    :function #'ignore
    :description (format "test tool %s" name)

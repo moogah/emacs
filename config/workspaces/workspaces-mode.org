@@ -1,0 +1,159 @@
+#+title: Workspaces — Idle save mode
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle workspaces-mode.el
+#+auto_tangle: y
+
+Opt-in background save mode for the [[file:workspaces.org][workspaces]]
+package.  Adds an idle timer that periodically captures the current
+workspace's =:working-state= so that an unexpected Emacs exit (crash,
+forced kill) loses at most one idle-frequency window of work.
+
+This is the /third/ persistence path, layered atop the two paths that
+=workspaces= provides unconditionally:
+
+1. /Explicit save/ (=C-x w S=) — writes =:saved-state= and flushes
+   synchronously.
+2. /Tab-switch autosave/ — captures =:working-state= before any
+   =tab-bar-select-tab= / =tab-bar-switch-to-tab=.
+3. /Idle save/ (this module, opt-in) — captures =:working-state=
+   after N seconds of idle time.
+
+The mode is /off by default/.  The package =require='s this module so
+=M-x workspaces-mode= is available, but the user must explicitly enable
+it (typically in =init.org=).  Design rationale in
+=openspec/changes/refine-workspaces-two-state-layout/design.md= §D6;
+catalog pattern 8.
+
+* Lexical Binding
+
+The =:comments no= flag is load-bearing: without it the org-mode
+tangle prefixes the file with a "Generated from ..." comment header
+and the =lexical-binding: t= cookie falls off line 1, silently
+demoting the module to dynamic binding.
+
+#+begin_src emacs-lisp :comments no
+;;; workspaces-mode.el --- Idle-timer crash-safety mode -*- lexical-binding: t; -*-
+#+end_src
+
+* Requirements
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+The mode depends on =workspace--current-name= (from =tabs.el=),
+=workspace--autosave-current-layout= (from =layouts.el=), and
+=workspace--flush-state= (from =persistence.el=).  All are loaded
+earlier in the package's submodule sequence; no =(require 'workspaces)=
+is needed here (and would be circular — =workspaces.el= loads this
+module).  The idle tick fires only at runtime, after the full package
+is loaded, so the forward reference to =workspace--flush-state= is safe;
+it is declared to silence the byte-compiler.
+
+#+begin_src emacs-lisp
+(declare-function workspace--flush-state "workspace-persistence")
+#+end_src
+
+* Defcustom
+
+#+begin_src emacs-lisp
+(defcustom workspaces-mode-idle-frequency 60
+  "Seconds of idle time before `workspaces-mode' captures :working-state.
+Set to nil to disable the idle-save trigger while keeping the mode on
+\(rare; the explicit save and tab-switch autosave remain active)."
+  :type '(choice (number :tag "Seconds")
+                 (const :tag "Disabled" nil))
+  :group 'workspaces)
+#+end_src
+
+The default of 60s is intentionally far above
+=activities-mode-idle-frequency='s 5s (catalog Q4 + design D6).
+Tab-switch autosave already covers most intra-session state; the idle
+save is purely a crash-safety net.  Sixty seconds of work is a
+tolerable loss window; five seconds of disk churn is not.
+
+* Idle timer state
+
+#+begin_src emacs-lisp
+(defvar workspaces-mode--idle-timer nil
+  "Active idle timer for `workspaces-mode'.
+Set when the mode is enabled, cleared when disabled.  Internal — do
+not bind directly; toggle the mode instead.")
+#+end_src
+
+* Idle-tick callback
+
+The =(when (workspace--current-name) ...)= guard is the FIRST form of
+the body and load-bearing.  See =register/invariant/idle-tick-no-op-
+off-workspace= in =interfaces.org=.  The slot keyword is passed
+explicitly: =workspace--autosave-current-layout= takes a REQUIRED-SLOT
+signature (cycle-1 inline-fix b70a5b4) and an omitted slot raises
+=wrong-number-of-arguments=.
+
+The idle tick is stage-1 entry-point #4 of
+=register/boundary/autosave-guard-pipeline=: it MUST consult
+=workspace-anti-save-predicates= before invoking the autosave.  The
+=unless= wrap nests inside the =when= so the FIRST form of the body
+remains the current-name guard (preserves the invariant test's
+structural shape).  The three persistence.org entry points have the
+same wrap shape; see =config/workspaces/persistence.org= "Hook into
+tab switch advice" and "Kill-emacs flush" sections.
+
+#+begin_src emacs-lisp
+(defun workspaces-mode--idle-tick ()
+  "Idle-timer body for `workspaces-mode'.
+Captures the current workspace's :working-state and flushes it to disk
+synchronously.  No-op when no workspace is current (e.g. transient state
+between `workspace-close' and `workspace-switch', or a frame that has
+never been on a workspaces-managed tab).  Also no-op when any predicate
+in `workspace-anti-save-predicates' returns non-nil — e.g. during
+minibuffer activity or when a *Backtrace* window is visible.
+
+The flush is synchronous (no debounce): the tick fires at most once per
+idle period, so there is no burst to coalesce, and a debounced write
+armed from within an already-long idle period would be deferred to a
+future idle period (the `run-with-idle-timer' already-idle trap),
+defeating the idle save's crash-safety purpose."
+  (when (workspace--current-name)
+    (unless (run-hook-with-args-until-success 'workspace-anti-save-predicates)
+      (workspace--autosave-current-layout :working-state)
+      (workspace--flush-state))))
+#+end_src
+
+* The mode
+
+#+begin_src emacs-lisp
+(define-minor-mode workspaces-mode
+  "Global minor mode for periodic background save of workspace working state.
+When enabled, runs an idle timer (interval
+`workspaces-mode-idle-frequency') that captures the current
+workspace's :working-state, providing a crash-safety net atop the
+explicit save and tab-switch autosave.  Off by default."
+  :global t
+  :group 'workspaces
+  (when workspaces-mode--idle-timer
+    (cancel-timer workspaces-mode--idle-timer)
+    (setq workspaces-mode--idle-timer nil))
+  (when (and workspaces-mode workspaces-mode-idle-frequency)
+    (setq workspaces-mode--idle-timer
+          (run-with-idle-timer workspaces-mode-idle-frequency
+                               t
+                               #'workspaces-mode--idle-tick))))
+#+end_src
+
+Note the =t= second argument to =run-with-idle-timer=: the timer
+re-fires after every idle interval, not just once per idle period.
+Without this, the user could idle for an hour, get one save, then
+return and stop being saved until the next intentional idle period.
+
+The toggle body unconditionally cancels any existing timer before
+considering whether to install a new one.  This makes the body
+idempotent and safe to call repeatedly (e.g. =M-x workspaces-mode= on
+an already-enabled mode is a no-op net of cancel-and-reinstall).
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'workspaces-mode)
+;;; workspaces-mode.el ends here
+#+end_src

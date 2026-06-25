@@ -1,4 +1,4 @@
-;;; preset-application-spec.el --- Drawer-driven preset application during auto-init -*- lexical-binding: t; -*-
+;;; preset-application-spec.el --- Drawer-driven preset application on content-addressed activation -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -7,8 +7,9 @@
 
 ;;; Commentary:
 
-;; Verify drawer-driven preset application for session buffers
-;; auto-initialised by `jf/gptel--auto-init-session-buffer':
+;; Verify drawer-driven preset application for content-addressed
+;; session buffers (activated via `magic-mode-alist' + the
+;; `gptel-chat-mode-hook' binder `jf/gptel--bind-session-buffer'):
 ;;
 ;; 1. A `:GPTEL_PRESET:' in the session.org `:PROPERTIES:' drawer drives
 ;;    the call to `gptel--apply-preset' via the chat-mode hook
@@ -83,7 +84,7 @@ Returns the absolute path of the created `session.org'."
               "#+end_user\n"))
     session-file))
 
-(describe "Drawer-driven auto-init (metadata.yml is NOT consulted)"
+(describe "Drawer-driven activation (metadata.yml is NOT consulted)"
 
   (after-each
     (dolist (key jf-gptel-preset-app-test--registry-keys)
@@ -93,10 +94,10 @@ Returns the absolute path of the created `session.org'."
   (describe "real-mode integration: drawer preset drives gptel--apply-preset"
 
     ;; Exercises the FULL real path — a real `session.org' on disk with
-    ;; a `:GPTEL_PRESET:' drawer, real `gptel-chat-mode' activation
-    ;; (which fires `gptel-chat-mode-hook' and thus
-    ;; `gptel-chat--apply-declared-preset'), and real `find-file' /
-    ;; `find-file-hook' triggering.  No `metadata.yml' is created.
+    ;; a `:GPTEL_PRESET:' drawer, real content-addressed activation via
+    ;; `magic-mode-alist' driving `gptel-chat-mode' (which fires
+    ;; `gptel-chat-mode-hook' and thus `gptel-chat--apply-declared-preset'),
+    ;; and real `find-file' triggering.  No `metadata.yml' is created.
 
     (let ((temp-root nil)
           (session-dir nil)
@@ -147,11 +148,12 @@ Returns the absolute path of the created `session.org'."
     ;; Detailed overlay semantics (which drawer keys map to which
     ;; buffer-locals, no-op for absent fields, buffer-local scoping)
     ;; live in `config/gptel/chat/test/menu/preset-wiring-spec.el'.
-    ;; Here we assert the integration point that matters for auto-
-    ;; init: when the chat-mode hook runs (which is what auto-init
-    ;; delegates drawer handling to), the overlay function
-    ;; `gptel-chat--apply-drawer-overrides' is invoked.  That proves
-    ;; auto-init does NOT need to do any drawer-handling work itself.
+    ;; Here we assert the integration point that matters for
+    ;; activation: when the chat-mode hook runs (which is what
+    ;; content-addressed activation delegates drawer handling to), the
+    ;; overlay function `gptel-chat--apply-drawer-overrides' is
+    ;; invoked.  That proves activation does NOT need to do any
+    ;; drawer-handling work itself.
 
     (let ((temp-root nil)
           (branch-dir nil)
@@ -182,7 +184,7 @@ Returns the absolute path of the created `session.org'."
         (when (and temp-root (file-directory-p temp-root))
           (delete-directory temp-root t)))
 
-      (it "invokes gptel-chat--apply-drawer-overrides during auto-init"
+      (it "invokes gptel-chat--apply-drawer-overrides during activation"
         (cl-letf* ((real-overlay
                     (symbol-function 'gptel-chat--apply-drawer-overrides))
                    ((symbol-function 'gptel-chat--apply-drawer-overrides)
@@ -238,75 +240,76 @@ Returns the absolute path of the created `session.org'."
           (expect jf/gptel--parent-session-id
                   :to-equal "parent-sess-20260420000000")))))
 
-  (describe "auto-init does NOT read metadata.yml"
+  (describe "content-addressed binding does NOT read metadata.yml"
 
-    ;; After this change, auto-init's only job is path-level setup +
-    ;; `gptel-chat-mode' activation.  It must NEVER read `metadata.yml'
-    ;; — the drawer is the authoritative source.  We verify by spying
-    ;; on `insert-file-contents' and asserting no call targets any path
-    ;; matching `metadata\\.yml$'.
+    ;; Activation/binding is content-addressed: the drawer is the
+    ;; authoritative source.  The `gptel-chat-mode-hook' binder
+    ;; (`jf/gptel--bind-session-buffer') must NEVER read `metadata.yml'.
+    ;; We verify by spying on `insert-file-contents' during binding and
+    ;; asserting no call targets any path matching `metadata\\.yml$'.
 
     (it "never calls insert-file-contents on a metadata.yml path"
-      (let ((buf (generate-new-buffer "session.org"))
+      (let ((temp-root (make-temp-file "gptel-no-meta-" t))
+            (buf nil)
             (metadata-reads nil)
             (original-insert-file-contents
              (symbol-function 'insert-file-contents)))
         (unwind-protect
-            (with-current-buffer buf
-              (setq buffer-file-name
-                    "/sessions/sess-no-meta/branches/main/session.org")
-              (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
-                        ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'insert-file-contents)
-                         (lambda (f &rest args)
-                           (when (and (stringp f)
-                                      (string-match-p
-                                       "metadata\\.yml\\'" f))
-                             (push f metadata-reads))
-                           ;; Pass through to the real implementation
-                           ;; only when the target actually exists;
-                           ;; otherwise simulate an empty read.  In
-                           ;; this test the buffer file does not exist
-                           ;; on disk, so nothing real is read.
-                           (ignore original-insert-file-contents)
-                           (list (or f "") 0)))
-                        ((symbol-function 'gptel-chat-mode)
-                         (lambda (&optional _) nil))
-                        ((symbol-function 'make-symbolic-link)
-                         (lambda (_t _l &optional _ok) nil))
-                        ((symbol-function 'delete-file)
-                         (lambda (_f &optional _trash) nil)))
-                (jf/gptel--auto-init-session-buffer)
+            (let* ((branch-dir
+                    (expand-file-name
+                     "sess-no-meta-20260501000000/branches/main" temp-root))
+                   (session-file
+                    (jf-gptel-test--write-session-with-drawer
+                     branch-dir 'default)))
+              (make-directory branch-dir t)
+              (setq buf (generate-new-buffer "session.org"))
+              (with-current-buffer buf
+                (setq buffer-file-name session-file)
+                (funcall original-insert-file-contents session-file)
+                (cl-letf (((symbol-function 'insert-file-contents)
+                           (lambda (f &rest args)
+                             (when (and (stringp f)
+                                        (string-match-p "metadata\\.yml\\'" f))
+                               (push f metadata-reads))
+                             (apply original-insert-file-contents f args))))
+                  (jf/gptel--bind-session-buffer))
                 (jf-gptel-preset-app-test--register-cleanup
-                 "sess-no-meta" "main")
+                 "sess-no-meta-20260501000000" "main")
                 (expect metadata-reads :to-be nil)))
-          (kill-buffer buf)))))
+          (when (buffer-live-p buf) (kill-buffer buf))
+          (when (file-directory-p temp-root)
+            (delete-directory temp-root t))))))
 
   (describe "gptel-mode (minor mode) is NEVER enabled"
 
-    (it "does NOT call (gptel-mode 1) during auto-init"
-      (let ((buf (generate-new-buffer "session.org"))
-            (gptel-mode-called nil))
+    (it "does NOT call (gptel-mode 1) during content-addressed binding"
+      (let ((temp-root (make-temp-file "gptel-no-gptelmode-" t))
+            (buf nil)
+            (gptel-mode-called nil)
+            (original-insert-file-contents
+             (symbol-function 'insert-file-contents)))
         (unwind-protect
-            (with-current-buffer buf
-              (setq buffer-file-name
-                    "/sessions/sess-no-gptelmode/branches/main/session.org")
-              (cl-letf (((symbol-function 'file-directory-p) (lambda (_) t))
-                        ((symbol-function 'file-exists-p) (lambda (_) t))
-                        ((symbol-function 'gptel-chat-mode)
-                         (lambda (&optional _) nil))
-                        ((symbol-function 'gptel-mode)
-                         (lambda (&optional _)
-                           (setq gptel-mode-called t)))
-                        ((symbol-function 'make-symbolic-link)
-                         (lambda (_t _l &optional _ok) nil))
-                        ((symbol-function 'delete-file)
-                         (lambda (_f &optional _trash) nil)))
-                (jf/gptel--auto-init-session-buffer)
+            (let* ((branch-dir
+                    (expand-file-name
+                     "sess-no-gptelmode-20260501000000/branches/main" temp-root))
+                   (session-file
+                    (jf-gptel-test--write-session-with-drawer
+                     branch-dir 'default)))
+              (make-directory branch-dir t)
+              (setq buf (generate-new-buffer "session.org"))
+              (with-current-buffer buf
+                (setq buffer-file-name session-file)
+                (funcall original-insert-file-contents session-file)
+                (cl-letf (((symbol-function 'gptel-mode)
+                           (lambda (&optional _)
+                             (setq gptel-mode-called t))))
+                  (jf/gptel--bind-session-buffer))
                 (jf-gptel-preset-app-test--register-cleanup
-                 "sess-no-gptelmode" "main")
+                 "sess-no-gptelmode-20260501000000" "main")
                 (expect gptel-mode-called :to-be nil)))
-          (kill-buffer buf))))))
+          (when (buffer-live-p buf) (kill-buffer buf))
+          (when (file-directory-p temp-root)
+            (delete-directory temp-root t)))))))
 
 ;;; --------------------------------------------------------------------------
 ;;; gptel-drawer-as-source-of-truth scenarios

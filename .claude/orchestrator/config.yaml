@@ -12,6 +12,15 @@ test:
   command: ./bin/run-tests.sh
   parser: exit-code
 
+# Scaffolding disabled for this elisp/literate-org project. Every task in the
+# active changes mandates "write the failing Buttercup spec first" — that IS
+# the executable contract scaffolding would otherwise provide, and elisp is
+# deeply dynamic (stub cost exceeds leverage). With this off, register entries
+# carry their contract in prose/validator YAML; the plan and integrate
+# scaffolding gate checks are no-ops. (See skill scaffolding.md § Overlay.)
+scaffolding:
+  enabled: false
+
 artifacts:
   tasks-root: openspec/changes/<change>/tasks
   externalised-root: .tasks

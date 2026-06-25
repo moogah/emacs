@@ -49,8 +49,15 @@
   "Build a minimal `gptel-tool' struct with NAME for test fixtures.
 Upstream emits tool-call / tool-result events as 3-lists
 `(TOOL-STRUCT ARGS CB-OR-RESULT)'; only the struct's name slot is
-consulted by the stream callback."
-  (gptel-make-tool
+consulted by the stream callback.
+
+Uses `gptel--make-tool' (the bare struct constructor), NOT
+`gptel-make-tool': the latter REGISTERS the tool in the global
+`gptel--known-tools' alist by name, so a fixture named after a real
+tool (e.g. \"run_bash_command\") clobbers the real tool's function
+with `ignore' for the rest of the batch run.  The struct is passed
+directly into the stream event, so registration is unnecessary."
+  (gptel--make-tool
    :name name
    :function #'ignore
    :description (format "test tool %s" name)

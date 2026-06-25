@@ -1,0 +1,473 @@
+#+title: GPTEL Preset Registration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle registration.el
+#+auto_tangle: y
+
+* Introduction
+
+Fragment-era preset registration for gptel. A preset is now authored as an
+=.org= source (an Elisp config block plus a static role fragment) that *tangles
+to an =.el= artifact*. The tangled =preset.el= renders its role fragment at
+tangle time and calls [[*Register a single preset][=jf/gptel-preset-register=]]
+with native-Elisp config keys and a pre-rendered =:system=. This module:
+
+1. Provides =jf/gptel-preset-register= — the public registration entry point each
+   tangled preset =.el= calls. It extracts scope and mode keys into side tables,
+   then registers the preset via upstream =gptel-make-preset=.
+2. Provides =jf/gptel-preset-register-all= — the loader that discovers tangled
+   preset =.el= artifacts (=config/gptel/presets/<name>/preset.el=) and =load=s
+   each so they self-register.
+
+The previous YAML pipeline (file parsing, snake-case key normalization, and
+value coercion) is *deleted*: Elisp config carries native types and needs no
+parsing / normalization / coercion (design §Decision 6). Scope and mode
+extraction are *retained* — they now read native Elisp directly. This module
+introduces *no* yaml dependency.
+
+This module supersedes the former =config/gptel/preset-registration.org=. It
+sits after the fragment renderer (=presets/fragments.el=) in the gptel load
+order so that any preset =.el= relying on the renderer at load time can find it.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; registration.el --- GPTEL Preset Registration -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2024-2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; Fragment-era preset registration.  Each preset .org tangles to an .el that
+;; renders its role fragment at tangle time and calls `jf/gptel-preset-register'
+;; with native-Elisp config and a pre-rendered :system.  This module extracts
+;; scope/mode keys into side tables and registers via `gptel-make-preset'.
+;; The YAML parse/normalize/coerce pipeline has been removed.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'seq)
+#+end_src
+
+* Scope Defaults Storage
+
+Alist mapping preset name symbols to scope plists extracted during registration.
+Scope keys (=:paths=, =:shell-commands=, =:bash-tools=, =:scope-profile=) are
+stripped from the preset plist and stored here for later use by the scope
+subsystem (=jf/gptel-scope-profile--resolve= in =scope-profiles.org= reads this
+alist). The legacy =:org-roam-patterns= key is *not* a scope key and is never
+extracted; a preset that still carries it triggers a =display-warning= but is
+otherwise registered without the legacy section flowing into scope-defaults.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-preset--scope-defaults nil
+  "Alist mapping preset name symbols to scope plists.
+Each entry is (PRESET-NAME . SCOPE-PLIST) where SCOPE-PLIST contains
+keys :paths, :shell-commands, :bash-tools, :scope-profile that were
+extracted from the preset config during registration.  The legacy
+:org-roam-patterns key is not extracted; see
+`jf/gptel-preset--extract-scope' for the legacy-key warning behavior.")
+#+end_src
+
+* Mode Defaults Storage
+
+Alist mapping preset name symbols to mode plists extracted during registration.
+The =:mode= key is stripped from the preset plist and stored here for later use
+by the session subsystem when determining file format (org-mode vs
+markdown-mode). Defaults to ="org-mode"= when a preset does not declare =:mode=.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-preset--mode-defaults nil
+  "Alist mapping preset name symbols to mode plists.
+Each entry is (PRESET-NAME . MODE-PLIST) where MODE-PLIST contains
+the :mode key extracted from the preset config during registration.
+Valid :mode values are \"org-mode\" and \"markdown-mode\".
+Defaults to \"org-mode\" when not specified in the preset.")
+#+end_src
+
+* Extract Scope
+
+Strip scope-related keys from the config plist and store them in
+=jf/gptel-preset--scope-defaults=. Reads native Elisp keys directly — there is no
+YAML normalization step preceding extraction.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--extract-scope (plist preset-name)
+  "Extract scope keys from PLIST and store under PRESET-NAME.
+Scope keys are :paths, :shell-commands, :bash-tools, and :scope-profile.
+If any scope keys are present, store them in `jf/gptel-preset--scope-defaults'
+keyed by PRESET-NAME (a symbol).
+Return a new plist with scope keys removed.
+
+Legacy keys (currently `:org-roam-patterns'): cycle-3 removed pattern-based
+validation from the scope subsystem; the key no longer has a consumer.  Presets
+that still carry it trigger a `display-warning' naming the preset and the
+ignored key, and the key is dropped from both the scope plist and the returned
+config (it is not a scope key, so it never reaches scope-defaults)."
+  (let ((scope-keys '(:paths :shell-commands :bash-tools :scope-profile))
+        (legacy-scope-keys '(:org-roam-patterns))
+        (scope-plist nil)
+        (legacy-keys-present nil)
+        (result nil))
+    ;; Walk the plist once: collect live scope keys, note legacy keys (and
+    ;; drop them from both scope-plist and result), pass through everything
+    ;; else.
+    (let ((remaining plist))
+      (while remaining
+        (let ((key (pop remaining))
+              (val (pop remaining)))
+          (cond
+           ((memq key legacy-scope-keys)
+            (push key legacy-keys-present))
+           ((memq key scope-keys)
+            (setq scope-plist (plist-put scope-plist key val)))
+           (t
+            (setq result (plist-put result key val)))))))
+    ;; Surface legacy keys via display-warning so the user can clean up.
+    (when legacy-keys-present
+      (display-warning
+       'jf-gptel-preset
+       (format "Preset %S carries legacy scope key(s) %S; the key(s) are ignored. Remove from the preset definition."
+               preset-name (nreverse legacy-keys-present))
+       :warning))
+    ;; Store scope defaults if any live scope keys were found.
+    (when scope-plist
+      (let ((existing (assq preset-name jf/gptel-preset--scope-defaults)))
+        (if existing
+            (setcdr existing scope-plist)
+          (push (cons preset-name scope-plist) jf/gptel-preset--scope-defaults))))
+    result))
+#+end_src
+
+* Extract Mode
+
+Strip the =:mode= key from the config plist and store it in
+=jf/gptel-preset--mode-defaults=. Defaults to ="org-mode"= when not specified.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--extract-mode (plist preset-name)
+  "Extract :mode key from PLIST and store under PRESET-NAME.
+If :mode is present, validate it and store in `jf/gptel-preset--mode-defaults'
+keyed by PRESET-NAME (a symbol).  If :mode is absent, store the default
+\"org-mode\".  Valid values are \"org-mode\" and \"markdown-mode\".
+Return a new plist with :mode removed."
+  (let ((mode-val (plist-get plist :mode))
+        (result nil))
+    ;; Build result plist without :mode.
+    (let ((remaining plist))
+      (while remaining
+        (let ((key (pop remaining))
+              (val (pop remaining)))
+          (unless (eq key :mode)
+            (setq result (plist-put result key val))))))
+    ;; Default to "org-mode" if not specified.
+    (let ((effective-mode (or mode-val "org-mode")))
+      ;; Validate.
+      (unless (member effective-mode '("org-mode" "markdown-mode"))
+        (when (fboundp 'jf/gptel--log)
+          (jf/gptel--log 'warn "Preset %s has invalid :mode \"%s\", defaulting to org-mode"
+                         preset-name effective-mode))
+        (setq effective-mode "org-mode"))
+      ;; Store in side table.
+      (let ((mode-plist (list :mode effective-mode))
+            (existing (assq preset-name jf/gptel-preset--mode-defaults)))
+        (if existing
+            (setcdr existing mode-plist)
+          (push (cons preset-name mode-plist) jf/gptel-preset--mode-defaults))))
+    result))
+#+end_src
+
+* Shared Directory Loader and Load-Error Fail-Policy
+
+The two directory loaders below — =jf/gptel-preset-register-all= (descends
+=<name>/preset.el=) and =jf/gptel-fragment--load-sources-all= (globs flat
+=sources/*.el=) — share their entire skeleton: check the directory exists,
+discover the entries, =load= each one inside a =condition-case=, count the
+successes, and log the total. They also shared a *defect*: a single entry whose
+=.el= signalled on load was swallowed with only a *warn*-level log, leaving the
+composer seam that entry was meant to populate at its dark default
+(=#'ignore= for the env seam; an unregistered preset for the preset seam) —
+the exact dark-seam outcome these loaders exist to prevent, now reachable via a
+runtime load error instead of a missing load step.
+
+This section extracts ONE shared helper, =jf/gptel--load-directory=, that both
+loaders route through. It owns directory globbing, the per-entry
+=condition-case=, and the **non-silent load-error fail-policy**:
+
+- A single bad entry does *not* hard-fail the load — the remaining entries still
+  load, so one broken source/preset never darkens the whole of gptel init.
+- A load error is logged at **error** level (not warn), naming the *file* AND
+  the *seam* it failed to populate.
+- The failure is *recorded* in =jf/gptel--loader-failures= so a post-init
+  self-check (=jf/gptel-loader-seam-dark-p=) can assert "N entr(ies) failed;
+  seam X is dark" rather than the failure being silently warn-and-forgotten.
+
+The recorded-failure approach (over fail-loud re-signal) is deliberate: the
+cited boundary contract for both loaders is "a single bad source/preset SHOULD
+NOT hard-fail all of gptel init", and gptel init runs unattended at startup —
+re-signalling would abort the whole subsystem on one bad entry. Recording +
+error-logging keeps the failure loud and *detectable* without taking down the
+seams that loaded fine.
+
+** Failure registry
+
+#+begin_src emacs-lisp
+(defvar jf/gptel--loader-failures nil
+  "List of load-error failure records from the directory loaders.
+Each element is a plist (:file FILE :seam SEAM :error MESSAGE) recorded
+by `jf/gptel--load-directory' when an entry's `.el' signals on load.
+SEAM is the composer-seam symbol that entry failed to populate (e.g.
+`jf/gptel-fragment-environment-fn' for a fragment source,
+`gptel--known-presets' for a preset).  A post-init self-check
+(`jf/gptel-loader-seam-dark-p') reads this to report which seams are
+dark.  Cleared with `jf/gptel-loader-clear-failures'.")
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-loader-clear-failures ()
+  "Clear the recorded directory-loader failure registry.
+Call before a fresh (re-)load pass so stale failures from a previous
+pass do not linger in `jf/gptel--loader-failures'."
+  (setq jf/gptel--loader-failures nil))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-loader-failures (&optional seam)
+  "Return recorded directory-loader failures.
+With SEAM non-nil, return only the failure records whose :seam matches
+SEAM; otherwise return all records.  Each record is a plist
+\(:file FILE :seam SEAM :error MESSAGE)."
+  (if seam
+      (seq-filter (lambda (rec) (eq (plist-get rec :seam) seam))
+                  jf/gptel--loader-failures)
+    jf/gptel--loader-failures))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-loader-seam-dark-p (seam)
+  "Return non-nil if SEAM has a recorded load failure.
+A truthy result means at least one entry that should have populated SEAM
+failed to load, so SEAM may still hold its dark default.  This is the
+post-init self-check the load-error fail-policy exposes: callers can
+assert seams are live, or surface which seams are dark, instead of a
+silent warn-and-continue."
+  (and (jf/gptel-loader-failures seam) t))
+#+end_src
+
+** Shared glob-and-load helper
+
+#+begin_src emacs-lisp
+(defun jf/gptel--load-directory (directory discover-fn seam label)
+  "Load every entry DISCOVER-FN finds under DIRECTORY, guarding each load.
+DISCOVER-FN is a function of one argument (DIRECTORY) returning the
+ordered list of `.el' files to `load'.  SEAM is the composer-seam symbol
+the loaded entries are expected to populate (used in error logs and
+recorded against failures).  LABEL is a short human string for log
+messages (e.g. \"fragment source\", \"preset\").
+
+Each entry is `load'ed inside a `condition-case'.  A load that signals is
+NOT swallowed silently: it is logged at ERROR level naming the file and
+SEAM, and recorded in `jf/gptel--loader-failures' so
+`jf/gptel-loader-seam-dark-p' can report SEAM as dark.  One bad entry
+does not abort the others.
+
+A missing DIRECTORY is a graceful no-op (warn-logged) returning 0.
+Returns the count of entries that loaded successfully."
+  (let ((count 0))
+    (if (or (null directory) (not (file-directory-p directory)))
+        (when (fboundp 'jf/gptel--log)
+          (jf/gptel--log 'warn "%s directory does not exist: %s"
+                         (capitalize label) directory))
+      (dolist (entry (funcall discover-fn directory))
+        (when (file-readable-p entry)
+          (condition-case err
+              (progn
+                (load entry nil t)
+                (setq count (1+ count)))
+            (error
+             (let ((msg (error-message-string err)))
+               (when (fboundp 'jf/gptel--log)
+                 (jf/gptel--log
+                  'error
+                  "Error loading %s %s: %s (seam %s left unpopulated)"
+                  label entry msg seam))
+               (push (list :file entry :seam seam :error msg)
+                     jf/gptel--loader-failures))))))
+      (when (fboundp 'jf/gptel--log)
+        (jf/gptel--log 'info "Loaded %d %s(s) from %s"
+                       count label directory)))
+    count))
+#+end_src
+
+* Register a Single Preset
+
+The public registration entry point. Each tangled preset =.el= calls this with
+its name symbol and a native-Elisp config plist (already carrying =:system= as
+the rendered role text). Scope and mode keys are extracted into the side tables;
+the remaining config is handed to upstream =gptel-make-preset=.
+
+Registration is idempotent: =gptel-make-preset= keys =gptel--known-presets= by
+NAME, so re-loading a preset =.el= (after an edit + re-tangle) updates the
+existing entry rather than duplicating it.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset-register (name &rest config)
+  "Register the preset NAME with native-Elisp CONFIG.
+NAME is a symbol (typically the preset's source basename).  CONFIG is a
+plist of native-Elisp gptel-preset keys; :system, when present, is the
+preset's pre-rendered role text.
+
+Scope keys (:paths :shell-commands :bash-tools :scope-profile) are
+extracted into `jf/gptel-preset--scope-defaults' and removed from the
+plist; the legacy :org-roam-patterns key is dropped (see
+`jf/gptel-preset--extract-scope').  The :mode key is extracted into
+`jf/gptel-preset--mode-defaults' (default \"org-mode\").  The remaining
+config is registered via upstream `gptel-make-preset', keyed by NAME.
+
+Idempotent: re-calling with the same NAME updates the existing entry.
+Returns NAME."
+  (let* ((scope-cleaned (jf/gptel-preset--extract-scope config name))
+         (cleaned (jf/gptel-preset--extract-mode scope-cleaned name)))
+    (apply #'gptel-make-preset name cleaned)
+    name))
+#+end_src
+
+* Register All Presets
+
+Discover and load the tangled preset =.el= artifacts so each self-registers.
+Preset sources live one-per-subdirectory under =jf/gptel-presets-directory= as
+=<name>/preset.org= tangling to =<name>/preset.el=; the preset name is the
+subdirectory basename. The loader =load=s each =preset.el= (which calls
+=jf/gptel-preset-register=). =load=ing is idempotent at the registration layer.
+
+Discovery (which =<name>/preset.el= files exist) is its own thin function so
+the shared =jf/gptel--load-directory= helper owns only globbing + the per-entry
+guard; the subdir-descent shape stays here.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset--discover-preset-els (presets-dir)
+  "Return the list of `<name>/preset.el' files under PRESETS-DIR.
+Descends each immediate subdirectory of PRESETS-DIR and collects its
+`preset.el' (the tangled, self-registering preset artifact).
+Subdirectories without a `preset.el' are skipped.  This is the
+discovery half of `jf/gptel-preset-register-all'; the load + fail-policy
+half lives in `jf/gptel--load-directory'."
+  (let (entries)
+    (dolist (subdir (directory-files presets-dir t directory-files-no-dot-files-regexp))
+      (when (file-directory-p subdir)
+        (let ((preset-el (expand-file-name "preset.el" subdir)))
+          (when (file-exists-p preset-el)
+            (push preset-el entries)))))
+    (nreverse entries)))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-preset-register-all ()
+  "Load all tangled preset .el artifacts so they self-register.
+Discovers `<jf/gptel-presets-directory>/<name>/preset.el' files and
+`load's each.  Each preset.el renders its role fragment (at tangle time)
+and calls `jf/gptel-preset-register', which extracts scope/mode keys and
+registers via `gptel-make-preset'.
+
+This function is idempotent -- re-loading a preset.el updates the
+existing entry.  Routes through `jf/gptel--load-directory', which owns the
+per-entry `condition-case' and the non-silent load-error fail-policy: a
+preset whose .el signals on load is logged at ERROR level and recorded in
+`jf/gptel--loader-failures' (seam `gptel--known-presets'), not silently
+swallowed.  Logs the count of loaded preset artifacts."
+  (interactive)
+  (jf/gptel--load-directory
+   (and (boundp 'jf/gptel-presets-directory) jf/gptel-presets-directory)
+   #'jf/gptel-preset--discover-preset-els
+   'gptel--known-presets
+   "preset"))
+#+end_src
+
+* Load All Fragment Sources
+
+Fragment SOURCE modules live as *flat* =.el= files under
+=config/gptel/presets/sources/= (e.g. =environment.el= today; =emacs-prelude.el=
+/ =agent-preamble.el= next). Each source =load=s the renderer feature
+(=jf-gptel-fragments=) and then populates a composer seam as a side effect — the
+dynamic =jf/gptel-fragment-environment-fn= today, the static prelude/preamble
+seam vars next. Unlike presets (one per =<name>/= subdirectory), sources are not
+self-registering into a side table and have no subdirectory-per-source layout, so
+this loader enumerates the flat =sources/*.el= rather than descending
+=<name>/preset.el=.
+
+This is a *directory* loader by design (mirrors
+=jf/gptel-preset-register-all='s discovery, applied to a flat dir): adding a new
+source =.el= requires no further =gptel.org= edit. Sources are loaded in
+=string<= (sorted) filename order for determinism; today no inter-source ordering
+dependency exists (each source only depends on =jf-gptel-fragments=, which
+=gptel.org= loads before calling this), so sort order is incidental, not
+load-bearing.
+
+The caller in =gptel.org= sequences this AFTER =presets/fragments.el= (the
+composer/renderer that =defvar='s the seams) and BEFORE the chat/agent/env
+consumers that read those seams. =load=ing a source =provide='s its feature, so
+=menu.el='s soft =(require 'jf-gptel-fragment-environment nil t)= resolves
+naturally after init.
+
+#+begin_src emacs-lisp
+(defvar jf/gptel-fragment-sources-directory
+  (and (boundp 'jf/gptel-presets-directory)
+       (expand-file-name "sources/" jf/gptel-presets-directory))
+  "Directory holding flat fragment SOURCE .el files.
+Each file under this directory is `load'ed at gptel init by
+`jf/gptel-fragment--load-sources-all' so its composer-seam side effect
+runs in production.  Derived from `jf/gptel-presets-directory'.")
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--load-sources-all ()
+  "Load every fragment SOURCE .el under `jf/gptel-fragment-sources-directory'.
+Sources are flat `.el' files (not `<name>/' subdirs); each `load's the
+renderer feature and populates a composer seam as a side effect.  Files
+are loaded once each, in sorted filename order (no inter-source ordering
+dependency exists today).  Must be called AFTER `presets/fragments.el'
+(which defines the seam vars) and BEFORE the chat/agent/env consumers.
+
+Idempotent at the source layer: re-loading a source re-runs its
+seam-population `setq', which is the same assignment.  Routes through
+`jf/gptel--load-directory', which owns the per-entry `condition-case' and
+the non-silent load-error fail-policy: a source whose .el signals on load
+is logged at ERROR level and recorded in `jf/gptel--loader-failures'
+\(seam `jf/gptel-fragment-environment-fn'), not silently swallowed.  Logs
+the count of loaded sources.  Returns the count."
+  (interactive)
+  (jf/gptel--load-directory
+   jf/gptel-fragment-sources-directory
+   #'jf/gptel-fragment--discover-source-els
+   'jf/gptel-fragment-environment-fn
+   "fragment source"))
+#+end_src
+
+The discovery half (which =sources/*.el= exist, in sorted order) is its own
+thin function, parallel to =jf/gptel-preset--discover-preset-els=; the shared
+helper owns only the load + fail-policy.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment--discover-source-els (sources-dir)
+  "Return the flat `.el' files under SOURCES-DIR in sorted filename order.
+Fragment SOURCE modules are flat `.el' files (not `<name>/' subdirs).
+Sorted with `string<' for determinism; no inter-source ordering
+dependency exists today.  This is the discovery half of
+`jf/gptel-fragment--load-sources-all'; the load + fail-policy half lives
+in `jf/gptel--load-directory'."
+  (sort (directory-files sources-dir t "\\.el\\'") #'string<))
+#+end_src
+
+* Provide Feature
+
+The =gptel-preset-registration= feature name is preserved from the superseded
+module so existing =(require 'gptel-preset-registration ...)= call sites continue
+to resolve.
+
+#+begin_src emacs-lisp
+(provide 'gptel-preset-registration)
+;;; registration.el ends here
+#+end_src

@@ -41,7 +41,7 @@ Profiles can include the following configuration sections:
 (Earlier versions of this module also extracted an =org-roam-patterns= section
 for org-roam node filtering. Cycle-3 retired pattern-based validation; the
 section is no longer consumed and is no longer extracted from preset
-frontmatter — see =preset-registration.org= for the legacy-key warning.)
+config — see =presets/registration.org= for the legacy-key warning.)
 
 ** Bash Tools Configuration
 
@@ -176,12 +176,12 @@ Convert YAML profile data (snake_case keys, =:true=/=:false=/=:null=
 boolean keywords) into the Elisp plist shape (kebab-case keys, real
 elisp booleans) used by the rest of the scope subsystem.
 
-NOTE: =preset-registration.org= has a sibling =jf/gptel-preset--normalize-keys=
-for the same shape transformation on preset plists.  These are two
-independent inlined implementations.  The previous shared
-=scope-yaml.el= boundary module was retired together with =scope.yml=
-on-disk persistence; profile YAML is now the only YAML the scope
-subsystem touches.
+NOTE: this normalization applies to profile YAML loaded from disk.  The
+fragment-era preset registration (=presets/registration.org=) no longer
+performs any YAML normalization — preset config is authored in native
+Elisp.  The previous shared =scope-yaml.el= boundary module was retired
+together with =scope.yml= on-disk persistence; profile YAML is now the
+only YAML the scope subsystem touches.
 
 ** Normalize YAML Boolean Values
 

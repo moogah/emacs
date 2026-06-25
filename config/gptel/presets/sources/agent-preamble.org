@@ -1,0 +1,166 @@
+#+title: Agent preamble fragment (static)
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle agent-preamble.el
+#+auto_tangle: y
+#+fragment_kind: static
+
+* Introduction
+
+This is the canonical *static* leading fragment for the *agent* context: the
+baseline harness preamble prepended to every persistent agent's system prompt,
+regardless of which preset it runs. It carries the agent operating contract that
+the agent-layer fix for two failure modes seen during testing demands:
+
+1. *Self-delegation loops* — the agent must do the task itself and never call the
+   =PersistentAgent= tool to delegate its own work.
+2. *No return contract* — the agent runs headless, cannot ask follow-up
+   questions, must stay within its task and granted file scope (requesting
+   expansion rather than abandoning the task), and must terminate with a single
+   self-contained final message — the only text returned to the parent.
+
+Being *static* (=register/shape/fragment-reference=,
+=register/invariant/static-prerender-dynamic-compose=, load-bearing) it is
+pre-rendered to a committed =.txt= artifact and consumed *verbatim* — never
+re-rendered per send. It is the agent analogue of the chat context's
+=emacs-prelude= and leads the agent composition ahead of the preset's role
+(=register/invariant/context-default-composition=: agent →
+=[agent-preamble(static), role, environment(dynamic)]=).
+
+This module's runtime jobs are: (a) populate the composer's *agent lead* seam
+=jf/gptel-fragment-agent-preamble-text= with the pre-rendered text (parallel to
+how =emacs-prelude.org= wires the chat lead seam), and (b) expose that text as
+=jf/gptel-fragment-agent-preamble--text= for the persistent-agent system-prompt
+writer, which composes the sibling =system-prompt.<ext>= file as preamble + the
+preset's rendered role at agent-creation time.
+
+The previous hard-coded =jf/gptel-persistent-agent--system-preamble= defconst (in
+=config/gptel/tools/persistent-agent.org=) is deleted in favour of this fragment
+(design.md §Decision 3 / §Decision 5). The prose is free to improve — no
+byte-identical obligation (design.md §Decision 8).
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; agent-preamble.el --- Static agent-preamble fragment -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; The canonical static leading fragment for the agent context: the baseline
+;; harness preamble prepended to every persistent agent's system prompt.  This
+;; file is tangled from agent-preamble.org -- edit the .org, never this .el.
+;; On load it renders its static fragment plist once for the `claude' backend
+;; (a load-time pre-render, never per-send), populates the composer's agent
+;; lead seam `jf/gptel-fragment-agent-preamble-text', and exposes the rendered
+;; text via `jf/gptel-fragment-agent-preamble--text' for the persistent-agent
+;; system-prompt writer.  The rendered text is mirrored to the committed
+;; sibling `agent-preamble.txt' artifact for diffing.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'subr-x)
+#+end_src
+
+* Dependencies
+
+The renderer and the composer seam are loaded ahead of the sources by the gptel
+load order; we =require= them defensively (by path) so this source also loads
+cleanly in isolation (batch specs, ad-hoc =load=).
+
+#+begin_src emacs-lisp
+(let ((presets-dir
+       (file-name-directory
+        (directory-file-name
+         (file-name-directory (or load-file-name buffer-file-name))))))
+  (require 'jf-gptel-fragments
+           (expand-file-name "fragments.el" presets-dir)))
+#+end_src
+
+* The static fragment
+
+The agent harness preamble, authored as a fragment plist =(:kind static :sections
+((NAME . BODY) ...))= — the exact shape =jf/gptel-fragment--parse-source= emits.
+We build the sections directly in Elisp rather than embedding an Org string with
+column-0 =*= headings (those silently truncate the tangled block —
+=.tasks/harden-tangle-against-silent-block-drop.md=); the renderer
+(=jf/gptel-fragment-render=) is the single source of truth for the emitted Claude
+format.
+
+The preamble opens with a plain-prose =Role= line and carries the operating rules
+under =Operating Rules=.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-fragment-agent-preamble--fragment
+  '(:kind static
+    :sections
+    (("Role" .
+      "You are an autonomous sub-agent launched by a parent agent to carry out one task.")
+     ("Operating Rules" .
+      "- Do the task YOURSELF, directly, using the tools available to you. Do NOT delegate it to another agent — never call the PersistentAgent tool to perform your work. You are the agent that does the work.\n- You run headless and cannot ask the user follow-up questions. When something is ambiguous, make a reasonable assumption, state it, and proceed.\n- Stay within the task you were given and the file scope you were granted. If an operation is refused as out of scope and the task genuinely needs it, request a scope expansion rather than abandoning the task.\n- When the task is complete, STOP and write a single final message that fully answers it (results, file paths, and anything the parent needs). That final message is the ONLY thing returned to the parent, so make it self-contained — do not rely on intermediate tool output being visible upstream.")))
+  "Static agent harness preamble fragment for the agent context.
+A fragment plist (:kind static :sections ((NAME . BODY) ...)) — the shape
+`jf/gptel-fragment--parse-source' produces — rendered once at load time by
+`jf/gptel-fragment-render' and wired into the composer's agent lead seam.")
+#+end_src
+
+* Render the preamble at load time
+
+Render the fragment once for the =claude= backend. This is a load-time pre-render
+(not per-send), so the resulting text is a stable cacheable prefix
+(=register/invariant/static-prerender-dynamic-compose=). The rendered string is
+what the seam, the committed =.txt= artifact, the persistent-agent writer, and the
+spec golden assert against.
+
+#+begin_src emacs-lisp
+(defconst jf/gptel-fragment-agent-preamble--text
+  (jf/gptel-fragment-render
+   jf/gptel-fragment-agent-preamble--fragment
+   'claude)
+  "Pre-rendered Claude text of the static agent preamble fragment.
+Consumed verbatim by the composer's agent lead seam and by
+`jf/gptel-persistent-agent--write-system-prompt' (the agent-creation-time
+sibling-file writer).")
+#+end_src
+
+* Mirror the rendered text to the committed artifact
+
+Keep the committed =agent-preamble.txt= sibling in sync with the rendered text so
+the diffable artifact never drifts from the source (design.md §Decision 4). The
+write is idempotent and wrapped in =ignore-errors= so a read-only load location
+never breaks loading.
+
+#+begin_src emacs-lisp
+(let* ((this-dir (file-name-directory (or load-file-name buffer-file-name)))
+       (artifact (expand-file-name "agent-preamble.txt" this-dir)))
+  (ignore-errors
+    (unless (and (file-readable-p artifact)
+                 (string= (with-temp-buffer
+                            (insert-file-contents artifact)
+                            (buffer-string))
+                          jf/gptel-fragment-agent-preamble--text))
+      (write-region jf/gptel-fragment-agent-preamble--text nil artifact nil 'silent))))
+#+end_src
+
+* Wire the agent lead seam
+
+Populate the composer's agent lead seam with the pre-rendered text. The composer's
+=jf/gptel-fragment--default-composition= reads =jf/gptel-fragment-agent-preamble-text=
+at composition-build time and wraps it in a leading static reference; until this
+assignment runs the seam holds =""= (empty, skipped). Loading this module is what
+turns the agent preamble "on".
+
+#+begin_src emacs-lisp
+(setq jf/gptel-fragment-agent-preamble-text jf/gptel-fragment-agent-preamble--text)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'jf-gptel-fragment-agent-preamble)
+;;; agent-preamble.el ends here
+#+end_src
