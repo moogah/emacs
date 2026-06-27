@@ -2,7 +2,7 @@
 name: workspace-integration
 description: Register the org-graph workspace integration with an on-create watch-add handler, a menu entry, and population of the workspace-assistant tools slot.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:gptel-tools
   - blocked-by:registry-discovery
