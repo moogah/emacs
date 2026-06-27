@@ -62,7 +62,7 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 
 ;; implemented in coordinator-lock
 
-;; implemented in gptel-tools
+(jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 
 ;; implemented in workspace-integration
 

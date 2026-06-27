@@ -267,10 +267,14 @@ permits parallel writes to distinct paths.
 :END:
 
 Graph query and coordinator-mediated write-node tools exposed to AI
-agents.
+agents.  Implemented in the =tools= submodule, which self-requires its
+=query= and =coordinator= dependencies by path (so it loads in any order;
+=wire-into-init= owns the full ordered sequence).  The gptel tool objects
+are only built when gptel is loaded; the reusable list is surfaced via
+=org-graph/agent-tools= for the =workspace-assistant= preset.
 
 #+begin_src emacs-lisp
-;; implemented in gptel-tools
+(jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 #+end_src
 
 * Workspace integration
