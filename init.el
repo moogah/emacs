@@ -108,6 +108,7 @@ resolve to a real file."
     ("core/evil"          "Evil mode configuration")
     ("core/completion"    "Modern completion framework")
     ("core/window-management"    "Save and restore window configs")
+    ("workspaces/workspaces" "Named tab-based workspaces with per-workspace layouts and buffer scoping")
     ("core/yasnippet"     "Snippet system for templates")
     ("core/testing"       "ERT test infrastructure")
     ("core/buttercup"     "Buttercup BDD testing framework")
@@ -118,9 +119,6 @@ resolve to a real file."
     ;; Transient - must load before magit and docker (overrides built-in version)
     ("transient" "Transient menu system (newer than built-in)")
 
-    ;; Activities extensions - requires new transient, so loads after it
-    ("activities/activities" "Extended activity management with projects and docs")
-
     ;; Language mode modules (docker.el requires transient, so load transient first)
     ("language-modes/language-modes" "Programming language modes")
 
@@ -129,6 +127,8 @@ resolve to a real file."
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
+    ("major-modes/vterm" "libvterm-based terminal emulator")
+    ("major-modes/ghostel" "libghostty-based terminal emulator (faithful TUI rendering)")
 
     ;; Bash Parser - tree-sitter based bash command parser
     ("bash-parser/bash-parser" "Bash command parser with semantic extraction")

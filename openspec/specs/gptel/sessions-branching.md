@@ -15,15 +15,14 @@ A branch operation SHALL:
 2. Copy context from the source branch up to (and optionally including) the branch point
 3. Create a new branch directory with its own session.org, metadata, and agent state
 4. Preserve lineage via branch-metadata.yml tracking parent branch and branch point
-5. Update the `current` symlink to point to the newly created branch
 
 Branches SHALL be first-class session objects with independent evolution.
 
 #### Scenario: Branch as first-class session object
 - **WHEN** a branch is created from a parent branch
 - **THEN** the new branch SHALL have its own directory under `branches/`
-- **AND** contain a complete session.org file (not a reference or delta)
-- **AND** contain its own scope-plan.yml, scope.yml, and branch-metadata.yml
+- **AND** contain a complete session.org file (not a reference or delta) whose file-level `:PROPERTIES:` drawer carries the inherited preset, scope keys, and (when applicable) parent-session-id
+- **AND** contain its own branch-metadata.yml recording parent branch and branch point
 - **AND** be registered independently in the session registry
 - **AND** support further branching (branches can have child branches)
 
@@ -38,7 +37,7 @@ Branches SHALL be first-class session objects with independent evolution.
 The system SHALL provide interactive branch point selection based on **outer `#+begin_user` blocks** in a `gptel-chat-mode` session buffer.
 
 Branch point selection SHALL:
-1. Parse the source buffer via `gptel-chat--parse-buffer` to obtain the turn list (or equivalently: enumerate outer `#+begin_user` blocks with their buffer positions)
+1. Parse the source buffer via `gptel-chat-parse-buffer` to obtain the turn list (or equivalently: enumerate outer `#+begin_user` blocks with their buffer positions)
 2. Present a numbered list of user turns for selection (showing the first line of each user block as the display label)
 3. Allow the user to choose whether to include or exclude the selected user turn in the new branch
 4. Return a buffer position marking the branch point:
@@ -49,7 +48,7 @@ Only outer `#+begin_user` blocks SHALL be valid branch points. Assistant blocks 
 
 #### Scenario: Interactive turn selection
 - **WHEN** user invokes `jf/gptel-branch-session` in an active chat-mode session buffer
-- **THEN** the system scans for all outer `#+begin_user` blocks via `gptel-chat--parse-buffer`
+- **THEN** the system scans for all outer `#+begin_user` blocks via `gptel-chat-parse-buffer`
 - **AND** presents a numbered selection interface showing each user block's first line
 - **AND** allows the user to select a turn by number
 - **AND** asks whether to include or exclude the selected turn
@@ -90,7 +89,7 @@ Context truncation operates at the buffer-content level. Because chat-mode has n
 #### Scenario: Copying content up to branch point
 - **WHEN** creating a branch with a branch point at position 5420 (immediately after a `#+end_user`)
 - **THEN** the new branch's `session.org` SHALL contain buffer content from position 1 to 5419
-- **AND** the content is well-formed chat-mode (parseable by `gptel-chat--parse-buffer`)
+- **AND** the content is well-formed chat-mode (parseable by `gptel-chat-parse-buffer`)
 - **AND** no truncated / half-open block exists at the end
 
 #### Scenario: Empty branch from first-turn exclude
@@ -224,61 +223,33 @@ Agent replication SHALL:
 - **AND** reduce unnecessary state replication
 - **AND** maintain agent isolation guarantees
 
-### Requirement: Configuration inheritance
+### Requirement: Configuration inheritance via drawer
 
-The system SHALL copy configuration files from the parent branch to the new branch.
+The system SHALL inherit the parent branch's preset, scope, and session-level configuration into the new branch via the file-level `:PROPERTIES:` drawer carried at `point-min` of the parent's `session.org`.
 
-Configuration inheritance SHALL copy:
-- `scope-plan.yml` - Session metadata (session_id, created, type, preset)
-- `scope.yml` - Mutable scope configuration
+Configuration inheritance SHALL:
+- Copy the parent's `session.org` content (drawer + conversation history) verbatim up to the branch point — see "Requirement: Context truncation"
+- Preserve all inherited drawer keys (`:GPTEL_PRESET:`, `:GPTEL_PARENT_SESSION_ID:` when present, the upstream-compatible chat-mode snapshot keys, and the `:GPTEL_SCOPE_*:` keys) in the new branch's `session.org`
+- Set the new branch's own identity keys in its drawer: `:GPTEL_SESSION_ID:` equal to the shared session id, and `:GPTEL_BRANCH:` equal to the new branch name (the inherited `:GPTEL_BRANCH:` from the copied parent content SHALL be overwritten with the new branch's name)
+- NOT write any session-level sidecar (`scope.yml`, `metadata.yml`, `scope-plan.yml` are dead — see sessions-persistence.md)
 
-Configuration files SHALL be copied as-is, preserving content exactly.
+Subsequent changes to the drawer in either branch SHALL NOT affect the other, since each branch owns its own `session.org`.
 
-The new branch's scope-plan.yml SHALL maintain the same `session_id`, ensuring all branches share a common session identifier.
+The branch lineage (parent branch name, branch point position) is the only data the new branch records SEPARATELY from the drawer — it lives in `branch-metadata.yml` and is documented in "Requirement: Branch metadata" below.
 
-#### Scenario: Copying scope-plan.yml
-- **WHEN** creating a new branch from a parent
-- **THEN** the parent's scope-plan.yml SHALL be copied to the new branch directory
-- **AND** the session_id field SHALL remain unchanged
-- **AND** the created and updated timestamps SHALL be inherited
+**Session identity** lives in the drawer (`:GPTEL_SESSION_ID:`), not in the directory path. All branches of one session share the same `:GPTEL_SESSION_ID:` value; they are distinguished by their per-branch `:GPTEL_BRANCH:`. (The shared `<session-dir>` remains a storage convention but is no longer the source of session identity.)
 
-#### Scenario: Copying scope.yml
-- **WHEN** creating a new branch from a parent
-- **THEN** the parent's scope.yml SHALL be copied to the new branch directory
-- **AND** the scope configuration SHALL be identical
-- **AND** subsequent changes to scope in either branch SHALL NOT affect the other
+#### Scenario: Drawer is preserved verbatim across branch creation
+- **WHEN** creating a new branch from a parent whose `session.org` carries `:GPTEL_PRESET: executor`, `:GPTEL_SCOPE_READ:` patterns, and chat-mode snapshot keys
+- **THEN** the new branch's `session.org` SHALL contain the same `:PROPERTIES:` drawer at `point-min` with all those configuration keys intact
+- **AND** no separate sidecar file SHALL be written for preset or scope state
+- **AND** subsequent drawer edits in either branch SHALL NOT propagate to the other
 
-#### Scenario: Session ID consistency
+#### Scenario: Session ID consistency via the drawer
 - **WHEN** a session has multiple branches (main, feature-1, feature-2)
-- **THEN** all branches SHALL have the same session_id in their scope-plan.yml
-- **AND** enable identification of branches belonging to the same logical session
-
-### Requirement: Symlink management
-
-The system SHALL update the `current` symlink to point to the newly created branch upon successful branch creation.
-
-Symlink update SHALL:
-1. Remove or overwrite the existing `current` symlink in the session directory
-2. Create a new symlink pointing to `branches/<new-branch-name>` (relative path)
-3. Enable the session to track which branch is currently active
-
-The current symlink enables tools to reference the active branch without hardcoding branch names.
-
-#### Scenario: Updating current symlink on branch creation
-- **WHEN** creating a new branch "20260128153042-feature"
-- **THEN** the `current` symlink SHALL be updated to point to `branches/20260128153042-feature`
-- **AND** replace any previous current symlink value
-
-#### Scenario: Relative symlink path
-- **WHEN** creating the current symlink
-- **THEN** it SHALL use a relative path (e.g., `branches/feature-name`)
-- **AND** NOT use an absolute path
-- **AND** enable session directory portability
-
-#### Scenario: Current symlink consistency
-- **WHEN** opening a session via the `current` symlink path
-- **THEN** the system SHALL resolve to the active branch
-- **AND** initialize the buffer with that branch's context
+- **THEN** every branch's `session.org` drawer SHALL carry the same `:GPTEL_SESSION_ID:` value
+- **AND** each branch's drawer SHALL carry its own `:GPTEL_BRANCH:` value
+- **AND** the registry key `"<session-id>/<branch-name>"` is sourced from those drawer values
 
 ### Requirement: User-facing command
 
@@ -311,54 +282,28 @@ The command SHALL be interactive and invocable via M-x or keybinding.
 - **THEN** the system SHALL skip the branch name prompt
 - **AND** use the provided argument for branch naming
 
-### Requirement: Auto-initialization of new branches
-
-The system SHALL auto-initialize new branch buffers when opened via find-file-hook.
-
-Auto-initialization for branches SHALL:
-1. Detect files matching pattern `*/branches/*/session.org`
-2. Extract session-id and branch-name from the file path
-3. Set buffer-local variables (session-id, session-dir, branch-name, branch-dir)
-4. Load preset configuration from scope.yml
-5. Enable gptel-chat-mode and auto-save
-
-This behavior is inherited from the persistence system's find-file-hook.
-
-#### Scenario: Opening new branch via find-file
-- **WHEN** the user opens `~/.gptel/sessions/my-session/branches/20260128153042-feature/session.org`
-- **THEN** the find-file-hook SHALL trigger auto-initialization
-- **AND** extract session-id "my-session" and branch-name "20260128153042-feature"
-- **AND** set buffer-local session variables
-- **AND** enable gptel-chat-mode
-
-#### Scenario: Opening new branch via branch creation command
-- **WHEN** `jf/gptel-branch-session` completes branch creation
-- **THEN** it opens the new branch file with `find-file`
-- **AND** triggers auto-initialization automatically
-- **AND** the user sees the new branch ready for interaction
-
 ### Requirement: Registry integration
 
 The system SHALL register new branches in the in-memory session registry when the branch buffer is opened.
 
 Registry integration SHALL:
-1. Add an entry with key `"<session-id>/<branch-name>"`
+1. Add an entry with key `"<session-id>/<branch-name>"`, sourced from the branch drawer's `:GPTEL_SESSION_ID:` / `:GPTEL_BRANCH:`
 2. Store session-dir, branch-dir, and buffer reference
 3. Enable O(1) lookup for branch buffers
 
 The registry enables fast session/branch lookup without filesystem scanning.
 
-**Note:** Branch creation in `branching.el` does NOT explicitly register the branch. Registration happens implicitly when the new branch's `session.org` file is opened, triggering the find-file-hook in `commands.el` which calls auto-initialization. This ensures the buffer exists before registration and avoids race conditions.
+**Note:** Branch creation does NOT explicitly register the branch. Registration happens implicitly when the new branch's `session.org` is opened: content-addressed activation flips the buffer to `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder registers it. This ensures the buffer exists before registration and avoids race conditions.
 
 #### Scenario: Implicit registration via buffer opening
-- **WHEN** a new branch "20260128153042-feature" is created in session "my-session-20260205"
-- **AND** the branch's session.org file is opened via `find-file`
-- **THEN** the find-file-hook triggers auto-initialization
-- **AND** auto-initialization registers the branch with key `"my-session-20260205/20260128153042-feature"`
+- **WHEN** a new branch `20260128153042-feature` is created in session `my-session-20260205`
+- **AND** the branch's `session.org` is opened via `find-file`
+- **THEN** content-addressed activation flips the buffer to `gptel-chat-mode`
+- **AND** the mode-hook binder registers the branch with key `"my-session-20260205/20260128153042-feature"` from the drawer
 - **AND** stores the branch directory path and buffer reference
 
 #### Scenario: Registry lookup after branch buffer opened
-- **WHEN** the new branch buffer has been opened and auto-initialized
+- **WHEN** the new branch buffer has been opened and bound by the `gptel-chat-mode-hook` binder
 - **THEN** the registry entry SHALL be available for lookup
 - **AND** enable fast lookup of the branch by session-id and branch-name
 - **AND** return the buffer reference for the active branch buffer
@@ -370,7 +315,7 @@ The system SHALL validate branch creation preconditions and handle errors gracef
 Validation SHALL ensure:
 - Source buffer is session-initialized
 - Branch point selection succeeds
-- Parent branch has required metadata files (scope-plan.yml, scope.yml)
+- Parent branch has a valid `session.org` with a `:PROPERTIES:` drawer at `point-min`
 - Filesystem operations succeed (directory creation, file copying)
 
 Errors SHALL be logged at ERROR level and reported to the user.
@@ -380,10 +325,10 @@ Errors SHALL be logged at ERROR level and reported to the user.
 - **THEN** the system SHALL abort branch creation
 - **AND** display an error message: "Not a gptel session buffer"
 
-#### Scenario: Missing parent metadata
-- **WHEN** the parent branch is missing scope-plan.yml or scope.yml
+#### Scenario: Missing parent session.org
+- **WHEN** the parent branch directory lacks a `session.org`, or its `session.org` lacks the file-level `:PROPERTIES:` drawer at `point-min`
 - **THEN** the system SHALL abort branch creation
-- **AND** log an ERROR with details of missing files
+- **AND** log an ERROR identifying the missing file or malformed drawer
 - **AND** report failure to the user
 
 #### Scenario: Filesystem error handling
@@ -408,7 +353,7 @@ Branch logging SHALL include:
 
 Logs SHALL include session-id and branch-name for traceability.
 
-**Note:** Branch registration is NOT logged in branching.el since registration occurs implicitly via find-file-hook in commands.el. Bounds filtering is NOT explicitly logged.
+**Note:** Branch registration is NOT logged in branching.el since registration occurs implicitly via the `gptel-chat-mode-hook` binder when the branch buffer is opened. Bounds filtering is NOT explicitly logged.
 
 #### Scenario: Logging branch creation
 - **WHEN** creating a branch "20260128153042-feature"
@@ -438,11 +383,11 @@ Logs SHALL include session-id and branch-name for traceability.
 The system SHALL build on session persistence fundamentals, reusing core infrastructure.
 
 Branching SHALL depend on:
-- Directory structure (branches/ subdirectory, session.org, metadata files)
-- Metadata formats (scope-plan.yml, scope.yml, branch-metadata.yml)
+- Directory structure (`branches/` subdirectory, `session.org` with file-level `:PROPERTIES:` drawer)
+- Lineage format (`branch-metadata.yml` — the only sidecar; preset and scope live in the drawer)
 - Path resolution functions (branch-dir-path, context-file-path)
 - Registry for session/branch tracking
-- Auto-initialization via find-file-hook
+- Content-addressed activation and the `gptel-chat-mode-hook` binder
 
 Branching SHALL NOT duplicate persistence logic; it orchestrates existing infrastructure.
 
@@ -451,19 +396,19 @@ Branching SHALL NOT duplicate persistence logic; it orchestrates existing infras
 - **THEN** the system SHALL use path resolution functions from filesystem.el
 - **AND** NOT hardcode file paths or names
 
-#### Scenario: Reusing metadata functions
-- **WHEN** copying configuration to a new branch
-- **THEN** the system SHALL use metadata reading/writing functions from metadata.el
-- **AND** NOT reimplement YAML parsing
+#### Scenario: Inheriting preset and scope via session.org copy
+- **WHEN** propagating configuration to a new branch
+- **THEN** the system SHALL copy the parent's `session.org` content (drawer + body) via the context-truncation step
+- **AND** NOT read or write any preset/scope sidecar file (none exist post-drawer-as-source-of-truth)
 
 #### Scenario: Reusing registry for branch tracking
 - **WHEN** registering a new branch
 - **THEN** the system SHALL use registry functions from registry.el
 - **AND** follow the same key format: `"<session-id>/<branch-name>"`
 
-#### Scenario: Reusing auto-initialization
+#### Scenario: Reusing content-addressed activation
 - **WHEN** a new branch buffer is opened
-- **THEN** the existing find-file-hook from commands.el SHALL handle initialization
+- **THEN** the `magic-mode-alist` signature and the `gptel-chat-mode-hook` binder SHALL handle activation and binding
 - **AND** branching does NOT require a separate initialization path
 
 ### Requirement: Load order dependencies

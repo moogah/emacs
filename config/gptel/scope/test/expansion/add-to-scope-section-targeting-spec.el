@@ -1,4 +1,4 @@
-;;; add-to-scope-section-targeting-spec.el --- add-path-to-scope section targeting by denied operation -*- lexical-binding: t; -*-
+;;; add-to-scope-section-targeting-spec.el --- add-path-to-scope drawer-key targeting by denied operation -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -8,144 +8,157 @@
 ;;; Commentary:
 
 ;; Specifies how `jf/gptel-scope--add-path-to-scope' picks which
-;; `paths.*' subsection to write to, based on the DENIED-OPERATION
-;; keyword passed from the validation pipeline.
+;; `:GPTEL_SCOPE_*' drawer key to write to, based on the
+;; DENIED-OPERATION keyword passed from the validation pipeline.
 ;;
-;; Historical context: an earlier version of add-path-to-scope chose the
-;; target section from a tool-name registry (jf/gptel-scope--tool-categories).
-;; That made run_bash_command always target paths.write, even when the
-;; denial was a read-metadata failure on a sub-command. The fix: drive
-;; the section choice from the actual denied operation in the validation
-;; error, not from the tool name. These tests lock that behavior in.
+;; Historical context: an earlier version of add-path-to-scope chose
+;; the target section from a tool-name registry
+;; (jf/gptel-scope--tool-categories).  That made run_bash_command
+;; always target paths.write, even when the denial was a read-metadata
+;; failure on a sub-command.  The fix: drive the section choice from
+;; the actual denied operation in the validation error, not from the
+;; tool name.  These tests lock that behaviour in.
+;;
+;; Migration note: this spec was rewritten as part of
+;; migrate-expansion-tests (cycle-3) — fixtures moved from scope.yml
+;; files to drawer-text fixtures via `jf/gptel-test--with-scope-drawer'.
+;; Cycle-2 ask 10A added a dedicated `GPTEL_SCOPE_READ_METADATA' bucket;
+;; ask 10C kept `:delete' under `GPTEL_SCOPE_WRITE'.
 
 ;;; Code:
 
 (require 'buttercup)
 (require 'cl-lib)
 
-;; Load dependencies
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (scope-test-dir (expand-file-name ".." test-dir))
        (scope-dir (expand-file-name ".." scope-test-dir)))
   (require 'helpers-spec (expand-file-name "helpers-spec.el" scope-test-dir))
-  (require 'jf-gptel-scope-yaml (expand-file-name "scope-yaml.el" scope-dir))
   (require 'jf-gptel-scope-expansion (expand-file-name "scope-expansion.el" scope-dir)))
-
-;;; Test Infrastructure
-
-(defvar section--temp-dir nil)
-(defvar section--scope-file nil)
-
-(defun section--make-empty-scope-yml ()
-  "Create scope.yml with empty read/write/execute/modify paths."
-  (let ((yaml "paths:
-  read: []
-  write: []
-  execute: []
-  modify: []
-  deny: []
-cloud:
-  auth_detection: \"warn\"
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-    (with-temp-file section--scope-file
-      (insert yaml))))
-
-(defun section--parse-scope-yml ()
-  "Parse the test scope.yml into a normalized plist."
-  (jf/gptel-scope-yaml--parse-file section--scope-file))
-
-(defun section--paths-for (section)
-  "Return the list under `paths.SECTION' in the current test scope file."
-  (plist-get (plist-get (section--parse-scope-yml) :paths) section))
-
-(defun section--matches-p (section substring)
-  "Return non-nil if any path in SECTION contains SUBSTRING."
-  (cl-some (lambda (p) (string-match-p substring p))
-           (section--paths-for section)))
 
 ;;; Tests
 
-(describe "add-path-to-scope section targeting"
-
-  (before-each
-    (setq section--temp-dir (make-temp-file "section-" t))
-    (setq section--scope-file (expand-file-name "scope.yml" section--temp-dir))
-    (section--make-empty-scope-yml))
-
-  (after-each
-    (when (and section--temp-dir (file-exists-p section--temp-dir))
-      (delete-directory section--temp-dir t)))
-
-  (describe "without denied-operation"
-
-    (it "defaults to paths.read (the safest default)"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/outside/file.txt" "run_bash_command")
-      (expect (section--matches-p :read "file\\.txt") :to-be-truthy)
-      (expect (section--matches-p :write "file\\.txt") :not :to-be-truthy)))
+(describe "add-path-to-scope drawer-key targeting"
 
   (describe "with :read-family operations"
 
-    (it ":read targets paths.read"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/brew" "run_bash_command" :read)
-      (expect (section--matches-p :read "brew") :to-be-truthy)
-      (expect (section--matches-p :write "brew") :not :to-be-truthy))
+    (it ":read targets GPTEL_SCOPE_READ"
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope "/brew" "run_bash_command" :read)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ")
+                  :to-equal '("/brew"))
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal nil))))
 
-    (it ":read-metadata targets paths.read"
-      ;; The original bug: bash tools doing metadata lookups (which brew)
-      ;; were denied for a :read-metadata op but the path landed in write.
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/brew" "run_bash_command" :read-metadata)
-      (expect (section--matches-p :read "brew") :to-be-truthy)
-      (expect (section--matches-p :write "brew") :not :to-be-truthy))
+    (it ":read-metadata targets GPTEL_SCOPE_READ_METADATA (cycle-2 ask 10A)"
+      ;; Cycle-2 disposition (ask 10A): a metadata stat does not silently
+      ;; grant persistent content read access.  The bucket is separate.
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope "/brew" "run_bash_command" :read-metadata)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ_METADATA")
+                  :to-equal '("/brew"))
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ")
+                  :to-equal nil)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal nil))))
 
-    (it ":read-directory targets paths.read"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/usr/local" "run_bash_command" :read-directory)
-      (expect (section--matches-p :read "usr/local") :to-be-truthy))
-
-    (it ":match-pattern targets paths.read"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/workspace/src" "read_file_in_scope" :match-pattern)
-      (expect (section--matches-p :read "workspace/src") :to-be-truthy)))
+    (it ":read-directory targets GPTEL_SCOPE_READ"
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/usr/local" "run_bash_command" :read-directory)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ")
+                  :to-equal '("/usr/local"))))))
 
   (describe "with :write-family operations"
 
-    (it ":write targets paths.write"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/tmp/output.txt" "run_bash_command" :write)
-      (expect (section--matches-p :write "output") :to-be-truthy)
-      (expect (section--matches-p :read "output") :not :to-be-truthy))
+    (it ":write targets GPTEL_SCOPE_WRITE"
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/tmp/output.txt" "run_bash_command" :write)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal '("/tmp/output.txt"))
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ")
+                  :to-equal nil))))
 
-    (it ":create targets paths.write"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/tmp/new.txt" "write_file_in_scope" :create)
-      (expect (section--matches-p :write "new") :to-be-truthy))
+    (it ":create targets GPTEL_SCOPE_WRITE"
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/tmp/new.txt" "write_file_in_scope" :create)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal '("/tmp/new.txt")))))
 
-    (it ":delete targets paths.write"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/tmp/old.txt" "run_bash_command" :delete)
-      (expect (section--matches-p :write "old") :to-be-truthy))
+    (it ":delete targets GPTEL_SCOPE_WRITE (cycle-2 ask 10C disposition)"
+      ;; Cycle-2 disposition: :delete intentionally collapses to
+      ;; GPTEL_SCOPE_WRITE rather than its own bucket.  Granting WRITE
+      ;; already covers delete.
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/tmp/old.txt" "run_bash_command" :delete)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal '("/tmp/old.txt"))
+          ;; No separate :delete bucket — must NOT exist.
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_DELETE")
+                  :to-equal nil))))
 
-    (it ":modify targets paths.write"
-      ;; :modify is intentionally folded into paths.write — in-place edits
-      ;; are a form of writing, not a separate permission class at scope time.
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/tmp/config.el" "edit_file_in_scope" :modify)
-      (expect (section--matches-p :write "config") :to-be-truthy)))
+    (it ":modify targets GPTEL_SCOPE_MODIFY"
+      ;; :modify gets its own drawer key (it is NOT folded into WRITE
+      ;; in the drawer-key vocabulary, even though the legacy YAML
+      ;; layout folded it into paths.write).
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/tmp/config.el" "edit_file_in_scope" :modify)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_MODIFY")
+                  :to-equal '("/tmp/config.el"))))))
 
   (describe "with :execute"
 
-    (it ":execute targets paths.execute"
-      (jf/gptel-scope--add-path-to-scope
-       section--scope-file "/workspace/scripts/run.sh" "run_bash_command" :execute)
-      (expect (section--matches-p :execute "run\\.sh") :to-be-truthy)
-      (expect (section--matches-p :read "run\\.sh") :not :to-be-truthy)
-      (expect (section--matches-p :write "run\\.sh") :not :to-be-truthy))))
+    (it ":execute targets GPTEL_SCOPE_EXECUTE"
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/workspace/scripts/run.sh" "run_bash_command" :execute)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_EXECUTE")
+                  :to-equal '("/workspace/scripts/run.sh"))
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ")
+                  :to-equal nil)
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal nil)))))
+
+  (describe "without denied-operation (defaults to :read)"
+
+    (it "defaults to GPTEL_SCOPE_READ (the safest default)"
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (jf/gptel-scope--add-path-to-scope
+           "/outside/file.txt" "run_bash_command")
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_READ")
+                  :to-equal '("/outside/file.txt"))
+          (expect (org-entry-get-multivalued-property
+                   (point-min) "GPTEL_SCOPE_WRITE")
+                  :to-equal nil))))))
 
 (provide 'add-to-scope-section-targeting-spec)
 

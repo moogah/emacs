@@ -7,7 +7,7 @@
 
 ;;; Commentary:
 
-;; Buttercup specs for `gptel-chat--parse-buffer' and for the
+;; Buttercup specs for `gptel-chat-parse-buffer' and for the
 ;; `gptel-chat-mode' major-mode definition.
 ;;
 ;; Coverage (from openspec/changes/gptel-chat-mode/specs/gptel-chat-mode/spec.md):
@@ -186,25 +186,36 @@
   ;; without exercising any additional buffer-preparation logic.
   (describe "gptel-chat--prepare-new-buffer"
     (it "creates a buffer in `gptel-chat-mode' with an empty user block"
+      ;; design.md §Decision 6: the body line of a fresh user block is
+      ;; indented to the body width so the next human turn starts off
+      ;; column 0, consistent with the indented-region invariant.  The
+      ;; delimiter lines themselves stay at column 0.
       (let ((buf (gptel-chat--prepare-new-buffer)))
         (unwind-protect
             (with-current-buffer buf
               (expect major-mode :to-equal 'gptel-chat-mode)
-              (expect (buffer-string)
-                      :to-equal "#+begin_user\n\n#+end_user\n"))
+              (expect (buffer-substring-no-properties
+                       (point-min) (point-max))
+                      :to-equal
+                      (concat "#+begin_user\n"
+                              (make-string (gptel-chat--body-indent) ?\s)
+                              "\n"
+                              "#+end_user\n")))
           (kill-buffer buf))))
 
-    (it "positions point on the empty line inside the user block"
+    (it "positions point on the body line inside the user block"
       (let ((buf (gptel-chat--prepare-new-buffer)))
         (unwind-protect
             (with-current-buffer buf
-              ;; Point is on line 2 (the empty line between delimiters).
+              ;; Point is on line 2 (the body line between delimiters).
               (expect (line-number-at-pos) :to-equal 2)
-              ;; Typing here extends the user block, not the delimiters.
+              ;; The body line carries the body indentation; typing
+              ;; here extends the user block off column 0.
               (expect (buffer-substring-no-properties
                        (line-beginning-position)
                        (line-end-position))
-                      :to-equal ""))
+                      :to-equal
+                      (make-string (gptel-chat--body-indent) ?\s)))
           (kill-buffer buf))))
 
     (it "does not mutate window configuration"
@@ -218,21 +229,21 @@
             (expect (window-buffer (selected-window)) :to-equal before)
           (kill-buffer buf))))))
 
-(describe "gptel-chat--parse-buffer: Buffer format validation"
+(describe "gptel-chat-parse-buffer: Buffer format validation"
 
   (describe "empty buffer"
     (it "returns an empty turn list"
       (gptel-chat-test--with-buffer ""
-        (expect (gptel-chat--parse-buffer) :to-equal nil)))
+        (expect (gptel-chat-parse-buffer) :to-equal nil)))
 
     (it "treats whitespace-only content as empty"
       (gptel-chat-test--with-buffer "\n\n   \n\t\n"
-        (expect (gptel-chat--parse-buffer) :to-equal nil))))
+        (expect (gptel-chat-parse-buffer) :to-equal nil))))
 
   (describe "metadata-only buffer"
     (it "yields an empty turn list when the buffer contains only keywords"
       (gptel-chat-test--with-buffer "#+gptel-model: foo\n#+title: A thread\n\n"
-        (expect (gptel-chat--parse-buffer) :to-equal nil))))
+        (expect (gptel-chat-parse-buffer) :to-equal nil))))
 
   (describe "headings and commentary outside turn blocks"
     (it "ignores heading and prose lines; yields one turn per block"
@@ -248,7 +259,7 @@
                   "#+begin_assistant\n"
                   "Answer.\n"
                   "#+end_assistant\n")
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 2)
           (expect (plist-get (nth 0 turns) :role) :to-equal 'user)
           (expect (plist-get (nth 1 turns) :role) :to-equal 'assistant))))
@@ -259,7 +270,7 @@
                   "#+begin_user\n"
                   "Just the question.\n"
                   "#+end_user\n")
-        (let* ((turns (gptel-chat--parse-buffer))
+        (let* ((turns (gptel-chat-parse-buffer))
                (user (nth 0 turns)))
           (expect (plist-get user :content)
                   :not :to-match "A heading")))))
@@ -267,7 +278,7 @@
   (describe "turn blocks nested under org headings"
     (it "enumerates blocks in document order regardless of heading depth"
       (gptel-chat-test--with-buffer gptel-chat-test--heading-distributed
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 3)
           (expect (mapcar (lambda (tn) (plist-get tn :role)) turns)
                   :to-equal '(user assistant user)))))
@@ -280,7 +291,7 @@
                   "#+begin_user\n"
                   "deep-nested prompt\n"
                   "#+end_user\n")
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'user)
           (expect (plist-get (car turns) :content)
@@ -289,7 +300,7 @@
   (describe "unmatched delimiter"
     (it "signals user-error for an unclosed user block"
       (gptel-chat-test--with-buffer "#+begin_user\nhello\n"
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     (it "reports the opening line number in the error message"
       (gptel-chat-test--with-buffer
@@ -297,7 +308,7 @@
                   "#+begin_user\n"
                   "incomplete\n")
         (condition-case err
-            (progn (gptel-chat--parse-buffer)
+            (progn (gptel-chat-parse-buffer)
                    (expect nil :to-be-truthy)) ; should not reach here
           (user-error
            (expect (error-message-string err)
@@ -305,7 +316,7 @@
 
     (it "signals user-error for an unclosed assistant block"
       (gptel-chat-test--with-buffer "#+begin_assistant\nhello\n"
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     (it "signals user-error for an unclosed tool block inside an assistant"
       (gptel-chat-test--with-buffer
@@ -313,7 +324,7 @@
                   "#+begin_tool (foo :x 1)\n"
                   "result\n"
                   "#+end_assistant\n")
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     ;; Regression: a `#+begin_user' on the buffer's final line with no
     ;; trailing newline must signal the documented unclosed-block
@@ -321,12 +332,12 @@
     ;; Reachable from partially-streamed or hand-edited buffers.
     (it "signals user-error (not args-out-of-range) for #+begin_user at EOF with no newline"
       (gptel-chat-test--with-buffer "#+begin_user"
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     (it "reports unclosed-user at line 1 for EOF-without-newline #+begin_user"
       (gptel-chat-test--with-buffer "#+begin_user"
         (condition-case err
-            (progn (gptel-chat--parse-buffer)
+            (progn (gptel-chat-parse-buffer)
                    (expect nil :to-be-truthy))
           (user-error
            (expect (error-message-string err)
@@ -334,12 +345,12 @@
 
     (it "signals user-error (not args-out-of-range) for #+begin_assistant at EOF with no newline"
       (gptel-chat-test--with-buffer "#+begin_assistant"
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     (it "reports unclosed-assistant at line 1 for EOF-without-newline #+begin_assistant"
       (gptel-chat-test--with-buffer "#+begin_assistant"
         (condition-case err
-            (progn (gptel-chat--parse-buffer)
+            (progn (gptel-chat-parse-buffer)
                    (expect nil :to-be-truthy))
           (user-error
            (expect (error-message-string err)
@@ -351,7 +362,7 @@
           (concat "#+begin_tool (foo :x 1)\n"
                   "body\n"
                   "#+end_tool\n")
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     (it "reports tool-block-outside-assistant at the offending line"
       (gptel-chat-test--with-buffer
@@ -359,7 +370,7 @@
                   "#+begin_tool (foo)\n"
                   "#+end_tool\n")
         (condition-case err
-            (progn (gptel-chat--parse-buffer)
+            (progn (gptel-chat-parse-buffer)
                    (expect nil :to-be-truthy))
           (user-error
            (expect (error-message-string err)
@@ -372,7 +383,7 @@
                   "#+end_assistant\n"
                   "#+begin_tool (stray)\n"
                   "#+end_tool\n")
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error))))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error))))
 
   (describe "turn nested inside another turn"
     (it "signals turn-inside-turn when #+begin_user appears in assistant body"
@@ -383,7 +394,7 @@
                   "nested prompt\n"
                   "#+end_user\n"
                   "#+end_assistant\n")
-        (expect (gptel-chat--parse-buffer) :to-throw 'user-error)))
+        (expect (gptel-chat-parse-buffer) :to-throw 'user-error)))
 
     (it "reports turn-inside-turn at the offending inner line"
       (gptel-chat-test--with-buffer
@@ -393,7 +404,7 @@
                   "#+end_assistant\n"
                   "#+end_assistant\n")
         (condition-case err
-            (progn (gptel-chat--parse-buffer)
+            (progn (gptel-chat-parse-buffer)
                    (expect nil :to-be-truthy))
           (user-error
            (expect (error-message-string err)
@@ -407,7 +418,7 @@
                   "#+begin_assistant\n"
                   "(that is quoted in the user's prose)\n"
                   "#+end_user\n")
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'user)
           (expect (plist-get (car turns) :content)
@@ -422,7 +433,7 @@
                   "#+begin_user\n"
                   "nested quoting\n"
                   "#+end_user\n")
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'user)
           (expect (plist-get (car turns) :content)
@@ -445,7 +456,7 @@
                   "\n"
                   "The /emphasis/ on *bold* matters.\n"
                   "#+end_user\n")
-        (let* ((turns (gptel-chat--parse-buffer))
+        (let* ((turns (gptel-chat-parse-buffer))
                (user (car turns))
                (content (plist-get user :content)))
           (expect (length turns) :to-equal 1)
@@ -464,31 +475,31 @@
                   "#+end_src\n"
                   "That was a shell snippet.\n"
                   "#+end_user\n")
-        (let* ((turns (gptel-chat--parse-buffer))
+        (let* ((turns (gptel-chat-parse-buffer))
                (user (car turns)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get user :content)
                   :to-match "That was a shell snippet."))))))
 
-(describe "gptel-chat--parse-buffer: turn list shape and ordering"
+(describe "gptel-chat-parse-buffer: turn list shape and ordering"
 
   (describe "a single user/assistant pair"
     (it "produces two turns in document order"
       (gptel-chat-test--with-buffer gptel-chat-test--single-turn-pair
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 2)
           (expect (plist-get (nth 0 turns) :role) :to-equal 'user)
           (expect (plist-get (nth 1 turns) :role) :to-equal 'assistant))))
 
     (it "captures user content verbatim (no delimiter lines, trailing newline preserved)"
       (gptel-chat-test--with-buffer gptel-chat-test--single-turn-pair
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (plist-get (nth 0 turns) :content)
                   :to-equal "What's the capital of France?\n"))))
 
     (it "exposes start and end as markers pointing into the buffer"
       (gptel-chat-test--with-buffer gptel-chat-test--single-turn-pair
-        (let* ((turns (gptel-chat--parse-buffer))
+        (let* ((turns (gptel-chat-parse-buffer))
                (user (nth 0 turns))
                (start (plist-get user :start))
                (end   (plist-get user :end)))
@@ -501,7 +512,7 @@
   (describe "turns distributed across org headings"
     (it "emits turns in document order, independent of heading ownership"
       (gptel-chat-test--with-buffer gptel-chat-test--heading-distributed
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (mapcar (lambda (tn)
                             (cons (plist-get tn :role)
                                   (when (eq (plist-get tn :role) 'user)
@@ -515,7 +526,7 @@
   (describe "empty block"
     (it "emits a turn with empty content (message filtering happens downstream)"
       (gptel-chat-test--with-buffer "#+begin_user\n#+end_user\n"
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'user)
           (expect (plist-get (car turns) :content) :to-equal ""))))
@@ -527,7 +538,7 @@
     ;; rule keys off (the other being all-whitespace text segments).
     (it "emits an assistant turn with :segments nil for an empty block"
       (gptel-chat-test--with-buffer "#+begin_assistant\n#+end_assistant\n"
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 1)
           (expect (plist-get (car turns) :role) :to-equal 'assistant)
           (expect (plist-get (car turns) :segments) :to-equal nil))))
@@ -545,7 +556,7 @@
     ;; nil either way.
     (it "emits an assistant turn with whitespace-only text segments for a whitespace-only block"
       (gptel-chat-test--with-buffer "#+begin_assistant\n   \n#+end_assistant\n"
-        (let* ((turns (gptel-chat--parse-buffer))
+        (let* ((turns (gptel-chat-parse-buffer))
                (assistant (car turns))
                (segs (plist-get assistant :segments)))
           (expect (length turns) :to-equal 1)
@@ -579,13 +590,13 @@
                   "#+begin_assistant\n"
                   "a\n"
                   "#+END_ASSISTANT\n")
-        (let ((turns (gptel-chat--parse-buffer)))
+        (let ((turns (gptel-chat-parse-buffer)))
           (expect (length turns) :to-equal 2)
           (expect (plist-get (nth 0 turns) :role) :to-equal 'user)
           (expect (plist-get (nth 0 turns) :content) :to-equal "q\n")
           (expect (plist-get (nth 1 turns) :role) :to-equal 'assistant))))))
 
-(describe "gptel-chat--parse-buffer: assistant segments with tool calls"
+(describe "gptel-chat-parse-buffer: assistant segments with tool calls"
 
   (it "splits an assistant block into (text, tool-call, text) segments"
     (gptel-chat-test--with-buffer
@@ -593,7 +604,7 @@
                 "q\n"
                 "#+end_user\n"
                 gptel-chat-test--tool-call-turn)
-      (let* ((turns (gptel-chat--parse-buffer))
+      (let* ((turns (gptel-chat-parse-buffer))
              (assistant (nth 1 turns))
              (segs (plist-get assistant :segments)))
         (expect (plist-get assistant :role) :to-equal 'assistant)
@@ -604,7 +615,7 @@
 
   (it "captures the tool call's name and result"
     (gptel-chat-test--with-buffer gptel-chat-test--tool-call-turn
-      (let* ((turns (gptel-chat--parse-buffer))
+      (let* ((turns (gptel-chat-parse-buffer))
              (assistant (car turns))
              (segs (plist-get assistant :segments))
              (tc (cl-find-if
@@ -620,7 +631,7 @@
         (concat "#+begin_assistant\n"
                 "Just prose.\n"
                 "#+end_assistant\n")
-      (let* ((turns (gptel-chat--parse-buffer))
+      (let* ((turns (gptel-chat-parse-buffer))
              (segs  (plist-get (car turns) :segments)))
         (expect (length segs) :to-equal 1)
         (expect (plist-get (car segs) :type) :to-equal 'text))))
@@ -655,20 +666,24 @@
                 "\n"
                 "prose4\n"
                 "#+end_assistant\n")
-      (let* ((turns (gptel-chat--parse-buffer))
+      (let* ((turns (gptel-chat-parse-buffer))
              (assistant (car turns))
              (segs (plist-get assistant :segments)))
         (expect (plist-get assistant :role) :to-equal 'assistant)
         (expect (length segs) :to-equal 7)
         (expect (mapcar (lambda (s) (plist-get s :type)) segs)
                 :to-equal '(text tool-call text tool-call text tool-call text))
+        ;; The parser captures the tool result VERBATIM (design.md
+        ;; §Decision 3) — no `string-trim' at capture — so the body's
+        ;; trailing newline survives into `:result'.  The send-path
+        ;; `gptel-chat--segment-to-messages' dedents and trims it.
         (expect (plist-get (nth 1 segs) :name) :to-equal "tool_a")
-        (expect (plist-get (nth 1 segs) :result) :to-equal "result_a")
+        (expect (plist-get (nth 1 segs) :result) :to-equal "result_a\n")
         (expect (plist-get (nth 3 segs) :name) :to-equal "tool_b")
-        (expect (plist-get (nth 3 segs) :result) :to-equal "result_b")
+        (expect (plist-get (nth 3 segs) :result) :to-equal "result_b\n")
         (expect (plist-get (nth 5 segs) :name) :to-equal "tool_c")
         (expect (plist-get (nth 5 segs) :args) :to-equal '(:z 3))
-        (expect (plist-get (nth 5 segs) :result) :to-equal "result_c")
+        (expect (plist-get (nth 5 segs) :result) :to-equal "result_c\n")
         (expect (plist-get (nth 0 segs) :content) :to-match "prose1")
         (expect (plist-get (nth 2 segs) :content) :to-match "prose2")
         (expect (plist-get (nth 4 segs) :content) :to-match "prose3")

@@ -88,41 +88,18 @@ Captures both the raw JSON string and parsed plist."
 
 (defun bash-integ--make-scope-config (read-paths write-paths deny-paths
                                        &optional _bash-deny cloud-auth)
-  "Build a scope config from YAML through the real parse pipeline.
+  "Build a scope-config plist for bash-scope-expansion specs.
 READ-PATHS, WRITE-PATHS, DENY-PATHS are lists of glob pattern strings.
 CLOUD-AUTH is the auth detection mode string (default \"warn\").
 The fourth positional is retained for backward compatibility with existing
 callers but is ignored — there is no longer a command-name deny list."
-  (let* ((format-paths (lambda (paths)
-                         (if paths
-                             (mapconcat (lambda (p) (format "    - \"%s\"" p))
-                                        paths "\n")
-                           "    []")))
-         (yaml (format "paths:
-  read:
-%s
-  write:
-%s
-  execute:
-    []
-  modify:
-    []
-  deny:
-%s
-
-cloud:
-  auth_detection: \"%s\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"
-                       (funcall format-paths read-paths)
-                       (funcall format-paths write-paths)
-                       (funcall format-paths deny-paths)
-                       (or cloud-auth "warn"))))
-    (jf/gptel-scope-yaml--merge-schema-defaults
-     (jf/gptel-scope-yaml--parse-string yaml))))
+  (helpers-spec-make-scope-config
+   :read read-paths
+   :write write-paths
+   :execute '()
+   :modify '()
+   :deny deny-paths
+   :auth-detection (or cloud-auth "warn")))
 
 ;;; Test Suites
 
@@ -462,18 +439,38 @@ security:
     (when (and bash-integ--temp-dir (file-exists-p bash-integ--temp-dir))
       (delete-directory bash-integ--temp-dir t)))
 
-  (it "no_scope_config returns JSON through callback"
+  (it "empty-drawer deny-all defaults route per-violation denial through callback"
+    ;; Cycle-3 Option B: an empty drawer is a deny-all configuration, not a
+    ;; config-missing signal. The dispatcher composes deny-all defaults from
+    ;; the loader, validation denies the file op as `not-in-scope`, the
+    ;; expansion UI surfaces the violation, and on user denial the callback
+    ;; receives the canonical per-violation error JSON (no historical
+    ;; `no_scope_config` short-circuit). See
+    ;; register/boundary/scope-config-loader.
     (let ((tool (bash-integ--find-tool "run_bash_command")))
-      (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
+      (spy-on 'jf/gptel-scope--load-config
+              :and-return-value (jf/gptel-scope--deny-all-defaults))
+      ;; Simulate user denying the expansion prompt so the callback fires.
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (_violation-info callback _patterns _tool-name)
+                (funcall callback
+                         (json-serialize
+                          (list :success :false
+                                :user_denied t)))))
 
       (let ((default-directory "/workspace"))
         (funcall (gptel-tool-function tool)
                  #'bash-integ--gptel-callback
-                 "which brew"))
+                 "cat /etc/passwd"))
 
+      ;; Callback fired with a JSON error payload (never signaled).
       (expect bash-integ--callback-result :to-be-truthy)
+      (expect (stringp bash-integ--callback-raw) :to-be t)
+      ;; Per-violation deny (`not-in-scope`), routed through
+      ;; `--format-tool-error' like every other denial.
       (expect (plist-get bash-integ--callback-result :error)
-              :to-equal "no_scope_config")))
+              :to-equal "not-in-scope")))
 
   (it "callback receives exactly one string argument"
     (let* ((config (bash-integ--make-scope-config

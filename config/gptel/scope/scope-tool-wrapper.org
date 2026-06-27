@@ -36,6 +36,16 @@
 (require 'jf-gptel-scope-validation)
 #+end_src
 
+* Tool Result Serialization
+
+The canonical tool-result serializer (=jf/gptel-scope--serialize-tool-result=)
+and its sanitizer now live in =scope-validation=, the common ancestor every
+scope module requires, so allow/deny/allow-once/add-to-scope and the bare-tool
+acknowledgements all funnel through ONE serializer that enforces the JSON
+contract (array fields are JSON arrays; string bytes are UTF-8 safe). The macro
+below calls it; it is resolved from =scope-validation= (required above). See
+that module's "Tool Result Serialization" section.
+
 * Scoped Tool Macro
 
 The single keyword option =:operation SYM= declares the filesystem
@@ -85,15 +95,19 @@ later turn."
               (jf/gptel-scope-authorize-tool-call
                ,name ',operation (list ,@arg-names)
                (lambda ()
-                 (funcall callback (json-serialize (progn ,@body))))
+                 (funcall callback
+                          (jf/gptel-scope--serialize-tool-result
+                           (progn ,@body))))
                (lambda (deny-response)
-                 (funcall callback (json-serialize deny-response))))
+                 (funcall callback
+                          (jf/gptel-scope--serialize-tool-result deny-response))))
             (error
              (funcall callback
-                      (json-serialize
+                      (jf/gptel-scope--serialize-tool-result
                        (list :success nil
                              :error "tool_exception"
-                             :message (format "Tool error: %s" (error-message-string err))))))))))))
+                             :message (format "Tool error: %s"
+                                              (error-message-string err))))))))))))
 #+end_src
 
 * Provide Feature

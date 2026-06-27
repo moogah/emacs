@@ -504,22 +504,30 @@
 
       (it "is a no-op for each absent field"
         ;; Tuple is all-nil (other than preset, which is discarded).
-        ;; Spy on `make-local-variable' and assert it is never called
-        ;; by the overlay — neither for the upstream keys nor for
-        ;; `jf/gptel--parent-session-id' (since the drawer does not
-        ;; supply one).
+        ;; Assert the overlay installs no buffer-local for any key —
+        ;; neither the upstream keys nor `jf/gptel--parent-session-id'
+        ;; (the drawer supplies no `GPTEL_PARENT_SESSION_ID').
+        ;;
+        ;; Asserts on `local-variable-p' of each candidate key rather
+        ;; than spying `make-local-variable': `org-mode' activation and
+        ;; the org-element cache init triggered by the overlay's own
+        ;; `org-entry-get' call make ~83 org-internal
+        ;; `make-local-variable' calls, which a global spy cannot
+        ;; distinguish from the overlay's.  `local-variable-p' tests
+        ;; the actual contract — no overlaid binding leaks in.
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list nil nil nil nil nil nil nil nil))
-        (spy-on 'make-local-variable :and-call-through)
         (with-temp-buffer
           (org-mode)
           ;; Drawer does not contain `GPTEL_PARENT_SESSION_ID'.
           (insert ":PROPERTIES:\n:GPTEL_PRESET: coding\n:END:\n")
           (gptel-chat--apply-drawer-overrides)
-          ;; The overlay must never invoke `make-local-variable' for
-          ;; an absent key.  Everything about the overlay is no-op
-          ;; in this scenario.
-          (expect 'make-local-variable :not :to-have-been-called)))
+          ;; The overlay installs no buffer-local for any absent key.
+          (dolist (key '(gptel--system-message gptel-backend gptel-model
+                         gptel-temperature gptel-max-tokens
+                         gptel--num-messages-to-send gptel-tools
+                         jf/gptel--parent-session-id))
+            (expect (local-variable-p key) :to-be nil))))
 
       (it "discards the preset field from the upstream tuple"
         ;; `gptel--preset' is not overlayed — the caller (apply-
@@ -613,12 +621,12 @@
         (spy-on 'gptel--apply-preset :and-return-value nil)
         (spy-on 'gptel-mode :and-return-value nil))
 
-      (it "overlays GPTEL_TOOLS on top of the applied preset"
-        ;; Real drawer → overlay reads tools from upstream tuple; we
-        ;; spy on `gptel-org--entry-properties' to return a controlled
-        ;; tools list (mirroring what upstream would return for a
-        ;; drawer with both `GPTEL_PRESET: coding' and `GPTEL_TOOLS:
-        ;; tool-a tool-b tool-c').
+      (it "overlays GPTEL_TOOLS so the drawer wins over the applied preset"
+        ;; Drawer wins over preset for every key it carries (Decision 3
+        ;; / register/invariant/drawer-overlay-wins-over-preset).  The
+        ;; upstream tuple's `tools' field is non-nil → buffer-local
+        ;; `gptel-tools' takes the drawer's value, regardless of what
+        ;; the preset's `:tools' resolved to.
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list 'coding nil nil nil nil nil nil
                       '(tool-a tool-b tool-c)))
@@ -629,6 +637,79 @@
           (expect 'gptel--apply-preset :to-have-been-called)
           (expect (local-variable-p 'gptel-tools) :to-be t)
           (expect gptel-tools :to-equal '(tool-a tool-b tool-c))))
+
+      ;; Decision 3 / register/invariant/drawer-overlay-wins-over-preset:
+      ;; every drawer-present key wins over the preset on apply, with
+      ;; :GPTEL_SYSTEM: as the asymmetric exception (writer never emits;
+      ;; preset's :system survives when drawer omits the key).
+
+      (it "drawer GPTEL_MODEL wins over preset model"
+        ;; Upstream tuple's `model' field is non-nil — overlay sets
+        ;; buffer-local `gptel-model' to that value, regardless of
+        ;; what the preset's `:model' resolved to.  The preset's
+        ;; model is whatever `gptel--apply-preset' would install
+        ;; (we spy on it as a no-op so the only setter that runs is
+        ;; the overlay).
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil 'drawer-model-symbol nil nil nil nil))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          (expect (local-variable-p 'gptel-model) :to-be t)
+          (expect gptel-model :to-equal 'drawer-model-symbol)))
+
+      (it "preset :system survives when drawer omits :GPTEL_SYSTEM:"
+        ;; The chat-mode save path never writes :GPTEL_SYSTEM:
+        ;; (Decision 2 / register/invariant/drawer-system-key-write-
+        ;; exclusion), so a typical drawer omits the key and the
+        ;; upstream tuple's `system' field is nil.  In that branch
+        ;; the overlay must NOT touch `gptel--system-message' — the
+        ;; preset's :system (already installed by the caller via the
+        ;; buffer-local setter) must survive intact.
+        ;;
+        ;; Discriminator: the default no-op spy on `gptel--apply-preset'
+        ;; never installs anything, which makes "binding absent after
+        ;; overlay" indistinguishable from "overlay killed the
+        ;; binding."  Override it here with a stub that *simulates*
+        ;; what the real preset setter does: install
+        ;; `gptel--system-message' buffer-locally to a sentinel value.
+        ;; If a future refactor adds
+        ;; `(kill-local-variable 'gptel--system-message)' to the
+        ;; overlay path, this assertion will fail — that is the
+        ;; contract guarded by
+        ;; register/invariant/drawer-overlay-wins-over-preset.
+        (spy-on 'gptel--apply-preset :and-call-fake
+                (lambda (_preset setter)
+                  (funcall setter 'gptel--system-message "preset-system")))
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding nil nil nil nil nil nil nil))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          ;; The preset setter installed it buffer-locally; the
+          ;; overlay must leave it alone (no kill-local-variable, no
+          ;; reset to default).
+          (expect (local-variable-p 'gptel--system-message) :to-be t)
+          (expect gptel--system-message :to-equal "preset-system")))
+
+      (it "drawer-authored :GPTEL_SYSTEM: still wins on read (back-compat)"
+        ;; Asymmetric contract: writer never emits :GPTEL_SYSTEM:, but
+        ;; the read-side overlay still respects a manually authored
+        ;; entry.  This protects users who customised a per-session
+        ;; system prompt directly in the drawer.
+        (spy-on 'gptel-org--entry-properties :and-return-value
+                (list 'coding "drawer-system" nil nil nil nil nil nil))
+        (with-temp-buffer
+          (insert gptel-chat-preset-test--drawer-coding)
+          (org-mode)
+          (gptel-chat--apply-declared-preset)
+          (expect 'gptel--apply-preset :to-have-been-called)
+          (expect (local-variable-p 'gptel--system-message) :to-be t)
+          (expect gptel--system-message :to-equal "drawer-system")))
 
       (it "overlays GPTEL_PARENT_SESSION_ID even when no preset is declared"
         ;; Upstream tuple is all-nil (no `GPTEL_PRESET' → resolver
@@ -652,35 +733,46 @@
         ;; No drawer → no `GPTEL_PRESET' → preset branch skipped.
         ;; Upstream tuple is all-nil → overlay is a no-op for every
         ;; upstream key.  `GPTEL_PARENT_SESSION_ID' is absent too.
+        ;;
+        ;; Asserts `local-variable-p' per candidate key rather than
+        ;; spying `make-local-variable' — see the "is a no-op for each
+        ;; absent field" spec above for why the global spy is unsound
+        ;; here (org-mode / org-element-cache init calls it ~83 times).
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list nil nil nil nil nil nil nil nil))
-        (spy-on 'make-local-variable :and-call-through)
         (with-temp-buffer
           (insert gptel-chat-preset-test--no-preset)
           (org-mode)
           (gptel-chat--apply-declared-preset)
           (expect 'gptel--apply-preset :not :to-have-been-called)
-          (expect 'make-local-variable :not :to-have-been-called)))
+          (dolist (key '(gptel--system-message gptel-backend gptel-model
+                         gptel-temperature gptel-max-tokens
+                         gptel--num-messages-to-send gptel-tools
+                         jf/gptel--parent-session-id))
+            (expect (local-variable-p key) :to-be nil))))
 
       (it "does not overlay absent upstream keys even when preset applies"
         ;; Drawer with `GPTEL_PRESET: coding' only — overlay tuple has
         ;; only the preset set; every other field is nil.  The overlay
-        ;; MUST NOT call the buffer-local setter for absent keys.
+        ;; MUST NOT install a buffer-local for absent keys.
+        ;;
+        ;; The `gptel--apply-preset' spy is a no-op (it does not run the
+        ;; setter lambda), so any buffer-local that appears here came
+        ;; from the overlay — and the overlay's tuple is all-nil, so
+        ;; none should.  Asserts `local-variable-p' per key rather than
+        ;; spying `make-local-variable' (see the no-op spec above).
         (spy-on 'gptel-org--entry-properties :and-return-value
                 (list 'coding nil nil nil nil nil nil nil))
-        (spy-on 'make-local-variable :and-call-through)
         (with-temp-buffer
           (insert gptel-chat-preset-test--drawer-coding)
           (org-mode)
           (gptel-chat--apply-declared-preset)
           (expect 'gptel--apply-preset :to-have-been-called)
-          ;; The preset-apply path invokes the setter lambda, which
-          ;; calls `make-local-variable' for preset-provided keys.
-          ;; But our apply-preset spy is a no-op setter (no args) —
-          ;; it never calls `make-local-variable'.  So the only
-          ;; potential caller here is the overlay, and every overlay
-          ;; field is nil → no calls expected.
-          (expect 'make-local-variable :not :to-have-been-called))))
+          (dolist (key '(gptel--system-message gptel-backend gptel-model
+                         gptel-temperature gptel-max-tokens
+                         gptel--num-messages-to-send gptel-tools
+                         jf/gptel--parent-session-id))
+            (expect (local-variable-p key) :to-be nil)))))
 
 
     ;; -------------------------------------------------------------------
@@ -729,6 +821,138 @@
           (gptel-chat--apply-drawer-overrides)
           (expect (local-variable-p 'gptel-temperature) :to-be t)
           (expect gptel-temperature :to-equal 0.5)))))
+
+
+  ;; -----------------------------------------------------------------------
+  ;; 8. System Prompt heading restore — REMOVED.
+  ;;
+  ;; The `* System Prompt' heading reader was deleted in
+  ;; `delete-heading-reader-from-chat-menu' (the
+  ;; `replace-system-prompt-heading-with-sibling-file' change).  The
+  ;; new restore precedence is sibling file > legacy `:GPTEL_SYSTEM:'
+  ;; drawer entry > preset `:system'.  The sibling-file installer is
+  ;; added by `add-sibling-file-restore-to-chat-mode' and pinned by
+  ;; `config/gptel/chat/test/menu/system-prompt-file-spec.el'.  The
+  ;; legacy drawer overlay middle tier remains covered by the
+  ;; `drawer overrides overlay' describe block above.
+
+  (describe "system prompt restore precedence (sibling file > legacy drawer > preset)"
+
+    (defvar jf-preset-wiring-test--tmp-dir nil
+      "Temp directory backing the session.org file for precedence tests.")
+
+    (defun jf-preset-wiring-test--write-session (drawer)
+      "Write session.org under the temp dir with DRAWER as the `:PROPERTIES:' body.
+Returns the absolute session.org path."
+      (let ((session-file (expand-file-name "session.org"
+                                            jf-preset-wiring-test--tmp-dir)))
+        (with-temp-file session-file
+          (insert ":PROPERTIES:\n"
+                  drawer
+                  ":END:\n"
+                  "#+begin_user\n\n#+end_user\n"))
+        session-file))
+
+    (defun jf-preset-wiring-test--write-sibling (basename body)
+      "Write BODY to <tmp>/BASENAME and return its absolute path."
+      (let ((path (expand-file-name basename
+                                    jf-preset-wiring-test--tmp-dir)))
+        (write-region body nil path nil 'silent)
+        path))
+
+    (before-each
+      (setq jf-preset-wiring-test--tmp-dir
+            (make-temp-file "jf-preset-wiring-" t))
+      (spy-on 'gptel-get-preset :and-call-fake
+              (lambda (name) (memq name '(coding research))))
+      (spy-on 'gptel--apply-preset :and-call-fake
+              (lambda (_preset setter)
+                (when setter
+                  (funcall setter 'gptel--system-message
+                           "preset-system-text"))))
+      (spy-on 'gptel-mode :and-return-value nil))
+
+    (after-each
+      (when (and jf-preset-wiring-test--tmp-dir
+                 (file-directory-p jf-preset-wiring-test--tmp-dir))
+        (delete-directory jf-preset-wiring-test--tmp-dir t)))
+
+    (it "sibling file wins over the preset :system on activation"
+      (jf-preset-wiring-test--write-sibling "system-prompt.md"
+                                            "Sibling file body.")
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message
+                      :to-equal "Sibling file body."))
+          (kill-buffer buf))))
+
+    (it "sibling file wins over a legacy :GPTEL_SYSTEM: drawer entry"
+      (jf-preset-wiring-test--write-sibling "system-prompt.md"
+                                            "Sibling file body.")
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               (concat ":GPTEL_PRESET: coding\n"
+                       ":GPTEL_SYSTEM: Legacy drawer prompt.\n"
+                       ":GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n")))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message
+                      :to-equal "Sibling file body."))
+          (kill-buffer buf))))
+
+    (it "legacy :GPTEL_SYSTEM: drawer entry applies when no sibling file"
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               (concat ":GPTEL_PRESET: coding\n"
+                       ":GPTEL_SYSTEM: Legacy drawer prompt.\n")))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message
+                      :to-equal "Legacy drawer prompt."))
+          (kill-buffer buf))))
+
+    (it "falls back to the preset :system when sibling file is absent on disk"
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: ghost.md\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message :to-equal "preset-system-text"))
+          (kill-buffer buf))))
+
+    (it "falls back to the preset :system when GPTEL_SYSTEM_PROMPT_FILE is unset"
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message :to-equal "preset-system-text"))
+          (kill-buffer buf))))
+
+    (it "falls back to the preset :system when sibling file is empty"
+      (jf-preset-wiring-test--write-sibling "system-prompt.md" "")
+      (let* ((session-file
+              (jf-preset-wiring-test--write-session
+               ":GPTEL_PRESET: coding\n:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md\n"))
+             (buf (find-file-noselect session-file)))
+        (unwind-protect
+            (with-current-buffer buf
+              (gptel-chat-mode)
+              (expect gptel--system-message :to-equal "preset-system-text"))
+          (kill-buffer buf)))))
 
   )
 

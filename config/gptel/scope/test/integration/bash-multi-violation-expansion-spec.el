@@ -70,8 +70,6 @@
 (defvar multi--callback-result nil)
 (defvar multi--callback-raw nil)
 (defvar multi--callback-invoked nil)
-(defvar multi--temp-dir nil)
-(defvar multi--scope-file nil)
 
 (defun multi--gptel-callback (result-json)
   (setq multi--callback-invoked t)
@@ -86,34 +84,15 @@
         (when (string= (car tool-entry) name)
           (cl-return (cdr tool-entry)))))))
 
-(defun multi--write-empty-scope ()
-  "Create scope.yml with no allowed paths so every file op is denied."
-  (with-temp-file multi--scope-file
-    (insert "paths:
-  read:
-    []
-  write:
-    []
-  execute:
-    []
-  modify:
-    []
-  deny:
-    []
-cloud:
-  auth_detection: \"warn\"
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 1
-")))
-
-(defun multi--parse-scope-yml ()
-  (let ((parsed (jf/gptel-scope-yaml--parse-file multi--scope-file)))
-    (jf/gptel-scope-yaml--normalize-keys parsed)))
-
-(defun multi--scope-paths (section)
-  "Return the SECTION list (`:read', `:write', ...) from scope.yml."
-  (plist-get (plist-get (multi--parse-scope-yml) :paths) section))
+(defun multi--drawer-paths (operation)
+  "Return the patterns in the current buffer's scope drawer for OPERATION.
+OPERATION is a keyword like `:read', `:write' that maps to a
+`:GPTEL_SCOPE_*' drawer key via
+`jf/gptel-scope--map-operation-to-drawer-key'."
+  (let ((key (jf/gptel-scope--map-operation-to-drawer-key operation)))
+    (org-with-wide-buffer
+     (goto-char (point-min))
+     (org-entry-get-multivalued-property (point) key))))
 
 (defun multi--install-add-to-scope-spy ()
   "Spy on expansion UI that mirrors the real \"Add to scope\" action:
@@ -130,10 +109,10 @@ does today (one violation in, one path added)."
               (pcase validation-type
                 ('bash
                  (jf/gptel-scope--add-bash-to-scope
-                  multi--scope-file resource tool denied-operation))
+                  resource tool denied-operation))
                 ('path
                  (jf/gptel-scope--add-path-to-scope
-                  multi--scope-file resource tool denied-operation)))
+                  resource tool denied-operation)))
               (funcall callback
                        (json-serialize
                         (list :success t
@@ -165,17 +144,9 @@ does today (one violation in, one path added)."
       (expect (plist-get (nth 1 file-ops) :file) :to-equal "/foo")))
 
   (it "validate-command-semantics returns only the first denial"
-    (let* ((config (jf/gptel-scope-yaml--merge-schema-defaults
-                    (jf/gptel-scope-yaml--parse-string
-                     "paths:
-  read: []
-  write: []
-  execute: []
-  modify: []
-  deny: []
-security:
-  enforce_parse_complete: true
-")))
+    (let* ((config (helpers-spec-make-scope-config
+                    :read '() :write '() :execute '() :modify '() :deny '()
+                    :auth-detection "warn"))
            (result (jf/gptel-scope--validate-command-semantics
                     "ls /foo 2>/dev/null" "/workspace" config)))
       ;; Bug driver: the pipeline exits on the first denied op (/dev/null),
@@ -189,65 +160,66 @@ security:
 (describe "Bug: multi-violation add-to-scope leaks subsequent denials"
 
   (before-each
-    (setq multi--temp-dir (make-temp-file "multi-violation-" t))
-    (setq multi--scope-file (expand-file-name "scope.yml" multi--temp-dir))
     (setq multi--callback-result nil)
     (setq multi--callback-raw nil)
     (setq multi--callback-invoked nil)
-    (multi--write-empty-scope))
+    ;; Reset expansion-machinery flags; the RED bug paths in these tests
+    ;; can leave them set if the spy chain errors out mid-flow.
+    (setq jf/gptel-scope--expansion-active nil)
+    (setq jf/gptel-scope--expansion-queue nil))
 
   (after-each
-    (when (and multi--temp-dir (file-exists-p multi--temp-dir))
-      (delete-directory multi--temp-dir t)))
+    (setq jf/gptel-scope--expansion-active nil)
+    (setq jf/gptel-scope--expansion-queue nil))
 
-  (it "scope.yml contains every denied path after user approves Add to scope"
+  (it "drawer contains every denied path after user approves Add to scope"
     (let ((tool (multi--find-tool "run_bash_command")))
-      (with-temp-buffer
-        (setq-local jf/gptel--branch-dir multi--temp-dir)
-        (multi--install-add-to-scope-spy)
-        (spy-on 'jf/gptel-bash--execute-command
-                :and-return-value '(:output ""
-                                    :exit_code 0
-                                    :truncated nil
-                                    :warnings nil
-                                    :error nil))
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (multi--install-add-to-scope-spy)
+          (spy-on 'jf/gptel-bash--execute-command
+                  :and-return-value '(:output ""
+                                      :exit_code 0
+                                      :truncated nil
+                                      :warnings nil
+                                      :error nil))
 
-        (let ((default-directory "/workspace"))
-          (funcall (gptel-tool-function tool)
-                   #'multi--gptel-callback
-                   "ls /foo 2>/dev/null"))
+          (let ((default-directory "/workspace"))
+            (funcall (gptel-tool-function tool)
+                     #'multi--gptel-callback
+                     "ls /foo 2>/dev/null"))
 
-        (let ((read-paths (multi--scope-paths :read))
-              (write-paths (multi--scope-paths :write)))
-          ;; Current behavior: only /dev/null is added to write paths.
-          ;; Correct behavior: /foo should also be in read paths —
-          ;; the user's "Add to scope" means "authorize this command,"
-          ;; not "authorize the first denial and silently run the rest."
-          (expect write-paths :to-contain "/dev/null")
-          (expect read-paths :to-contain "/foo")))))
+          (let ((read-paths (multi--drawer-paths :read))
+                (write-paths (multi--drawer-paths :write)))
+            ;; Current behavior: only /dev/null is added to write paths.
+            ;; Correct behavior: /foo should also be in read paths —
+            ;; the user's "Add to scope" means "authorize this command,"
+            ;; not "authorize the first denial and silently run the rest."
+            (expect write-paths :to-contain "/dev/null")
+            (expect read-paths :to-contain "/foo"))))))
 
   (it "real-world session case: ls ABSPATH 2>/dev/null adds both paths"
     ;; The exact shape that broke in the session observed on 2026-04-16.
     (let ((tool (multi--find-tool "run_bash_command")))
-      (with-temp-buffer
-        (setq-local jf/gptel--branch-dir multi--temp-dir)
-        (multi--install-add-to-scope-spy)
-        (spy-on 'jf/gptel-bash--execute-command
-                :and-return-value '(:output "-rwxr-xr-x 1 root 0 /opt/homebrew/bin/brew"
-                                    :exit_code 0
-                                    :truncated nil
-                                    :warnings nil
-                                    :error nil))
+      (cl-letf (((symbol-function 'save-buffer) (lambda (&rest _) nil)))
+        (jf/gptel-test--with-scope-drawer '()
+          (multi--install-add-to-scope-spy)
+          (spy-on 'jf/gptel-bash--execute-command
+                  :and-return-value '(:output "-rwxr-xr-x 1 root 0 /opt/homebrew/bin/brew"
+                                      :exit_code 0
+                                      :truncated nil
+                                      :warnings nil
+                                      :error nil))
 
-        (let ((default-directory "/workspace"))
-          (funcall (gptel-tool-function tool)
-                   #'multi--gptel-callback
-                   "ls -la /usr/local/bin/brew 2>/dev/null"))
+          (let ((default-directory "/workspace"))
+            (funcall (gptel-tool-function tool)
+                     #'multi--gptel-callback
+                     "ls -la /usr/local/bin/brew 2>/dev/null"))
 
-        (let ((read-paths (multi--scope-paths :read))
-              (write-paths (multi--scope-paths :write)))
-          (expect write-paths :to-contain "/dev/null")
-          (expect read-paths :to-contain "/usr/local/bin/brew"))))))
+          (let ((read-paths (multi--drawer-paths :read))
+                (write-paths (multi--drawer-paths :write)))
+            (expect write-paths :to-contain "/dev/null")
+            (expect read-paths :to-contain "/usr/local/bin/brew")))))))
 
 (provide 'bash-multi-violation-expansion-spec)
 

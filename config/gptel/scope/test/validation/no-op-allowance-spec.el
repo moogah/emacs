@@ -56,27 +56,9 @@
 
   (it "allows version checks without path configuration"
     ;; Setup: Scope with minimal paths (only /workspace)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       ;; Mock parse result: command 'python3 --version'
       (helpers-spec-mock-bash-parse
        "python3 --version"
@@ -95,14 +77,10 @@ security:
                      "/workspace"
                      scope-config)))
         ;; Assert: No validation error (nil = success)
-        (expect result :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect result :to-be nil))))
 
   (it "allows help flags as no-ops"
-    (let* ((scope-yml (helpers-spec-make-minimal-scope))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-minimal-scope-config)))
       ;; Test multiple commands with --help flags
       (dolist (cmd '("ls --help" "grep --help" "gcc --help"))
         ;; Mock parse: Extract command name (first word)
@@ -122,14 +100,10 @@ security:
                        cmd
                        "/workspace"
                        scope-config)))
-          (expect result :to-be nil)))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+          (expect result :to-be nil)))))
 
   (it "allows informational commands"
-    (let* ((scope-yml (helpers-spec-make-minimal-scope))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-minimal-scope-config)))
       ;; Test informational commands
       (dolist (cmd-info '(("which bash" "which")
                           ("type ls" "type")
@@ -150,35 +124,14 @@ security:
                          cmd
                          "/workspace"
                          scope-config)))
-            (expect result :to-be nil))))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+            (expect result :to-be nil))))))
 
   (it "bypasses file path validation for no-op commands"
     ;; Command not in any path configuration, but no file operations
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml))
-           (validation-called nil))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**")))
+          (validation-called nil))
       ;; Mock parse: 'ruby --version'
       (helpers-spec-mock-bash-parse
        "ruby --version"
@@ -205,10 +158,7 @@ security:
         ;; Assert: Success without triggering file validation
         (expect result :to-be nil)
         ;; Verify file validation was NOT called
-        (expect validation-called :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (expect validation-called :to-be nil))))
 
   )
 

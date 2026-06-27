@@ -16,33 +16,17 @@
   "
 Global Mode Launcher
 
-_p_: Perspective     _R_: rgrep
-_P_: Projectile      _d_: dogears
-_r_: Org-Roam
+_P_: Projectile      _R_: rgrep
+_r_: Org-Roam        _d_: dogears
 _a_: Org-Agenda
 _c_: Consult
 "
-  ("p" hydra-perspective/body nil)
   ("P" hydra-projectile/body nil)
   ("r" hydra-roam/body nil)
   ("a" hydra-agenda/body nil)
   ("c" hydra-consult/body nil)
   ("R" rgrep nil)
   ("d" hydra-dogears/body nil)
-  ("q" nil "cancel"))
-
-(defhydra hydra-perspective (:exit t)
-  "
-Perspective Mode
-
-_s_: switch perspective    _S_: save
-_k_: kill perspective      _L_: load
-"
-  ("s" persp-switch nil)
-  ("S" persp-state-save nil)
-  ("k" persp-kill nil)
-  ("L" persp-state-load nil)
-  ("H" hydra-main/body "Home")
   ("q" nil "cancel"))
 
 (defhydra hydra-projectile (:exit t)

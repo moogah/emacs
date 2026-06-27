@@ -7,7 +7,7 @@
 ;; Implements `gptel-chat-next-turn', `gptel-chat-previous-turn',
 ;; and `gptel-chat-regenerate' for `gptel-chat-mode' buffers.
 ;;
-;; The commands delegate to `gptel-chat--parse-buffer' for turn-list
+;; The commands delegate to `gptel-chat-parse-buffer' for turn-list
 ;; extraction rather than duplicating the parser state machine.  The
 ;; keymap that binds these commands lives in `mode.el'
 ;; (`gptel-chat-mode-map'): `C-c n' / `C-c p' for navigation and
@@ -135,7 +135,7 @@ turn to the next one.  Signals a user-visible `No next turn'
 message and leaves point unchanged when no further turn exists."
   (interactive)
   (let* ((here (point))
-         (turns (gptel-chat--parse-buffer))
+         (turns (gptel-chat-parse-buffer))
          (current (gptel-chat-nav--containing-turn turns here))
          (threshold (if current
                         (gptel-chat-nav--turn-end current)
@@ -173,7 +173,7 @@ turn' message and leaves point unchanged when no earlier turn
 exists."
   (interactive)
   (let* ((here (point))
-         (turns (gptel-chat--parse-buffer))
+         (turns (gptel-chat-parse-buffer))
          (current (gptel-chat-nav--containing-turn turns here))
          (threshold (if current
                         (gptel-chat-nav--turn-start current)
@@ -240,7 +240,7 @@ errors."
              (memq gptel-chat--lifecycle-state
                    gptel-chat-nav--regenerate-in-flight-states))
     (user-error "Chat request in progress; cannot regenerate"))
-  (let* ((turns (gptel-chat--parse-buffer))
+  (let* ((turns (gptel-chat-parse-buffer))
          (last (car (last turns))))
     (cond
      ((null last)

@@ -27,8 +27,9 @@ All tools are configured with confirmation enabled by default for security.
 * GPTEL Presets (formerly gptel-agent)
 
 NOTE: Agent/preset configuration is now handled by the preset registration system
-in =gptel/preset-registration.org=. Presets are loaded from =config/gptel/presets/*.md=
-files and registered via =jf/gptel-preset-register-all=.
+in =gptel/presets/registration.org=. Presets are authored as =.org= sources
+tangling to =config/gptel/presets/<name>/preset.el= artifacts that self-register
+via =jf/gptel-preset-register=; the loader =jf/gptel-preset-register-all= loads them.
 
 Originally from: https://github.com/karthink/gptel-agent
 

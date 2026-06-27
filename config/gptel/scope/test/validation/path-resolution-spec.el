@@ -64,432 +64,130 @@
     ;; Expected resolution: /workspace/README.md
     ;; Setup: Scope with paths.read: ['/workspace/**']
     ;; Assert: Success (relative path resolved correctly)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write: []
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with cat command
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
-       "cat ./README.md"
-       '("cat")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read operation on relative path
-      ;; Note: Path stays relative; validation function will resolve it
+       "cat ./README.md" '("cat") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "./README.md" :command "cat"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat ./README.md"
-                     "/workspace"
-                     scope-config)))
-        ;; Assert: Success (relative path resolved to /workspace/README.md)
-        (expect (plist-get result :error) :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "cat ./README.md" "/workspace" scope-config)))
+        (expect (plist-get result :error) :to-be nil))))
 
   (it "dot-dot paths resolved from directory"
     ;; Test: Dot-dot paths resolved from directory
-    ;; Command: 'cat ../other/file.txt'
-    ;; Directory: '/workspace/project'
-    ;; Mock semantics: Return file-op {:operation :read :path '../other/file.txt'}
-    ;; Expected resolution: /workspace/other/file.txt
-    ;; Setup: Scope with paths.read: ['/workspace/**']
-    ;; Assert: Success (parent directory navigation works)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write: []
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with cat command
+    ;; Setup: paths.read: ['/workspace/**']; resolves /workspace/project/../other/file.txt
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
-       "cat ../other/file.txt"
-       '("cat")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read operation with parent directory navigation
+       "cat ../other/file.txt" '("cat") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "../other/file.txt" :command "cat"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat ../other/file.txt"
-                     "/workspace/project"
-                     scope-config)))
-        ;; Assert: Success (resolves to /workspace/other/file.txt)
-        (expect (plist-get result :error) :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "cat ../other/file.txt" "/workspace/project" scope-config)))
+        (expect (plist-get result :error) :to-be nil))))
 
   (it "path traversal detected and denied"
-    ;; Test: Path traversal detected and denied
-    ;; Command: 'cat ../../etc/passwd'
-    ;; Directory: '/workspace/project'
-    ;; Mock semantics: Return file-op {:operation :read :path '../../etc/passwd'}
-    ;; Expected resolution: /etc/passwd
-    ;; Setup: Scope with paths.read: ['/workspace/**'], paths.deny: ['/etc/**']
-    ;; Assert: :error 'path_denied' (traversal reaches denied path)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write: []
-  execute: []
-  modify: []
-  deny:
-    - \"/etc/**\"
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with cat command
+    ;; Setup: paths.read: ['/workspace/**'], deny: ['/etc/**']
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :deny '("/etc/**"))))
       (helpers-spec-mock-bash-parse
-       "cat ../../etc/passwd"
-       '("cat")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read operation that traverses to /etc
+       "cat ../../etc/passwd" '("cat") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "../../etc/passwd" :command "cat"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat ../../etc/passwd"
-                     "/workspace/project"
-                     scope-config)))
-        ;; Assert: path_denied error
-        (expect (plist-get result :error) :to-equal "denied-pattern"))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "cat ../../etc/passwd" "/workspace/project" scope-config)))
+        (expect (plist-get result :error) :to-equal "denied-pattern"))))
 
   (it "current directory (.) resolved"
-    ;; Test: Current directory (.) resolved
-    ;; Command: 'ls .'
-    ;; Directory: '/workspace'
-    ;; Mock semantics: Return file-op {:operation :read :path '.'}
-    ;; Expected resolution: /workspace
-    ;; Setup: Scope with paths.read: ['/workspace', '/workspace/**']
-    ;; Assert: Success
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace\"
-    - \"/workspace/**\"
-  write: []
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with ls command
+    ;; Setup: paths.read: ['/workspace', '/workspace/**']
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace" "/workspace/**"))))
       (helpers-spec-mock-bash-parse
-       "ls ."
-       '("ls")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read operation on current directory
+       "ls ." '("ls") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "." :command "ls"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "ls ."
-                     "/workspace"
-                     scope-config)))
-        ;; Assert: Success (. resolves to /workspace)
-        (expect (plist-get result :error) :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "ls ." "/workspace" scope-config)))
+        (expect (plist-get result :error) :to-be nil))))
 
   (it "directory itself in deny list blocks operation"
-    ;; Test: Directory itself in deny list blocks operation
-    ;; Command: 'ls .'
-    ;; Directory: '/etc'
-    ;; Mock semantics: Return file-op {:operation :read :path '.'}
-    ;; Expected resolution: /etc
-    ;; Setup: Scope with paths.deny: ['/etc', '/etc/**']
-    ;; Assert: :error 'path_denied'
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/**\"
-  write: []
-  execute: []
-  modify: []
-  deny:
-    - \"/etc\"
-    - \"/etc/**\"
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with ls command
+    ;; Setup: paths.read: ['/**'], deny: ['/etc', '/etc/**']
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/**")
+                         :deny '("/etc" "/etc/**"))))
       (helpers-spec-mock-bash-parse
-       "ls ."
-       '("ls")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read operation on current directory (which is /etc)
+       "ls ." '("ls") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "." :command "ls"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "ls ."
-                     "/etc"
-                     scope-config)))
-        ;; Assert: path_denied error
-        (expect (plist-get result :error) :to-equal "denied-pattern"))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "ls ." "/etc" scope-config)))
+        (expect (plist-get result :error) :to-equal "denied-pattern"))))
 
   (it "symlink directory resolved (mock file-truename)"
-    ;; Test: Symlink directory resolved (mock file-truename)
-    ;; Command: 'cat file.txt'
-    ;; Directory: '/workspace' (symlink to /home/user/projects/app)
-    ;; Mock file-truename: Return '/home/user/projects/app'
-    ;; Mock semantics: Return file-op {:operation :read :path 'file.txt'}
-    ;; Setup: Scope with paths.read: ['/workspace/**', '/home/user/projects/**']
-    ;; Assert: Success (both symlink and real path patterns checked)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-    - \"/home/user/projects/**\"
-  write: []
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml))
-           (original-file-truename (symbol-function 'file-truename)))
+    ;; Setup: paths.read: ['/workspace/**', '/home/user/projects/**']
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**" "/home/user/projects/**")))
+          (original-file-truename (symbol-function 'file-truename)))
       (unwind-protect
           (progn
-            ;; Mock file-truename to resolve symlink
             (fset 'file-truename
                   (lambda (path)
                     (if (string-prefix-p "/workspace" path)
                         (replace-regexp-in-string "^/workspace" "/home/user/projects/app" path)
                       (funcall original-file-truename path))))
-
-            ;; Mock parse: Complete parse with cat command
             (helpers-spec-mock-bash-parse
-             "cat file.txt"
-             '("cat")
-             t) ; parse-complete = true
-
-            ;; Mock semantics: Read operation on file.txt
+             "cat file.txt" '("cat") t)
             (helpers-spec-mock-bash-semantics
              (list (helpers-spec--make-file-op :read "file.txt" :command "cat"))
              nil
              '(:ratio 1.0))
-
-            ;; Validate command
             (let ((result (jf/gptel-scope--validate-command-semantics
-                           "cat file.txt"
-                           "/workspace"
-                           scope-config)))
-              ;; Assert: Success (symlink resolved to /home/user/projects/app)
+                           "cat file.txt" "/workspace" scope-config)))
               (expect (plist-get result :error) :to-be nil)))
-
-        ;; Restore original file-truename
-        (fset 'file-truename original-file-truename))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+        (fset 'file-truename original-file-truename))))
 
   (it "absolute path in command bypasses directory context"
-    ;; Test: Absolute path in command bypasses directory context
-    ;; Command: 'cat /etc/passwd'
-    ;; Directory: '/workspace'
-    ;; Mock semantics: Return file-op {:operation :read :path '/etc/passwd'}
-    ;; Setup: Scope with paths.read: ['/workspace/**'], paths.deny: ['/etc/**']
-    ;; Assert: :error 'path_denied'
-    ;; Assert: :warnings contains absolute path warning
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write: []
-  execute: []
-  modify: []
-  deny:
-    - \"/etc/**\"
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with cat command
+    ;; Setup: paths.read: ['/workspace/**'], deny: ['/etc/**']
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :deny '("/etc/**"))))
       (helpers-spec-mock-bash-parse
-       "cat /etc/passwd"
-       '("cat")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read operation on absolute path
+       "cat /etc/passwd" '("cat") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "/etc/passwd" :command "cat"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cat /etc/passwd"
-                     "/workspace"
-                     scope-config)))
-        ;; Assert: path_denied error (absolute path in deny list)
-        (expect (plist-get result :error) :to-equal "denied-pattern")
-        ;; Note: warnings may not be set in current implementation
-        ;; but the test validates that absolute paths are checked correctly)
-        )
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "cat /etc/passwd" "/workspace" scope-config)))
+        (expect (plist-get result :error) :to-equal "denied-pattern"))))
 
   (it "multiple relative paths resolved independently"
-    ;; Test: Multiple relative paths resolved independently
-    ;; Command: 'cp ./src/file.txt ./dst/file.txt'
-    ;; Directory: '/workspace'
-    ;; Mock semantics: Return file-ops:
-    ;;   * {:operation :read :path './src/file.txt'}
-    ;;   * {:operation :write :path './dst/file.txt'}
-    ;; Expected resolutions: /workspace/src/file.txt, /workspace/dst/file.txt
-    ;; Setup: Scope with paths.read and paths.write: ['/workspace/**']
-    ;; Assert: Success (both paths resolved and validated)
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/src/**\"
-  write:
-    - \"/workspace/dst/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      ;; Mock parse: Complete parse with cp command
+    ;; Setup: paths.read: ['/workspace/src/**'], write: ['/workspace/dst/**']
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/src/**")
+                         :write '("/workspace/dst/**"))))
       (helpers-spec-mock-bash-parse
-       "cp ./src/file.txt ./dst/file.txt"
-       '("cp")
-       t) ; parse-complete = true
-
-      ;; Mock semantics: Read and write operations
+       "cp ./src/file.txt ./dst/file.txt" '("cp") t)
       (helpers-spec-mock-bash-semantics
        (list (helpers-spec--make-file-op :read "./src/file.txt" :command "cp")
              (helpers-spec--make-file-op :write "./dst/file.txt" :command "cp"))
        nil
        '(:ratio 1.0))
-
-      ;; Validate command
       (let ((result (jf/gptel-scope--validate-command-semantics
-                     "cp ./src/file.txt ./dst/file.txt"
-                     "/workspace"
-                     scope-config)))
-        ;; Assert: Success (both paths resolved and validated)
-        (expect (plist-get result :error) :to-be nil))
-
-      ;; Cleanup
-      (delete-file scope-yml)))
+                     "cp ./src/file.txt ./dst/file.txt" "/workspace" scope-config)))
+        (expect (plist-get result :error) :to-be nil))))
 
   (it "working directory provided to command execution"
     ;; Test: Working directory provided to command execution

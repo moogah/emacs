@@ -1,0 +1,58 @@
+Test Report
+===========
+
+ERT: 620 ran, 611 passed (6 expected failures)
+
+ERT failures:
+  test-cmdsub-nested-backticks
+  test-corpus-integration-002
+  test-corpus-integration-002 (0.007183 sec) at config/bash-parser/test/corpus/runners/test-corpus-file-operations.el:1
+  test-extraction-heredoc-dynamic-redirect
+  test-extraction-xargs-null-separated
+  test-extraction-xargs-placeholder
+  test-extraction-xargs-simple-batch
+  test-extraction-xargs-with-flags
+  test-pattern-flow-cat-find
+  test-pattern-flow-cat-find (0.007035 sec) at config/bash-parser/test/integration/test-pattern-flow.el:16
+  test-pattern-flow-cat-grep
+  test-pattern-flow-cat-grep (0.007358 sec) at config/bash-parser/test/integration/test-pattern-flow.el:142
+  test-pattern-flow-cat-ls
+  test-pattern-flow-cat-ls (0.007424 sec) at config/bash-parser/test/integration/test-pattern-flow.el:115
+  test-pattern-flow-head-find
+  test-pattern-flow-head-find (0.007565 sec) at config/bash-parser/test/integration/test-pattern-flow.el:59
+  test-pattern-flow-multiple-patterns
+  test-pattern-flow-multiple-patterns (0.007599 sec) at config/bash-parser/test/integration/test-pattern-flow.el:204
+  test-pattern-flow-nested
+  test-pattern-flow-nested (0.014869 sec) at config/bash-parser/test/integration/test-pattern-flow.el:174
+  test-pattern-flow-rm-ls
+  test-pattern-flow-rm-ls (0.006998 sec) at config/bash-parser/test/integration/test-pattern-flow.el:87
+  test-pattern-flow-with-redirection
+  test-pattern-flow-with-redirection (0.007584 sec) at config/bash-parser/test/integration/test-pattern-flow.el:228
+
+Buttercup: 1877 ran, 1855 passed
+
+Buttercup failures:
+  Bug 4: end-to-end add-to-scope should enable retry success gptel callback receives success after add-to-scope correctly expands scope
+  Bug 4: end-to-end add-to-scope should enable retry success scope drawer contains valid path pattern after add-to-scope (not garbage)
+  Bug: multi-violation add-to-scope leaks subsequent denials drawer contains every denied path after user approves Add to scope
+  Bug: multi-violation add-to-scope leaks subsequent denials real-world session case: ls ABSPATH 2>/dev/null adds both paths
+  Corpus file operations via jf/bash-extract-semantics all corpus cases integration-002: Pipeline with pattern substitution and redirect
+  Parallel tool callback: mixed allowed/denied both callbacks fire when one tool passes and one triggers expansion
+  Parallel tool callback: session stuck reproduction single tool call works (baseline) one denied tool fires callback when user denies expansion
+  Parallel tool callback: session stuck reproduction two tools fired via mapc (the production scenario) both callbacks fire when expansion UI auto-denies both
+  Parallel tool callback: transient collision CORRECT: both callbacks fire via queue when user responds to each prompt
+  Parallel tool callback: transient collision when second transient-setup clobbers first, only last callback fires (characterizes bug)
+  run_bash_command integration: "which brew" (no-op) full tool invocation through macro expansion UI is NOT triggered for allowed no-op
+  run_bash_command integration: "which brew" (no-op) full tool invocation through macro real validate-bash-tool is called (not bypassed)
+  run_bash_command integration: "which brew" (no-op) full tool invocation through macro tool body executes and callback receives success
+  run_bash_command integration: denied command triggers expansion UI for denied command through macro
+  run_bash_command integration: denied command user deny returns error to gptel callback
+  run_bash_command integration: file operation out of scope add-to-scope approves and runs the body
+  run_bash_command integration: file operation out of scope allow-once approves and tool body executes
+  run_bash_command integration: file operation out of scope triggers expansion UI through macro for out-of-scope read
+  run_bash_command integration: gptel callback contract callback receives exactly one string argument
+  run_bash_command integration: gptel callback contract empty-drawer deny-all defaults route per-violation denial through callback
+  run_bash_command integration: gptel callback contract tool is registered as async in gptel--known-tools
+
+===========
+Total: 2497 ran, 2466 passed

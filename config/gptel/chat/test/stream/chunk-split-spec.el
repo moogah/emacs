@@ -1,4 +1,4 @@
-;;; chunk-split-spec.el --- Buttercup tests for split-across-chunks collision escape -*- lexical-binding: t; -*-
+;;; chunk-split-spec.el --- Buttercup tests for split-across-chunks body indentation -*- lexical-binding: t; -*-
 
 ;; Copyright (C) 2026 Jeff Farr
 
@@ -9,33 +9,34 @@
 
 ;; Headline scenario from spec §"Response streaming and sanitization":
 ;;
-;;   WHEN one chunk ends with `#+end_ass' and the next begins with
-;;        `istant\nmore'
-;;   THEN the completed line is recognized as a collision and
-;;        escaped before final insertion
+;;   WHEN one chunk ends with `\n* He' and the next begins with
+;;        `ading\nmore'
+;;   THEN the per-line holdback completes the line as `* Heading' and
+;;        indents it by the body width before insertion
 ;;
 ;; This is the reason the streaming closure carries a one-line
-;; holdback instead of sanitizing each raw chunk independently.
-;; Design.md §Decision 3b: without a holdback, the two chunks each
-;; look like harmless prose to the line-level sanitizer; only after
-;; concatenation does the composite line `#+end_assistant' become
-;; recognizable.
+;; holdback instead of indenting each raw chunk independently.
+;; design.md §Decision 6: the per-line indenter must see a *complete*
+;; line, so a line split across chunk boundaries has to be recomposed
+;; first.  Without the holdback, the indenter would prefix each
+;; partial fragment instead of the whole line.
 ;;
 ;; Also covers variants that exercise the same holdback mechanism:
-;; collisions split at other byte offsets, and a collision split
-;; across three chunks (to confirm the holdback is not just a
-;; one-chunk lookback).
+;; splits at other byte offsets, and a line split across three chunks
+;; (to confirm the holdback is not just a one-chunk lookback).
 
 ;;; Code:
 
 (require 'buttercup)
 (require 'cl-lib)
 
-;; Load the module under test.
+;; Load the module under test.  `gptel-chat-mode' owns the
+;; `gptel-chat--body-indent' accessor consulted by the indenter.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
        (chat-dir (expand-file-name "../../" spec-dir)))
   (add-to-list 'load-path chat-dir))
 
+(require 'gptel-chat-mode)
 (require 'gptel-chat-stream)
 
 
@@ -64,30 +65,47 @@
 
 ;;; Specs --------------------------------------------------------------------
 
-(describe "Split-across-chunks collision escaping"
+(describe "Split-across-chunks body indentation"
 
   (before-each (gptel-chat-chunk-split-test--setup))
   (after-each  (gptel-chat-chunk-split-test--cleanup))
 
   (describe "headline scenario from spec §Response streaming and sanitization"
 
-    (it "escapes `#+end_assistant' split as `#+end_ass' + `istant\\nmore'"
+    (it "indents a heading split as `* He' + `ading\\nmore'"
+      ;; The first chunk holds `* He' back (no embedded newline); the
+      ;; second chunk supplies `ading\n' which completes the line.
+      ;; The completed `* Heading' is indented by the body width
+      ;; before insertion.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-chunk-split-test--marker))
              (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "#+end_ass")                ; chunk 1 — all holdback
+        (funcall cb "* He")                      ; chunk 1 — all holdback
         ;; Mid-sequence: nothing is committed yet because no newline
         ;; has arrived.
         (expect (gptel-chat-chunk-split-test--buffer-string)
                 :to-equal "")
-        (funcall cb "istant\nmore")             ; chunk 2 — completes the line
-        (funcall cb t)                           ; flush trailing "more"
+        (funcall cb "ading\nmore")               ; chunk 2 — completes the line
+        (funcall cb t)                            ; flush trailing "more"
         (expect (gptel-chat-chunk-split-test--buffer-string)
-                :to-equal ",#+end_assistant\nmore"))))
+                :to-equal "  * Heading\n  more")))
+
+    (it "indents an end-delimiter split as `#+end_ass' + `istant\\nmore'"
+      ;; A streamed `#+end_assistant' line is body content; recomposing
+      ;; it across a chunk boundary and indenting it keeps the
+      ;; containing block well-formed.
+      (let* ((handle (gptel-chat--make-stream-inserter
+                      gptel-chat-chunk-split-test--marker))
+             (cb (gptel-chat-stream-insert handle)))
+        (funcall cb "#+end_ass")
+        (funcall cb "istant\nmore")
+        (funcall cb t)
+        (expect (gptel-chat-chunk-split-test--buffer-string)
+                :to-equal "  #+end_assistant\n  more"))))
 
   (describe "variants exercising the same holdback mechanism"
 
-    (it "escapes a collision split after a single char"
+    (it "indents a line split after a single char"
       ;; Chunk 1 ends with a single `#', chunk 2 supplies the rest.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-chunk-split-test--marker))
@@ -96,10 +114,10 @@
         (funcall cb "+end_user\nmore\n")
         (funcall cb t))
       (expect (gptel-chat-chunk-split-test--buffer-string)
-              :to-equal "prose\n,#+end_user\nmore\n"))
+              :to-equal "  prose\n  #+end_user\n  more\n"))
 
-    (it "escapes a collision split across three chunks"
-      ;; `#+end_tool' split as `#+end` + `_to` + `ol\n'.
+    (it "indents a line split across three chunks"
+      ;; `#+end_tool' split as `#+end' + `_to' + `ol\n'.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-chunk-split-test--marker))
              (cb (gptel-chat-stream-insert handle)))
@@ -108,44 +126,33 @@
         (funcall cb "ol\n")
         (funcall cb t))
       (expect (gptel-chat-chunk-split-test--buffer-string)
-              :to-equal ",#+end_tool\n"))
+              :to-equal "  #+end_tool\n"))
 
-    (it "escapes a case-variant collision split across chunks"
-      ;; Mixed case recomposed across a boundary — still escaped
-      ;; because the sanitizer uses case-fold-search.
+    (it "indents a heading split across chunks"
+      ;; Recomposed across a boundary, the completed `*** Deep' line is
+      ;; indented like any other body line.
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-chunk-split-test--marker))
              (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "#+End_Ass")
-        (funcall cb "istant\n")
+        (funcall cb "*** De")
+        (funcall cb "ep\n")
         (funcall cb t))
       (expect (gptel-chat-chunk-split-test--buffer-string)
-              :to-equal ",#+End_Assistant\n"))
+              :to-equal "  *** Deep\n")))
 
-    (it "does NOT escape a recomposed #+end_src (not one of the three delimiters)"
-      ;; Negative control: split `#+end_src' across chunks; the
-      ;; recomposed line must pass through untouched.
-      (let* ((handle (gptel-chat--make-stream-inserter
-                      gptel-chat-chunk-split-test--marker))
-             (cb (gptel-chat-stream-insert handle)))
-        (funcall cb "#+end_")
-        (funcall cb "src\n")
-        (funcall cb t))
-      (expect (gptel-chat-chunk-split-test--buffer-string)
-              :to-equal "#+end_src\n")))
-
-  (describe "holdback preserves in-order inserts around a split collision"
+  (describe "holdback preserves in-order inserts around a split line"
 
     (it "content before and after the split appears in correct order"
       (let* ((handle (gptel-chat--make-stream-inserter
                       gptel-chat-chunk-split-test--marker))
              (cb (gptel-chat-stream-insert handle)))
         (funcall cb "line1\nlin")               ; emit line1; holdback = "lin"
-        (funcall cb "e2\n#+end_")                ; emit line2;  holdback = "#+end_"
-        (funcall cb "assistant\nafter\n")        ; emit escaped collision; then after
+        (funcall cb "e2\n* Head")               ; emit line2;  holdback = "* Head"
+        (funcall cb "ing\nafter\n")             ; emit recomposed heading, then after
         (funcall cb t))
       (expect (gptel-chat-chunk-split-test--buffer-string)
-              :to-equal "line1\nline2\n,#+end_assistant\nafter\n"))))
+              :to-equal
+              "  line1\n  line2\n  * Heading\n  after\n"))))
 
 (provide 'chunk-split-spec)
 

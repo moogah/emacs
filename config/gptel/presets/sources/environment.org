@@ -1,0 +1,208 @@
+#+title: Environment fragment (dynamic)
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle environment.el
+#+auto_tangle: y
+#+fragment_kind: dynamic
+
+* Introduction
+
+This is the canonical *dynamic* fragment of the =prompt-fragments= capability:
+the per-send =# Environment= block that re-orients the model each turn. Unlike a
+static fragment — whose text is pre-rendered at tangle time and consumed verbatim
+— a dynamic fragment is a *function evaluated at compose time*, and its default
+position is the *tail* of the composition so the static prefix stays cacheable
+across sends (=register/invariant/static-prerender-dynamic-compose=,
+load-bearing).
+
+The function reproduces, verbatim in behaviour, the block the chat-mode pre-send
+composer previously built inline (=gptel-chat--build-environment-block=): the
+working directory line from the buffer's =default-directory=, the file-access
+scope summarised from the point-min =:PROPERTIES:= drawer's =GPTEL_SCOPE_*= keys
+(rendered as VERBATIM globs, as authored), a "current as of this message" live
+note, and a degraded single-line fallback for a drawerless / unscoped buffer.
+
+Wiring (=register/boundary/composer-compose=, =register/shape/fragment-reference=):
+the composer's default chat/agent compositions place a *dynamic reference*
+=(:kind dynamic :fn FN)= at the tail, where =FN= is read from the seam variable
+=jf/gptel-fragment-environment-fn= (defaults to =#'ignore= until wired). This
+module populates that seam with =jf/gptel-fragment-environment=, so loading this
+module is what turns the env tail "on". The function takes the compose-time
+CONTEXT as its single argument and ignores it — the block's inputs are INTRINSIC
+to the buffer only (=register/boundary/environment-block-input-neutrality=): the
+current buffer's =default-directory= and its drawer keys. It references NO
+workspaces-package symbol.
+
+Design context: design.md §Decision 4 (static pre-render / dynamic compose) and
+§Open Questions (wrap-and-relocate chosen over rewrite — the body moves here
+unchanged so observable behaviour is preserved);
+=openspec/changes/gptel-fragment-presets/specs/environment-preamble/spec.md=.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; environment.el --- Dynamic environment fragment -*- lexical-binding: t; -*-
+
+;; Copyright (C) 2026 Jeff Farr
+
+;; Author: Jeff Farr
+;; Keywords: gptel, llm, presets
+
+;;; Commentary:
+
+;; The canonical dynamic fragment: the per-send "# Environment" block,
+;; evaluated at compose time and placed at the tail of the chat/agent
+;; default composition.  See environment.org for the full design.
+
+;;; Code:
+
+(require 'cl-lib)
+(require 'subr-x)
+(require 'seq)
+#+end_src
+
+* Forward declarations
+
+The block reads the point-min drawer's =GPTEL_SCOPE_*= keys. The scanner that
+enumerates the drawer keys lives in =config/gptel/sessions/filesystem.el=
+(feature =gptel-session-filesystem=) and the multivalued accessor is org's; both
+resolve at call time when this function runs from a chat-mode buffer (which only
+exists after sessions and =org= have loaded). =org= is required lazily inside the
+function so this module stays load-safe in the minimal contexts the rest of the
+preset sub-module supports.
+
+#+begin_src emacs-lisp
+(declare-function jf/gptel--scan-session-drawer-keys "gptel-session-filesystem" ())
+(declare-function org-entry-get-multivalued-property "org" (pom property))
+#+end_src
+
+* Scope line rendering
+
+=jf/gptel-fragment-environment--render-scope-line= renders one scope bullet:
+=LABEL= followed by =PATTERNS= comma-joined. An empty list renders as a bare
+label with no patterns, so the block shows which buckets the session declares
+even when one is empty. This is the relocated =gptel-chat--render-scope-line=
+helper — it had a single caller (the env builder), so it moves here with it.
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment-environment--render-scope-line (label patterns)
+  "Render one scope bullet: LABEL with PATTERNS comma-joined.
+PATTERNS is a list of verbatim glob strings (possibly nil/empty).
+An empty list renders as a bare label with no patterns, so the block
+shows which buckets the session declares even when one is empty."
+  (format "- %s %s" label
+          (if patterns (mapconcat #'identity patterns ", ") "")))
+#+end_src
+
+* The dynamic fragment function
+
+=jf/gptel-fragment-environment= is the compose-time producer of the
+=# Environment= block. It is the relocated body of the former
+=gptel-chat--build-environment-block= — same INTRINSIC inputs, same degraded
+fallback, same verbatim scope rendering — adapted only to take (and ignore) the
+compose-time CONTEXT argument the composer passes to every dynamic reference's
+=:fn=.
+
+Built from INTRINSIC buffer inputs only (design.md D3): =default-directory= for
+the working-directory line, and the point-min =:PROPERTIES:= drawer's raw
+=GPTEL_SCOPE_READ= / =GPTEL_SCOPE_WRITE= / =GPTEL_SCOPE_DENY= patterns for the
+scope lines. Scope patterns are rendered VERBATIM (comma-joined, as authored) —
+the function reads the drawer directly via =org-entry-get-multivalued-property=
+rather than through =jf/gptel-scope--load-config=, whose deny-all defaulting is
+for validation, not human display.
+
+Degradation (design.md D5): when the drawer carries NONE of the three rendered
+=GPTEL_SCOPE_*= keys, the three scope bullets collapse to a single "no scope
+restrictions" line. The function NEVER signals and NEVER returns an empty
+string. References NO workspaces-package symbol
+(=register/boundary/environment-block-input-neutrality=).
+
+#+begin_src emacs-lisp
+(defun jf/gptel-fragment-environment (&optional _context)
+  "Return the markdown \"# Environment\" block for the current buffer.
+
+The canonical dynamic fragment function: evaluated at compose time and
+placed at the tail of the chat/agent default composition
+\(`register/invariant/static-prerender-dynamic-compose').  _CONTEXT is
+the compose-time context the composer passes to every dynamic
+reference's :fn; it is ignored here because the block's inputs are
+INTRINSIC to the buffer (`register/boundary/environment-block-input-
+neutrality').
+
+Built from INTRINSIC buffer inputs only (design.md D3):
+`default-directory' for the working-directory line, and the point-min
+`:PROPERTIES:' drawer's raw `GPTEL_SCOPE_READ' / `GPTEL_SCOPE_WRITE' /
+`GPTEL_SCOPE_DENY' patterns for the scope lines.  Scope patterns are
+rendered VERBATIM (comma-joined, as authored) — the function reads the
+drawer directly via `org-entry-get-multivalued-property' rather than
+through `jf/gptel-scope--load-config', whose deny-all defaulting is for
+validation, not human display.
+
+Degradation (design.md D5): when the drawer carries NONE of the three
+rendered `GPTEL_SCOPE_*' keys, the three scope bullets collapse to a
+single \"no scope restrictions\" line.  The function NEVER signals and
+NEVER returns an empty string.
+
+References NO workspaces-package symbol (`register/boundary/
+environment-block-input-neutrality'): with the workspaces package
+unloaded the function still returns a valid block."
+  (require 'org)
+  (save-excursion
+    (save-restriction
+      (widen)
+      (goto-char (point-min))
+      (let* ((keys (jf/gptel--scan-session-drawer-keys))
+             (scoped (seq-find
+                      (lambda (k)
+                        (member (car k)
+                                '("GPTEL_SCOPE_READ"
+                                  "GPTEL_SCOPE_WRITE"
+                                  "GPTEL_SCOPE_DENY")))
+                      keys))
+             (header
+              (concat
+               "# Environment\n"
+               "You are working in the directory below. The file-access scope lists what you may\n"
+               "read and write; this information is current as of this message.\n"
+               "\n"
+               (format "- Working directory: %s\n" default-directory))))
+        (if scoped
+            (concat
+             header
+             (jf/gptel-fragment-environment--render-scope-line
+              "Readable:"
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_READ"))
+             "\n"
+             (jf/gptel-fragment-environment--render-scope-line
+              "Writable:"
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_WRITE"))
+             "\n"
+             (jf/gptel-fragment-environment--render-scope-line
+              "Denied:  "
+              (org-entry-get-multivalued-property (point) "GPTEL_SCOPE_DENY")))
+          (concat
+           header
+           "- File access: no scope restrictions (this buffer is not a scoped session)"))))))
+#+end_src
+
+* Wiring the seam
+
+Populate the composer's tail seam with this function. The composer's
+=jf/gptel-fragment--default-composition= reads =jf/gptel-fragment-environment-fn=
+at composition-build time and wraps it in a dynamic reference at the tail; until
+this assignment runs the seam holds =#'ignore= (empty, skipped contribution).
+Loading this module is therefore what turns the environment tail "on".
+
+The =fragments= feature is required so the seam variable is defined before we set
+it; in the gptel load order =presets/fragments.el= loads ahead of the sources.
+
+#+begin_src emacs-lisp
+(require 'jf-gptel-fragments)
+(setq jf/gptel-fragment-environment-fn #'jf/gptel-fragment-environment)
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'jf-gptel-fragment-environment)
+;;; environment.el ends here
+#+end_src

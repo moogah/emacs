@@ -8,7 +8,7 @@
 ;;; Commentary:
 
 ;; Exercises the multi-round tool-use gate on the `t' (HTTP success)
-;; arm of `gptel-chat--stream-callback' (design.md §Decision 10).
+;; arm of `gptel-chat-stream-callback' (design.md §Decision 10).
 ;;
 ;; Upstream's `gptel-curl--stream-cleanup' calls
 ;; `(funcall callback t info)' on every HTTP success — once per
@@ -33,10 +33,13 @@
 (require 'gptel)
 
 ;; Load the module under test from the co-located source directory.
+;; `gptel-chat-mode' owns the `gptel-chat--body-indent' accessor
+;; consulted by the body indenter.
 (let* ((spec-dir (file-name-directory (or load-file-name buffer-file-name)))
        (chat-dir (expand-file-name "../../" spec-dir)))
   (add-to-list 'load-path chat-dir))
 
+(require 'gptel-chat-mode)
 (require 'gptel-chat-stream)
 
 
@@ -46,8 +49,15 @@
   "Build a minimal `gptel-tool' struct with NAME for test fixtures.
 Upstream emits tool-call / tool-result events as 3-lists
 `(TOOL-STRUCT ARGS CB-OR-RESULT)'; only the struct's name slot is
-consulted by the stream callback."
-  (gptel-make-tool
+consulted by the stream callback.
+
+Uses `gptel--make-tool' (the bare struct constructor), NOT
+`gptel-make-tool': the latter REGISTERS the tool in the global
+`gptel--known-tools' alist by name, so a fixture named after a real
+tool (e.g. \"run_bash_command\") clobbers the real tool's function
+with `ignore' for the rest of the batch run.  The struct is passed
+directly into the stream event, so registration is unnecessary."
+  (gptel--make-tool
    :name name
    :function #'ignore
    :description (format "test tool %s" name)
@@ -86,6 +96,10 @@ Returns an advance marker at the end of the assistant body."
           (cl-incf count))
         count))))
 
+(defun gptel-chat-multi-round-test--body-pad ()
+  "Return the body-width pad on the appended user block's body line."
+  (make-string (gptel-chat--body-indent) ?\s))
+
 (defun gptel-chat-multi-round-test--cleanup ()
   (when (buffer-live-p gptel-chat-multi-round-test--buffer)
     (kill-buffer gptel-chat-multi-round-test--buffer))
@@ -95,7 +109,7 @@ Returns an advance marker at the end of the assistant body."
 
 ;;; Specs --------------------------------------------------------------------
 
-(describe "gptel-chat--stream-callback multi-round tool-use"
+(describe "gptel-chat-stream-callback multi-round tool-use"
 
   (before-each
     (gptel-chat-multi-round-test--fresh-buffer))
@@ -113,7 +127,7 @@ Returns an advance marker at the end of the assistant body."
       ;; marked tool-use (pre-handle-tool-use).  On this mid-turn `t'
       ;; the callback must flush holdback but leave
       ;; `#+begin_assistant' open so subsequent events land inside.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         (funcall cb "Thinking about it.\n" '(:tool-use t))
         (funcall cb t '(:tool-use t)))
@@ -121,7 +135,7 @@ Returns an advance marker at the end of the assistant body."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "Thinking about it.\n"))
+                      "  Thinking about it.\n"))
       (expect (gptel-chat-multi-round-test--count-occurrences
                "#+end_assistant")
               :to-equal 0))
@@ -129,17 +143,18 @@ Returns an advance marker at the end of the assistant body."
     (it "flushes a trailing partial line on the mid-turn `t' (no newline added)"
       ;; The holdback must still be drained on every `t' so text is
       ;; not lost; only the close-and-append sequence is gated.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         (funcall cb "partial-no-newline" '(:tool-use t))
         (funcall cb t '(:tool-use t)))
-      ;; Partial is committed, block is still open (no trailing \n
-      ;; after the partial, no `#+end_assistant').
+      ;; Partial is committed (indented by the body width), block is
+      ;; still open (no trailing \n after the partial, no
+      ;; `#+end_assistant').
       (expect (gptel-chat-multi-round-test--buffer-string)
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "partial-no-newline"))
+                      "  partial-no-newline"))
       (expect (gptel-chat-multi-round-test--count-occurrences
                "#+end_assistant")
               :to-equal 0)))
@@ -154,7 +169,7 @@ Returns an advance marker at the end of the assistant body."
       ;;   tool-result event
       ;;   Request-2 streams text
       ;;   Request-2 completes with `t' (INFO :tool-use unset) ← DONE
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         ;; Request-1 streaming text (no :tool-use on chunks — upstream
         ;; only marks :tool-use on the terminal `t' for the tool-use
@@ -175,20 +190,23 @@ Returns an advance marker at the end of the assistant body."
         (funcall cb "Done reading.\n" nil)
         ;; Request-2 completes; final turn, no :tool-use.
         (funcall cb t nil))
-      ;; Expected buffer: one open-assistant header, the Request-1
-      ;; prose, the rendered tool block, the Request-2 prose, and
-      ;; exactly one `#+end_assistant' close.
+      ;; Expected buffer: one open-assistant header, the indented
+      ;; Request-1 prose, the rendered tool block (column-0
+      ;; delimiters, indented result), the indented Request-2 prose,
+      ;; and exactly one `#+end_assistant' close.
       (expect (gptel-chat-multi-round-test--buffer-string)
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "Let me check.\n"
+                      "  Let me check.\n"
                       "#+begin_tool (read_file :path \"/a\")\n"
-                      "file contents\n"
+                      "  file contents\n"
                       "#+end_tool\n"
-                      "Done reading.\n"
+                      "  Done reading.\n"
                       "#+end_assistant\n"
-                      "\n#+begin_user\n\n#+end_user\n"))
+                      "\n#+begin_user\n"
+                      (gptel-chat-multi-round-test--body-pad)
+                      "\n#+end_user\n"))
       (expect (gptel-chat-multi-round-test--count-occurrences
                "#+end_assistant")
               :to-equal 1))
@@ -197,7 +215,7 @@ Returns an advance marker at the end of the assistant body."
       ;; A harder case: the assistant makes two consecutive tool-use
       ;; rounds before its final turn.  The block must stay open
       ;; across BOTH intermediate `t' signals.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         ;; Round 1: text → t(:tool-use t) → call → result.
         (funcall cb "Round1 prose\n" nil)
@@ -231,13 +249,15 @@ Returns an advance marker at the end of the assistant body."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "Round1 prose\n"
-                      "#+begin_tool (t1 :k 1)\nr1\n#+end_tool\n"
-                      "Round2 prose\n"
-                      "#+begin_tool (t2 :k 2)\nr2\n#+end_tool\n"
-                      "Final answer.\n"
+                      "  Round1 prose\n"
+                      "#+begin_tool (t1 :k 1)\n  r1\n#+end_tool\n"
+                      "  Round2 prose\n"
+                      "#+begin_tool (t2 :k 2)\n  r2\n#+end_tool\n"
+                      "  Final answer.\n"
                       "#+end_assistant\n"
-                      "\n#+begin_user\n\n#+end_user\n"))))
+                      "\n#+begin_user\n"
+                      (gptel-chat-multi-round-test--body-pad)
+                      "\n#+end_user\n"))))
 
   (describe "single-turn (no tool-use) still closes on `t'"
 
@@ -245,7 +265,7 @@ Returns an advance marker at the end of the assistant body."
       ;; Regression guard: gating on :tool-use must not break the
       ;; common single-turn path where upstream fires exactly one `t'
       ;; with no :tool-use flag set.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         (funcall cb "One-shot answer.\n" nil)
         (funcall cb t nil))
@@ -253,9 +273,11 @@ Returns an advance marker at the end of the assistant body."
               :to-equal
               (concat "#+begin_user\nhello\n#+end_user\n"
                       "#+begin_assistant\n"
-                      "One-shot answer.\n"
+                      "  One-shot answer.\n"
                       "#+end_assistant\n"
-                      "\n#+begin_user\n\n#+end_user\n"))
+                      "\n#+begin_user\n"
+                      (gptel-chat-multi-round-test--body-pad)
+                      "\n#+end_user\n"))
       (expect (gptel-chat-multi-round-test--count-occurrences
                "#+end_assistant")
               :to-equal 1))
@@ -264,7 +286,7 @@ Returns an advance marker at the end of the assistant body."
       ;; Defensive: `(plist-get nil :tool-use)' returns nil, so a
       ;; nil INFO must behave identically to an INFO with no
       ;; :tool-use flag.  Pins that contract.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         (funcall cb "Hello.\n" nil)
         (funcall cb t nil))
@@ -276,7 +298,7 @@ Returns an advance marker at the end of the assistant body."
       ;; Another shape upstream could plausibly send: the plist
       ;; carries :tool-use but its value is nil (flag cleared).
       ;; Must still close.
-      (let ((cb (gptel-chat--stream-callback
+      (let ((cb (gptel-chat-stream-callback
                  gptel-chat-multi-round-test--marker)))
         (funcall cb "Hello.\n" nil)
         (funcall cb t '(:tool-use nil)))

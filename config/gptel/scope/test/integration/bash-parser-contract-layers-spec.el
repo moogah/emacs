@@ -94,22 +94,16 @@ Used by Layer 5 for parser round-trip verification.")
 (defun contract-layers-spec--permissive-config ()
   "Build scope config that allows all path patterns.
 Every operation type should be allowed for any path."
-  (let ((scope-yml (helpers-spec-make-scope-yml
-                    (helpers-spec--scope-with-paths
-                     '("/**") '("/**") '("/**") '("/**") nil))))
-    (unwind-protect
-        (helpers-spec-load-scope-config scope-yml)
-      (delete-file scope-yml))))
+  (helpers-spec-make-scope-config
+   :read '("/**") :write '("/**") :execute '("/**") :modify '("/**")
+   :deny '() :auth-detection "warn"))
 
 (defun contract-layers-spec--restrictive-config ()
   "Build scope config with empty path patterns.
 Every operation type should be denied for any path."
-  (let ((scope-yml (helpers-spec-make-scope-yml
-                    (helpers-spec--scope-with-paths
-                     nil nil nil nil nil))))
-    (unwind-protect
-        (helpers-spec-load-scope-config scope-yml)
-      (delete-file scope-yml))))
+  (helpers-spec-make-scope-config
+   :read '() :write '() :execute '() :modify '() :deny '()
+   :auth-detection "warn"))
 
 ;;; Test Layers
 
@@ -139,12 +133,10 @@ Every operation type should be denied for any path."
         (expect (memq op classified-ops) :to-be-truthy))))
 
   (it ":read-like operations are allowed with read patterns"
-    (let* ((read-yml (helpers-spec-make-scope-yml
-                      (helpers-spec--scope-with-paths
-                       '("/**") nil nil nil nil)))
-           (read-config (unwind-protect
-                            (helpers-spec-load-scope-config read-yml)
-                          (delete-file read-yml)))
+    (let* ((read-config (helpers-spec-make-scope-config
+                         :read '("/**") :write '() :execute '()
+                         :modify '() :deny '()
+                         :auth-detection "warn"))
            (read-like-ops (mapcar #'car
                                   (cl-remove-if-not
                                    (lambda (entry) (eq (cdr entry) :read-like))
@@ -156,12 +148,10 @@ Every operation type should be denied for any path."
                 :to-be t))))
 
   (it ":write-like operations are allowed with write patterns"
-    (let* ((write-yml (helpers-spec-make-scope-yml
-                       (helpers-spec--scope-with-paths
-                        nil '("/**") nil nil nil)))
-           (write-config (unwind-protect
-                             (helpers-spec-load-scope-config write-yml)
-                           (delete-file write-yml)))
+    (let* ((write-config (helpers-spec-make-scope-config
+                          :read '() :write '("/**") :execute '()
+                          :modify '() :deny '()
+                          :auth-detection "warn"))
            (write-like-ops (mapcar #'car
                                    (cl-remove-if-not
                                     (lambda (entry) (eq (cdr entry) :write-like))
@@ -173,12 +163,10 @@ Every operation type should be denied for any path."
                 :to-be t))))
 
   (it ":modify-like operations are allowed with modify patterns"
-    (let* ((modify-yml (helpers-spec-make-scope-yml
-                        (helpers-spec--scope-with-paths
-                         nil nil nil '("/**") nil)))
-           (modify-config (unwind-protect
-                              (helpers-spec-load-scope-config modify-yml)
-                            (delete-file modify-yml)))
+    (let* ((modify-config (helpers-spec-make-scope-config
+                           :read '() :write '() :execute '()
+                           :modify '("/**") :deny '()
+                           :auth-detection "warn"))
            (modify-like-ops (mapcar #'car
                                     (cl-remove-if-not
                                      (lambda (entry) (eq (cdr entry) :modify-like))
@@ -190,12 +178,10 @@ Every operation type should be denied for any path."
                 :to-be t))))
 
   (it ":execute-like operations are allowed with execute patterns"
-    (let* ((exec-yml (helpers-spec-make-scope-yml
-                      (helpers-spec--scope-with-paths
-                       nil nil '("/**") nil nil)))
-           (exec-config (unwind-protect
-                            (helpers-spec-load-scope-config exec-yml)
-                          (delete-file exec-yml)))
+    (let* ((exec-config (helpers-spec-make-scope-config
+                         :read '() :write '() :execute '("/**")
+                         :modify '() :deny '()
+                         :auth-detection "warn"))
            (exec-like-ops (mapcar #'car
                                   (cl-remove-if-not
                                    (lambda (entry) (eq (cdr entry) :execute-like))
@@ -282,56 +268,7 @@ Every operation type should be denied for any path."
               (push (format "%s: :message not a string, got %S"
                             op (plist-get result :message))
                     shape-errors))))))
-      (expect shape-errors :to-equal nil))))
-
-;; -- Layer 7: Operation → Scope-Section Mapping Contract --
-(describe "Layer 7: operation → scope-section mapping"
-
-  (it "every contract operation maps to a known scope section"
-    ;; The mapping function must cover every operation the bash-parser can produce.
-    ;; Unknown operations would silently mis-route violations in the expansion UI.
-    (let ((known-sections '(:read :write :execute))
-          (unmapped nil))
-      (dolist (op contract/bash--valid-operations)
-        (let ((section (jf/gptel-scope--map-operation-to-scope-section op)))
-          (unless (memq section known-sections)
-            (push (format "%s -> %S (not a known section)" op section) unmapped))))
-      (expect unmapped :to-equal nil)))
-
-  (it "read-like operations map to :read (consistent with validate-operation)"
-    ;; validate-operation allows read-like ops with read patterns.
-    ;; The mapping function must agree: they route to paths.read in scope.yml.
-    (let ((read-like-ops (mapcar #'car
-                                 (cl-remove-if-not
-                                  (lambda (entry) (eq (cdr entry) :read-like))
-                                  contract-layers-spec--operation-classification))))
-      (dolist (op read-like-ops)
-        (expect (jf/gptel-scope--map-operation-to-scope-section op)
-                :to-equal :read))))
-
-  (it "write-like and modify-like operations map to :write (consistent with validate-operation)"
-    ;; validate-operation requires write patterns for write-like ops, and
-    ;; modify-like ops fall back to write. Both route to paths.write.
-    (let ((write-and-modify-ops
-           (mapcar #'car
-                   (cl-remove-if-not
-                    (lambda (entry)
-                      (memq (cdr entry) '(:write-like :modify-like)))
-                    contract-layers-spec--operation-classification))))
-      (dolist (op write-and-modify-ops)
-        (expect (jf/gptel-scope--map-operation-to-scope-section op)
-                :to-equal :write))))
-
-  (it "execute-like operations map to :execute (consistent with validate-operation)"
-    (let ((execute-like-ops (mapcar #'car
-                                    (cl-remove-if-not
-                                     (lambda (entry) (eq (cdr entry) :execute-like))
-                                     contract-layers-spec--operation-classification))))
-      (dolist (op execute-like-ops)
-        (expect (jf/gptel-scope--map-operation-to-scope-section op)
-                :to-equal :execute)))))
-
-  ))
+      (expect shape-errors :to-equal nil))))))
 
 (provide 'bash-parser-contract-layers-spec)
 

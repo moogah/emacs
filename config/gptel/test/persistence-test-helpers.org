@@ -204,11 +204,6 @@ Requires `yaml' package to be available."
   "Return non-nil if PATH was created as a directory in CAPTURED-DIRS."
   (member (directory-file-name (expand-file-name path)) captured-dirs))
 
-(defun captured-symlink-target (captured-symlinks linkname)
-  "Get the target of symlink LINKNAME from CAPTURED-SYMLINKS hash table.
-Returns nil if LINKNAME was not created."
-  (gethash linkname captured-symlinks))
-
 (defun captured-delete-p (captured-deletes path)
   "Return non-nil if PATH was deleted during captured I/O."
   (member path captured-deletes))

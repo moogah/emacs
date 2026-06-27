@@ -1,0 +1,476 @@
+---
+name: verify-end-to-end
+description: Full test run; manual sanity check of scaffold + anchor + delete + purge + broken-home flows; all spec scenarios pass
+change: add-workspace-home-directory
+status: done
+relations: []
+---
+
+## Resolution (2026-06-06, manual review)
+
+### Automated verification
+- **Workspaces in isolation: 243/243 pass** (`./bin/run-tests.sh -d
+  config/workspaces`). Zero workspaces regressions.
+- **Full suite: 2722 ran, 2690 passed.** Every failure classified:
+  **0 workspaces failures.** The remaining ~32 are pre-existing,
+  unrelated subsystems (bash-parser ERT `pattern-flow`/`xargs`/`cmdsub`,
+  corpus-002; gptel scope/bash-tools `run_bash_command`/`Parallel tool
+  callback`/`add-to-scope`) — all already tracked in `.tasks/`
+  (`investigate-cross-suite-pollution-scope-tests`,
+  `scope-and-bash-tool-test-failures-followup`,
+  `fix-corpus-integration-002-cat-pattern-source`,
+  `fix-match-pattern-parser-validator-boundary`).
+- Key bindings present (`C-x w n/s/D/P/R`); persistence v2 rejection
+  verified in isolation.
+
+### Findings fixed this session
+1. **#+TITLE: display override was built-but-unwired** — `workspace-
+   home-org-title` (cycle 1) had zero production callers; every tab
+   label used the basename, so the proposal/design-D4 display-name
+   override was undelivered. Implemented per user disposition (display-
+   only model): added `workspace--display-name` (`(or title basename)`,
+   live read) and a `tab-bar-tab-name-format-function` wrapper
+   (`workspace--tab-bar-tab-name-format` + idempotent installer) that
+   renders the title in the tab label while leaving the tab's `name`
+   slot — the registry key — untouched. Covered by new
+   `display-name-spec.el` (10 specs).
+2. **4 `*Messages*`-fragile tests** failed only under the full suite
+   (cross-suite log pollution: `(substring messages-after (length
+   messages-before))` drifts when `message-log-max` truncates the log
+   from the front). Hardened all 5 capture sites across
+   `persistence-v3-spec`, `persistence-spec`, `broken-home-load-spec`
+   by binding `message-log-max` to `t` during capture.
+
+### Coverage gaps closed
+- **Scenario 2** (display half) — now implemented + tested
+  (`display-name-spec.el`). The `completing-read`-keys-by-registry-name
+  half was already true and tested.
+- **Scenario 20** (deleted workspace can be re-anchored) — new chained
+  test in `workspace-new-anchor-spec.el` (delete → surviving dir →
+  prefix-arg re-anchor → re-registered, no scaffold side effects).
+- **Scenario 3** — was **over-specified**: it (and the requirement
+  prose) implied `mv` + restart alone makes a workspace re-appear under
+  the new basename, but that needs the directory-scan rediscovery the
+  proposal **explicitly defers**. Reality: a moved workspace loads
+  broken and is recovered via `workspace-re-anchor` (which renames to
+  the new basename). **Amended the delta spec** (requirement prose +
+  scenario 3) to describe the real re-anchor recovery flow, and added
+  an end-to-end test (`broken-home-runtime-spec.el`: move → broken-on-
+  load → re-anchor → renamed + `#+TITLE:` drives display). Also
+  softened the display-surface prose: the tab-bar label is the wired
+  surface in this change; mode-line/status-message display names are
+  reserved for a later change (no existing workspace mode-line element
+  to hook).
+
+### Soft gaps NOT closed (out of agreed scope; flag for later)
+- Scenario 11 (home.org byte-identical across session-create/autosave —
+  covered only by a no-write-primitives lint, not an end-to-end byte
+  check).
+- Scenario 14 (delete-a-session-file-mid-flight inventory update —
+  covered indirectly via the live directory read).
+- Scenario 33 (restart prefers working-state — unit precedence covered;
+  full restart+tab-switch integration path not).
+
+### Notes
+- The manual GUI smoke (step 4) was executed as **batch behavioral
+  tests** driving the real command functions (more reproducible than
+  manual clicking). Genuinely GUI-only confirmation (live tab-bar
+  rendering of the title in an interactive Emacs, real gptel session
+  UI) is left to the user's own manual pass.
+- `run-tests.sh --snapshot` writes raw ANSI codes into
+  `test-results.txt`; no clean baseline was committed (poor git
+  artifact). Snapshot baseline establishment deferred.
+
+### Test count
+209 (pre-cycle-4) → 231 (this session's earlier batches, after removing
+the writer-lint spec) → **243** (after +10 display-name, +1 scenario-20,
++1 scenario-3).
+
+Original task body (cycle updates) follows.
+
+---
+
+## Cycle 4 updates (cycle-20260526-191802)
+
+### Status
+
+- Blocker `workspace-new-anchor-existing` resolved (merge `9cbba3e`).
+- Blocker `workspace-delete-and-purge` resolved (merge `81001ee`).
+- Remaining blocker: `update-docs-readme` (now `ready` after cycle-4
+  unblocks; this task unblocks when update-docs-readme merges).
+
+### Cycle-4 commands now part of end-to-end verification
+
+The manual sanity check should now cover:
+
+- `M-x workspace-new alpha` (default-path; cycle-3 wired).
+- `C-u M-x workspace-new` → existing dir (cycle-4 anchor-existing,
+  three sub-cases).
+- `M-x workspace-delete alpha` → verify dir untouched.
+- `M-x workspace-purge alpha` → confirm yes-or-no-p; verify dir
+  gone.
+- `M-x workspace-purge` against external dir → safeguard refuses.
+- `C-u M-x workspace-purge` against external dir → safeguard
+  bypassed; verify works.
+- Broken-home scenarios (cycle-3 broken-home-tolerance + cycle-4
+  purge on broken).
+- `workspace-re-anchor` (cycle-3) against a broken entry → rename
+  + clear-broken.
+
+### Test count baseline shifted
+
+- Pre-cycle-4: 209 specs in `config/workspaces/`.
+- Post-cycle-4: 224 specs (5 from anchor-spec, 10 from
+  delete-purge-spec; refactor-broken-home-test follow-up will
+  refactor but not change count).
+- Plus pending follow-ups (canonicalize-workspace-home-path-form,
+  refactor-broken-home-test-observable-end-state, two cycle-3
+  test-hygiene tasks) may add ~1-3 specs.
+
+When this task runs, the baseline should be ~225+ specs depending
+on follow-up disposition.
+
+### Cycle-4 register-diff hits
+
+None directly cited (no register cites in body). All cycle-4
+reconciliations are `confirmed`; no contract changes to verify
+against.
+
+
+
+## Files to modify
+*(verification-only task; no production code changes)*
+
+Possibly: small fix-up commits if regressions surface. Snapshot files
+(if `--snapshot` is used) may be updated.
+
+## Implementation steps
+
+1. **Full test suite, all frameworks**:
+   ```bash
+   ./bin/run-tests.sh
+   ```
+   Must pass with zero failures across both Buttercup and ERT.
+
+2. **Workspaces-scoped run with snapshot regen** to refresh the
+   baseline for future regressions:
+   ```bash
+   ./bin/run-tests.sh -d config/workspaces --snapshot
+   git diff config/workspaces/test-results.txt
+   ```
+   Inspect the snapshot diff — every changed line should be expected
+   (new scenarios passing, no previously-passing scenarios now
+   missing).
+
+3. **Spec-scenario coverage audit.** For each scenario in
+   `openspec/changes/add-workspace-home-directory/specs/workspaces/spec.md`,
+   confirm at least one `it` clause in the corresponding test file
+   covers it. Quick way:
+   - `grep -c '#### Scenario' openspec/changes/add-workspace-home-directory/specs/workspaces/spec.md`
+   - `grep -rc '(it "' config/workspaces/test/`
+   - The latter should be ≥ the former for the new behavior.
+   - If gaps exist, write the missing `it` clauses now.
+
+4. **Manual end-to-end smoke** in an isolated Emacs
+   (`./bin/emacs-isolated.sh`):
+
+   - **Default-path workspace creation**:
+     - `M-x workspace-new alpha` → no prompts.
+     - Inspect `~/emacs-workspaces/alpha/` from a shell — `.git/`,
+       `home.org` (with `#+TITLE: alpha`), `sessions/<date>-initial.org`,
+       one git commit titled `Initial workspace`.
+     - Verify the tab `alpha` is selected and `home.org` is the
+       displayed buffer.
+
+   - **#+TITLE: display override**:
+     - Edit `~/emacs-workspaces/alpha/home.org`; change `#+TITLE: alpha`
+       to `#+TITLE: Alpha Project`.
+     - Verify (wherever the display name surfaces — tab label,
+       mode-line, or `M-x workspace-switch` prompt) that
+       "Alpha Project" appears, and registry/tab-key remains `alpha`.
+
+   - **Anchor existing repo with home.org** (case 1):
+     - `mkdir /tmp/anchor1 && cd /tmp/anchor1 && git init && echo "#+TITLE: anchor1" > home.org`
+     - `C-u M-x workspace-new` → choose `/tmp/anchor1`.
+     - Verify: no new files, no new commits; tab `anchor1` appears.
+
+   - **Anchor existing repo without home.org** (case 2):
+     - `mkdir /tmp/anchor2 && cd /tmp/anchor2 && git init`
+     - `C-u M-x workspace-new` → choose `/tmp/anchor2`.
+     - Verify: `home.org` and `sessions/<date>-initial.org` appear as
+       UNTRACKED in `git status`; no new commits.
+
+   - **Anchor non-repo** (case 3):
+     - `mkdir /tmp/anchor3`
+     - `C-u M-x workspace-new` → choose `/tmp/anchor3`.
+     - Verify: full scaffold + initial commit; tab appears.
+
+   - **Delete is non-destructive**:
+     - `M-x workspace-delete alpha`.
+     - Inspect `~/emacs-workspaces/alpha/` → still present with
+       contents intact.
+
+   - **Re-anchor after delete**:
+     - `C-u M-x workspace-new` → choose `~/emacs-workspaces/alpha/`.
+     - Verify it registers without scaffolding side effects (case 1
+       path) and tab returns.
+
+   - **Purge with safeguard**:
+     - `M-x workspace-purge anchor1` → asserts safeguard error
+       (anchor1 is outside default parent).
+     - `C-u M-x workspace-purge anchor1` → yes-or-no prompt →
+       confirm → verify dir is gone.
+
+   - **Purge inside default parent**:
+     - `M-x workspace-purge alpha` → yes-or-no prompt → confirm →
+       verify `~/emacs-workspaces/alpha/` is gone.
+
+   - **Broken-home tolerance**:
+     - `M-x workspace-new bravo`.
+     - From a shell: `rm -rf ~/emacs-workspaces/bravo/`.
+     - `M-x workspace-save` then quit Emacs (or just quit; broken-state
+       detection happens on next load).
+     - Restart Emacs. Check `*Messages*` for the notice naming
+       `bravo` and the missing path.
+     - `M-x workspace-switch bravo` → assert user-error mentioning
+       `workspace-re-anchor` and `workspace-purge`.
+     - `M-x workspace-re-anchor bravo` → pick `~/emacs-workspaces/`
+       or another fresh dir; verify recovery.
+
+   - **gptel session routing**:
+     - On workspace `alpha` (re-created): `M-x gptel-sessions-new`
+       (or whatever the actual entry point is named) → assert the
+       new file is under `~/emacs-workspaces/alpha/sessions/`.
+     - `C-u M-x gptel-sessions-new` → assert global directory.
+     - Switch to a non-workspace tab → `M-x gptel-sessions-new` →
+       assert global directory.
+
+5. **Persistence-v3 migration check**:
+   - Save a workspaces persistence file by hand (or grab one from
+     git stash before this branch) at `:version 2`.
+   - Restart Emacs.
+   - Assert: `*Messages*` notice naming the file and v2 mismatch;
+     registry is empty; no auto-recreation.
+
+6. If any of the above reveals a defect, file a fix-up commit on the
+   relevant module and re-run the affected manual + automated tests
+   before marking this task done.
+
+## Design rationale
+
+Verification is a separate task so it lands after all functional
+changes are merged, providing a single coherent end-to-end review
+moment rather than partial validation in each PR. The manual smoke
+catches integration issues that unit tests miss (key bindings, UI
+flow, real `gptel` interaction).
+
+The scenario-coverage audit (step 3) is a structural check that the
+spec-driven discipline actually held — every behavioral promise in
+the spec has at least one automated test.
+
+## Verification
+
+- All commands above complete without error.
+- Snapshot diff is fully expected and committed.
+- Manual smoke covers all spec scenarios (see step 4 mapping).
+- No regressions in the broader test suite (`./bin/run-tests.sh`).
+
+## Context
+
+design.md § Decisions / D9 — testing approach (full suite + snapshot)
+specs/workspaces/spec.md (all scenarios — verify coverage)
+proposal.md (verify the proposal's "What Changes" list is fully delivered)
+
+
+## Cycle 2 updates (cycle-20260525-213500)
+
+### Status
+
+- One of 6 blockers (`gptel-sessions-workspace-consult`) closed at
+  merge `8ce82df`. Still blocked by 5 cycle-3+ tasks.
+
+### Cycle-2 register-diff hits relevant to this task
+
+The verify suite will need to exercise:
+
+- The scaffold pipeline (default-path; anchor sub-cases) per
+  `register/boundary/workspace-scaffold-pipeline` (reconciled).
+  Manual sanity check: invoke `workspace-new` (no prefix) and
+  `C-u workspace-new` against existing + non-existing directories.
+
+- The gptel routing per
+  `register/boundary/gptel-sessions-workspace-consult` (reconciled).
+  Manual sanity check: on a workspace tab, `M-x
+  jf/gptel-persistent-session` files under `<HOME>/sessions/`;
+  `M-x jf/gptel-persistent-session-global` files in
+  `jf/gptel-sessions-directory`.
+
+- Persistence v3 round-trip per
+  `register/invariant/home-required-no-floating-workspaces` (re-
+  confirmed) and `register/invariant/broken-tag-runtime-only`
+  (reconciled). Manual sanity check: save with at least one broken
+  workspace; load; assert `:broken` is set freshly (not from disk)
+  and `:restore-pending` is set fresh on every loaded entry.
+
+- The new spec files added this cycle that the verify run picks
+  up automatically: `persistence-v3-spec.el`, `broken-home-load-spec.el`,
+  `scaffold-spec.el`, `gptel-integration-spec.el`,
+  `workspace-routing-spec.el`.
+
+### Cycle-2 inline-fix hits
+
+The orchestrator inline-fix commits (`63d60ec` cross-contract
+collision; `cd1d721` architect findings) both shipped with green
+test runs (195/0 workspaces + 98/0 gptel/sessions). Your full
+verify should reproduce these numbers.
+
+### Cycle-2 user-ask resolution dependency
+
+The verify of the gptel UX (prefix-arg vs separate command) cannot
+proceed until `ask-cycle-20260525-213500-2` is dispositioned. If
+the user picks "revise spec" → verify against the separate-command
+UX. If "re-implement to rebind" → verify against prefix-arg
+behaviour. If "defer" → verify against the current separate-
+command UX with the spec marked tentative.
+
+## Cycle 3 updates (cycle-20260526-171719)
+
+### Status
+
+- Still `blocked`. Two of five cycle-2 blockers cleared this cycle
+  (`workspace-new-default-path` and `broken-home-tolerance` both done).
+  Three remain: `workspace-new-anchor-existing`,
+  `workspace-delete-and-purge`, `update-docs-readme`. Terminal task
+  for archiving the change.
+
+### Cycle-3 scope additions to verify
+
+The verification matrix should now include:
+
+- **Default-path scaffold flow**: `M-x workspace-new foo` →
+  `~/emacs-workspaces/foo/` exists with `.git/`, `home.org`,
+  `sessions/<date>-initial.org`, one git commit. Tab shows `home.org`.
+- **Collision detection**: pre-create `~/emacs-workspaces/foo/`; invoke
+  `M-x workspace-new foo`; expect hard `user-error`.
+- **Default home builder**: after `workspace-new foo`, the active
+  buffer is `<home>/home.org`.
+- **`workspace-re-anchor` (`C-x w R`)**: create workspace, `rm -rf`
+  the home dir, restart Emacs, observe `*Messages*` notice,
+  `M-x workspace-switch <name>` → user-error naming `workspace-re-anchor`
+  and `workspace-purge`; `M-x workspace-re-anchor` → pick fresh dir;
+  registry updates with `:home` and `:name` BOTH equal to the new
+  basename; rename survives save/restore.
+- **Activation guards**: `workspace-switch` and `workspace-restore`
+  on a broken workspace produce the user-error; consistent message.
+- **Absolute-path enforcement**: hand-write a persistence file with
+  a relative-path `:home`; restart; observe the `*Messages*`
+  "skipping persisted entry %S — :home %S is not absolute" notice
+  and confirm the entry is NOT in the registry.
+
+### Cycle-3 register-touch coverage (use as a checklist)
+
+Verify the verification covers the cycle's 9 touched register entries:
+
+- `home-org-user-authored-after-creation` — confirm
+  `home-org-writer-lint-spec.el` passes (note: see open ask
+  `ask-cycle-20260526-171719-1` on heuristic adequacy).
+- `workspace-plist-v3` — confirm `workspace--set-name` lockstep
+  enforcement is exercised (the re-anchor rename test does this).
+- `workspace-scaffold-pipeline` — confirm scaffold runs cleanly +
+  leaves partial on failure.
+- `scaffold-leave-partial-on-failure` — exercise scaffold failure
+  (e.g., target inside a read-only dir) and confirm no auto-cleanup.
+- `home-required-no-floating-workspaces` — exercise the absolute-path
+  deserializer arm; note open ask `ask-cycle-20260526-171719-2` on
+  constructor-side enforcement.
+- `home-org-read-pipeline` — confirm home-builder routes through
+  `workspace-home-org-path`.
+- `broken-tag-runtime-only` — confirm `:broken` is set on load and
+  cleared on re-anchor; persistence file does NOT contain `:broken`.
+- `registry-name-equals-basename` — confirm the rename-on-different-
+  basename branch updates both `:home` and `:name`, and the rename
+  survives save/restore.
+- `workspace-broken-disposition` — confirm error messages name both
+  remediation commands consistently.
+
+### Open asks (verification should NOT preempt user disposition)
+
+If `ask-cycle-20260526-171719-1` (writer-lint heuristic) is
+unresolved at verification time, verify the current lint state but
+flag the trivially-passing concern.
+
+If `ask-cycle-20260526-171719-2` (*scratch* fallback) is unresolved,
+verify the current behaviour (fallback exists; one spec exercises it)
+but flag in the verification report.
+
+
+## Cycle 5 updates (cycle-20260528-180230)
+
+### Status
+
+- Final blocker `update-docs-readme` resolved (merge `b934f95`,
+  inline-fix `badb863` on rename-bullet design-drift). Status
+  flipped `blocked → ready`. Eligible for any future cycle's
+  batch; the proposal's user-visible surface plus README are
+  now functionally complete and any remaining quality
+  follow-ups (canonical_form deserialiser reconciliation,
+  test-isolation hygiene) are non-blocking.
+
+### Cycle-5 register-diff hits relevant to this task
+
+- `register/shape/workspace-plist-v3` `confirmed → reconciled`
+  (modified this cycle to add `canonical_form` sub-fields per
+  string-typed slot). Verify-end-to-end's manual flows must
+  exercise:
+  - `M-x workspace-new alpha` + `C-u M-x workspace-new` →
+    inspect `workspace--registry` and confirm both `:home`
+    values carry trailing slashes and `expand-file-name`
+    normalisation (cycle-5's structural pin).
+  - `C-x w R` re-anchor → confirm `:home` lands canonical on
+    the new path (no manual trailing-slash dance needed in
+    the prompt response — file-name-as-directory wraps it).
+  - Save + restart + reload → confirm persisted `:home`
+    survives round-trip in the form it was stored (verbatim
+    preservation; see follow-up
+    `reconcile-home-canonical-form-deserialiser-promise`).
+- `register/vocabulary/workspace-broken-disposition` and
+  `register/invariant/broken-tag-runtime-only` re-confirmed.
+  Manual flow: kill a workspace's home dir mid-Emacs session
+  (or `mv` then restart) → confirm `:broken` flag on the
+  registry plist, confirm `workspace-switch` / `workspace-restore`
+  are refused with naming of `workspace-re-anchor` /
+  `workspace-purge`, confirm `workspace-re-anchor` recovers
+  cleanly.
+
+### Cycle-5 follow-up tasks created this cycle
+
+Two follow-ups landed during cycle-5 integrate. Both are
+non-blocking for verify-end-to-end, but the manual sanity
+sweep should be aware:
+
+1. `reconcile-home-canonical-form-deserialiser-promise`
+   (in-change, ready) — softens or wires the canonical_form
+   deserialiser promise. If this lands before verify-end-to-end
+   runs, re-confirm the entry's prose matches the deserialiser
+   behaviour you observe in the round-trip flow.
+
+2. `.tasks/refresh-workspaces-spec-md-v3-schema-and-
+   canonical-form` — externalised; spec.md resync. Not
+   user-visible; no impact on verify-end-to-end's checks.
+
+### Manual flow checklist additions
+
+Beyond the prior cycle's checklist, add:
+
+- `M-x workspace-purge missing-ws` on a broken workspace
+  (`:home` was mv'd away) → confirm no error, registry
+  cleaned, parent directory untouched (cycle-5 refactor of
+  the broken-home test asserts this end-state; the manual
+  flow should match).
+- After `mv ~/emacs-workspaces/foo ~/emacs-workspaces/bar`
+  + Emacs restart → confirm workspace `foo` surfaces as
+  broken at load; `C-x w R foo /full/path/to/bar` →
+  workspace renames in place to `bar`, registry key
+  flips, tab relabels. (This is now the documented rename
+  flow per README's Deferred-features bullet rewrite at
+  inline-fix `badb863`.)

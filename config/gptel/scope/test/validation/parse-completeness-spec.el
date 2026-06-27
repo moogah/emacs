@@ -52,28 +52,17 @@
     (helpers-spec-teardown-bash-mocks)
     (helpers-spec-teardown-session))
 
-  (it "strict mode rejects incomplete parse (syntax error)"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
+  ;; Cycle-2: the per-session enforce-parse-complete override has been
+  ;; deleted (`register/invariant/scope-parse-complete-is-true').  The
+  ;; validator now reads `jf/gptel-scope--enforce-parse-complete' (a
+  ;; module-level defconst, fixed at t) directly.  Tests below cover
+  ;; the always-strict behaviour; the legacy "permissive mode" tests
+  ;; were removed because that mode no longer exists.
 
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+  (it "always rejects incomplete parse (syntax error)"
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
        "function incomplete() {"
        '()
@@ -86,31 +75,12 @@ security:
                      "function incomplete() {"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "parse_incomplete"))
-      (delete-file scope-yml)))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))))
 
-  (it "strict mode rejects incomplete loop"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+  (it "always rejects incomplete loop"
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
        "for i in ; do echo $i; done"
        '()
@@ -123,31 +93,12 @@ security:
                      "for i in ; do echo $i; done"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "parse_incomplete"))
-      (delete-file scope-yml)))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))))
 
-  (it "strict mode rejects incomplete conditional"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+  (it "always rejects incomplete conditional"
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
        "if [ -f file.txt ; then cat"
        '()
@@ -160,31 +111,12 @@ security:
                      "if [ -f file.txt ; then cat"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "parse_incomplete"))
-      (delete-file scope-yml)))
+        (expect (plist-get result :error) :to-equal "parse_incomplete"))))
 
-  (it "strict mode allows valid complex syntax"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+  (it "allows valid complex syntax"
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
        "for f in /workspace/*.el; do grep TODO $f; done"
        '("grep")
@@ -197,31 +129,12 @@ security:
                      "for f in /workspace/*.el; do grep TODO $f; done"
                      "/workspace"
                      scope-config)))
-        (expect result :to-be nil))
-      (delete-file scope-yml)))
+        (expect result :to-be nil))))
 
-  (it "strict mode allows valid conditionals"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+  (it "allows valid conditionals"
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
        "if [ -f /workspace/file ]; then cat /workspace/file; fi"
        '("cat")
@@ -234,140 +147,19 @@ security:
                      "if [ -f /workspace/file ]; then cat /workspace/file; fi"
                      "/workspace"
                      scope-config)))
-        (expect result :to-be nil))
-      (delete-file scope-yml)))
+        (expect result :to-be nil))))
 
-  (it "permissive mode allows incomplete parse with warning"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: false
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "function incomplete() {"
-       '()
-       nil)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 0.5))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "function incomplete() {"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-be nil))
-      (delete-file scope-yml)))
-
-  (it "permissive mode allows partial syntax"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: false
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "for i in ; do echo $i"
-       '()
-       nil)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 0.3))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "for i in ; do echo $i"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-be nil))
-      (delete-file scope-yml)))
-
-  (it "default mode is strict"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny: []
-
-cloud:
-  auth_detection: \"warn\"
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
-      (helpers-spec-mock-bash-parse
-       "function incomplete() {"
-       '()
-       nil)
-      (helpers-spec-mock-bash-semantics
-       '()
-       nil
-       '(:ratio 0.5))
-      (let ((result (jf/gptel-scope--validate-command-semantics
-                     "function incomplete() {"
-                     "/workspace"
-                     scope-config)))
-        (expect (plist-get result :error) :to-equal "parse_incomplete"))
-      (delete-file scope-yml)))
+  (it "enforce-parse-complete defconst is fixed at t"
+    ;; Cycle-2 confirmed register/invariant/scope-parse-complete-is-true:
+    ;; the constant is the validator's only authority for this flag, and
+    ;; it is unconditionally `t'. Replaces the deleted per-session
+    ;; security-config override tests.
+    (expect jf/gptel-scope--enforce-parse-complete :to-be t))
 
   (it "parse completeness checked before deny list"
-    (let* ((scope-yml (helpers-spec-make-scope-yml
-                       "paths:
-  read:
-    - \"/workspace/**\"
-  write:
-    - \"/workspace/**\"
-  execute: []
-  modify: []
-  deny: []
-
-bash_tools:
-  deny:
-    - sudo
-    - rm
-
-cloud:
-  auth_detection: \"warn\"
-
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"))
-           (scope-config (helpers-spec-load-scope-config scope-yml)))
+    (let ((scope-config (helpers-spec-make-scope-config
+                         :read '("/workspace/**")
+                         :write '("/workspace/**"))))
       (helpers-spec-mock-bash-parse
        "sudo incomplete syntax {"
        '()
@@ -380,8 +172,7 @@ security:
                      "sudo incomplete syntax {"
                      "/workspace"
                      scope-config)))
-        (expect (plist-get result :error) :to-equal "parse_incomplete"))
-      (delete-file scope-yml))))
+        (expect (plist-get result :error) :to-equal "parse_incomplete")))))
 
 (provide 'parse-completeness-spec)
 ;;; parse-completeness-spec.el ends here

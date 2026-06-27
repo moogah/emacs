@@ -106,10 +106,14 @@
           (jf/gptel-scope--format-tool-error "write_file_in_scope" "/etc/config" check-result))
         (expect 'write-file :not :to-have-been-called)))
 
-    (it "returns error with allowed-patterns for guidance"
+    (it "returns error with allowed-patterns for guidance (as a JSON array / vector)"
+      ;; allowed-patterns MUST be a vector, not a Lisp list: `json-serialize'
+      ;; treats a non-keyword list as an alist/object and throws on a list of
+      ;; pattern strings, which crashed the deny path
+      ;; (.tasks/scope-deny-symbolp-crash-parallel-tools.md).
       (let* ((denied (tool-test--scope-denied "path_out_of_scope" "/tmp/file.txt" "write_file_in_scope"))
              (formatted (jf/gptel-scope--format-tool-error "write_file_in_scope" "/tmp/file.txt" denied)))
-        (expect (plist-get formatted :allowed-patterns) :to-equal '("/workspace/**"))))))
+        (expect (plist-get formatted :allowed-patterns) :to-equal ["/workspace/**"])))))
 
 
 ;;; Test Suite: edit_file_in_scope tool-scope contract

@@ -1,0 +1,460 @@
+#+title: Workspaces
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle workspaces.el
+#+auto_tangle: y
+
+Named tab-based workspaces with per-workspace named layouts, configurable
+home, recent-layout pointer, per-workspace buffer membership, and
+per-machine persistence.
+
+This file is the top-level loader for the =workspaces= module. Behavior
+is implemented incrementally in submodules under =config/workspaces/=;
+they are loaded from the [[#submodules][Submodules]] section as they
+land.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp
+;;; workspaces.el --- Named tab-based workspaces -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Custom Group
+
+#+begin_src emacs-lisp
+(defgroup workspaces nil
+  "Named tab-based workspaces with per-workspace layouts and buffer scoping."
+  :group 'convenience
+  :prefix "workspace-")
+#+end_src
+
+* Defcustoms
+
+The home-builder default is provided by =tabs.el= (declared below to
+avoid a load-order dependency in the byte-compiler).
+
+#+begin_src emacs-lisp
+(declare-function workspace-default-home-builder "workspace-tabs" (workspace-name))
+
+(defcustom workspace-home-builder #'workspace-default-home-builder
+  "Function called to build the `home' layout for a newly-created workspace.
+Called with one argument WORKSPACE-NAME, in the context of the freshly
+activated workspace.  The default implementation opens
+=<:home>/home.org= for the workspace via a registry lookup; any buffers
+it displays become members of the new workspace."
+  :type 'function
+  :group 'workspaces)
+#+end_src
+
+** Default parent directory
+
+The directory under which =workspace-new= creates new workspace home
+directories when invoked without a prefix argument.  Expansion happens
+at defcustom-load time (via =getenv \"HOME\"=) so that subsequent
+=expand-file-name= calls in =workspace-new= do not re-resolve =~= at
+every invocation.
+
+#+begin_src emacs-lisp
+(defcustom workspaces-default-parent-directory
+  (expand-file-name "emacs-workspaces" (or (getenv "HOME") "~"))
+  "Default parent directory under which `workspace-new' creates new workspaces.
+When `workspace-new NAME' is invoked without a prefix arg, the new
+workspace's home directory is `(expand-file-name NAME this-dir)'."
+  :type 'directory
+  :group 'workspaces)
+#+end_src
+
+** Anti-save predicates
+
+Predicates consulted before any *autosave* trigger fires.  If any
+predicate returns non-nil, the autosave is skipped silently (no
+*Messages* notice, no user-visible error).  The explicit
+=workspace-save= command never consults this list — the user's
+deliberate save gesture is unconditional (register/invariant/
+explicit-save-bypasses-anti-save).
+
+The two default predicates protect the user from the two situations
+where autosave would capture stale or misleading window state:
+
+- =active-minibuffer-window= (built-in nullary predicate) returns the
+  minibuffer window when one is active.  This prevents tab-switch
+  autosave from snapshotting the prompt frame as the workspace's
+  "real" layout.
+- =workspace--backtrace-visible-p= returns non-nil when a =*Backtrace*=
+  window is visible on the current frame.  This prevents debug
+  sessions from being persisted as the workspace's working state.
+
+Reference: =activities--backtrace-visible-p= (activities.el:1010-1016)
+and =activities-anti-save-predicates= (activities.el:302-310).
+
+#+begin_src emacs-lisp
+(defun workspace--backtrace-visible-p ()
+  "Return non-nil if a *Backtrace* window is visible on the current frame."
+  (cl-some (lambda (w)
+             (string= (buffer-name (window-buffer w)) "*Backtrace*"))
+           (window-list nil 'no-mini)))
+
+(defcustom workspace-anti-save-predicates
+  '(active-minibuffer-window
+    workspace--backtrace-visible-p)
+  "List of nullary predicates consulted before any workspace autosave.
+If any predicate returns non-nil, the autosave is skipped silently.
+The explicit `workspace-save' command never consults this list."
+  :type '(repeat function)
+  :group 'workspaces)
+#+end_src
+
+* Submodules
+:PROPERTIES:
+:CUSTOM_ID: submodules
+:END:
+
+Submodules are loaded in dependency order.  Pure data layer first;
+UI-facing layers (tabs, layouts, buffer membership, persistence) land
+in subsequent tasks.
+
+=workspaces-mode= is the opt-in idle-save module (off by default; the
+user enables it explicitly).  It is loaded last so its dependencies
+(=workspace--current-name= from =tabs=, =workspace--autosave-current-
+layout= from =layouts=) exist at definition time.
+
+#+begin_src emacs-lisp
+(jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/integrations.el"      jf/emacs-dir))
+;; Consumer of the integration registry (must load after integrations.el).
+;; Droppable: registration is gated behind `with-eval-after-load 'magit',
+;; so removing this one line leaves workspaces fully functional.
+(jf/load-module (expand-file-name "config/workspaces/git-worktrees.el"     jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/home-org.el"          jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/scaffold.el"          jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/tabs.el"              jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/buffer-membership.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/layouts.el"           jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
+(jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
+(require 'workspaces-mode)
+;; Front-door transient: needs `workspace--current-name'/`workspace--registry'
+;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
+;; (integrations), so it loads last.
+(jf/load-module (expand-file-name "config/workspaces/workspaces-transient.el" jf/emacs-dir))
+#+end_src
+
+* Re-anchor command
+
+=workspace-re-anchor= is the user-facing recovery command for the
+broken-state disposition (register/vocabulary/workspace-broken-
+disposition).  When a workspace's =:home= directory has been moved or
+recreated under a new name, the user can point the registry entry at
+the new path; if the new basename differs from the registry key, the
+entry is renamed in place to honour the registry-name-equals-basename
+invariant (register/invariant/registry-name-equals-basename).
+
+Mutation discipline: the broken tag is cleared via
+=workspace--clear-broken= (never inline =plist-put=) per
+register/invariant/broken-tag-runtime-only and the cycle-2
+architect-pinned contract.  Registry rename is a remhash/puthash pair;
+collisions are guarded.
+
+#+begin_src emacs-lisp
+(defun workspace-re-anchor (name new-home)
+  "Point broken workspace NAME at NEW-HOME on the filesystem.
+
+Clears the broken-state tag and updates `:home'.  If
+=(file-name-nondirectory (directory-file-name NEW-HOME))= differs
+from NAME, the registry entry is renamed to match the new basename
+(per the registry-name-equals-basename invariant).
+
+The new path must exist and must be a directory."
+  (interactive
+   (list (completing-read "Re-anchor workspace: "
+                          (workspace--registered-names) nil t)
+         (file-name-as-directory
+          (read-directory-name "New home directory: " nil nil t))))
+  (let ((ws (gethash name workspace--registry)))
+    (unless ws
+      (user-error "No workspace named %s" name))
+    (unless (file-directory-p new-home)
+      (user-error "Not a directory: %s" new-home))
+    (let* ((new-name (file-name-nondirectory
+                      (directory-file-name new-home)))
+           ;; Update :home AND :name in lockstep (per
+           ;; register/invariant/registry-name-equals-basename, which
+           ;; pins identity on the plist :name accessor, not on the
+           ;; registry key — both must move together when basename
+           ;; differs, otherwise the rename is lost across save/
+           ;; restore because the serializer writes (workspace--name
+           ;; ws) and the deserializer puthashes under the same).
+           (next-ws (workspace--clear-broken
+                     (workspace--set-name
+                      (workspace--set-home ws new-home)
+                      new-name))))
+      ;; If basename changed, rename the registry key too.
+      (cond
+       ((string= name new-name)
+        (puthash name next-ws workspace--registry))
+       (t
+        (when (gethash new-name workspace--registry)
+          (user-error
+           "Cannot rename to %s — a workspace with that name already exists"
+           new-name))
+        ;; Capture the tab index BEFORE we mutate the registry —
+        ;; `workspace--tab-index-for' consults `workspace--registry'
+        ;; for ownership, so after `remhash' the lookup would fail.
+        (let ((tab-idx (workspace--tab-index-for name)))
+          (remhash name workspace--registry)
+          (puthash new-name next-ws workspace--registry)
+          ;; Update tab label if a live tab exists.
+          (when tab-idx
+            (tab-bar-rename-tab new-name tab-idx)))))
+      (workspace--flush-state)
+      (message "Workspace re-anchored: %s → %s" name new-home))))
+#+end_src
+
+* Delete and purge commands
+
+Two commands handle workspace removal, with deliberately split
+semantics (design.md §D8, §D10; cycle-4
+=workspace-delete-and-purge=):
+
+- =workspace-delete= is the safe default — unregister-only.  It
+  removes the registry entry, closes the live tab, and flushes
+  persistence.  The =:home= directory and all its contents are left
+  on disk untouched.  Users coming from =kill-buffer=-style
+  mental-models get the non-destructive behavior by default; the
+  directory can be re-anchored later via =workspace-new= with a
+  prefix arg.
+- =workspace-purge= is the destructive counterpart.  After a
+  =yes-or-no-p= confirmation showing the absolute path, it performs
+  =workspace-delete='s unregister steps and then recursively deletes
+  the =:home= directory.  A scope safeguard refuses to operate when
+  =:home= is not a descendant of
+  =workspaces-default-parent-directory= unless the user supplies a
+  prefix argument; this protects anchored existing projects (e.g.
+  =~/code/myproj/=) from accidental destruction.
+
+Both commands operate on broken-state workspaces
+(register/vocabulary/workspace-broken-disposition pins both as
+=:allowed= on broken).  Purge skips the filesystem step when
+=:home= is missing on disk — registry cleanup still proceeds so the
+broken entry vanishes from the user's tab bar and persistence file.
+
+Order is deliberate: unregister first, =delete-directory= second.
+If =delete-directory= errors (permission denied, file busy), the
+registry is already clean, so the workspace appears removed from
+the user's perspective; the leftover filesystem state is inspectable
+out-of-band.  The inverse order could leave the registry pointing at
+a half-deleted directory, which is strictly worse.
+
+=workspace--tab-index-for= returns a 1-based index suitable for
+=tab-bar-close-tab= directly (no =1+= bridge).
+
+#+begin_src emacs-lisp
+(defun workspace-delete (name)
+  "Remove workspace NAME from the registry and close its tab.
+The home directory and all its contents (including .git/, home.org,
+and sessions/) remain on disk untouched.  To delete the directory
+too, use `workspace-purge'.
+
+Interactively, completes over registered workspace names."
+  (interactive
+   (list (completing-read "Delete workspace (unregister only): "
+                          (workspace--registered-names) nil t)))
+  (unless (gethash name workspace--registry)
+    (user-error "No workspace named %s" name))
+  ;; Capture the tab index BEFORE the remhash (`workspace--tab-index-for'
+  ;; is registry-gated), then unregister BEFORE closing the tab.  Closing
+  ;; the current tab fires the tab-switch autosave advice; unregistering
+  ;; first makes `workspace--current-name' return nil so the advice
+  ;; no-ops — we neither capture nor flush working-state for a workspace
+  ;; we are deleting, and the only disk write is the explicit flush below.
+  (let ((tab-idx (workspace--tab-index-for name)))
+    (remhash name workspace--registry)
+    (when tab-idx
+      (tab-bar-close-tab tab-idx)))
+  (workspace--flush-state)
+  (message "Workspace %s unregistered (home directory left on disk)" name))
+
+(defun workspace-purge (name)
+  "Unregister workspace NAME and recursively delete its home directory.
+Prompts for `yes-or-no-p' confirmation showing the absolute path.
+
+Refuses to operate when `:home' is not a descendant of
+`workspaces-default-parent-directory' unless a prefix argument is
+supplied.  This guards against accidentally purging an anchored
+external project (e.g., =~/code/myproj/=).
+
+For broken-state workspaces (=:home= missing on disk), no
+filesystem deletion is attempted — the registry entry is still
+removed (register/vocabulary/workspace-broken-disposition pins
+purge as =:allowed= on broken)."
+  (interactive
+   (list (completing-read "Purge workspace (DELETES HOME DIR): "
+                          (workspace--registered-names) nil t)))
+  (let* ((ws (gethash name workspace--registry))
+         (home (and ws (workspace--home ws))))
+    (unless ws
+      (user-error "No workspace named %s" name))
+    (unless home
+      (user-error "Workspace %s has no :home (data corruption?)" name))
+    ;; Scope safeguard: refuse to nuke a dir outside the default parent
+    ;; unless the user explicitly opts in via prefix arg.  Checked BEFORE
+    ;; the yes-or-no-p so an anchored external project never even shows
+    ;; the destructive prompt without a deliberate two-step opt-in
+    ;; (design.md §D8).
+    (unless (or current-prefix-arg
+                (file-in-directory-p home workspaces-default-parent-directory))
+      (user-error
+       "Refusing to purge %s; outside %s. Use `C-u M-x workspace-purge' to override."
+       home workspaces-default-parent-directory))
+    ;; Final confirmation.
+    (unless (yes-or-no-p (format "Recursively delete %s? " home))
+      (user-error "Cancelled"))
+    ;; Unregister first; even if delete-directory errors below the
+    ;; registry is already clean.  Unregistering BEFORE closing the tab
+    ;; also makes the tab-switch autosave advice no-op (the tab is no
+    ;; longer a registered workspace), so the only disk write here is the
+    ;; explicit flush below — not a redundant working-state flush for a
+    ;; workspace being purged.  Tab index is captured before the remhash
+    ;; (`workspace--tab-index-for' is registry-gated).
+    (let ((tab-idx (workspace--tab-index-for name)))
+      (remhash name workspace--registry)
+      (when tab-idx
+        (tab-bar-close-tab tab-idx)))
+    (workspace--flush-state)
+    ;; Filesystem delete (best-effort; broken-home case has nothing
+    ;; to do — :home is already absent).
+    (when (file-directory-p home)
+      ;; Additive integration teardown BEFORE the directory is gone:
+      ;; integrations clean up resources anchored under :home (e.g. git
+      ;; worktrees) while the tree still exists (design.md §D3).  The
+      ;; dispatcher is error-guarded and never signals; its outcome
+      ;; alist is ignored for control flow — a (failed . REASON) result
+      ;; is surfaced via `message' but NEVER aborts the purge.  Fires on
+      ;; purge only; `workspace-delete' leaves :home intact and so has
+      ;; nothing to tear down.
+      (workspace--dispatch-purge-integrations name home 'purge)
+      (delete-directory home t))
+    (message "Workspace %s purged" name)))
+#+end_src
+
+* Keybindings
+
+=C-x w= opens =workspace-menu=, the single context-aware transient that
+is the front door for all workspace commands (design.md §Decision 5,
+user-confirmed promote).  =C-x w= itself is unbound in the stock
+configuration; =C-x n w= (=widen=) is the only =C-x w...= binding, and
+it is a sibling not a parent.
+
+Previously each command hung off its own =C-x w <key>= chord.  Those
+chords are retired in favour of the menu: every command remains
+reachable through =workspace-menu= (where the old mnemonics survive as
+the menu's suffix keys — =n=/=s=/=o=/=S=/=l=/=L=/=D=/=P=/=R=/=T=/=r=/=b=)
+and via =M-x=.  The menu's group visibility is context-aware: see
+=config/workspaces/workspaces-transient.org=.
+
+The mnemonic rationale carried over from the chord era still holds for
+the menu suffixes: cycle-3 design.md §D10 pins =R= to
+=workspace-re-anchor= (the broken-home recovery command); the previous
+occupant of =R= — =workspace-switch-to-recent-layout= — lives at =T=
+(mnemonic: "to recent").  Cycle-4 =workspace-delete-and-purge= claims
+=D= for =workspace-delete= (workspace-level, unregister-only) and =P=
+for =workspace-purge= (destructive).  Uppercase =D=/=P= flag
+destructive intent visually.
+
+=workspace-save= (=S=) captures the live frame and writes
+synchronously.  The lower-level =workspace-save-state= still exists for
+internal use as a debounced flush primitive, but is no longer bound by
+default.
+
+=workspace-revert= (=r=) is the v2 \"throw away autosave drift\"
+affordance: it clears the current workspace's =:working-state=,
+flushes, and re-applies =:saved-state= (design.md §D9).  The
+=workspace-remove-buffer= command lives at =b= (mnemonic: \"buffer\").
+
+#+begin_src emacs-lisp
+(global-set-key (kbd "C-x w") #'workspace-menu)
+#+end_src
+
+* Tab-bar display name
+
+Activate the cosmetic =#+TITLE:= → tab-bar-label overlay.  This is a
+global side effect (it wraps =tab-bar-tab-name-format-function=), so it
+lives in the top-level loader's activation step rather than at
+=tabs.el= load time — loading =tabs.el= in isolation (as the specs do)
+should not mutate the user's global tab-bar rendering.  The installer
+is idempotent and captures the prior formatter for delegation.
+
+#+begin_src emacs-lisp
+(workspace--install-tab-bar-display-name)
+#+end_src
+
+* Published cross-module consult API
+
+Soft-dependency hooks other subsystems may consult to route artifacts
+into the active workspace.  The contract is one-way: workspaces never
+references its consumers; consumers reach for these functions behind a
+=(featurep 'workspaces)= + =fboundp= guard.
+
+** workspace-sessions-dir
+
+Returns the absolute path to =<:home>/sessions/= of the workspace owning
+the current tab — or =nil= if any of the three /no-route/ conditions
+hold:
+
+1. No workspace owns the current tab (=(workspace--current-name)= → nil,
+   e.g. the user is on a stock =tab-bar= tab that was never registered).
+2. The current workspace is broken (=(workspace--broken-p ws)= → t —
+   its =:home= was missing at persistence-load time; routing a new file
+   there would re-create the directory and silently mask the breakage).
+3. =<:home>/sessions/= does not exist on disk (=(file-directory-p dir)=
+   → nil — the user deleted it out-of-band after scaffolding).
+
+The function MUST NOT signal and MUST have no side effects.  The
+nil-discipline lets consumers fall through to their global default via
+a clean =(or (workspace-sessions-dir) <default>)= form.
+
+The broken-workspace nil-return is the producer-side expression of
+=register/vocabulary/workspace-broken-disposition=: writing a new
+session file into a broken workspace's path would re-materialise the
+missing directory and hide the breakage from the user; falling through
+to the global default is the correct =:refused= behaviour for the
+routing concern.
+
+#+begin_src emacs-lisp
+(defun workspace-sessions-dir ()
+  "Return the sessions/ directory of the current workspace, or nil.
+
+Returns nil when no workspace owns the current tab, when the workspace
+is broken, or when its :home/sessions/ directory is missing on disk.
+
+This function is the soft-dependency entry point used by other
+subsystems (notably gptel/sessions) to route new artifacts under the
+active workspace's home.  It MUST NOT signal and has no side effects."
+  (when-let* ((name (workspace--current-name))
+              (ws   (gethash name workspace--registry))
+              ((not (workspace--broken-p ws)))
+              (home (workspace--home ws)))
+    (let ((dir (workspace--sessions-dir home)))
+      (when (file-directory-p dir)
+        dir))))
+#+end_src
+
+* Startup restoration
+
+After all submodules have loaded, restore any persisted workspaces.
+Tabs are created eagerly so they show up in the tab bar; per-workspace
+frameset and buffer restoration is lazy, triggered on the user's first
+selection of each restored tab.
+
+#+begin_src emacs-lisp
+(when (fboundp 'workspace--restore)
+  (workspace--restore))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'workspaces)
+;;; workspaces.el ends here
+#+end_src

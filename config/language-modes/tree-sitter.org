@@ -55,6 +55,21 @@ Provides the language grammar binaries for various programming languages.
 * Grammar Sources for Built-in Tree-sitter
 Configure the sources for downloading and installing built-in Tree-sitter grammar libraries (for Emacs 29+).
 
+** Grammar Load Path
+
+Compiled grammars live in =runtime/tree-sitter/= (one per worktree, gitignored). This directory must be on =treesit-extra-load-path= so the built-in =treesit= API can find them. Without this, =treesit-parser-create= fails with "Cannot load language definition: not-found".
+
+The bash-parser module (=config/bash-parser/=) depends on this for scope validation — if the bash grammar is missing, all =run_bash_command= tool calls will be denied.
+
+New worktrees get grammars via =init-worktree-runtime.sh=. To install from scratch, see [[*Installation Instructions][Installation Instructions]] below.
+
+#+begin_src emacs-lisp
+(setq treesit-extra-load-path
+      (list (expand-file-name "runtime/tree-sitter/" jf/emacs-dir)))
+#+end_src
+
+** Grammar Source Definitions
+
 **Version Pinning**: Several grammars are pinned to specific versions to maintain ABI version 14 compatibility with Emacs 30.1. The master branches of these grammars have moved to ABI version 15, which causes version-mismatch errors.
 
 **Pinned grammars:**
@@ -119,7 +134,10 @@ The language grammars should be automatically installed by the package.
 
 #+begin_src bash :tangle no
 ./bin/emacs-isolated.sh --batch --eval "(progn \
-  (mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist)) \
+  (let ((dir (expand-file-name \"runtime/tree-sitter/\" jf/emacs-dir))) \
+    (dolist (lang (mapcar #'car treesit-language-source-alist)) \
+      (unless (treesit-language-available-p lang) \
+        (treesit-install-language-grammar lang dir)))) \
   (message \"Verification:\") \
   (dolist (lang (mapcar #'car treesit-language-source-alist)) \
     (message \"  %s %s\" (if (treesit-language-available-p lang) \"✓\" \"✗\") lang)))"
@@ -128,8 +146,11 @@ The language grammars should be automatically installed by the package.
 **From Emacs** (interactive):
 
 #+begin_src emacs-lisp :tangle no
-;; Install all grammars
-(mapc #'treesit-install-language-grammar (mapcar #'car treesit-language-source-alist))
+;; Install all grammars (skips already-installed)
+(let ((dir (expand-file-name "runtime/tree-sitter/" jf/emacs-dir)))
+  (dolist (lang (mapcar #'car treesit-language-source-alist))
+    (unless (treesit-language-available-p lang)
+      (treesit-install-language-grammar lang dir))))
 
 ;; Verify all grammars
 (dolist (lang (mapcar #'car treesit-language-source-alist))
@@ -137,7 +158,7 @@ The language grammars should be automatically installed by the package.
 #+end_src
 
 *** Installation Location
-Grammars are compiled and installed to ~runtime/tree-sitter/~ as ~.dylib~ files (macOS), ~.so~ files (Linux), or ~.dll~ files (Windows).
+Grammars are compiled and installed to ~runtime/tree-sitter/~ as ~.dylib~ files (macOS), ~.so~ files (Linux), or ~.dll~ files (Windows). The =treesit-extra-load-path= setting (configured above) tells Emacs where to find them.
 
 *** Installing Specific Grammars
 

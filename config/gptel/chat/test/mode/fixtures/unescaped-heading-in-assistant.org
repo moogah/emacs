@@ -1,0 +1,16 @@
+:PROPERTIES:
+:ID:       heading-test-fixture-001
+:END:
+#+title: Pre-indentation session
+
+#+begin_user
+Please use a heading in your reply.
+#+end_user
+
+#+begin_assistant
+Sure, here's an outline:
+
+* Test Heading
+
+Some prose under the heading.
+#+end_assistant

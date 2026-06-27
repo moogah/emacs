@@ -1,0 +1,208 @@
+#+title: Workspaces Transient Menu
+#+property: header-args:emacs-lisp :tangle workspaces-transient.el
+#+auto_tangle: y
+
+This module hosts =workspace-menu=, the single context-aware transient
+that is the front door for all workspace commands (design.md §Decision
+5, user-confirmed promote of =C-x w=).
+
+The menu renders three states off one read of the current tab's
+workspace:
+
+- *no workspace* — only the always-on Entry group (new / switch /
+  restore) is shown.
+- *healthy workspace* — Entry plus the operational groups (Layouts +
+  State, Manage, and the registry-driven Integrations group).
+- *broken workspace* — Entry plus the Manage / Recover group (so
+  re-anchor / delete / purge remain reachable), while the operational
+  and Integrations groups are suppressed.
+
+The three states fall out declaratively from group =:if= predicates,
+each backed by a single predicate that reads
+=workspace--current-name= / =workspace--registry= / =workspace--broken-p=.
+
+The *Integrations* group is registry-driven: it walks the generic
+=workspace--integrations= alist (published by other subsystems via
+=workspace-register-integration=) and renders a suffix for every entry
+that carries a =:menu= =(KEY . COMMAND)= pair.  The menu names no
+integration consumer — it only knows the generic registry, preserving
+the publish/attach directionality boundary.
+
+* Header
+
+The first block tangles the file header with =:comments no= so the
+lexical-binding cookie lands on line 1.
+
+#+begin_src emacs-lisp :comments no
+;;; workspaces-transient.el --- Workspaces transient menu -*- lexical-binding: t; -*-
+#+end_src
+
+This module is loaded *before* =config/transient.el= (which installs the
+straight override of the built-in =transient=).  Requiring =transient=
+at load time here would pull in the stale built-in and defeat that
+override, so we do NOT =(require 'transient)= eagerly.  The predicates
+and the children builder need no transient symbols; the prefix
+definition and its =transient-parse-suffixes= call are deferred to
+=with-eval-after-load 'transient=, by which point the straight version
+is active.  =C-x w= binds the =workspace-menu= symbol, so the binding is
+valid even before the prefix is defined — the user cannot reach it until
+transient (and hence the prefix) has loaded during init.
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+* Context predicates
+
+All three predicates read the current tab's workspace through a single
+accessor, =workspace--menu-current=, which resolves the current name to
+its registry plist (or nil when the current tab is not a workspace).
+
+#+begin_src emacs-lisp
+(defun workspace--menu-current ()
+  "Return the current tab's workspace plist, or nil.
+Resolves `workspace--current-name' against `workspace--registry'."
+  (when-let ((n (workspace--current-name)))
+    (gethash n workspace--registry)))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace--menu-healthy-p ()
+  "Return non-nil when the current tab is a non-broken workspace."
+  (let ((w (workspace--menu-current)))
+    (and w (not (workspace--broken-p w)))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace--menu-broken-p ()
+  "Return non-nil when the current tab is a broken workspace."
+  (let ((w (workspace--menu-current)))
+    (and w (workspace--broken-p w) t)))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace--menu-in-ws-p ()
+  "Return non-nil when the current tab is a workspace (healthy or broken)."
+  (and (workspace--menu-current) t))
+#+end_src
+
+* Registry-driven Integrations children
+
+=workspace--menu-integration-children= is the unit-testable builder
+behind the Integrations group's =:setup-children=.  It walks
+=workspace--integrations= in registration order and, for every entry
+carrying a =:menu= =(KEY . COMMAND)= pair, returns a transient suffix
+spec.  Entries without a =:menu= are skipped.  The description prefers
+the entry's =:label=, falling back to the integration id.
+
+Each generated suffix wraps COMMAND in a closure that, at invoke time,
+rebuilds the current-workspace payload via
+=workspace--integration-payload= (name + home from the live current
+workspace, context =menu-invoke=) and calls COMMAND with it.  Building
+the payload at invoke time — not at menu-render time — keeps the suffix
+bound to whatever workspace is current when the user presses the key.
+
+#+begin_src emacs-lisp
+(defun workspace--menu-invoke-integration (command)
+  "Call integration COMMAND on a freshly built current-workspace payload.
+The payload is constructed from the live current workspace via
+`workspace--integration-payload' with context `menu-invoke'.  Signals a
+`user-error' when invoked outside a workspace (the Integrations group is
+healthy-only, so this is a defensive guard)."
+  (let ((ws (workspace--menu-current)))
+    (unless ws
+      (user-error "No current workspace"))
+    (funcall command
+             (workspace--integration-payload
+              (workspace--name ws)
+              (workspace--home ws)
+              'menu-invoke))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace--menu-integration-children (&optional _)
+  "Build transient suffix specs for registry integrations with a `:menu'.
+Walks `workspace--integrations' in order and returns, for every entry
+whose plist carries a `:menu' (KEY . COMMAND) pair, a suffix spec
+\(KEY DESC THUNK) where THUNK invokes COMMAND on the live workspace
+payload.  Entries lacking `:menu' are skipped.  Returns nil when no
+integration exposes a menu surface.  The optional argument is ignored;
+it exists to match the `:setup-children' calling convention."
+  (let (children)
+    (dolist (entry workspace--integrations)
+      (let* ((id   (car entry))
+             (plist (cdr entry))
+             (menu  (plist-get plist :menu)))
+        (when (consp menu)
+          (let* ((key     (car menu))
+                 (command (cdr menu))
+                 (label   (or (plist-get plist :label)
+                              (symbol-name id))))
+            (push (list key label
+                        (lambda ()
+                          (interactive)
+                          (workspace--menu-invoke-integration command)))
+                  children)))))
+    (nreverse children)))
+#+end_src
+
+The =:setup-children= callback feeds the builder's specs through
+=transient-parse-suffixes= against the =workspace-menu= prefix, mirroring
+the established repo idiom (=config/gptel/skills/skills-transient.org=).
+Because =transient-parse-suffixes= is a transient symbol, the callback is
+defined under =with-eval-after-load 'transient= alongside the prefix.
+
+* The transient prefix
+
+=workspace-menu= is the context-aware front door.  Group visibility is
+governed by =:if= predicates, so the same prefix renders the correct
+groups for the no-workspace, healthy, and broken states.  The prefix and
+its =:setup-children= callback are defined under
+=with-eval-after-load 'transient= so this module can load before
+=config/transient.el= installs the straight override (see the header
+note).
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'transient
+  (defun workspace--menu-setup-integration-children (_)
+    "`:setup-children' callback for the Integrations group.
+Parses `workspace--menu-integration-children' against `workspace-menu'."
+    (transient-parse-suffixes
+     'workspace-menu
+     (workspace--menu-integration-children)))
+
+  (transient-define-prefix workspace-menu ()
+    "Context-aware menu for workspace commands.
+Renders the Entry group always; the Layouts + State and Integrations
+groups only in a healthy workspace; and the Manage / Recover group in
+any workspace (recovery affordances in a broken one, management in a
+healthy one)."
+    ["Workspace"
+     ["Entry"
+      ("n" "New"     workspace-new)
+      ("s" "Switch"  workspace-switch)
+      ("o" "Restore" workspace-restore)]
+     ["Layouts + State"
+      :if workspace--menu-healthy-p
+      ("l" "Switch layout"  workspace-switch-layout)
+      ("L" "Save layout"    workspace-save-layout)
+      ("T" "Recent layout"  workspace-switch-to-recent-layout)
+      ("S" "Save workspace" workspace-save)
+      ("r" "Revert"         workspace-revert)]
+     ["Manage / Recover"
+      :if workspace--menu-in-ws-p
+      ("D" "Delete"        workspace-delete)
+      ("P" "Purge"         workspace-purge)
+      ("R" "Re-anchor"     workspace-re-anchor)
+      ("b" "Remove buffer" workspace-remove-buffer)]
+     ["Integrations"
+      :if workspace--menu-healthy-p
+      :setup-children workspace--menu-setup-integration-children]]))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspaces-transient)
+;;; workspaces-transient.el ends here
+#+end_src

@@ -46,18 +46,24 @@
 ;;; Scope config fixtures
 
 (defun integration-spec--workspace-scope-config ()
-  "Scope config allowing read/write under /workspace, denying rm."
-  (let ((scope-yml (helpers-spec-make-minimal-scope)))
-    (unwind-protect
-        (helpers-spec-load-scope-config scope-yml)
-      (delete-file scope-yml))))
+  "Scope config allowing read/write under /workspace."
+  (helpers-spec-make-scope-config
+   :read    '("/workspace" "/workspace/**")
+   :write   '("/workspace/**")
+   :execute '("/workspace/scripts/**")
+   :modify  '("/workspace/config/**")
+   :deny    '("/etc/**")
+   :auth-detection "warn"))
 
 (defun integration-spec--cloud-deny-scope-config ()
-  "Scope config with cloud auth set to deny."
-  (let ((scope-yml (helpers-spec-make-scope-with-cloud-deny)))
-    (unwind-protect
-        (helpers-spec-load-scope-config scope-yml)
-      (delete-file scope-yml))))
+  "Scope config with cloud auth set to deny, paths otherwise minimal."
+  (helpers-spec-make-scope-config
+   :read    '("/workspace" "/workspace/**")
+   :write   '("/workspace/**")
+   :execute '("/workspace/scripts/**")
+   :modify  '("/workspace/config/**")
+   :deny    '("/etc/**")
+   :auth-detection "deny"))
 
 ;;; Test suites
 

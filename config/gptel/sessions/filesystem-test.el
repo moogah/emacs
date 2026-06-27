@@ -50,7 +50,7 @@ hierarchy: session-dir/branches/main/ with session.org inside."
              (session-dir (expand-file-name "test-session" temp-dir)))
         (make-directory session-dir t)
         (cl-letf (((symbol-function 'jf/gptel-scope-profile--create-for-session)
-                   (lambda (_preset _dir &optional _root _paths) nil)))
+                   (lambda (&rest _) ":PROPERTIES:\n:END:\n")))
           (let ((result (jf/gptel--create-session-core
                          "test-session-20260311"
                          session-dir
@@ -60,9 +60,7 @@ hierarchy: session-dir/branches/main/ with session.org inside."
               (should (file-directory-p branch-dir))
               (should (string-match-p "/branches/main/$" (file-name-as-directory branch-dir)))
               ;; Verify session.org exists inside branch dir
-              (should (file-exists-p (expand-file-name "session.org" branch-dir)))
-              ;; Verify metadata.yml exists
-              (should (file-exists-p (expand-file-name "metadata.yml" branch-dir)))))))
+              (should (file-exists-p (expand-file-name "session.org" branch-dir)))))))
     (filesystem-test--cleanup)))
 
 (ert-deftest test-directory-creation-org-branch-directory ()
@@ -93,25 +91,6 @@ for any branch directory."
     (should (string-suffix-p "session.org" context-path))
     ;; Should be inside the branch directory
     (should (string-prefix-p branch-dir context-path))))
-
-(ert-deftest test-directory-creation-org-symlink ()
-  "Spec: sessions § 'Current symlink points to active branch'
-
-Verify jf/gptel--update-current-symlink creates a working symlink
-to the current branch."
-  (unwind-protect
-      (let* ((temp-dir (filesystem-test--make-temp-dir))
-             (session-dir (expand-file-name "test-session" temp-dir)))
-        ;; Create branch directory first
-        (jf/gptel--create-branch-directory session-dir "main")
-        ;; Create symlink
-        (jf/gptel--update-current-symlink session-dir "main")
-        ;; Verify symlink exists
-        (let ((symlink (jf/gptel--current-symlink-path session-dir)))
-          (should (file-symlink-p symlink))
-          ;; Verify current branch name resolves correctly
-          (should (string= (jf/gptel--get-current-branch-name session-dir) "main"))))
-    (filesystem-test--cleanup)))
 
 (ert-deftest test-directory-creation-org-valid-session-p ()
   "Spec: sessions § 'Valid session directory has branches subdirectory'

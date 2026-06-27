@@ -86,41 +86,33 @@ RESULT-JSON is the JSON string the scoped tool passes to its callback."
           (cl-return (cdr tool-entry)))))))
 
 (defun fs-integ--make-scope-yaml (read-paths write-paths deny-paths)
-  "Build scope YAML string with given path lists.
-READ-PATHS, WRITE-PATHS, DENY-PATHS are lists of glob pattern strings."
-  (let ((format-paths (lambda (paths)
-                        (if paths
-                            (mapconcat (lambda (p) (format "    - \"%s\"" p))
-                                       paths "\n")
-                          "    []"))))
-    (format "paths:
-  read:
-%s
-  write:
-%s
-  execute:
-    []
-  modify:
-    []
-  deny:
-%s
+  "Build a scope-config plist with READ-PATHS, WRITE-PATHS, DENY-PATHS.
 
-cloud:
-  auth_detection: \"warn\"
+Despite the legacy name (`*-yaml'), this returns the canonical
+scope-config plist directly via `helpers-spec-make-scope-config' —
+the YAML loader and YAML test fixtures were retired in cycle-3 of
+`gptel-scope-in-org-properties' (see
+`openspec/changes/archive/2026-04-30-gptel-scope-in-org-properties/').
+The function name is preserved to avoid a 30-call-site churn; a
+follow-up rename is welcome but orthogonal to the migration."
+  (helpers-spec-make-scope-config
+   :read read-paths
+   :write write-paths
+   :execute '()
+   :modify '()
+   :deny deny-paths
+   :auth-detection "warn"))
 
-security:
-  enforce_parse_complete: true
-  max_coverage_threshold: 0.8
-"
-            (funcall format-paths read-paths)
-            (funcall format-paths write-paths)
-            (funcall format-paths deny-paths))))
+(defun fs-integ--load-config-from-yaml (config-plist)
+  "Identity wrapper preserving legacy call-site shape.
 
-(defun fs-integ--load-config-from-yaml (yaml-string)
-  "Parse YAML-STRING through the real scope config pipeline.
-Returns a scope config plist identical to what jf/gptel-scope--load-config returns."
-  (jf/gptel-scope-yaml--merge-schema-defaults
-   (jf/gptel-scope-yaml--parse-string yaml-string)))
+CONFIG-PLIST is the scope-config plist returned by
+`fs-integ--make-scope-yaml' (no longer a YAML string).  Returned
+unchanged so existing `(yaml (fs-integ--make-scope-yaml ...))
+(config (fs-integ--load-config-from-yaml yaml))' let-bindings keep
+working without modification.  See the rename note on
+`fs-integ--make-scope-yaml'."
+  config-plist)
 
 (defun fs-integ--create-temp-file (content &optional suffix)
   "Create a temp file with CONTENT in fs-integ--temp-dir.
@@ -491,22 +483,39 @@ Returns the full path. SUFFIX defaults to \".txt\"."
       ;; That arg must be a string (JSON)
       (expect callback-arg-type :to-equal 'string)))
 
-  (it "no_scope_config error returns JSON through callback (not a signal)"
-    ;; When scope.yml is missing, the tool should still invoke the callback
-    ;; (not throw an error), so gptel's flow continues
+  (it "empty-drawer deny-all defaults route per-violation denial through callback"
+    ;; Cycle-3 Option B: an empty/missing scope drawer is a deny-all
+    ;; configuration, not a config-missing signal. The dispatcher composes
+    ;; deny-all defaults from the loader, path validation denies the read
+    ;; with `not-in-scope`, the expansion UI surfaces the violation, and
+    ;; on user denial the callback receives the canonical per-violation
+    ;; error JSON (no historical `no_scope_config` short-circuit). See
+    ;; register/boundary/scope-config-loader.
     (let ((tool (fs-integ--find-tool "read_file_in_scope")))
 
-      ;; No config available
-      (spy-on 'jf/gptel-scope--load-config :and-return-value nil)
+      ;; Loader composes deny-all defaults for an empty drawer.
+      (spy-on 'jf/gptel-scope--load-config
+              :and-return-value (jf/gptel-scope--deny-all-defaults))
+      ;; Simulate user denying the expansion prompt so the callback fires.
+      (spy-on 'jf/gptel-scope-prompt-expansion
+              :and-call-fake
+              (lambda (_violation-info callback _patterns _tool-name)
+                (funcall callback
+                         (json-serialize
+                          (list :success :false
+                                :user_denied t)))))
 
       (funcall (gptel-tool-function tool)
                #'fs-integ--gptel-callback
                "/some/path.txt")
 
-      ;; Callback was invoked (flow didn't break)
+      ;; Callback was invoked (flow didn't break, nothing was signaled).
       (expect fs-integ--callback-result :to-be-truthy)
+      (expect (stringp fs-integ--callback-raw) :to-be t)
+      ;; Per-violation deny (`not-in-scope`), routed through
+      ;; `--format-tool-error' like every other denial.
       (expect (plist-get fs-integ--callback-result :error)
-              :to-equal "no_scope_config")))
+              :to-equal "not-in-scope")))
 
   (it "tool exception returns JSON through callback (not a signal)"
     ;; Even if something unexpected goes wrong inside the tool, the callback

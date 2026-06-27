@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Enables autonomous sub-agents with isolated configuration, full conversation history, and parent-child relationships. Agents execute asynchronously in their own buffers while providing non-intrusive progress feedback via overlays in the parent buffer.
+Enables autonomous sub-agents with isolated configuration, full conversation history, and parent-child relationships. Agents execute asynchronously by composing chat-mode's public programmatic-send API in their own buffers while providing non-intrusive progress feedback via overlays in the parent buffer. An agent session is, by construction, a standard `gptel-chat-mode` session — the only distinction is a `GPTEL_PARENT_SESSION_ID` link in its session-file `:PROPERTIES:` drawer.
 
 ## Key Concepts
 
@@ -10,382 +10,438 @@ Enables autonomous sub-agents with isolated configuration, full conversation his
 
 **CRITICAL PRINCIPLE**: Agents have ZERO inheritance from parent sessions.
 
-Agent configuration comes ONLY from:
-1. **Preset definition** (backend, model, tools, system message)
-2. **Explicit allowed_paths parameter** (scope permissions)
+Agent configuration comes ONLY from the agent's `session.org` `:PROPERTIES:` drawer, populated at agent creation time and read at mode-activation time:
+1. **Drawer-declared preset** (`:GPTEL_PRESET:`) supplies backend, model, and tools. The agent's system message is the baseline agent-harness preamble followed by the preset's `:system` body (see *Agent System-Prompt Preamble* below), materialized in the sibling `system-prompt.<ext>` file.
+2. **Drawer-declared work root** (`:GPTEL_WORK_ROOT:`) supplies the agent's working directory, populated from the `work_root` parameter (defaulting to the parent's work root when omitted).
+3. **Drawer-declared scope keys** (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) supply file-access permissions: `:READ:` is populated from the `read_paths` parameter plus the work-root read pattern (`<work_root>/**`, auto-included so the work root is readable by construction); `:WRITE:` from the `write_paths` parameter plus `/tmp/**` scratch; deny patterns are the codebase's fixed defaults.
 
 Agents do NOT inherit:
-- Parent's scope.yml paths
+- Parent's drawer scope keys
+- Parent's work root / `default-directory` (the parent *passes* a default at spawn; it is then frozen in the agent's drawer)
 - Parent's backend/model/temperature
 - Parent's tools or system message
 
 **Path configuration**:
-- `allowed_paths` provided → agent uses exactly those patterns
-- `allowed_paths` nil/empty → agent gets `read: []` (no read permissions)
-- **Never** inherits parent's allowed paths
+- `read_paths` provided → agent reads exactly those patterns, plus `<work_root>/**`
+- `read_paths` nil/empty → agent's `:GPTEL_SCOPE_READ:` carries only the work-root read pattern (`<work_root>/**`); no other read permissions
+- `write_paths` provided → agent writes those patterns, with `/tmp/**` auto-appended as scratch
+- **Never** inherits parent's scope paths
+
+The `allowed_paths` parameter of earlier implementations has been replaced by `read_paths` (read scope) and `write_paths` (write scope). The `denied_paths` parameter advertised by earlier implementations no longer exists on the tool surface; deny patterns are fixed (default deny list) and not configurable per agent.
 
 ### Agent Session Structure
 
 ```
 <parent-branch-dir>/agents/<preset>-<timestamp>-<slug>/
-├── session.md           # Agent conversation
-├── metadata.yml         # type="agent", parent_session_id
-├── scope.yml            # Explicit paths only
-└── tools.org            # Tool execution log
+├── session.org          # Agent conversation + :PROPERTIES: drawer
+│                        # (preset, parent id, scope read/write/deny keys,
+│                        #  :GPTEL_SYSTEM_PROMPT_FILE: — always present for agents)
+└── system-prompt.md     # Sibling system-prompt file (always written for
+                         # agents: the agent-harness preamble, plus the
+                         # preset's :system body when it declares one)
 ```
 
 Agents do NOT have:
-- `branches/` subdirectory (no branching support)
+- `branches/` subdirectory (no branching support; single-timeline)
 - `current` symlink (no branch tracking)
+- Sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) — all agent
+  configuration and metadata lives in the session-file `:PROPERTIES:`
+  drawer; the conversation (including tool-call/result blocks) lives
+  directly under the drawer as `#+begin_user` / `#+begin_assistant`
+  turn blocks (no `* Chat` heading). The system prompt is the one
+  exception to "session content lives in `session.org`": it is carried
+  in a sibling `system-prompt.<ext>` file referenced by the drawer's
+  `:GPTEL_SYSTEM_PROMPT_FILE:` key (see `gptel/chat-mode` Requirement:
+  System prompt sibling file is authoritative).
+
+The agent's `session.org` follows the canonical chat-mode session
+layout (drawer + bare turn blocks, no headings; system prompt in a
+sibling file):
+
+```org
+:PROPERTIES:
+:GPTEL_PRESET: <preset-name>
+:GPTEL_PARENT_SESSION_ID: <parent-session-id>
+:GPTEL_WORK_ROOT: <work-root>                  # parent-supplied or parent-defaulted
+:GPTEL_SCOPE_READ: <work-root>/** <pattern> ... # always carries the work-root pattern
+:GPTEL_SCOPE_WRITE: <pattern> ... /tmp/**       # parent write_paths + /tmp scratch
+:GPTEL_SCOPE_DENY: **/.git/** **/runtime/** **/.env **/node_modules/**
+:GPTEL_SYSTEM_PROMPT_FILE: system-prompt.md   # always present for agents
+:END:
+
+#+begin_user
+<prompt>
+#+end_user
+```
+
+with the agent's system prompt living in the sibling
+`system-prompt.md` next to `session.org`. Unlike interactive sessions
+— whose sibling file is the preset's `:system` verbatim, or absent
+when the preset has none — an agent's sibling file is **always**
+written: the baseline agent-harness preamble, followed by the preset's
+`:system` body when it declares one. Every agent therefore has a
+non-empty system prompt and a `:GPTEL_SYSTEM_PROMPT_FILE:` drawer key.
 
 ### Execution Lifecycle
 
-1. **Creation**: Validate parent, create directory, write files
-2. **Initialization**: Set buffer-local vars, apply preset
-3. **Execution**: Insert prompt, initiate gptel-request with FSM
-4. **FSM States**: WAIT (overlay: "Waiting..."), TOOL (overlay: "Tools (+N)")
-5. **Accumulation**: Dual-duty callback (insert to buffer + accumulate for parent)
-6. **Auto-save**: After each response (incremental persistence)
-7. **Completion**: Delete overlay, invoke parent callback
-8. **Resumption**: Open session.md, auto-init, continue conversation
+1. **Validation**: Parent-session check + preset existence — raise user-error before any side effect on validation failure.
+2. **Creation**: Build agent directory under `<parent-branch>/agents/`, write `session.org` carrying the canonical layout — `:PROPERTIES:` drawer (preset, parent session id, `:GPTEL_SCOPE_READ:` / `:GPTEL_SCOPE_WRITE:` / `:GPTEL_SCOPE_DENY:` keys, plus `:GPTEL_SYSTEM_PROMPT_FILE:`, always present for agents) followed directly by the initial `#+begin_user` block (no `* System Prompt` or `* Chat` headings). Always write the sibling `system-prompt.<ext>` file holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Agent System-Prompt Preamble*). No sidecar config files (`metadata.yml`, `scope.yml`, `tools.org`) are written.
+3. **Initialization**: Open the agent file with `find-file-noselect`; the file's drawer signature triggers content-addressed activation (`magic-mode-alist`) into `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
+4. **Execution**: Compose chat-mode's public API (`gptel-chat-parse-buffer`, `gptel-chat-turns-to-messages`, `gptel-chat-open-assistant-block`, `gptel-chat-stream-callback`, `gptel-chat-fsm-handlers`) to drive the request. The agent supplies its own FSM-handler-chained overlay updates and a parent-feedback overlay as `gptel-request`'s `:context`.
+5. **FSM States**: `WAIT` (overlay: "Waiting…"), `TOOL` (overlay: "Calling Tools… (+N)" with cumulative count).
+6. **Completion**: On `DONE`, read the last `#+begin_assistant` block from the agent buffer, extract the trailing text segment (skipping tool-call segments), delete the parent overlay, invoke the caller-supplied `main-cb` with that text. On `ERRS`/`ABRT`, also delete the overlay and invoke `main-cb` with an error/abort string.
+7. **Persistence**: Chat-mode's normal save path persists the buffer incrementally (no agent-owned auto-save hook). Saved `session.org` files re-open as standard interactive `gptel-chat-mode` sessions.
 
 ### Parent-Child Communication
 
 **Overlay system**:
-- Created at marker position in parent buffer
-- Shows task description, preset name, progress status
-- Updates during WAIT and TOOL states
-- Displays cumulative tool count with formatted calls
-- Deleted on completion or error
+- Created at the parent's response-tracking marker (falling back to `:position` if no tracking marker exists yet) so progress feedback appears where the parent's response is being inserted.
+- Shows task description, preset name, progress status.
+- Updates during `WAIT` and `TOOL` states via FSM handlers chained alongside chat-mode's lifecycle handlers and gptel's upstream state-driving handlers.
+- Displays cumulative tool count with formatted calls.
+- Deleted on every terminal FSM state — `DONE`, `ERRS`, `ABRT` — without exception.
 
-**Result accumulation**:
-- String responses accumulated for parent callback
-- Tool calls/results inserted to agent buffer (persistence)
-- Parent receives concatenated string result
+**Result delivery (final text only)**:
+- The agent does NOT maintain a string accumulator parallel to the buffer.
+- At terminal state, the result returned to the parent is derived from the agent buffer's last `#+begin_assistant` block — specifically its final text segment after any trailing tool-call segments.
 
 ## Requirements
 
+### Requirement: Agent working directory (parent-supplied)
+
+The parent SHALL set the agent's working directory explicitly; the agent SHALL NOT inherit it by any runtime cascade. PersistentAgent SHALL accept a `work_root` parameter naming the absolute directory the agent operates in. When `work_root` is omitted, it SHALL default to the parent session's own work root (the value of the parent buffer's `GPTEL_WORK_ROOT` / `default-directory` at spawn time) — a single explicit default chosen at creation, written into the agent's drawer, not a live link to the parent. `jf/gptel-persistent-agent--task` SHALL write the resolved value into the agent's `session.org` drawer as `:GPTEL_WORK_ROOT:`, from which the standard activation binder sets the agent buffer's `default-directory` (see `gptel/sessions-persistence` Requirement: Default-directory resolution on session activation).
+
+To eliminate the silent-deny trap (a relative read resolving outside the agent's read scope), `jf/gptel-persistent-agent--task` SHALL make the resolved `work_root` readable by construction: it SHALL prepend the read pattern `<work_root>/**` to the agent's `read_paths` before building the scope plist, deduplicated against an identical caller-supplied pattern. Consequently a relative path resolving against the agent's `default-directory` (= work root) always lands in read scope, even when the caller supplies no `read_paths`. This is self-consistency (the agent's own work root joining its own read scope), NOT inheritance of the parent's scope. Write scope remains separately governed — the work root is readable, not writable, by construction (see *Requirement: Agent session creation* for write scope). No abort-or-warn guardrail is needed because the mismatch it would report can no longer occur.
+
+**Implementation**: `config/gptel/tools/persistent-agent.org` (`jf/gptel-persistent-agent--task`, drawer write, work-root read-pattern prepend).
+
+#### Scenario: Explicit work_root written to the agent drawer
+- **WHEN** an agent is created with `work_root "/Users/x/proj/worktree-a"`
+- **THEN** the agent's `session.org` drawer contains `:GPTEL_WORK_ROOT: /Users/x/proj/worktree-a`
+- **AND** on activation the agent buffer's `default-directory` is `/Users/x/proj/worktree-a/`
+
+#### Scenario: Omitted work_root defaults to the parent's work root
+- **WHEN** an agent is created without a `work_root` argument
+- **AND** the parent session's work root is `/Users/x/proj`
+- **THEN** the agent's drawer records `:GPTEL_WORK_ROOT: /Users/x/proj`
+- **AND** the value is frozen at creation time (not a live reference to the parent buffer)
+
+#### Scenario: Work root is readable by construction (auto-included in read scope)
+- **WHEN** an agent is created with `work_root "/Users/x/proj"` and no `read_paths`
+- **THEN** the agent's `:GPTEL_SCOPE_READ:` contains `/Users/x/proj/**`
+- **AND** a relative read resolving under the work root is allowed without scope expansion
+- **WHEN** the caller already supplied `/Users/x/proj/**` in `read_paths`
+- **THEN** the pattern is not duplicated
+
 ### Requirement: Tool invocation and validation
 
-PersistentAgent SHALL only operate within persistent session buffers with preset, description, and prompt parameters.
+PersistentAgent SHALL only operate within persistent session buffers and SHALL accept exactly six parameters: `preset`, `description`, `prompt`, `work_root`, `read_paths`, and `write_paths`. The previously advertised `allowed_paths` and `denied_paths` parameters SHALL NOT exist on the tool surface; `read_paths` replaces the read-scope role formerly played by `allowed_paths`, and `write_paths` makes write scope parent-controlled (see *Requirement: Agent session creation* for how `/tmp` scratch is handled).
 
 **Tool registration**:
 - `:async t` (non-blocking parent)
 - `:confirm t` (requires user confirmation)
 - `:include t` (results appear in parent)
 - `:category "gptel-persistent"`
-- Optional: `allowed_paths`, `denied_paths` arrays
 
-**Categorized as "meta"**: Bypasses scope validation for tool invocation itself (agent's tools still respect agent's scope).
+**Categorized as "meta"**: bypasses scope validation for tool invocation itself (agent's tools still respect agent's scope).
 
 #### Scenario: Parent session requirement
-- **WHEN** PersistentAgent invoked without `jf/gptel--session-dir`
-- **THEN** raises user-error: "PersistentAgent requires parent persistent session"
+- **WHEN** PersistentAgent is invoked from a buffer where `jf/gptel--session-dir` is unbound
+- **THEN** the tool raises a user-error with text `"PersistentAgent requires parent persistent session"`
+- **AND** no agent directory, file, or buffer is created
+
+#### Scenario: Tool argument schema
+- **WHEN** the registered tool's `:args` are inspected
+- **THEN** the argument list contains exactly `preset`, `description`, `prompt`, `work_root`, `read_paths`, and `write_paths`
+- **AND** does NOT contain `allowed_paths` or `denied_paths`
 
 #### Scenario: Explicit path configuration (zero inheritance)
-- **WHEN** `allowed_paths` not provided (nil)
-- **THEN** agent has no read permissions (scope.yml has `read: []`)
-- **AND** paths NOT inherited from parent
-- **WHEN** `allowed_paths` is empty array `[]`
-- **THEN** agent has no read permissions
-- **WHEN** `allowed_paths` provided with patterns
-- **THEN** agent uses exactly those patterns
-- **AND** paths come exclusively from parameter, never from parent
+- **WHEN** `read_paths` is omitted, `nil`, or an empty array
+- **THEN** the agent's `session.org` `:PROPERTIES:` drawer omits `:GPTEL_SCOPE_READ:` (the validator loads `:read nil`, i.e. no read permissions)
+- **AND** the parent's drawer scope keys are NOT copied into the agent's drawer
+- **WHEN** `read_paths` is provided as a non-empty array of glob patterns
+- **THEN** the agent's drawer declares `:GPTEL_SCOPE_READ:` containing exactly the supplied patterns
+- **AND** the parent's drawer scope keys are NOT merged in
 
 ### Requirement: Agent session creation
 
-The system SHALL create agent sessions under parent's branch directory with isolated configuration.
+The system SHALL create agent sessions as standard `gptel-chat-mode` sessions, sharing the same drawer-driven configuration and content-addressed activation pipeline as standalone interactive sessions. The agent's `session.org` SHALL be written with a `:PROPERTIES:` drawer at `point-min` declaring the agent's preset (`:GPTEL_PRESET:`), its parent link (`:GPTEL_PARENT_SESSION_ID:`), its working directory (`:GPTEL_WORK_ROOT:`), the agent's scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`), and `:GPTEL_SYSTEM_PROMPT_FILE:` (always present for agents). The agent's write scope SHALL be the parent-supplied `write_paths` with `/tmp/**` auto-appended as scratch space; `/tmp/**` is a guaranteed scratch grant, NOT the write default it was when `write_paths` did not exist. The drawer SHALL be followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading. A sibling `system-prompt.<ext>` file SHALL always be written next to `session.org` holding the agent-harness preamble followed by the preset's `:system` body when it declares one (see *Requirement: Agent system-prompt preamble* and `gptel/chat-mode` Requirement: System prompt sibling file is authoritative). NO sidecar config files (`scope.yml`, `metadata.yml`, `tools.org`) are written — all configuration and metadata lives in the session-file drawer; the conversation including tool blocks lives directly under the drawer as turn blocks.
 
-**Implementation**: `config/gptel/tools/persistent-agent.org`
+The session file SHALL be opened with `find-file-noselect` so that the file's drawer signature triggers content-addressed activation (`magic-mode-alist`) into `gptel-chat-mode`, and the `gptel-chat-mode-hook` binder applies the drawer-declared preset buffer-local, registers the buffer in `jf/gptel--session-registry`, and enables autosave.
 
-#### Scenario: Agent directory created
-- **WHEN** creating agent with preset "researcher" and description "analyze code"
-- **THEN** creates `<parent-branch-dir>/agents/researcher-<timestamp>-analyze-code/`
-- **AND** directory under parent's current branch, not session root
+The agent's directory SHALL live under the parent branch's `agents/` subdirectory and SHALL be named `<preset>-<timestamp>-<slug>`. Agents SHALL NOT have a `branches/` subdirectory or a `current` symlink — they remain single-timeline sessions.
 
-#### Scenario: scope.yml with explicit paths only
-- **WHEN** creating agent with `allowed_paths ["/path/to/project/**"]`
-- **THEN** writes scope.yml:
-```yaml
-paths:
-  read:
-    - "/path/to/project/**"
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
+#### Scenario: Agent directory created under parent branch
+- **WHEN** an agent is created with preset `researcher` and description `analyze code` from a parent branch
+- **THEN** a directory `<parent-branch-dir>/agents/researcher-<timestamp>-analyze-code/` is created
+- **AND** the directory is under the parent's current branch, not the parent's session root
+- **AND** the directory does NOT contain a `branches/` subdirectory or a `current` symlink
+
+#### Scenario: session.org carries a self-describing :PROPERTIES: drawer
+- **WHEN** an agent is created with preset `researcher` and parent session id `parent-20260425100000`
+- **THEN** the agent's `session.org` begins with a `:PROPERTIES:` drawer at `point-min`
+- **AND** the drawer contains `:GPTEL_PRESET: researcher`
+- **AND** the drawer contains `:GPTEL_PARENT_SESSION_ID: parent-20260425100000`
+- **AND** the drawer is followed directly by the initial `#+begin_user` / `#+end_user` block, with no `* System Prompt` heading and no `* Chat` heading
+
+#### Scenario: Drawer scope and work-root keys written from parent-supplied paths
+- **WHEN** an agent is created with `work_root "/path/to/project"`, `read_paths ["/path/to/project/**"]`, and `write_paths ["/path/to/project/**"]`
+- **THEN** the session.org `:PROPERTIES:` drawer carries the agent's work root and full scope:
+```org
+:PROPERTIES:
+:GPTEL_PRESET: researcher
+:GPTEL_PARENT_SESSION_ID: <parent-id>
+:GPTEL_WORK_ROOT: /path/to/project
+:GPTEL_SCOPE_READ: /path/to/project/**
+:GPTEL_SCOPE_WRITE: /path/to/project/**
+:GPTEL_SCOPE_WRITE+: /tmp/**
+:GPTEL_SCOPE_DENY: **/.git/**
+:GPTEL_SCOPE_DENY+: **/runtime/**
+:GPTEL_SCOPE_DENY+: **/.env
+:GPTEL_SCOPE_DENY+: **/node_modules/**
+:END:
 ```
+- **AND** `/tmp/**` appears in the write scope as auto-appended scratch, not as the sole write target
+- **AND** no `scope.yml` (or any other sidecar file) is written in the agent directory
 
-#### Scenario: Empty paths when not specified (zero inheritance)
-- **WHEN** creating agent without `allowed_paths`
-- **THEN** writes scope.yml:
-```yaml
-paths:
-  read: []
-  write:
-    - "/tmp/**"
-  deny:
-    - "**/.git/**"
-    - "**/runtime/**"
-    - "**/.env"
-    - "**/node_modules/**"
-```
-- **AND** agent has no read permissions
-- **AND** paths never inherited from parent (zero inheritance)
+#### Scenario: Agent buffer activates via content-addressed signature
+- **WHEN** the agent's `session.org` is opened (whether at agent creation time or by a later `find-file`)
+- **THEN** the file's drawer signature selects `gptel-chat-mode` via `magic-mode-alist` and the `gptel-chat-mode-hook` binder runs
+- **AND** the buffer is in `gptel-chat-mode`
+- **AND** the preset declared in the `:PROPERTIES:` drawer has been applied buffer-local
+- **AND** the buffer's `default-directory` is the drawer's `:GPTEL_WORK_ROOT:`
+- **AND** the buffer is registered in `jf/gptel--session-registry`
+- **AND** `jf/gptel-autosave-enabled` is non-nil
 
-#### Scenario: metadata.yml created
-- **WHEN** creating agent
-- **THEN** writes metadata.yml with `type: "agent"`, `parent_session_id`
-- **AND** includes `session_id`, `created`, `updated`, `preset`
+#### Scenario: No sidecar config files written
+- **WHEN** creating any agent
+- **THEN** the agent directory contains `session.org` plus a sibling `system-prompt.<ext>` (always written for agents — the harness preamble, plus the preset's `:system` when it has one)
+- **AND** no `scope.yml`, `metadata.yml`, or `tools.org` is written at any point in the lifecycle
 
-#### Scenario: No branching support
-- **WHEN** creating agent
-- **THEN** no `branches/` subdirectory created
-- **AND** no `current` symlink
-- **AND** agents are single-timeline only
+### Requirement: Agent system-prompt preamble
+
+Every persistent agent SHALL receive a fixed agent-harness preamble as the head of its system prompt, independent of which preset it runs. The preamble SHALL be sourced from a static fragment file (a `prompt-fragments` static fragment) rather than a hard-coded `defconst`, so it is editable and composable as a fragment. The preamble is injected at the persistent-agent layer (not in the shared sibling-file writer that also serves interactive, human-driven sessions), so only agents receive the harness framing; interactive sessions continue to use the preset's role content verbatim.
+
+The agent's effective system prompt SHALL be composed preamble-first: the baseline preamble fragment, followed by the preset's role content when the preset declares non-empty role content. When the preset declares no role content, the sibling file SHALL hold the preamble alone. In all cases the sibling `system-prompt.<ext>` file SHALL be written and the drawer's `:GPTEL_SYSTEM_PROMPT_FILE:` key SHALL be present, so every agent has a non-empty system prompt.
+
+The preamble SHALL establish the agent operating contract: (1) the agent does the task **itself** and SHALL NOT delegate it to another agent (it SHALL NOT call the `PersistentAgent` tool to perform its work), preventing self-delegation loops; (2) the agent runs headless and cannot ask the user follow-up questions, so it makes and states reasonable assumptions; (3) the agent stays within its granted task and scope, requesting scope expansion rather than abandoning the task when a needed operation is refused; (4) the agent terminates with a single, self-contained final message — the only text returned to the parent.
+
+#### Scenario: Preamble composed ahead of a preset's role content
+- **WHEN** an agent is created with a preset that declares non-empty role content
+- **THEN** the sibling `system-prompt.<ext>` file content is the agent-harness preamble fragment, then a blank-line separator, then the preset's rendered role content
+- **AND** the drawer carries `:GPTEL_SYSTEM_PROMPT_FILE:`
+
+#### Scenario: Preamble written alone when the preset has no role content
+- **WHEN** an agent is created with a preset that declares no role content
+- **THEN** the sibling `system-prompt.<ext>` file content is exactly the agent-harness preamble fragment
+- **AND** the drawer still carries `:GPTEL_SYSTEM_PROMPT_FILE:` (every agent has a system prompt)
+
+#### Scenario: Preamble is sourced from a fragment file
+- **WHEN** the agent-harness preamble is materialized into an agent's system prompt
+- **THEN** its text is drawn from the static agent-preamble fragment file, not from a hard-coded `defconst`
+
+#### Scenario: Preamble forbids self-delegation
+- **WHEN** the agent-harness preamble is materialized into an agent's system prompt
+- **THEN** it instructs the agent to perform the task itself and to NOT call the `PersistentAgent` tool to do its work
+- **AND** it instructs the agent to return a single final message as its only output to the parent
+
+#### Scenario: Interactive sessions do not receive the preamble
+- **WHEN** an interactive (non-agent) session is created from the same preset
+- **THEN** its sibling `system-prompt.<ext>` (if any) holds the preset's rendered role content, with no agent-harness preamble prepended
 
 ### Requirement: Configuration isolation (zero inheritance)
 
-The system SHALL enforce zero inheritance - agent configuration ONLY from agent's scope.yml and preset definition.
+The system SHALL enforce zero inheritance from the parent session. Agent configuration SHALL come from a single source: the agent's own `session.org` `:PROPERTIES:` drawer — the `:GPTEL_PRESET:` key (applied buffer-local at mode-activation time by `gptel-chat--apply-declared-preset`), the agent's working directory (`:GPTEL_WORK_ROOT:`), and the agent's drawer scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`). The agent SHALL NOT inherit `gptel-backend`, `gptel-model`, `gptel-temperature`, `gptel-tools`, `gptel-system`, `default-directory`, or any scope path from the parent buffer at runtime. The agent's work root and scope are values the parent *passes* at spawn time and that are then frozen in the agent's own drawer — a parent-supplied default is not runtime inheritance. Globals (the user's defaults outside any session) MAY fill gaps when the preset does not declare a key — globals are the user's standing intent, not parent-specific state.
 
-**Buffer-local vars setup**:
-1. Set `jf/gptel--session-id` (agent's ID)
-2. Set `jf/gptel--session-dir` (agent's directory)
-3. Set `jf/gptel--branch-name` to "main"
-4. Set `jf/gptel--branch-dir` (same as session-dir)
-5. Apply preset configuration (dynamically scoped)
+#### Scenario: Backend, model, tools come only from the drawer-declared preset
+- **WHEN** the parent session has a non-default `gptel-backend` and `gptel-model` set buffer-local
+- **AND** the agent's preset declares only `:backend` and `:model`
+- **THEN** the agent buffer's `gptel-backend` and `gptel-model` come from the preset
+- **AND** the parent's buffer-local `gptel-backend` / `gptel-model` are not propagated into the agent buffer
 
-Variables persist OUTSIDE preset's dynamic scope.
+#### Scenario: Agent reads its own drawer, never the parent's
+- **WHEN** the agent invokes a scope-validated tool
+- **THEN** the scope system reads from the agent buffer's `:PROPERTIES:` drawer (or, when called outside the buffer, from `<agent-dir>/session.org`'s drawer)
+- **AND** does NOT read from the parent's drawer or any `scope.yml`
+- **AND** validates the tool call against the agent's scope only
 
-#### Scenario: Path configuration never inherited
-- **WHEN** parent has allowed paths in scope.yml
-- **AND** agent created without `allowed_paths`
-- **THEN** agent gets empty read paths `[]`
-- **AND** does NOT inherit parent's paths
-- **AND** agent only accesses files explicitly in `allowed_paths` parameter
-
-#### Scenario: Buffer-local vars set before preset
-- **WHEN** initializing agent buffer
-- **THEN** sets session vars first (session-id, session-dir, branch-name, branch-dir)
-- **AND** then applies preset configuration
-- **AND** session vars persist outside preset's dynamic scope
-
-#### Scenario: Agent uses own scope.yml
-- **WHEN** agent buffer configured
-- **THEN** scope system reads from `<agent-dir>/scope.yml`
-- **AND** NOT from parent's scope.yml
-- **AND** validates agent tools against agent's scope only
-
-#### Scenario: Backend/model from preset only
-- **WHEN** agent configured
-- **THEN** uses settings from preset in `gptel--known-presets`
-- **AND** does NOT inherit parent's backend/model/temperature/system-message
+#### Scenario: Path and work-root configuration never runtime-inherited
+- **WHEN** the parent's `session.org` drawer declares `:GPTEL_SCOPE_READ:` with patterns
+- **AND** the agent is created without `read_paths`
+- **THEN** the agent's drawer omits `:GPTEL_SCOPE_READ:` (empty read paths)
+- **AND** the parent's drawer scope keys are NOT copied into the agent's drawer
+- **AND** the agent has read access only to the patterns its own drawer declares
+- **WHEN** the agent is created without `work_root`
+- **THEN** the agent's drawer records its own `:GPTEL_WORK_ROOT:` resolved to the parent's work root at spawn time
+- **AND** the agent buffer's `default-directory` is read from that drawer value, not from a live reference to the parent buffer
 
 ### Requirement: Execution lifecycle
 
-The system SHALL execute agents asynchronously with FSM state tracking and dual-duty response accumulation.
+The system SHALL drive the agent's request through gptel-chat-mode's public programmatic-send API (see `gptel/chat-mode` spec, "Public programmatic-send API" requirement), composing custom FSM handlers with chat-mode's lifecycle handlers and gptel's upstream state-driving handlers.
 
-**Execution flow**:
-1. Insert prompt into agent buffer
-2. Associate buffer with session.md file
-3. Set buffer as modified
-4. Initiate gptel-request with custom FSM
-5. WAIT state → overlay shows "Waiting..."
-6. TOOL state → overlay shows "Calling Tools (+N)"
-7. Accumulate string responses for parent
-8. Insert responses to buffer (persistence)
-9. Auto-save after each response
-10. Delete overlay and invoke parent callback on completion
+The agent SHALL NOT supply a custom `:callback` to `gptel-request` — the chat-mode public stream callback handles token insertion into the open `#+begin_assistant` block. The agent's overlay updates SHALL be driven by FSM handlers chained on `WAIT` and `TOOL` states, with the parent-feedback overlay passed through `gptel-request`'s `:context` keyword.
 
-#### Scenario: Prompt inserted before request
-- **WHEN** launching agent with prompt
-- **THEN** inserts prompt text into agent buffer
-- **AND** appends "\n\n"
-- **AND** sets buffer modified
-- **AND** gptel-request reads from buffer (not ephemeral prompt)
+The execution flow:
+1. Insert the supplied prompt into the agent buffer's empty `#+begin_user` block.
+2. Resolve the user turn and convert turns to messages using the public chat-mode API.
+3. Open a fresh `#+begin_assistant` block using the public chat-mode API.
+4. Build an FSM whose handler alist composes (in order): the agent's overlay-update handler, chat-mode's lifecycle handler, and gptel's upstream state-driving handler — for `WAIT` and `TOOL`. For `DONE`, `ERRS`, and `ABRT`, the agent's completion handler chains alongside chat-mode's lifecycle handler and gptel's `gptel--handle-post`.
+5. Issue `gptel-request` with the messages list, the public chat-mode stream callback, the FSM, and the overlay as `:context`.
+6. The FSM completion handlers (`DONE`/`ERRS`/`ABRT`) return control to the parent (see "Parent-child communication" requirement).
 
-#### Scenario: gptel-request initiated
-- **WHEN** starting execution
-- **THEN** calls gptel-request with:
-  - `:buffer` agent-buffer
-  - `:position` (point-max)
-  - `:context` overlay
-  - `:fsm` custom handlers
-  - `:callback` accumulation handler
-  - No `:prompt` (reads from buffer)
+#### Scenario: Prompt populates the user block before send
+- **WHEN** an agent is launched with a non-empty `prompt` argument
+- **THEN** the prompt text is inserted into the agent buffer's empty `#+begin_user` block (the one created by the session template)
+- **AND** the buffer is parsed and converted to a messages list via the public chat-mode API
+- **AND** a fresh `#+begin_assistant` block is opened via the public chat-mode API
 
-#### Scenario: WAIT state updates overlay
-- **WHEN** agent enters WAIT state
-- **THEN** FSM handler uses run-at-time with 1.5 second delay
-- **AND** updates overlay with "Waiting..." message
-- **AND** checks overlay validity before update
+#### Scenario: gptel-request invocation shape
+- **WHEN** the agent issues its `gptel-request`
+- **THEN** the request is called with a messages list (not `nil`, not a buffer-text string)
+- **AND** the request supplies the public chat-mode stream callback as `:callback`
+- **AND** the request supplies a `gptel-make-fsm` instance with composed handlers as `:fsm`
+- **AND** the request supplies the parent overlay as `:context`
 
-#### Scenario: TOOL state updates overlay
-- **WHEN** agent enters TOOL state
-- **THEN** FSM handler increments overlay count
-- **AND** displays "Calling Tools... (+N)" with cumulative count
-- **AND** shows formatted tool calls
+#### Scenario: WAIT state updates the parent overlay
+- **WHEN** the agent's FSM enters the `WAIT` state
+- **THEN** the agent's overlay-update handler updates the parent overlay's `after-string` to a "Waiting…" indicator
+- **AND** chat-mode's `WAIT` lifecycle handler also fires, setting the agent buffer's lifecycle state
+- **AND** gptel's upstream `gptel--handle-wait` fires, driving the network request
 
-#### Scenario: String responses dual-duty
-- **WHEN** agent receives string response chunk
-- **THEN** callback:
-  1. Inserts chunk into agent buffer (persistence)
-  2. Concatenates chunk to accumulator (for parent callback)
-- **AND** performs BOTH for every non-raw string response
-
-#### Scenario: Completion deletes overlay
-- **WHEN** agent completes
-- **THEN** deletes overlay from parent buffer
-- **AND** applies optional transformer to result
-- **AND** invokes parent callback with final accumulated string
-
-#### Scenario: Auto-save after each response
-- **WHEN** agent receives any response
-- **THEN** `gptel-post-response-functions` hook fires
-- **AND** `jf/gptel--auto-save-session-buffer` saves buffer
-- **AND** session.md persisted incrementally
+#### Scenario: TOOL state updates the parent overlay with cumulative count
+- **WHEN** the agent's FSM enters the `TOOL` state with N pending tool calls
+- **THEN** the agent's overlay-update handler updates the parent overlay's `after-string` to a "Calling Tools…" indicator with cumulative count `(+N)`
+- **AND** the formatted tool calls are rendered in the overlay
+- **AND** chat-mode's lifecycle handler and gptel's upstream tool-use handler also fire
 
 ### Requirement: Parent-child communication
 
-The system SHALL provide non-intrusive feedback via overlay and return accumulated results via callback.
+The system SHALL signal completion to the parent by reading the agent buffer's last `#+begin_assistant` block and extracting only its trailing text segment (skipping any tool-call segments) — "final text only," not an accumulated stream.
 
-**Overlay system**:
-- Create at marker position in parent
-- Display task description and preset
-- Update during WAIT and TOOL states
-- Show cumulative tool count
-- Delete on completion/error
-- Check validity before updates
+The overlay in the parent buffer SHALL be created at the parent's response-tracking marker (or `:position` if no tracking marker exists yet) so that progress feedback appears where the parent's response is being inserted. The overlay SHALL be deleted on every terminal FSM state — `DONE`, `ERRS`, `ABRT` — without exception.
 
-#### Scenario: Overlay created at marker
-- **WHEN** launching agent
-- **THEN** captures (point-marker) in parent buffer
-- **AND** creates overlay spanning current line
-- **AND** sets properties: gptel-persistent-agent t, count 0, msg (header)
+#### Scenario: DONE returns the final assistant text segment
+- **WHEN** the agent's FSM transitions to `DONE`
+- **THEN** the completion handler reads the last `#+begin_assistant` block from the agent buffer
+- **AND** extracts the final text segment (the segment after any trailing tool-call segments)
+- **AND** invokes the caller-supplied `main-cb` with that text
+- **AND** deletes the parent overlay
 
-#### Scenario: Overlay shows task info
-- **WHEN** overlay created for preset "researcher", description "analyze patterns"
-- **THEN** after-string contains:
-  - Horizontal rule
-  - "Researcher Task: analyze patterns"
-  - Progress status ("Waiting..." or "Tools...")
-  - Horizontal rule
+#### Scenario: ERRS returns an error message
+- **WHEN** the agent's FSM transitions to `ERRS`
+- **THEN** the completion handler invokes `main-cb` with a string describing the error
+- **AND** deletes the parent overlay
 
-#### Scenario: Overlay synchronized with FSM
-- **WHEN** agent transitions WAIT → TOOL
-- **THEN** overlay updates from "Waiting..." to "Calling Tools... (+N)"
-- **AND** shows formatted tool calls
+#### Scenario: ABRT returns an abort message
+- **WHEN** the agent's FSM transitions to `ABRT` (user invoked `gptel-abort` or denied a tool confirmation)
+- **THEN** the completion handler invokes `main-cb` with a string indicating the abort
+- **AND** deletes the parent overlay
 
-#### Scenario: Tool count accumulation
-- **WHEN** agent makes multiple tool calls
-- **THEN** overlay shows cumulative count: "Tools (+1)", "Tools (+2)", etc.
+#### Scenario: No string accumulator
+- **WHEN** the agent emits multiple streaming response chunks across multiple turns
+- **THEN** the agent code does NOT accumulate those chunks into a parallel string buffer
+- **AND** the result returned to the parent is derived from the agent buffer at terminal state, not from an in-flight accumulator
 
-#### Scenario: Parent callback receives result
-- **WHEN** agent completes
-- **THEN** invokes parent callback with concatenated string
-- **AND** result appears in parent buffer via gptel's tool system
+### Requirement: Agent identity in the drawer
+
+An agent `session.org` SHALL carry drawer-resident identity exactly like a standalone session: `:GPTEL_SESSION_ID:` and `:GPTEL_BRANCH:` (in addition to the agent-distinguishing `:GPTEL_PARENT_SESSION_ID:`). These keys SHALL be emitted by agent creation (`jf/gptel-persistent-agent--task`) into the drawer it already writes, so that an agent's identity, like a branch's, is read from its drawer rather than reverse-engineered from the nested `agents/<agent>/` path layout.
+
+Agent activation SHALL flow through the same content-addressed path as any session: the agent file is written complete (drawer + body) before it is opened, so `find-file-noselect` triggers the `magic-mode-alist` session signature, and the `gptel-chat-mode-hook` binder establishes the agent buffer's state from the drawer. The agent module SHALL NOT depend on the retired global `find-file-hook` auto-init pipeline.
+
+#### Scenario: Agent drawer carries identity keys
+- **WHEN** an agent is created under parent `p-abc-20260424000000`
+- **THEN** the agent `session.org` drawer contains `:GPTEL_SESSION_ID:`, `:GPTEL_BRANCH:`, and `:GPTEL_PARENT_SESSION_ID: p-abc-20260424000000`
+
+#### Scenario: Agent activates via content-addressed signature
+- **WHEN** `jf/gptel-persistent-agent--task` opens the freshly written agent file with `find-file-noselect`
+- **THEN** the file's drawer signature selects `gptel-chat-mode` via `magic-mode-alist`
+- **AND** the `gptel-chat-mode-hook` binder sets the agent buffer's identity (from the drawer), registers it, and enables autosave
+- **AND** no `find-file-hook` entry is involved
 
 ### Requirement: Persistence and resumption
 
-The system SHALL auto-save agent buffer after every API response, preserving full conversation.
+The system SHALL rely on the chat-mode session-binding pipeline for persistence: autosave is enabled by the `gptel-chat-mode-hook` binder when the session file is activated, and the buffer's contents (including streamed assistant text and tool blocks) are persisted incrementally through chat-mode's normal save path. The agent SHALL NOT install its own custom auto-save hook.
 
-**Persistence**:
-- Register auto-save hook during init
-- Trigger save after each response
-- Include tool calls and results
-- Register in global registry
-- Enable resumption via find-file
+A saved agent `session.org` SHALL be reloadable as an interactive `gptel-chat-mode` session: opening the file via `find-file` SHALL activate and bind it identically to a standalone session — same major mode (selected by the content-addressed signature), same drawer-declared preset application, same registry registration, same autosave behavior — with the only distinction being the presence of `GPTEL_PARENT_SESSION_ID` in the drawer.
 
-#### Scenario: Auto-save hook registered
-- **WHEN** initializing agent buffer
-- **THEN** adds `jf/gptel--auto-save-session-buffer` to `gptel-post-response-functions`
-- **AND** makes hook buffer-local
+#### Scenario: No agent-specific auto-save hook
+- **WHEN** the persistent-agent module is loaded
+- **THEN** the module does NOT add `jf/gptel--auto-save-session-buffer` (or any agent-specific save function) to `gptel-post-response-functions`
+- **AND** persistence is driven by chat-mode's standard save path
 
-#### Scenario: Every response triggers save
-- **WHEN** agent receives response chunk or tool result
-- **THEN** hook fires automatically
-- **AND** saves buffer
-- **AND** session.md updated incrementally
+#### Scenario: Saved agent session reloads as interactive
+- **WHEN** an agent has completed and its `session.org` is later opened with `find-file`
+- **THEN** the content-addressed signature selects `gptel-chat-mode`
+- **AND** the drawer-declared preset has been applied buffer-local
+- **AND** the user can invoke `gptel-chat-send` from the buffer to continue the conversation interactively
+- **AND** behavior is indistinguishable from a standalone chat session except for the presence of `GPTEL_PARENT_SESSION_ID` in the drawer
 
-#### Scenario: Tool calls included
-- **WHEN** agent executes tools
-- **THEN** gptel inserts tool calls and results to buffer
-- **AND** written to session.md during auto-save
-
-#### Scenario: Session registered
-- **WHEN** creating agent
-- **THEN** calls `jf/gptel--register-session` with session-dir, buffer, etc.
-- **AND** registry stores plist with paths and buffer reference
-
-#### Scenario: Session resumable
-- **WHEN** user opens `<agent-dir>/session.md`
-- **THEN** auto-init detects pattern `*/agents/*/session.md`
-- **AND** loads preset, sets buffer-local vars, enables gptel-mode
-- **AND** buffer ready for continued conversation
+#### Scenario: Tool blocks persist verbatim
+- **WHEN** an agent run includes one or more tool calls
+- **THEN** the on-disk `session.org` contains corresponding `#+begin_tool` / `#+end_tool` blocks inside the assistant block
+- **AND** those blocks are parsed by `gptel-chat-parse-buffer` on reload as `tool-call` segments
 
 ### Requirement: Error handling
 
-The system SHALL gracefully handle errors with consistent overlay cleanup.
+The system SHALL handle terminal FSM states (`ERRS`, `ABRT`) and creation-time validation failures with consistent overlay cleanup and a single return path to the parent callback. Validation failures (e.g., the parent-session check or an unknown preset name) SHALL signal a user-error before any directory or buffer is created — partial state SHALL NOT be left on disk.
 
-#### Scenario: Network error cleanup
-- **WHEN** gptel-request callback receives nil (network failure)
-- **THEN** deletes overlay from parent
-- **AND** invokes parent callback with error message
+#### Scenario: Network failure cleanup
+- **WHEN** the agent's FSM transitions to `ERRS` due to a network error
+- **THEN** the parent overlay is deleted
+- **AND** `main-cb` is invoked exactly once with a descriptive error string
 
-#### Scenario: User abort
-- **WHEN** user denies tool confirmation
-- **THEN** deletes overlay
-- **AND** invokes parent callback: "Error: User aborted agent"
+#### Scenario: User abort cleanup
+- **WHEN** the user denies a tool confirmation or invokes `gptel-abort`
+- **THEN** the FSM transitions to `ABRT`
+- **AND** the parent overlay is deleted
+- **AND** `main-cb` is invoked exactly once with an abort message
 
-#### Scenario: Preset validation
-- **WHEN** invoked with preset not in `gptel--known-presets`
-- **THEN** raises user-error before directory creation
-- **AND** prevents partial state
+#### Scenario: Unknown preset rejected before any side effect
+- **WHEN** the agent is invoked with a `preset` argument that does not exist in `gptel--known-presets`
+- **THEN** a user-error is signaled
+- **AND** no agent directory is created
+- **AND** no buffer is created
 
-#### Scenario: Overlay always cleaned up
-- **WHEN** ANY terminal state reached (success, error, abort)
-- **THEN** callback MUST call `(delete-overlay ov)`
-- **AND** no dangling overlays persist
+#### Scenario: Overlay never leaks
+- **WHEN** any terminal FSM state is reached (`DONE`, `ERRS`, `ABRT`)
+- **THEN** the parent overlay has been deleted before `main-cb` is invoked
+- **AND** no overlay with property `gptel-persistent-agent` remains in the parent buffer
 
 ## Integration Points
 
 ### With Sessions Subsystem
-- Uses `jf/gptel--create-agent-directory` for directory creation
-- Writes metadata.yml directly (type="agent")
-- Registers via `jf/gptel--register-session`
-- Follows same file structure (session.md, scope.yml, metadata.yml)
+- Agent directory created by a private agent-specific helper that mirrors the session-directory layout under `<parent-branch>/agents/`.
+- Agent `session.org` is registered via `jf/gptel--register-session` by the `gptel-chat-mode-hook` binder when the file is opened.
+- All metadata (preset, parent session id) lives in the session file's `:PROPERTIES:` drawer — no sidecar `metadata.yml` is written.
 
 ### With Scope Subsystem
-- Writes scope.yml with explicit paths (from `allowed_paths` parameter)
-- NEVER reads parent's scope.yml
-- Agent tools validated against agent's scope.yml
-- Meta tool categorization bypasses parent scope checks
+- Agent scope keys (`:GPTEL_SCOPE_READ:`, `:GPTEL_SCOPE_WRITE:`, `:GPTEL_SCOPE_DENY:`) are written into the agent's `session.org` `:PROPERTIES:` drawer at creation time by a private fixed-shape wrapper inside the persistent-agent module — `read_paths` (plus the auto-included `<work_root>/**` pattern) populates the `:READ:` key; `write_paths` (plus `/tmp/**` scratch) populates the `:WRITE:` key; deny is constant from the codebase's defaults. No `scope.yml` is written.
+- The scope validator reads from the agent buffer's drawer (or, when called outside the buffer, from `<agent-dir>/session.org`'s drawer) at tool-validation time; it NEVER reads the parent's drawer.
+- Agent tools are validated against the agent's drawer only.
+- `meta` tool categorization bypasses parent scope checks for the PersistentAgent tool invocation itself.
 
 ### With gptel Package
-- Extends FSM with custom WAIT/TOOL handlers
-- Uses `gptel-request` for async execution
-- Hooks into `gptel-post-response-functions` for auto-save
-- Uses `gptel-make-tool` for registration
+- Drives requests through `gptel-request` using the chat-mode public programmatic-send API; supplies a custom FSM whose handler alist composes the agent's overlay/completion handlers with chat-mode's lifecycle handlers and gptel's upstream state-driving handlers.
+- Reads the agent buffer's last `#+begin_assistant` block at terminal state via the public `gptel-chat-parse-buffer` to derive the parent-callback result.
+- Uses `gptel-make-tool` to register the `PersistentAgent` tool.
 
 ## Critical Invariants
 
-1. **Parent session required**: `jf/gptel--session-dir` must be non-nil
-2. **Buffer-local vars before preset**: Set session vars BEFORE applying preset
-3. **Zero inheritance**: Paths ONLY from `allowed_paths` parameter, never parent
-4. **Auto-save on every response**: Incremental persistence enables resumption
-5. **Prompt inserted to buffer**: Request reads from buffer, not ephemeral parameter
-6. **Overlay cleanup on all paths**: Delete overlay on success, error, abort
-7. **No branching**: Agents are single-timeline, no branches/ subdirectory
+1. **Parent session required**: `jf/gptel--session-dir` must be non-nil in the calling buffer; otherwise `user-error` before any side effect.
+2. **Zero inheritance**: Read scope ONLY from `read_paths` (plus the auto-included work-root pattern); write scope ONLY from `write_paths` (plus `/tmp/**` scratch); work root from `work_root` (parent-defaulted, then frozen in the drawer); backend/model/tools/system ONLY from the drawer-declared preset; never runtime-inherited from parent.
+3. **Drawer-driven init**: Agent configuration is fully recoverable from the on-disk `session.org` `:PROPERTIES:` drawer — opening the file via `find-file` produces the same buffer state as the original creation.
+4. **No agent-owned auto-save**: Persistence flows through chat-mode's standard save path; the persistent-agent module installs no save hook of its own.
+5. **No string accumulator**: The parent's callback receives text derived from the agent buffer at terminal state, not from an in-flight string accumulator.
+6. **Overlay cleanup on all paths**: Parent overlay is deleted on every terminal FSM state (`DONE`, `ERRS`, `ABRT`) before the parent callback is invoked.
+7. **Single-timeline agents**: No `branches/` subdirectory, no `current` symlink — agents are flat, single-timeline sessions.
+8. **No `denied_paths`**: The tool surface accepts exactly six parameters (`preset`, `description`, `prompt`, `work_root`, `read_paths`, `write_paths`); per-agent deny configuration is not supported.
 
 ## Summary
 
 PersistentAgent provides autonomous sub-agents with:
-- **Zero inheritance** (isolated configuration)
-- **Explicit scope** (only allowed_paths parameter)
+- **Zero inheritance** (isolated configuration; drawer-declared preset + parent-supplied `work_root` / `read_paths` / `write_paths`)
+- **Chat-mode native** (composes the public programmatic-send API; agent sessions are reloadable as standard interactive chat-mode sessions)
 - **Async execution** (non-blocking parent)
-- **Progress feedback** (overlays in parent)
-- **Full persistence** (resumable conversations)
-- **Parent-child tracking** (metadata.yml links)
+- **Progress feedback** (overlays in parent, FSM-handler-driven updates)
+- **Final-text result** (parent callback receives text extracted from the agent buffer at terminal state; no string accumulator)
+- **Parent-child tracking** (drawer-declared `GPTEL_PARENT_SESSION_ID`)

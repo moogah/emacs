@@ -1,0 +1,343 @@
+#+title: Workspaces — Git Worktrees Integration
+#+property: header-args:emacs-lisp :tangle git-worktrees.el
+#+auto_tangle: y
+
+* Overview
+
+This module makes git worktrees the *second* real consumer of the
+workspace integration registry (=config/workspaces/integrations.el=),
+after gptel-sessions (=config/gptel/sessions/workspace-integration.org=).
+It is the consumer side of the boundary: it MAY name magit symbols and
+calls into =workspace-register-integration=, but the workspaces core
+never depends on magit or git (directionality contract,
+=register/boundary/gptel-sessions-workspace-consult=).
+
+The module hard-depends on magit for the actual worktree operations
+(implemented in dependent tasks), but registration happens *only* under
+=with-eval-after-load 'magit= — so the module stays honestly droppable:
+absent magit means no integration, not an error
+(=register/invariant/workspaces-transient-deferred-require=).  Magit is
+never required at top level; that would be a load-order hazard against a
+straight-overridden package.
+
+** Repo-source seam
+
+=jf/workspace--worktree-repo-candidates= is the "leverage where
+valuable, without a hard dependency" seam (design.md D1, D2).  It
+consumes only candidate *lists* from projectile / magit / project.el —
+never their workflows — and each source is guarded by
+=boundp=/=fboundp=/=featurep=, so none is required.  A
+=read-directory-name= floor (in =jf/workspace--worktree-read-repo=)
+guarantees a repo in *no* list is still reachable, which is why no
+source is a hard dependency.
+
+* Header Block
+
+#+begin_src emacs-lisp :comments no
+;;; git-worktrees.el --- Git worktree workspace integration -*- lexical-binding: t; -*-
+#+end_src
+
+* Requires
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+#+end_src
+
+* Repo-candidate Helper
+
+Collects repository roots from any of the (optionally present) project
+sources, merges and de-dupes them on *expanded absolute* paths, then
+keeps only those that are actual git repositories.  Pure and
+list-returning — it never prompts, so it is directly unit-testable.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-repo-candidates ()
+  "Return a de-duped list of git-repo roots from available project sources.
+Collects candidate directories from `projectile-known-projects'
+\(when projectile is loaded), `(magit-list-repos)' (when magit is
+loaded), and `project-known-project-roots' (when project.el is
+available).  Each source is guarded so none is required.  Paths are
+expanded to absolute form and de-duped with `delete-dups', then
+filtered to directories that are actual git repositories (via
+`locate-dominating-file' on \".git\", or `magit-toplevel' when magit
+is loaded).  Returns the surviving list; does not prompt."
+  (let ((raw '()))
+    (when (and (featurep 'projectile)
+               (boundp 'projectile-known-projects))
+      (setq raw (append raw projectile-known-projects)))
+    (when (and (featurep 'magit) (fboundp 'magit-list-repos))
+      (setq raw (append raw (magit-list-repos))))
+    (when (fboundp 'project-known-project-roots)
+      (setq raw (append raw (project-known-project-roots))))
+    (let ((expanded (delete-dups
+                     (mapcar (lambda (d) (expand-file-name d))
+                             (delq nil raw)))))
+      (seq-filter #'jf/workspace--worktree-git-repo-p expanded))))
+#+end_src
+
+A small predicate isolates the "is this an actual git repo?" test so it
+can be reasoned about (and spied) on its own.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-git-repo-p (dir)
+  "Return non-nil when DIR is the root (or inside) a git repository.
+Prefers `magit-toplevel' when magit is loaded; otherwise falls back to
+`locate-dominating-file' looking for a \".git\" entry."
+  (or (and (featurep 'magit) (fboundp 'magit-toplevel)
+           (magit-toplevel dir))
+      (locate-dominating-file dir ".git")))
+#+end_src
+
+* Repo-read Helper
+
+The ONLY place that prompts.  Offers the candidate list via
+=completing-read= but always allows a free-form entry; if the user
+declines the candidates entirely, a =read-directory-name= floor still
+reaches any repo on disk.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-read-repo ()
+  "Prompt for a source git repository, returning an absolute directory.
+Offers `jf/workspace--worktree-repo-candidates' via `completing-read'
+with `require-match' nil, so a free-form path is always accepted.  If
+the entered path is not an existing directory, falls back to a
+`read-directory-name' floor — guaranteeing a repo present in no project
+source is still reachable.  Returns the chosen directory, expanded."
+  (let* ((cands (jf/workspace--worktree-repo-candidates))
+         (choice (completing-read "Source git repo: " cands nil nil)))
+    (if (and choice (file-directory-p (expand-file-name choice)))
+        (expand-file-name choice)
+      (expand-file-name (read-directory-name "Source git repo: ")))))
+#+end_src
+
+* Branch-name Sanitizer
+
+Turns a workspace name into a valid git ref fragment.  Used only to
+seed the editable default for the branch prompt — the user always sees
+the sanitized result and may edit it further.  Replaces whitespace and
+the characters git forbids in ref components (per =git check-ref-format=,
+plus the at-brace sequence) with a hyphen, collapses runs, and trims
+leading/trailing hyphens.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-sanitize-branch (name)
+  "Return NAME sanitized into a valid git ref-component default.
+Replaces whitespace and git-illegal ref characters (space, tilde,
+caret, colon, question-mark, asterisk, open-bracket, backslash,
+control chars, and the at-brace sequence) with \"-\", collapses
+repeated \"-\", and trims leading/trailing \"-\".  Intended to seed
+an editable prompt default, not to be authoritative."
+  (let* ((s (or name ""))
+         (s (replace-regexp-in-string "@{" "-" s))
+         (s (replace-regexp-in-string "[[:space:][:cntrl:]~^:?*\\[\\\\]" "-" s))
+         (s (replace-regexp-in-string "-+" "-" s))
+         (s (replace-regexp-in-string "\\`-+\\|-+\\'" "" s)))
+    s))
+#+end_src
+
+* Menu Handler
+
+On-demand =:menu= command.  Operates SOLELY on the anchor PAYLOAD (the
+=:menu= calling convention) — never on the current tab.  Reads the
+=:name= (workspace name → shared feature branch) and =:home=
+(container dir → worktree parent) from the payload
+(=register/shape/workspace-integration-anchor-payload=).
+
+It prompts for the source repo, detects that repo's main branch, and
+creates a new worktree off main inside =:home=, named for the source
+repo's basename.  Returns one of the outcome vocabulary values
+=ok= | =(failed . REASON)=
+(=register/vocabulary/workspace-integration-outcome=).
+
+Every =magit-*= call is wrapped in an explicit
+=(let ((default-directory repo)) ...)= so the operation runs against
+the chosen repo and not whatever happens to be current
+(design D1 / Risks — the
+=register/invariant/git-worktree-default-directory-binding= contract).
+
+#+begin_src emacs-lisp
+(defun jf/workspace--add-worktree (payload)
+  "Create a git worktree off main for the workspace described by PAYLOAD.
+PAYLOAD is the workspace-integration anchor plist; this reads `:name'
+\(the workspace name, used as the default shared feature branch) and
+`:home' (the workspace container directory, used as the worktree
+parent).  Operates solely on PAYLOAD, never on the current tab.
+
+Prompts for a source repo (`jf/workspace--worktree-read-repo'),
+detects its main branch (`magit-main-branch' with `default-directory'
+bound to the repo), and prompts for a branch name defaulting to the
+sanitized workspace name.  The worktree directory is a child of
+`:home' named for the source repo's basename.
+
+If the target directory already exists, returns
+\(failed . REASON) and makes NO magit call — never overwriting.
+Otherwise creates the worktree on a NEW branch off main via
+`magit-worktree-branch' (again with `default-directory' bound to the
+repo).  Returns `ok' on success, or (failed . REASON) on any git
+error."
+  (let* ((repo (jf/workspace--worktree-read-repo))
+         (main (let ((default-directory repo))
+                 (magit-main-branch)))
+         (default-branch (jf/workspace--worktree-sanitize-branch
+                          (plist-get payload :name)))
+         (branch (read-string "Worktree branch: " default-branch))
+         (dir (expand-file-name
+               (file-name-nondirectory (directory-file-name repo))
+               (plist-get payload :home))))
+    (if (file-exists-p dir)
+        (cons 'failed (format "worktree dir already exists: %s" dir))
+      (condition-case err
+          (progn
+            (let ((default-directory repo))
+              (magit-worktree-branch dir branch main))
+            'ok)
+        (error (cons 'failed (error-message-string err)))))))
+#+end_src
+
+* On-purge Teardown Handler
+
+The =:on-purge= handler.  It runs BEFORE =workspace-purge= deletes
+=:home=, so the linked worktrees still exist on disk and can be
+removed cleanly from their source repos.
+
+A child of =:home= is treated as a linked git worktree when its =.git=
+entry is a FILE (not a directory) — a linked worktree's =.git= is a
+gitfile pointing into the source repo's gitdir, whereas a normal repo
+root has a =.git= directory.  From inside such a child (with
+=default-directory= bound there), =magit-list-worktrees= enumerates the
+source repo's worktrees; its FIRST element is the source repo's primary
+worktree, which is where the removal and branch-deletion magit calls
+must run.
+
+Why teardown removes the worktree from its SOURCE repo rather than
+letting the purge raw-delete the directory (design.md D3, D5): the
+worktree registry lives in the source repo, OUTSIDE =:home=.  A raw
+delete would leave each source repo holding a stale/prunable worktree
+entry pointing at a deleted dir.  Branch deletion is GUARDED by
+=magit-branch-merged-p= (magit's own branch-UI safety check) so
+possibly-unfinished work is never destroyed; an unmerged branch is
+kept and never force-deleted.  A worktree that magit refuses to remove
+(e.g. a dirty tree) is reported, not forced, and never aborts the
+purge — the continue-past-one-failure shape mirrors
+=workspace--run-one-integration=.
+
+INVARIANT: every =magit-*= call is wrapped in an explicit
+=(let ((default-directory repo-or-worktree)) ...)= so it operates on the
+intended repo, never on whatever happens to be current
+(=register/invariant/git-worktree-default-directory-binding=).
+
+A small helper resolves the child worktrees under =:home= into the data
+the handler needs.  It returns, for each linked worktree child, a plist
+=(:dir :branch :source)= where =:source= is the source repo's primary
+worktree.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-children (home)
+  "Return a list of linked-worktree descriptors under HOME.
+Scans the immediate child directories of HOME and keeps those whose
+`.git' entry is a FILE (a linked worktree's gitfile), not a directory.
+For each, binds `default-directory' into the child and calls
+`magit-list-worktrees' to resolve the source repo's worktree list,
+whose FIRST element is the source repo's primary worktree.  Returns a
+list of plists (:dir CHILD :branch BRANCH :source SOURCE-REPO), where
+BRANCH is the child worktree's branch and SOURCE-REPO is the source
+repo's primary worktree directory.  Children that do not resolve are
+skipped."
+  (let ((acc '()))
+    (when (and home (file-directory-p home))
+      (dolist (child (directory-files home t directory-files-no-dot-files-regexp))
+        (when (and (file-directory-p child)
+                   (file-regular-p (expand-file-name ".git" child)))
+          (let* ((default-directory (file-name-as-directory child))
+                 (worktrees (magit-list-worktrees))
+                 (source (car (car worktrees)))
+                 (self (seq-find
+                        (lambda (wt)
+                          (file-equal-p (car wt) child))
+                        worktrees))
+                 (branch (and self (nth 2 self))))
+            (when source
+              (push (list :dir child :branch branch :source source) acc))))))
+    (nreverse acc)))
+#+end_src
+
+The handler itself iterates the descriptors, removing each worktree
+from its source repo and offering guarded branch deletion, accumulating
+any failures into a single reason while continuing past them.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-on-purge (payload)
+  "Tear down git worktrees living under PAYLOAD's `:home' before purge.
+PAYLOAD is the workspace-integration anchor plist; this reads `:home'
+\(the container whose child worktrees are removed)
+\(register/shape/workspace-integration-anchor-payload).  Runs BEFORE
+the purge deletes `:home', so the worktrees still exist on disk.
+
+Enumerates the linked worktrees under `:home' via
+`jf/workspace--worktree-children'.  For each, binds `default-directory'
+into that worktree's SOURCE repo and calls `magit-worktree-delete' to
+remove it, wrapped in `condition-case'.  If a removal signals (e.g. a
+dirty tree magit refuses), its path is accumulated into a failure
+reason and the remaining worktrees are still processed — never aborts.
+
+After a successful removal, offers GUARDED branch deletion: only when
+`magit-branch-merged-p' reports the branch merged into the source
+repo's main branch is `magit-branch-delete' called, WITHOUT force.
+Unmerged branches are kept and never force-deleted.
+
+Returns `skipped' when there are NO worktrees under `:home', `ok' when
+every worktree was removed cleanly, or (failed . REASON) naming the
+worktree(s) that could not be removed
+\(register/vocabulary/workspace-integration-outcome)."
+  (let ((children (jf/workspace--worktree-children (plist-get payload :home))))
+    (if (null children)
+        'skipped
+      (let ((failures '()))
+        (dolist (wt children)
+          (let ((dir (plist-get wt :dir))
+                (branch (plist-get wt :branch))
+                (source (plist-get wt :source)))
+            (condition-case err
+                (progn
+                  (let ((default-directory source))
+                    (magit-worktree-delete dir))
+                  (when branch
+                    (let* ((default-directory source)
+                           (main (magit-main-branch)))
+                      (when (and main
+                                 (magit-branch-merged-p branch main))
+                        (magit-branch-delete (list branch))))))
+              (error (push (format "%s (%s)" dir (error-message-string err))
+                           failures)))))
+        (if failures
+            (cons 'failed
+                  (concat "could not remove worktree(s): "
+                          (mapconcat #'identity (nreverse failures) "; ")))
+          'ok)))))
+#+end_src
+
+* Registration
+
+Gated so ABSENT MAGIT = NO integration (not an error).  Registration is
+wrapped in =with-eval-after-load 'workspaces= (load-order-independent
+attachment to the registry) and =with-eval-after-load 'magit= (the
+deferred-require invariant for the straight-overridden magit package).
+
+The =:menu= and =:on-purge= handler symbols are implemented in dependent
+tasks; the forward =#'symbol= references are fine because registration
+only *stores* the symbol — it never calls it here.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'workspaces
+  (with-eval-after-load 'magit
+    (workspace-register-integration 'git-worktree
+      :label "git worktree"
+      :menu (cons "w" #'jf/workspace--add-worktree)
+      :on-purge #'jf/workspace--worktree-on-purge)))
+#+end_src
+
+* Provide
+
+#+begin_src emacs-lisp
+(provide 'workspace-git-worktrees)
+#+end_src

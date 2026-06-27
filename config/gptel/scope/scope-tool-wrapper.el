@@ -78,15 +78,19 @@ later turn."
               (jf/gptel-scope-authorize-tool-call
                ,name ',operation (list ,@arg-names)
                (lambda ()
-                 (funcall callback (json-serialize (progn ,@body))))
+                 (funcall callback
+                          (jf/gptel-scope--serialize-tool-result
+                           (progn ,@body))))
                (lambda (deny-response)
-                 (funcall callback (json-serialize deny-response))))
+                 (funcall callback
+                          (jf/gptel-scope--serialize-tool-result deny-response))))
             (error
              (funcall callback
-                      (json-serialize
+                      (jf/gptel-scope--serialize-tool-result
                        (list :success nil
                              :error "tool_exception"
-                             :message (format "Tool error: %s" (error-message-string err))))))))))))
+                             :message (format "Tool error: %s"
+                                              (error-message-string err))))))))))))
 ;; Scoped Tool Macro:1 ends here
 
 ;; Provide Feature

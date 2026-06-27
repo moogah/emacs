@@ -9,7 +9,7 @@
 
 ;; Tests for the chained FSM handlers delivered by task
 ;; `fsm-handlers' in the `gptel-chat-mode' OpenSpec change.  The
-;; handler alist `gptel-chat--fsm-handlers' wires five UI-only
+;; handler alist `gptel-chat-fsm-handlers' wires five UI-only
 ;; handlers onto upstream's request FSM so chat-mode buffers can
 ;; surface lifecycle state (waiting / streaming / tool-running /
 ;; done / error) via the buffer-local `gptel-chat--lifecycle-state'
@@ -74,7 +74,7 @@
 The INFO slot carries `:buffer' pointing at the fixture buffer so
 the UI handlers have somewhere to deposit the lifecycle symbol."
   (gptel-make-fsm
-   :handlers gptel-chat--fsm-handlers
+   :handlers gptel-chat-fsm-handlers
    :info     (list :buffer gptel-chat-send-test--buffer)))
 
 (defun gptel-chat-send-test--lifecycle ()
@@ -109,32 +109,32 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
   (describe "handler alist shape"
 
     (it "chains our WAIT handler BEFORE upstream's gptel--handle-wait"
-      (let ((entry (alist-get 'WAIT gptel-chat--fsm-handlers)))
+      (let ((entry (alist-get 'WAIT gptel-chat-fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-wait)
         (expect (cadr entry) :to-equal #'gptel--handle-wait)))
 
     (it "chains our TOOL handler BEFORE upstream's gptel--handle-tool-use"
-      (let ((entry (alist-get 'TOOL gptel-chat--fsm-handlers)))
+      (let ((entry (alist-get 'TOOL gptel-chat-fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-tool)
         (expect (cadr entry) :to-equal #'gptel--handle-tool-use)))
 
     (it "lists a lone UI handler for TYPE (no upstream handler in the chain)"
-      (let ((entry (alist-get 'TYPE gptel-chat--fsm-handlers)))
+      (let ((entry (alist-get 'TYPE gptel-chat-fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-type)
         (expect (length entry) :to-equal 1)))
 
     (it "chains our DONE handler BEFORE upstream's gptel--handle-post"
-      (let ((entry (alist-get 'DONE gptel-chat--fsm-handlers)))
+      (let ((entry (alist-get 'DONE gptel-chat-fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-done)
         (expect (cadr entry) :to-equal #'gptel--handle-post)))
 
     (it "chains our ERRS handler BEFORE upstream's gptel--handle-post"
-      (let ((entry (alist-get 'ERRS gptel-chat--fsm-handlers)))
+      (let ((entry (alist-get 'ERRS gptel-chat-fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-errs)
         (expect (cadr entry) :to-equal #'gptel--handle-post)))
 
     (it "chains our ABRT handler BEFORE upstream's gptel--handle-post"
-      (let ((entry (alist-get 'ABRT gptel-chat--fsm-handlers)))
+      (let ((entry (alist-get 'ABRT gptel-chat-fsm-handlers)))
         (expect (car entry)  :to-equal #'gptel-chat--on-abrt)
         (expect (cadr entry) :to-equal #'gptel--handle-post))))
 
@@ -317,7 +317,7 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
 
     (it "is a silent no-op when :buffer is missing from info"
       (let ((fsm (gptel-make-fsm
-                  :handlers gptel-chat--fsm-handlers
+                  :handlers gptel-chat-fsm-handlers
                   :info     nil)))
         (expect (gptel-chat--on-done fsm) :not :to-throw))))
 
@@ -338,7 +338,7 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
       (let* ((fired nil)
              (post-fn (lambda (_info) (setq fired t)))
              (fsm (gptel-make-fsm
-                   :handlers gptel-chat--fsm-handlers
+                   :handlers gptel-chat-fsm-handlers
                    :info (list :buffer gptel-chat-send-test--buffer
                                :post (list post-fn)))))
         (gptel--fsm-transition fsm 'DONE)
@@ -348,7 +348,7 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
       (let* ((fired nil)
              (post-fn (lambda (_info) (setq fired t)))
              (fsm (gptel-make-fsm
-                   :handlers gptel-chat--fsm-handlers
+                   :handlers gptel-chat-fsm-handlers
                    :info (list :buffer gptel-chat-send-test--buffer
                                :post (list post-fn)))))
         (spy-on 'message)               ; silence the ERRS log
@@ -359,7 +359,7 @@ the UI handlers have somewhere to deposit the lifecycle symbol."
       (let* ((fired nil)
              (post-fn (lambda (_info) (setq fired t)))
              (fsm (gptel-make-fsm
-                   :handlers gptel-chat--fsm-handlers
+                   :handlers gptel-chat-fsm-handlers
                    :info (list :buffer gptel-chat-send-test--buffer
                                :post (list post-fn)))))
         (spy-on 'message)               ; silence the ABRT log
