@@ -9942,8 +9942,36 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/org-graph-loader-ordered-sequence
    tier: invariant
-   status: divergent
+   status: reconciled
    status_note: |
+     cycle-1782573574 integrate (org-graph-spike): DIVERGENT -> RECONCILED
+     (re-stated) by wire-into-init (merge 50af89ae). The loader was consolidated
+     into ONE ordered "* Submodules" sequence loading all eight submodules BY
+     PATH in canonical order (schemas -> extractor -> coordinator -> query ->
+     finders -> tools -> discovery -> workspace-integration); extractor.el +
+     coordinator.el added, discovery.el un-commented, scattered loads removed.
+     module-load-spec.el converted into the REAL cold-load guard: it requires
+     org-graph ALONE and asserts every registration fired from the loader path
+     (would fail on any omitted/mis-ordered registration). A real isolated boot
+     confirmed load-after-gptel+workspaces with live registration.
+     RE-STATEMENT (the prior_shape said a cold require fires ALL registrations):
+     one registration genuinely opens the DB (the typed-edge extractor, which
+     applies its typed_edges schema via vulpea-db--apply-plugin-schema) and the
+     discovery org-id seed is a vulpea-db-query. To preserve the co-equal,
+     user-resolved DB-FREE-LOAD contract (ask-cycle-1782570180-1:
+     defer-to-post-init-hook), BOTH are deferred to emacs-startup-hook; so a cold
+     require fires every DB-FREE registration at load, and the two DB-touching
+     ops fire post-init. emacs-startup-hook (NOT after-init-hook) is the
+     load-bearing seam under this config's "emacs -q --load init.el" launch
+     (after-init-hook fires before the --load actions, so a module-added
+     after-init-hook never runs here). why_tests_missed: the prior speculation
+     never modelled that some registrations must open the DB; the DB-free-load
+     contract and the deferral seam only crystallised when the loader was
+     actually consolidated and booted. Reviewer (a466a06972617f3e1) confirmed the
+     carve-out does NOT weaken the invariant: extractor.el still loads by path in
+     canonical position; only the registration CALL defers. Reconciliation note:
+     .orchestrator/cycles/cycle-1782573574/reconciliations/org-graph-loader-ordered-sequence.md.
+
      cycle-1782570180 integrate (org-graph-spike): SPECULATED -> DIVERGENT.
      Probed by module-load-smoke (the cold-load gate). Implementor push-back
      (disc-module-load-smoke-1), architect on-touch (arch-cycle-1782570180-ot-1,
@@ -9996,6 +10024,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (schemas.el provides org-graph-schemas; finders.el provides org-graph-finders;
      tools.el provides org-graph-tools; etc.), require CANNOT auto-resolve the
      order — load order is load-bearing and MUST be explicit in the loader.
+
+     REGISTRATION TIMING (re-stated cycle-1782573574): a cold (require 'org-graph)
+     fires every DB-FREE registration at load (schemas register at load; gptel
+     tools register at load when gptel is present; workspace-integration attaches
+     via with-eval-after-load). The submodule LOADS are all eager and by-path (the
+     ordered sequence above), but the two operations that open the vulpea DB — the
+     typed-edge extractor REGISTRATION (applies the typed_edges schema) and the
+     discovery org-id-locations SEED — are DEFERRED to emacs-startup-hook so module
+     load stays DB-free (co-equal contract; user-resolved ask-cycle-1782570180-1).
+     emacs-startup-hook, NOT after-init-hook, is the load-bearing post-init seam
+     under "emacs -q --load init.el". So: every submodule loads by path in
+     canonical order at require; every DB-free registration fires at require; the
+     two DB-touching ops fire post-init. The cold-load guard
+     (module-load-spec.el) verifies the by-path loads + DB-free registrations from
+     a bare require, AND that the extractor deferral is wired onto
+     emacs-startup-hook (then drives the wired fn with the DB boundary stubbed).
    why_it_matters: |
      The basename!=feature trap means a missing or misordered jf/load-module
      line does not error at tangle time and does not always error at load time

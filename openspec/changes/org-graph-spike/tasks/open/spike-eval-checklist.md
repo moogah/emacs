@@ -113,3 +113,37 @@ design.md § Open Questions; design.md § Re-evaluation.
   (blocked-by `wire-into-init`), the loader will be consolidated and the invariant
   reconciled — so the runbook's live-session load check is the day-to-day proof the
   reconciled loader holds. No prose change needed; this is a dependency note.
+
+## Cycle 1782573574 updates (cycle-1782573574)
+> **Now the LAST open task on the critical chain.** `wire-into-init` landed this
+> cycle (merge `50af89ae`): org-graph is wired into `jf/enabled-modules` (after
+> gptel + workspaces), the loader is consolidated, and
+> `register/invariant/org-graph-loader-ordered-sequence` moved **divergent →
+> reconciled (re-stated)**. The module now loads in a real boot. Read before writing
+> the runbook.
+
+- **The "module loads/registers in a real session" check is now backed AND
+  reconciled.** `(require 'org-graph)` loads all eight submodules by path in
+  canonical order; the cold-load guard (`module-load-spec.el`) passes. Your runbook
+  can assume org-graph loads on a normal boot.
+- **NEW runbook item — verify the DEFERRED DB work actually fires (review Finding 1,
+  spec-signal).** Two operations are deferred to `emacs-startup-hook` to keep module
+  load DB-free: (a) the typed-edge extractor REGISTRATION (applies its `typed_edges`
+  schema), and (b) the discovery `org-id-locations` SEED. These are **only
+  wiring-tested** (the suite asserts they are on the hook + drives them with the DB
+  stubbed); their actual firing at real launch is NOT covered by tests, and they do
+  NOT re-fire on `jf/reload-module` after startup. So the runbook MUST add explicit
+  live-session checks:
+  - After a fresh real boot, confirm the typed-edge extractor is actually
+    registered with vulpea (e.g. `vulpea-db-get-extractor 'org-graph-typed-edges`
+    is non-nil) — i.e. `emacs-startup-hook` fired and registration landed against a
+    real DB.
+  - After a fresh real boot, confirm `id:` links resolve cross-workspace (the seed
+    ran) WITHOUT a manual re-index.
+  - Note the `jf/reload-module` caveat: re-loading org-graph mid-session does NOT
+    re-run the deferred ops; a restart is needed (or call the deferred fns directly).
+    The runbook should tell the evaluator this so a mid-session reload isn't
+    mistaken for a registration failure.
+- **`emacs-startup-hook` (not `after-init-hook`) is the post-init seam** under
+  `emacs -q --load init.el`; mention this if the runbook references where deferred
+  work runs.
