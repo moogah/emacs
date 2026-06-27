@@ -83,26 +83,52 @@ extraction to the current working directory."
         (file-name-as-directory (expand-file-name org-graph-roam-root))
         (expand-file-name path))))
 
-(defun org-graph-extractor--file-level-note-p (note-data)
-  "Return non-nil when NOTE-DATA is a file-level note (not a heading).
-vulpea's file-node plist carries no `:level' key; heading-node plists do."
-  (null (plist-member note-data :level)))
+(defun org-graph-extractor--note-property-drawer (element-tree note-id)
+  "Return the `property-drawer' in ELEMENT-TREE owned by NOTE-ID, or nil.
+A note owns the drawer whose `:ID:' node-property equals NOTE-ID: this
+selects the file-level drawer for a file node and a heading's own drawer
+for a heading node, never a descendant heading's drawer.  Returns nil
+when no drawer carries NOTE-ID (e.g. an ID'd note that authored no
+PROPERTIES of its own)."
+  (org-element-map element-tree 'property-drawer
+    (lambda (drawer)
+      (when (org-element-map drawer 'node-property
+              (lambda (np)
+                (and (equal (org-element-property :key np) "ID")
+                     (equal (org-element-property :value np) note-id)))
+              nil t)
+        drawer))
+    nil t))
+
+(defun org-graph-extractor--edges-from-note (element-tree note-id)
+  "Return the typed-edge tuples authored by NOTE-ID's OWN drawer.
+Scopes extraction to the single note vulpea is processing: finds the
+property-drawer whose `:ID:' equals NOTE-ID (see
+`org-graph-extractor--note-property-drawer') and parses ONLY that drawer
+with the pure parser, so in a multi-note file each note is credited with
+just its own edges — no whole-file duplication, `from-id' = NOTE-ID.
+Parsing the drawer sub-tree (not `note-data''s `:properties' alist)
+preserves repeated relation keys.  Returns nil when the note owns no
+drawer."
+  (let ((drawer (org-graph-extractor--note-property-drawer
+                 element-tree note-id)))
+    (when drawer
+      (org-graph-extractor/parse-typed-edges drawer note-id))))
 
 (defun org-graph-extractor/extract (ctx note-data)
   "Vulpea extractor: write the note's typed edges into `typed_edges'.
 
 CTX is a `vulpea-parse-ctx' (provides the file AST and path); NOTE-DATA
-is the note plist vulpea is building.  Edges are emitted only for the
-file-level note (see `org-graph-extractor--file-level-note-p') of a file
-under `org-graph-roam-root' (scope gate).  Inserts
+is the note plist vulpea is building.  Edges are scoped to the note's OWN
+PROPERTIES drawer (see `org-graph-extractor--edges-from-note') and emitted
+only for a note under `org-graph-roam-root' (scope gate).  Inserts
 \(from-id rel-type to-id) rows, rel-type stored as a symbol.  Returns
 NOTE-DATA unchanged, per the extractor contract."
   (let ((note-id (plist-get note-data :id))
         (path (vulpea-parse-ctx-path ctx)))
     (when (and note-id
-               (org-graph-extractor--file-level-note-p note-data)
                (org-graph-extractor--roam-note-p path))
-      (let ((edges (org-graph-extractor/parse-typed-edges
+      (let ((edges (org-graph-extractor--edges-from-note
                     (vulpea-parse-ctx-ast ctx) note-id)))
         (when edges
           (emacsql (vulpea-db)

@@ -139,19 +139,16 @@ opened."
         (org-graph-extractor/extract ctx '(:id "n5")))
       (expect org-graph-test/captured-inserts :to-equal nil)))
 
-  (it "inserts nothing for a HEADING note (file-node-only scoping)"
-    ;; Regression: vulpea runs the extractor once per ID-bearing note
-    ;; (file node + every heading). The pure parser walks the whole-file
-    ;; AST, so emitting for heading notes would N×-duplicate edges and
-    ;; mis-attribute them to heading ids. Only the file-level note (no
-    ;; :level key) may emit. Reviewer finding -1; see follow-up
-    ;; scope-extractor-edges-per-note for the note-granular model decision.
+  (it "inserts nothing for an in-scope note that owns no drawer"
+    ;; vulpea runs the extractor once per ID-bearing note. A note whose id
+    ;; matches no PROPERTIES drawer in the file (e.g. an indexed heading
+    ;; that authored no relations of its own) contributes nothing — the
+    ;; whole-file edges are NOT mis-attributed to it.
     (let* ((org-graph-roam-root "/roam/")
            (tree (org-graph-test/build-tree
                   '(:id "n6" :properties ((IMPLEMENTS . "[[id:abc]]")))))
            (ctx (org-graph-test/parse-ctx "/roam/note.org" tree)))
       (org-graph-test/with-captured-db
-        ;; a heading node carries :level; the file node does not
         (org-graph-extractor/extract ctx '(:id "h1" :level 1)))
       (expect org-graph-test/captured-inserts :to-equal nil)))
 
@@ -164,6 +161,81 @@ opened."
       (org-graph-test/with-captured-db
         (expect (org-graph-extractor/extract ctx note-data)
                 :to-equal '(:id "n1" :title "T"))))))
+
+;;; Note-granular attribution (multi-note files) ---------------------------
+;;
+;; Regression for reviewer finding -1 / register/boundary/parser-extractor-db:
+;; vulpea runs :extract-fn ONCE PER ID-bearing note (file node + every ID'd
+;; heading). Extraction is scoped to the note's OWN drawer, so each note is
+;; credited with only its own edges — no N× duplication, correct from-id.
+;; (User decision NOTE-GRANULAR; the interim file-level-only guard is gone.)
+
+(describe "org-graph-extractor/extract note-granular attribution"
+
+  (it "credits a file note with only its file-level drawer edges"
+    (let* ((org-graph-roam-root "/roam/")
+           (tree (org-graph-test/build-tree
+                  '(:id "file1"
+                    :properties ((IMPLEMENTS . "[[id:fa]]"))
+                    :headings ((:id "head1"
+                                :properties ((RELATES_TO . "[[id:hb]]")))))))
+           (ctx (org-graph-test/parse-ctx "/roam/note.org" tree)))
+      (org-graph-test/with-captured-db
+        (org-graph-extractor/extract ctx '(:id "file1")))
+      ;; ONLY the file's own edge; the heading's RELATES_TO is NOT credited.
+      (expect org-graph-test/captured-inserts
+              :to-equal (list (vector "file1" 'implements "fa")))))
+
+  (it "credits an ID'd heading note with only its own drawer edges"
+    (let* ((org-graph-roam-root "/roam/")
+           (tree (org-graph-test/build-tree
+                  '(:id "file1"
+                    :properties ((IMPLEMENTS . "[[id:fa]]"))
+                    :headings ((:id "head1"
+                                :properties ((RELATES_TO . "[[id:hb]]")))))))
+           (ctx (org-graph-test/parse-ctx "/roam/note.org" tree)))
+      (org-graph-test/with-captured-db
+        (org-graph-extractor/extract ctx '(:id "head1" :level 1)))
+      ;; from-id is the HEADING id, and ONLY the heading's edge appears.
+      (expect org-graph-test/captured-inserts
+              :to-equal (list (vector "head1" 'relates-to "hb")))))
+
+  (it "does not duplicate edges across the notes of one file"
+    ;; Run the extractor for BOTH notes (as vulpea would) and assemble the
+    ;; full set of rows: each edge appears exactly once, attributed to its
+    ;; authoring note.
+    (let* ((org-graph-roam-root "/roam/")
+           (tree (org-graph-test/build-tree
+                  '(:id "file1"
+                    :properties ((IMPLEMENTS . "[[id:fa]]"))
+                    :headings ((:id "head1"
+                                :properties ((RELATES_TO . "[[id:hb]]")))))))
+           (ctx (org-graph-test/parse-ctx "/roam/note.org" tree))
+           all-rows)
+      (org-graph-test/with-captured-db
+        (org-graph-extractor/extract ctx '(:id "file1")))
+      (setq all-rows (append all-rows org-graph-test/captured-inserts))
+      (org-graph-test/with-captured-db
+        (org-graph-extractor/extract ctx '(:id "head1" :level 1)))
+      (setq all-rows (append all-rows org-graph-test/captured-inserts))
+      (expect all-rows
+              :to-equal (list (vector "file1" 'implements "fa")
+                              (vector "head1" 'relates-to "hb")))))
+
+  (it "preserves repeated relation keys within a single note's drawer"
+    ;; The drawer sub-tree is parsed by the whole-AST parser, which keeps
+    ;; repeated keys distinct (a :properties alist would collapse them).
+    (let* ((org-graph-roam-root "/roam/")
+           (tree (org-graph-test/build-tree
+                  '(:id "file1"
+                    :properties ((IMPLEMENTS . "[[id:a]]")
+                                 (IMPLEMENTS . "[[id:b]]")))))
+           (ctx (org-graph-test/parse-ctx "/roam/note.org" tree)))
+      (org-graph-test/with-captured-db
+        (org-graph-extractor/extract ctx '(:id "file1")))
+      (expect org-graph-test/captured-inserts
+              :to-equal (list (vector "file1" 'implements "a")
+                              (vector "file1" 'implements "b"))))))
 
 ;;; Storage shape (string-vs-symbol) ---------------------------------------
 
