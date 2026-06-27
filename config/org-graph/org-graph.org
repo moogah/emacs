@@ -277,6 +277,12 @@ focused submodule file loaded from here, per the task plan.
 #+begin_src emacs-lisp
 ;; Submodule loads land here as tasks complete, e.g.:
 ;; (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
+
+;; Schema-aware note-type finders.  Requires `org-graph-schemas' (the
+;; finders' :filter-fn delegates to the note-type schema predicates), so
+;; the schemas module must be loaded before this; wire-into-init owns the
+;; full ordered load sequence.
+(jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
 #+end_src
 
 * Module Initialization
