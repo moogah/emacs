@@ -1,0 +1,20 @@
+Copying runtime artifacts:
+  straight.el:
+    From: /Users/jefffarr/emacs-org-graph-spike/runtime/straight
+    To:   /Users/jefffarr/emacs-org-graph-spike/.worktrees/task-note-type-schemas-1782551613/runtime/straight
+  tree-sitter:
+    From: /Users/jefffarr/emacs-org-graph-spike/runtime/tree-sitter
+    To:   /Users/jefffarr/emacs-org-graph-spike/.worktrees/task-note-type-schemas-1782551613/runtime/tree-sitter
+
+Copying straight.el (this may take a minute)...
+
+✓ straight.el copy complete! (14s)
+
+Copying tree-sitter grammars...
+
+✓ tree-sitter copy complete! (0s)
+
+✓ All runtime artifacts copied!
+  Total time: 14s
+  Target: /Users/jefffarr/emacs-org-graph-spike/.worktrees/task-note-type-schemas-1782551613/runtime/
+DONE note-type-schemas
