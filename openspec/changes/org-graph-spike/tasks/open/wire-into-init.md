@@ -161,3 +161,118 @@ concretely scoped — it MUST:
 
 Step 1 ("after gptel AND workspaces" in `jf/enabled-modules`, RE-5) is unchanged and
 confirmed.
+
+## Observations
+- **Deferral seam is `emacs-startup-hook`, not `after-init-hook`.** The
+  user-resolved ask said "post-init hook"; I used `emacs-startup-hook`
+  (the task explicitly sanctions "after-init-hook / emacs-startup-hook
+  (or equivalent)"). Reason, verified empirically in this repo: every
+  launch path (`bin/emacs-isolated.sh`, `Makefile` `EMACS_TEST_BATCH`)
+  runs `emacs -q --load early-init.el --load init.el`. With `-q`,
+  `after-init-hook` fires (and `after-init-time` is set) BEFORE the
+  command-line `--load` actions, i.e. before any module loads — so an
+  `after-init-hook` added from inside a module never fires. The existing
+  `init.org` line ~249 `(add-hook 'after-init-hook ...)` is in fact dead
+  under these launch methods. `emacs-startup-hook` runs AFTER the
+  `--load` actions, so it is the only reliable post-init seam here; this
+  matches `config/look-and-feel/themes.el`, which already uses it.
+- **The test runner loads `init.el`.** `make`/`run-tests.sh` invoke
+  `EMACS_TEST_BATCH`, which `--load`s `init.el`. Consequences the
+  cold-load guard now leans on (and documents inline): `jf/load-module`
+  and `jf/emacs-dir` are defined (so the loader's by-path loads work);
+  `workspaces`, `gptel`, `org-roam` are already loaded; and because
+  org-graph is now in `jf/enabled-modules`, `init.el` itself loads
+  org-graph during the test boot — so the spec's `(require 'org-graph)`
+  is effectively idempotent and the assertions verify the
+  real-boot loader state. This is why `workspace-integration`'s
+  `with-eval-after-load 'workspaces` fires from the loader path into the
+  real `workspace--integrations`, and the gptel tools register at load.
+- **Adding org-graph to `jf/enabled-modules` now pulls vulpea (via
+  straight) into EVERY test-suite boot and the real boot.** Load errors
+  are caught by `jf/load-module`'s `condition-case`, so a vulpea failure
+  degrades rather than aborting init, but it does add load cost to all
+  suites. Acceptable for the spike.
+- **The seven skeleton placeholder sections in `org-graph.org`**
+  (Discovery / Auto-ID scaffold / Note-type schemas / Finders /
+  Typed-edge parser / Extractor / Coordinator) still carry their
+  `;; implemented in <task>` no-op comment blocks. They are now pure
+  documentation (the real loads live in the consolidated `* Submodules`
+  section). Left in place — out of this task's scope — but a future
+  cleanup could prune them to avoid the "implemented elsewhere" ambiguity.
+- **In `-batch` neither deferred registration runs** (no startup hook),
+  so the cold-load guard cannot observe the extractor registering "by
+  itself". It instead asserts the loader WIRED `org-graph--register-extractor`
+  onto `emacs-startup-hook` and then drives that function directly with
+  the vulpea DB boundary stubbed. The discovery seed deferral is wired
+  the same way but is not asserted by the module-load guard (its behavior
+  is unit-tested in `discovery-spec.el`); the boot check confirms it is on
+  the hook.
+
+## Discoveries
+- discovery_id: disc-wire-into-init-1
+  class: invariant-gap
+  description: |
+    register/invariant/org-graph-loader-ordered-sequence is now REALIZED.
+    The loader (`config/org-graph/org-graph.org`/`.el`) load-wires all
+    eight submodules BY PATH via `jf/load-module` in ONE consolidated
+    `* Submodules` sequence, canonical order
+    schemas -> extractor -> coordinator -> query -> finders -> tools ->
+    discovery, with workspace-integration last (after tools). The three
+    scattered `jf/load-module` lines (Query / gptel tools / Workspace
+    integration sections) were removed and folded into that one sequence;
+    `extractor.el` and `coordinator.el` were added; `discovery.el` was
+    un-commented and wired. The cold-load guard
+    (`config/org-graph/test/module-load-spec.el`) was converted to load
+    via `(require 'org-graph)` ALONE (per-submodule requires dropped) and
+    now asserts every registration fired FROM THE LOADER PATH; it passes
+    (org-graph suite 135 specs / 0 failed). A real isolated batch boot
+    confirms `(featurep 'org-graph)` = t, the workspace integration is in
+    the real `workspace--integrations`, and `org-graph/agent-tools`
+    returns the 3 tools — i.e. org-graph loaded AFTER gptel and workspaces
+    and its registrations took effect, not a load-order no-op.
+
+    Point-C (registration-touches-DB tension) resolution — chose OPTION
+    (b) from the task: the DB-free registrations (schemas register at
+    load; gptel tools register at load when gptel present;
+    workspace-integration attaches via `with-eval-after-load`) all fire as
+    their files load, so `(require 'org-graph)` fires them. The ONE
+    registration that genuinely opens the DB — the typed-edge extractor
+    (`org-graph-extractor-register` -> `vulpea-db-register-extractor` ->
+    `vulpea-db--apply-plugin-schema`, confirmed in vulpea source) — is
+    deferred to `emacs-startup-hook` via a resilient wrapper
+    `org-graph--register-extractor`, exactly like the discovery
+    `org-id-locations` seed (deferred to the same seam inside
+    `discovery.el`). This keeps `(require 'org-graph)` strictly DB-free in
+    all contexts (verified: batch boot opens no DB). The cold-load guard
+    asserts the extractor "differently": it verifies the loader WIRED the
+    deferral onto `emacs-startup-hook`, then drives the wired function with
+    the vulpea DB boundary stubbed and asserts the typed_edges extractor +
+    schema landed.
+
+    Premise check from the register entry: the entry's phrasing "a cold
+    `(require 'org-graph)` does not fire all registrations" is realized
+    WITH ONE PRINCIPLED NUANCE — a DB-free `require` cannot fire the
+    DB-opening extractor registration without violating the (co-equal,
+    user-resolved) DB-free-load contract. So "all registrations fire at
+    require" holds for the DB-free registrations; the single DB-touching
+    one is deferred-by-design to post-init. This is the coherent
+    resolution, not a defeat of the invariant: the canonical ordered
+    sequence and by-path loading are fully realized, and the guard
+    meaningfully verifies the wiring.
+  affected_register_entry: register/invariant/org-graph-loader-ordered-sequence
+  recommendation: |
+    Move register/invariant/org-graph-loader-ordered-sequence
+    DIVERGENT -> RECONCILED. The consolidated by-path loader in canonical
+    order + the require-alone cold-load guard are in place and green (135
+    specs), and a real isolated boot confirms the registrations take
+    effect after gptel+workspaces. When reconciling, RESTATE the invariant
+    to carve out the DB-touching extractor registration: the statement
+    should say the loader load-wires every submodule by path in the
+    canonical order AND fires every DB-FREE registration at load, while
+    the single DB-OPENING registration (typed-edge extractor) and the
+    discovery org-id seed are deferred to `emacs-startup-hook` to preserve
+    the DB-free-load contract — with the cold-load guard verifying the
+    deferral is wired and the wired function registers correctly. Also
+    worth capturing in the register/spec: `emacs-startup-hook` (not
+    `after-init-hook`) is the load-bearing post-init seam under this
+    config's `-q --load init.el` launch.

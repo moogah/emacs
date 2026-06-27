@@ -164,24 +164,44 @@ per-file-touch registration."
         (org-id-add-location id path)))))
 #+end_src
 
-* Load-time seed
+* Post-init seed
 
-Run the seed once when this module loads (vulpea is available by the
-time discovery is loaded from the org-graph loader).  A missing/unbuilt
-DB at load time must not abort module loading, but the failure is
-*logged* rather than swallowed: a silent no-op here would mean =id:=
-links quietly stop resolving on a fresh session — exactly the gap this
-shim exists to close — so an unexpected failure should be visible.  The
-seed's behaviour is unit-tested against =org-graph/seed-org-id-locations=
-directly; this wrapper's only job is load-time resilience.
+The seed calls =vulpea-db-query=, which opens the vulpea DB, so it MUST
+NOT run when this module loads: module load stays *DB-free* (the
+=org-graph= loader relies on this — a load-time DB open would break the
+DB-free-load contract and the cold-load guard).  Instead the seed is
+deferred to =emacs-startup-hook= so it runs once the session is up
+(USER-RESOLVED decision =ask-cycle-1782570180-1=: defer to post-init).
+
+=emacs-startup-hook= — not =after-init-hook= — is the post-init seam
+here: this config launches via =-q --load init.el= (see
+=bin/emacs-isolated.sh=), so =after-init-hook= has already fired by the
+time modules load, whereas =emacs-startup-hook= runs AFTER the
+command-line =--load= actions (matching =config/look-and-feel/themes.el=).
+In =-batch= no startup hook runs, so loading =discovery.el= opens no DB.
+
+A missing/unbuilt DB at seed time must not abort startup, but the failure
+is *logged* rather than swallowed: a silent no-op would mean =id:= links
+quietly stop resolving on a fresh session — exactly the gap this shim
+exists to close — so an unexpected failure should be visible.  The seed's
+behaviour is unit-tested against =org-graph/seed-org-id-locations=
+directly; this wrapper's only job is post-init resilience.
 
 #+begin_src emacs-lisp
-(condition-case err
-    (org-graph/seed-org-id-locations)
-  (error
-   (display-warning 'org-graph
-                    (format "org-id-locations seed skipped: %S" err)
-                    :warning)))
+(defun org-graph--seed-org-id-locations-deferred ()
+  "Run the `org-id-locations' seed once, resiliently, for `emacs-startup-hook'.
+`org-graph/seed-org-id-locations' calls `vulpea-db-query', which opens the
+vulpea DB, so it is deferred out of module-load time (load stays DB-free).
+A missing/unbuilt DB is logged via `display-warning' rather than aborting
+startup."
+  (condition-case err
+      (org-graph/seed-org-id-locations)
+    (error
+     (display-warning 'org-graph
+                      (format "org-id-locations seed skipped: %S" err)
+                      :warning))))
+
+(add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
 #+end_src
 
 * Module Initialization
