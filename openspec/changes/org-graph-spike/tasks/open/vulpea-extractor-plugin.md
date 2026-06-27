@@ -107,3 +107,82 @@ back.
   and record it: `register/shape/typed-edge-tuple` says the in-memory tuple
   carries a **symbol**. The next task (typed-edge-query) will match on whatever
   you store, so make the storage/readback round-trip explicit and tested.
+
+## Observations
+
+- The vulpea extractor pipeline (`vulpea-db--insert-note-from-plist`,
+  vulpea-db-extract.el:1038-1070) inserts the note row FIRST, then runs
+  `vulpea-db--run-extractors`, so the `typed_edges` FK onto `notes(id)` is
+  always satisfiable at insert time. The `:extract-fn` itself performs the
+  side-table write (the contract's "return note-data" is only for plist
+  enrichment); typed edges are a side table, so `extract` returns NOTE-DATA
+  unchanged and writes via `(emacsql (vulpea-db) ...)`.
+- emacsql serialises scalars with `prin1-to-string` and reads them back with
+  `read` (emacsql-compiler.el:112-118), so a stored *symbol* round-trips to a
+  symbol and a stored *string* to a string — they are distinct, recoverable
+  values. Storing `rel-type` as the symbol is therefore sound and keeps the
+  parser→extractor→DB→query contract on one representation.
+- Auto-registration is NOT done at top-level (a bare `require` of extractor.el
+  would call `vulpea-db-register-extractor`, which applies the schema and opens
+  the DB — breaking standalone unit tests and violating the "no real DB" rule).
+  Registration is exposed as `org-graph-extractor-register`, to be called by the
+  loader (wire-into-init task). This is the correct home for load-wiring per the
+  task's own structural rule.
+- Per-note vs per-file scope: vulpea runs extractors for every indexed note
+  (file-level + each heading). `extract` parses the whole-file AST keyed by the
+  current note's id, so a heading-level note under the roam root would attribute
+  every file-level drawer relation to the heading id. For the spike this is
+  benign — concept notes are flat, file-level notes by the D2/D3 convention — but
+  if heading-level concept notes ever carry relation drawers this needs a
+  subtree-scoped parse. Flagged, not blocked (no follow-up task filed: out of
+  the spike's stated convention).
+
+## Discoveries
+
+- discovery:
+    class: register-confirmation
+    affected_register_entry: register/invariant/typed-edge-extraction-scope
+    status_recommendation: speculated -> confirmed
+    detail: |
+      The roam-root scope gate is implemented as a cheap path-prefix test in
+      `org-graph-extractor--roam-note-p` and enforced inside
+      `org-graph-extractor/extract`. The acceptance specs (roam-path -> tuples,
+      non-roam-path -> none, roam subdirectory -> in scope, unbound root ->
+      fails closed) all pass. The invariant's `enforcement_mechanism` note
+      ("currently a gap, finding arch-cycle-1782551613-04") is now closed.
+
+- discovery:
+    class: register-confirmation
+    affected_register_entry: register/boundary/parser-extractor-db
+    status_recommendation: speculated -> confirmed
+    detail: |
+      Stages 2 (scope-gate) and 3 (db-insert) are now implemented and tested.
+      Stage 3's note "rel-type stored as a symbol" is confirmed sound by
+      emacsql's prin1/read round-trip. One refinement to the entry's `producers`
+      semantics: `org-graph-extractor/extract` enters vulpea's pipeline only
+      once the loader calls `org-graph-extractor-register` (registration is
+      deliberately a function, not a load-time side effect) — the pipeline
+      shape is unchanged, only the wiring point is named.
+
+- discovery:
+    class: register-confirmation
+    affected_register_entry: register/shape/typed-edge-tuple
+    status_recommendation: confirmed (consumer now real)
+    detail: |
+      The speculated consumer `org-graph-extractor/extract` now exists and reads
+      the tuple positionally (nth 0/1/2 -> from-id/rel-type/to-id), writing them
+      to the `typed_edges` columns in declaration order. The symbol-typed
+      rel-type is preserved end to end (storage-shape spec asserts
+      `(symbolp (aref row 1))`).
+
+- discovery:
+    class: vocabulary-guard
+    affected_register_entry: register/vocabulary/relation-types
+    status_recommendation: keep confirmed
+    detail: |
+      The equality-guard spec loads BOTH the extractor (fallback defconst) and
+      the real loader (`org-graph.el` defcustom) and asserts
+      `(equal org-graph-extractor--default-relation-types org-graph-relation-types)`.
+      Finding arch-cycle-1782551613-02 is now enforced by test, not review
+      discipline. The defconst is retained (legitimate D4 standalone-load
+      fallback); the guard, not deletion, is the fix.
