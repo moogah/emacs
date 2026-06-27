@@ -8,6 +8,7 @@ relations:
   - blocked-by:registry-discovery
 cites_register_entries:
   - register/boundary/org-graph-agent-tools
+  - register/boundary/workspace-integration-registry
 ---
 
 ## Files to modify
@@ -93,3 +94,35 @@ Absorb before implementing:
   (`org-graph.org`, Workspace integration section) — wiring it into the full
   ordered submodule sequence is `wire-into-init`'s job, after `tools` (since the
   `:tools` slot population needs `org-graph/agent-tools`).
+
+## Cycle 1782566912 updates (cycle-1782566912)
+> **Selected as this cycle's sole batch task** (it is the only `ready` task; the
+> remaining chain `module-load-smoke → wire-into-init → spike-eval-checklist` is
+> strictly linear and each link needs the prior MERGED, so they cannot share a
+> single-baseline batch). On the critical path: this fills the
+> `workspace-assistant` `:tools` slot — the proposal's "agent-facing graph
+> surface, plugged into workspaces" pillar.
+
+Absorb before implementing:
+- **Now also cites `register/boundary/workspace-integration-registry`** (RECONCILED,
+  load-bearing). `workspace-integration.el` is a NEW *consumer* of that registry —
+  the on-touch Architect will audit the consumer attachment against the boundary's
+  directionality contract: **consumers attach via
+  `(with-eval-after-load 'workspaces (workspace-register-integration 'org-graph ...))`;
+  workspaces never names org-graph.** Follow the registry's pinned shape: at least
+  one of `:on-create`/`:menu`/`:on-purge`; PUSH-not-consult (use ONLY the pushed
+  `register/shape/workspace-integration-anchor-payload`, never reach for the current
+  workspace); ADDITIVE/never-load-bearing (a failing handler is surfaced, never
+  rolls back the workspace); return the `register/vocabulary/workspace-integration-outcome`
+  `ok`/`skipped`/`failed` protocol. Mirror `config/gptel/sessions/workspace-integration.org`.
+- `register/boundary/org-graph-agent-tools` is RECONCILED (unchanged from last cycle):
+  `org-graph/agent-tools` returns gptel-tool OBJECTS, nil until `org-graph-tools-register`
+  runs (gated on `fboundp gptel-make-tool`). Step 2 must tolerate an empty list when
+  gptel isn't loaded, mirroring the "skip silently if preset absent" guard.
+- **New register entry to be aware of (not yet your job):**
+  `register/invariant/org-graph-loader-ordered-sequence` (SPECULATED this cycle)
+  pins the canonical submodule load order. Per that order, `workspace-integration`
+  loads AFTER `tools` (it needs `org-graph/agent-tools`). You implement
+  `workspace-integration.el` + its spec here; **`wire-into-init` owns consolidating
+  the scattered loader sections into the ordered sequence** — do not pre-empt it,
+  but keep your loader placeholder consistent with "after tools".

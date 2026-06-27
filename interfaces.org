@@ -9913,6 +9913,83 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** org-graph-loader-ordered-sequence
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-org-graph-loader-ordered-sequence
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/org-graph-loader-ordered-sequence
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1782566912 plan (forward-mode): SPECULATED. Crystallises a
+     meta-discovery flagged across THREE consecutive cycles
+     (cycle-1782551613, -1782561220, -1782564058; handshake
+     meta_discoveries kind=invariant-gap-class scope="org-graph.org loader")
+     and confirmed by direct inspection this cycle: config/org-graph/org-graph.org
+     load-wires its submodules in SCATTERED, only-partially-ordered sections —
+     query in "* Query", tools in "* gptel tools", schemas+finders in
+     "* Submodules", with extractor, coordinator, and discovery NOT load-wired
+     at all (discovery.el is commented out). A schemas->finders inline-fix
+     (3fb895f2) already shipped as a merge regression because finders.el's
+     (require 'org-graph-schemas) had no preceding schemas load and basename
+     schemas.el != feature org-graph-schemas, so require could not auto-load it.
+     This entry exists to be PROBED by module-load-smoke (asserts clean
+     standalone load with all registrations fired) and ENFORCED by wire-into-init
+     (consolidates the scattered loads into one ordered sequence). Expect
+     reconciliation when those two tasks land.
+   load_bearing: true
+   title: org-graph submodules load in one consolidated dependency-correct sequence
+   statement: |
+     config/org-graph/org-graph.org load-wires every org-graph submodule via
+     jf/load-module BY PATH, in ONE consolidated "* Submodules" sequence, in
+     dependency-correct order:
+       schemas -> extractor -> coordinator -> query -> finders -> tools -> discovery
+     with workspace-integration loaded AFTER tools (it populates the
+     workspace-assistant :tools slot from org-graph/agent-tools, which only
+     exists once tools.el has loaded). No submodule is loaded from a scattered
+     standalone section, and no submodule that another requires is loaded after
+     its requirer. Because file basenames do NOT match their provided features
+     (schemas.el provides org-graph-schemas; finders.el provides org-graph-finders;
+     tools.el provides org-graph-tools; etc.), require CANNOT auto-resolve the
+     order — load order is load-bearing and MUST be explicit in the loader.
+   why_it_matters: |
+     The basename!=feature trap means a missing or misordered jf/load-module
+     line does not error at tangle time and does not always error at load time
+     (a require may silently find the feature already provided by an earlier
+     accidental load, or fail only on a cold standalone boot). The schemas->finders
+     gap already shipped as a real merge regression (inline-fix 3fb895f2). As the
+     submodule count grew cycle-over-cycle (tools.el added last cycle), the loader
+     accreted per-task placeholder sections instead of one ordered sequence — the
+     exact accretion the architect drift-hotspot "gptel-load-order" warns about for
+     this project. Pinning the canonical order is the precondition for wiring
+     org-graph into jf/enabled-modules (wire-into-init) at all: a wrong order makes
+     the integration/tool registrations silently no-op in a live boot.
+   enforcement_mechanism:
+     kind: test + loader-structure
+     location: |
+       config/org-graph/test/module-load-spec.el (module-load-smoke) drives the
+       consolidated loader path and asserts every registration fired (defcustoms,
+       schemas, extractor, gptel tools, workspace integration) on a cold standalone
+       load with org-roam intact. config/org-graph/org-graph.org "* Submodules"
+       section is the single structural enforcement site; wire-into-init removes the
+       scattered sections and lands the ordered sequence. Grep audit:
+       grep -nE "jf/load-module.*org-graph" config/org-graph/org-graph.el shows one
+       contiguous ordered block, not loads interleaved with other sections.
+     notes: |
+       Architect on-touch drift-hotspot "gptel-load-order" / "literate-vs-tangled"
+       is the secondary layer; the smoke spec's cold-standalone-load assertion is
+       primary because it exercises the real failure mode (a require that cannot
+       auto-resolve a non-matching basename).
+   related_entries:
+     - register/invariant/vulpea-db-isolation
+     - register/invariant/lexical-binding-line-1
+     - register/boundary/org-graph-agent-tools
+   discovered_from: gptel-tools
+   discovered_by: architect
+   #+end_src
+
 * Status legend
 
 | Status      | Meaning                                                                                 |
