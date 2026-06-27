@@ -58,28 +58,31 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 
 ;; implemented in vulpea-extractor-plugin
 
-(jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
-
 ;; implemented in coordinator-lock
 
+(jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/extractor.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/coordinator.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
-
+(jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
 
-;; Submodule loads land here as tasks complete, e.g.:
-;; (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
+(defun org-graph--register-extractor ()
+  "Register the org-graph typed-edge extractor with vulpea, resiliently.
+Wraps `org-graph-extractor-register' (which applies the `typed_edges'
+schema and so opens the vulpea DB) for `emacs-startup-hook'.  A
+missing/unbuilt DB is logged via `display-warning' rather than aborting
+startup."
+  (condition-case err
+      (org-graph-extractor-register)
+    (error
+     (display-warning 'org-graph
+                      (format "typed-edge extractor registration skipped: %S" err)
+                      :warning))))
 
-;; Note-type schemas.  Provides `org-graph-schemas', a load-time prerequisite
-;; of the finders module below (its :filter-fn delegates to the schema
-;; predicates).  wire-into-init owns the full ordered load sequence; this only
-;; establishes the schemas -> finders dependency the loader needs today.
-(jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
-
-;; Schema-aware note-type finders.  Requires `org-graph-schemas' (the
-;; finders' :filter-fn delegates to the note-type schema predicates), so
-;; the schemas module must be loaded before this; wire-into-init owns the
-;; full ordered load sequence.
-(jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
+(add-hook 'emacs-startup-hook #'org-graph--register-extractor)
 
 (provide 'org-graph)
 ;;; org-graph.el ends here
