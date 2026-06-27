@@ -58,7 +58,7 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 
 ;; implemented in vulpea-extractor-plugin
 
-;; implemented in typed-edge-query
+(jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
 
 ;; implemented in coordinator-lock
 
