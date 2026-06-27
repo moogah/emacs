@@ -69,6 +69,12 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 ;; Submodule loads land here as tasks complete, e.g.:
 ;; (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 
+;; Note-type schemas.  Provides `org-graph-schemas', a load-time prerequisite
+;; of the finders module below (its :filter-fn delegates to the schema
+;; predicates).  wire-into-init owns the full ordered load sequence; this only
+;; establishes the schemas -> finders dependency the loader needs today.
+(jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
+
 ;; Schema-aware note-type finders.  Requires `org-graph-schemas' (the
 ;; finders' :filter-fn delegates to the note-type schema predicates), so
 ;; the schemas module must be loaded before this; wire-into-init owns the
