@@ -37,3 +37,6 @@ state/**
 # tasks-orchestrator ephemeral state
 .orchestrator/
 .claude/scheduled_tasks.lock
+
+# orchestrator worktree provisioning logs
+.runtime-init.log
