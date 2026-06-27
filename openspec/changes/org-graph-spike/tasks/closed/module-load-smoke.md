@@ -2,7 +2,7 @@
 name: module-load-smoke
 description: Integration spec asserting the module loads cleanly, defcustoms and schemas register, gptel tools and the workspace integration are registered, and org-roam remains intact.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:registry-discovery
   - blocked-by:auto-id-scaffold
