@@ -5,6 +5,8 @@ change: org-graph-spike
 status: blocked
 relations:
   - blocked-by:module-load-smoke
+cites_register_entries:
+  - register/invariant/org-graph-loader-ordered-sequence
 ---
 
 ## Files to modify
@@ -91,3 +93,26 @@ and -eoc-2; meta-discovery "loader-wiring-prerequisite-gaps").
   is load-safe even when gptel isn't present — no load-order constraint against
   gptel at the submodule level, but the init-level RE-5 rule (org-graph after
   `gptel` AND `workspaces`) still governs when the whole module loads.
+
+## Cycle 1782566912 updates (cycle-1782566912)
+> Still blocked on `module-load-smoke` (now `ready`). Context + a new cite.
+
+- **Now cites `register/invariant/org-graph-loader-ordered-sequence`** (SPECULATED
+  this cycle). This task is the **enforcement site** for that invariant: consolidate
+  the scattered loader sections in `org-graph.org` into ONE ordered "* Submodules"
+  sequence. The canonical order is now firm:
+  `schemas → extractor → coordinator → query → finders → tools → discovery`, and
+  **`workspace-integration` loads AFTER `tools`** (it populates the
+  `workspace-assistant` `:tools` slot from `org-graph/agent-tools`, which only exists
+  once `tools.el` has loaded). Watch the basename≠feature trap for every submodule
+  (`workspace-integration.el` provides `org-graph-workspace-integration`); load by
+  path via `jf/load-module`, never `require`-auto-resolve.
+- **`workspace-integration.el` now exists** (merge `6c5fa7ce`) and is the LAST
+  submodule in the order. As of this cycle the loader still has scattered sections
+  (`query` in "* Query", `tools` in "* gptel tools", `schemas`+`finders` in
+  "* Submodules"; `extractor`, `coordinator`, `discovery`, and now
+  `workspace-integration` not yet load-wired). Consolidating ALL of them — including
+  `workspace-integration` after `tools` — is this task's job.
+- Step 1 ("after gptel AND workspaces" in `jf/enabled-modules`, RE-5) is unchanged and
+  confirmed. Gate this on the passing `module-load-smoke` standalone-load spec before
+  flipping org-graph into the boot path.

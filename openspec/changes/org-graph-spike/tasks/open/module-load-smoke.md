@@ -2,7 +2,7 @@
 name: module-load-smoke
 description: Integration spec asserting the module loads cleanly, defcustoms and schemas register, gptel tools and the workspace integration are registered, and org-roam remains intact.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:registry-discovery
   - blocked-by:auto-id-scaffold
@@ -12,6 +12,10 @@ relations:
   - blocked-by:coordinator-lock
   - blocked-by:gptel-tools
   - blocked-by:workspace-integration
+cites_register_entries:
+  - register/invariant/org-graph-loader-ordered-sequence
+  - register/boundary/workspace-integration-registry
+  - register/boundary/org-graph-agent-tools
 ---
 
 ## Files to modify
@@ -119,3 +123,39 @@ Most blockers now done — remaining: `gptel-tools`, `workspace-integration`.
   (now including `tools` after `query` + `coordinator`) is `wire-into-init`'s
   job; this smoke spec is the gate proving the consolidated loader loads cleanly
   standalone with all submodules wired and org-roam intact.
+
+## Cycle 1782566912 updates (cycle-1782566912)
+> **Unblocked → status flipped blocked → ready.** The last blocker
+> `workspace-integration` landed this cycle (merge `6c5fa7ce`); every other blocker
+> was already closed. This is the next ready task.
+
+Absorb before implementing:
+- **Now carries `cites_register_entries`** (it had none): it PROBES
+  `register/invariant/org-graph-loader-ordered-sequence` (SPECULATED this cycle — the
+  canonical submodule order `schemas → extractor → coordinator → query → finders →
+  tools → discovery`, with `workspace-integration` after `tools`; basename≠feature
+  makes order load-bearing). This smoke spec is the cold-standalone-load gate that
+  proves every registration fires and org-roam is intact — i.e. it is the primary
+  enforcement site that should drive that speculated invariant toward reconciliation.
+  Also cites `register/boundary/workspace-integration-registry` (step 6) and
+  `register/boundary/org-graph-agent-tools` (step 5).
+- **Step 6 (workspace integration registered) is now concretely backed.** The
+  org-graph integration is implemented (`config/org-graph/workspace-integration.el`,
+  feature `org-graph-workspace-integration`): it registers via
+  `(with-eval-after-load 'workspaces (workspace-register-integration 'org-graph :label … :on-create … :menu (cons "G" …)))`
+  and populates the `workspace-assistant` `:tools` slot via
+  `with-eval-after-load 'gptel-preset-workspace-assistant`. Assert the integration is
+  registered (stub/inspect `workspace-register-integration`), and that the
+  `:on-create`/`:menu` handlers are present. Note: registration + slot population are
+  **`with-eval-after-load`-gated**, so in a bare test process where workspaces/the
+  preset never load, the registration form does not fire — drive the loader path or
+  trigger the `after-load` to assert it (mirror how `db-location-spec` loads
+  `org-graph.el` without gptel).
+- **Step 5 unchanged**: assert the three snake_case gptel `:name`s (`org_graph_query`
+  / `org_graph_typed_edges` / `org_graph_write_node`) and that `org-graph/agent-tools`
+  returns the tool objects (nil-tolerant when gptel absent).
+- **Caveat for the gate run (process note, not spec content):** the worktree runtime
+  for `workspace-integration` was missing `vulpea` (its `init-worktree-runtime.sh`
+  predates vulpea landing in `main`); the org-graph suite needs vulpea on `load-path`.
+  Ensure a fresh `init-worktree-runtime.sh` (post-vulpea) or copy vulpea into the
+  worktree runtime before running `-d config/org-graph`.

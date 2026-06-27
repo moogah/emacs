@@ -5598,6 +5598,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: reconciled
    status_note: |
+     cycle-1782566912 integrate (org-graph-spike): RECONCILED (doc-completeness).
+     The org-graph workspace-integration consumer (task =workspace-integration=,
+     merge 6c5fa7ce) is the THIRD real client and the first to exercise =:menu=
+     with a handler that needs the payload. Author-blind review (finding 2,
+     spec-signal) caught that this entry documented =:menu= as a bare
+     =(KEY . COMMAND)= but did NOT state that COMMAND is INVOKED WITH the anchor
+     payload (arity 1) by =workspace--menu-invoke-integration= — a bare no-arg
+     command would error. The =:menu= surface description below is corrected to
+     pin the arity. why_tests_missed: the calling convention lived only in the
+     transient module (=workspaces-transient.org=,
+     =workspace--menu-invoke-integration=); nothing in the boundary entry or a
+     spec asserted the COMMAND signature, so the gap surfaced only when a
+     consumer's menu handler actually consulted the payload. The org-graph
+     handler ignores the payload (=org-graph/configure-sync= re-reads the live
+     registry) but correctly accepts =(_payload)=. Reconciliation note:
+     =.orchestrator/cycles/cycle-1782566912/reconciliations/workspace-integration-registry.md=.
+
      cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
      RECONCILED — the registration contract grew from TWO surfaces to
      THREE. Tasks =registry-on-purge-surface= and =purge-teardown-dispatch=
@@ -5644,8 +5661,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         registry =workspace--integrations= is an ORDERED ALIST
         =((ID . PLIST) ...)= — dispatch order and menu order follow
         registration order (NOT a hash table). THREE surfaces:
-        =:on-create= (non-interactive, at birth), =:menu= ((KEY . COMMAND),
-        interactive, on-demand), =:on-purge= (non-interactive, at teardown).
+        =:on-create= (non-interactive, at birth), =:menu= ((KEY . COMMAND);
+        COMMAND is INVOKED WITH the current-workspace anchor payload (arity 1)
+        by =workspace--menu-invoke-integration=, so a menu handler must accept a
+        payload arg even if it ignores it; interactive, on-demand), =:on-purge=
+        (non-interactive, at teardown).
      2. =PUSH, NOT CONSULT=: workspaces hands each handler an anchor
         payload (=register/shape/workspace-integration-anchor-payload=);
         handlers never reach for "the current workspace". This keeps the
@@ -5743,6 +5763,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - git-worktrees-module-scaffold  # cycle-7: second consumer
      - birth-transient-offer          # cycle-7
      - verify-change                  # cycle-7
+     - workspace-integration          # cycle-1782566912: THIRD consumer (org-graph), :on-create + :menu
    discovered_from: workspace-integration-menu
    discovered_by: architect
    #+end_src

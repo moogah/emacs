@@ -5,6 +5,9 @@ change: org-graph-spike
 status: blocked
 relations:
   - blocked-by:wire-into-init
+cites_register_entries:
+  - register/boundary/org-graph-agent-tools
+  - register/invariant/org-graph-loader-ordered-sequence
 ---
 
 ## Files to modify
@@ -65,3 +68,34 @@ design.md § Open Questions; design.md § Re-evaluation.
   runbook, name the snake_case tool identifiers the assistant will expose, and
   point the "no file corruption under rapid calls" check at
   `org-graph-coordinator/with-file-lock` (the confirmed unconditional lock).
+
+## Cycle 1782566912 updates (cycle-1782566912)
+> Still blocked on `wire-into-init`. Context + a meta-discovery the runbook must
+> bake in, plus two cites.
+
+- **Discovery section — distinguish birth-indexing from ongoing watching.** A
+  cycle-finding (review finding 1, spec-signal): the `:on-create` handler calls
+  `vulpea-db-sync-update-directory`, which **one-shot INDEXES** the new workspace
+  `:home` at birth — it does NOT install a live filenotify watcher. vulpea does not
+  retroactively watch a directory added to `vulpea-db-sync-directories` after autosync
+  has started; ongoing watching is picked up only on the next autosync restart, which
+  the **`:menu` → `org-graph/configure-sync`** path performs. So the runbook's "confirm
+  its `:home` gets watched and indexed" item must split into TWO checks: (a) is the new
+  home **indexed at birth** (immediately queryable)? (b) does a note added to that home
+  **later** get picked up WITHOUT a manual re-index — or does it require running the
+  Integrations `:menu` "G" / `configure-sync`? This is exactly the kind of load-bearing
+  ergonomics question the spike exists to answer (is birth-index + manual re-index
+  acceptable, or do we want on-create to trigger an autosync restart?).
+- **Agent surface section is now fully backed.** `workspace-integration` landed (merge
+  `6c5fa7ce`): the `workspace-assistant` preset's `:tools` slot is populated with
+  `org-graph/agent-tools`, so the per-workspace assistant really does expose the three
+  tools `org_graph_query` / `org_graph_typed_edges` / `org_graph_write_node`. Name those
+  snake_case identifiers in the runbook; point the "no file corruption under rapid calls"
+  check at `org-graph-coordinator/with-file-lock`. Add a check that the assistant in a
+  freshly-created workspace lists the org-graph tools (confirms the `:on-create` +
+  preset-population path fired in a live boot).
+- **Menu check:** confirm the workspaces Integrations transient shows the org-graph
+  entry under key `"G"` and that invoking it re-indexes the current roots.
+- Cites added: `register/boundary/org-graph-agent-tools` (the surface the runbook
+  exercises) and `register/invariant/org-graph-loader-ordered-sequence` (the runbook is
+  the day-to-day proof the consolidated module loads and registers in a real session).
