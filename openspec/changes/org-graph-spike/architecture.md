@@ -74,11 +74,20 @@ discovery engine — there is no org-node / org-mem (RE-2).
   `org-graph-coordinator-timeout` (a defcustom owned by this sub-module),
   then signals `org-graph-coordinator-lock-timeout`.
 
-- **gptel tools + workspace integration** (planned; loader placeholders) —
-  The loader carries placeholder sections for the gptel query/write tool
-  surface and the `workspaces` integration (`:on-create` watch-add handler,
-  menu entry, `workspace-assistant` `:tools` population, RE-5), to be
-  filled by their own tasks. They are not yet implemented.
+- **gptel tools** (`tools.el`, implemented; loaded by `org-graph.org`) —
+  Three `gptel-make-tool` registrations namespaced `org_graph_*`
+  (`org_graph_query`, `org_graph_typed_edges`, `org_graph_write_node`),
+  backed by `org-graph-tools/*` functions, plus `org-graph/agent-tools`
+  returning the constructed tool objects for the `workspace-assistant`
+  preset `:tools` slot (RE-5). Read tools layer on `query.el`; the write
+  tool routes through the coordinator lock and stamps the `agent-draft`
+  filetag. Registration is guarded on `(fboundp 'gptel-make-tool)`.
+
+- **workspace integration** (planned; loader placeholder) — The loader
+  carries a placeholder section for the `workspaces` integration
+  (`:on-create` watch-add handler, menu entry, `workspace-assistant`
+  `:tools` population via `org-graph/agent-tools`, RE-5), to be filled by
+  the `workspace-integration` task. Not yet implemented.
 
 ## Interfaces
 
@@ -141,17 +150,21 @@ explicit bounded roots from the `workspaces` registry plus
 `org-node`, no `org-id-update-id-locations` sweep, no
 `directory-files-recursively`.
 
-**gptel tool surface (planned):** Tools will register through
-`gptel-make-tool`, namespaced `org-graph-*`, and into the
-`workspace-assistant` preset `:tools` slot (RE-5). Read tools return
-plists; the write tool routes through the coordinator and stamps the
-`agent-draft` filetag. Not yet implemented.
+**gptel tool surface (`tools.el`, implemented):** Tools register through
+`gptel-make-tool`, named `org_graph_query` / `org_graph_typed_edges` /
+`org_graph_write_node` (snake_case per gptel convention), backed by
+`org-graph-tools/*` functions; `org-graph/agent-tools` returns the tool
+objects for the `workspace-assistant` preset `:tools` slot (RE-5,
+populated by the pending `workspace-integration` task). Read tools return
+plists; the write tool routes through `org-graph-coordinator/with-file-lock`
+and stamps the `agent-draft` filetag. The write-tool description states the
+roam-only typed-edge boundary (D2/RE-4) so agent prompts stay honest.
 
 ## Boundaries
 
 **In scope for the spike:**
 - The sub-modules above (discovery, schemas, finders, extractor, query,
-  coordinator) plus the planned gptel-tools / workspace-integration.
+  coordinator, gptel-tools) plus the planned workspace-integration.
 - The PROPERTIES-drawer convention for typed edges (initial relation set:
   implements / contradicts / supersedes / relates-to).
 - Note-type taxonomy via `vulpea-schema` (log / debug / topic / reference /
@@ -193,7 +206,8 @@ config/org-graph/test/
 ├── parse-typed-edges-spec.el  ; pure-parser unit tests
 ├── extractor-spec.el          ; scope gate, note-granular attribution, storage shape, registration
 ├── typed-edges-spec.el        ; query API (outgoing/incoming/connected), vulpea stubbed
-└── coordinator-spec.el        ; write-coordinator lock semantics
+├── coordinator-spec.el        ; write-coordinator lock semantics
+└── tools-spec.el              ; gptel tool construction, coordinator-wrapped write, agent-draft stamp
 ```
 
 ### Naming Conventions
@@ -276,7 +290,7 @@ but not every scenario. Priorities:
 | Distributed Note Discovery        | `discovery-spec` covers `index-roots` (bounded roam + workspace homes, no wider walk), the `org-id-locations` seed, and `configure-sync`. The 5-second / external-change scenarios are validated manually during the spike. |
 | Typed Semantic Edges              | Full coverage of the pure parser (`parse-typed-edges-spec`): single property, multi-valued, multiple property types, malformed input, empty drawer. Extractor (`extractor-spec`): scope gate, note-granular attribution, storage-as-symbol, registration. Query API (`typed-edges-spec`): outgoing, incoming, connected — each with stubbed `org-graph-query--select`. |
 | Note-Type Taxonomy and Finders    | `schemas-spec` covers schema registration, predicate selection, and validation; `finders-spec` covers one filter test per finder plus the agent-draft orthogonality case. |
-| Agent-Facing Graph Tools          | Coordinator tests below cover the concurrent-write path. gptel tool-registration and write-tool filetag stamping land with the (pending) gptel-tools task. |
+| Agent-Facing Graph Tools          | `tools-spec` covers gptel tool construction, the coordinator-wrapped write path, and `agent-draft` filetag stamping; `coordinator-spec` covers the concurrent-write semantics underneath. Wiring the tools into the per-workspace assistant `:tools` slot lands with the (pending) `workspace-integration` task. |
 | Coexistence with org-roam         | `db-location-spec` asserts DB isolation; org-roam UX continuity is a manual check during the spike. |
 | Non-Blocking Synchronization      | **Not automatically tested.** Latency budget validated manually during spike usage; a benchmark spec is deferred to a permanent-module follow-up. |
 | Coordinator (cross-cutting)       | `coordinator-spec`: lock acquired/released, queued call waits, error releases lock, distinct paths independent, timeout signals. |
@@ -305,8 +319,9 @@ would be redundant (RE-2).
 - `workspaces` — **soft** dependency. Discovery reads the workspace
   registry for `:home` roots, guarded by `(featurep 'workspaces)`, and
   degrades to the roam vault alone when absent.
-- `gptel` — tool registration (pending gptel-tools task). Load order:
-  org-graph after both `gptel` and `workspaces` (RE-5).
+- `gptel` — tool registration (implemented in `tools.el`, guarded on
+  `(fboundp 'gptel-make-tool)`). Load order: org-graph after both `gptel`
+  and `workspaces` (RE-5).
 - `straight.el` — package management (existing infrastructure).
 
 **System dependencies:**
