@@ -9942,8 +9942,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/org-graph-loader-ordered-sequence
    tier: invariant
-   status: speculated
+   status: divergent
    status_note: |
+     cycle-1782570180 integrate (org-graph-spike): SPECULATED -> DIVERGENT.
+     Probed by module-load-smoke (the cold-load gate). Implementor push-back
+     (disc-module-load-smoke-1), architect on-touch (arch-cycle-1782570180-ot-1,
+     verified by direct inspection of org-graph.el), and author-blind reviewer
+     Finding 1 (spec-signal, reached cold) all confirm: the live loader
+     config/org-graph/org-graph.el does NOT realize the canonical sequence. It
+     loads query/tools/workspace-integration BEFORE schemas, OMITS extractor.el
+     and coordinator.el, and has discovery.el COMMENTED OUT -- so a cold
+     (require 'org-graph) does not fire every registration (typed-edge extractor
+     never registers; discovery fns undefined). The statement below remains the
+     correct TARGET; the CODE diverges and the gap is UNRESOLVED this cycle.
+     RESOLUTION SITE = wire-into-init: add extractor + coordinator, wire
+     discovery (decide load-time vs deferred for the seed DB query), reorder to
+     canonical, and -- per reviewer Finding 1 -- switch module-load-spec.el to a
+     real (require 'org-graph)-alone cold-load guard. Only then does this move
+     divergent -> reconciled. why_tests_missed + full plan:
+     .orchestrator/cycles/cycle-1782570180/reconciliations/org-graph-loader-ordered-sequence.md.
+     Divergent entries block their citing tasks until resolved: wire-into-init
+     resolves it; spike-eval-checklist (blocked-by wire-into-init) sees the
+     reconciled entry by the time it runs.
+
      cycle-1782566912 plan (forward-mode): SPECULATED. Crystallises a
      meta-discovery flagged across THREE consecutive cycles
      (cycle-1782551613, -1782561220, -1782564058; handshake

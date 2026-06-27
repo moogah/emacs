@@ -116,3 +116,44 @@ and -eoc-2; meta-discovery "loader-wiring-prerequisite-gaps").
 - Step 1 ("after gptel AND workspaces" in `jf/enabled-modules`, RE-5) is unchanged and
   confirmed. Gate this on the passing `module-load-smoke` standalone-load spec before
   flipping org-graph into the boot path.
+
+## Cycle 1782570180 updates (cycle-1782570180)
+> **Now READY-blocking on nothing but its own predecessor.** `module-load-smoke`
+> landed this cycle (merge `d74a0d55`, inline-fix `fd2c093f`); the smoke gate is green
+> (org-graph suite 134 specs / 0 failed). The cited invariant
+> `register/invariant/org-graph-loader-ordered-sequence` moved **speculated → DIVERGENT**
+> this cycle — and THIS task is its named resolution site. Read before implementing.
+
+The smoke spec PROVED the loader is broken (reconciliation note:
+`.orchestrator/cycles/cycle-1782570180/reconciliations/org-graph-loader-ordered-sequence.md`;
+finding `arch-cycle-1782570180-ot-1`). Direct inspection of `config/org-graph/org-graph.el`:
+it loads `query → tools → workspace-integration → schemas → finders`, **OMITS
+`extractor.el` and `coordinator.el` entirely**, and has **`discovery.el` commented out**
+(line 70). So a cold `(require 'org-graph)` does NOT register the typed-edge extractor
+and leaves discovery fns undefined. This task's loader-consolidation work is now
+concretely scoped — it MUST:
+
+1. **Add `extractor.el` and `coordinator.el`** to the consolidated loader (currently
+   missing). `coordinator.el` was previously assumed "pulled in transitively by tools";
+   verify and wire it explicitly.
+2. **Un-comment / wire `discovery.el`** (line 70 is commented out today).
+3. **Reorder to canonical** `schemas → extractor → coordinator → query → finders →
+   tools → discovery`, `workspace-integration` after `tools`. Load every submodule BY
+   PATH via `jf/load-module` (basename ≠ feature trap holds for all of them).
+4. **Decide load-time vs deferred for the discovery seed (OPEN USER ASK
+   `ask-cycle-1782570180-1`).** `discovery.el` runs `org-graph/seed-org-id-locations`
+   (a `vulpea-db-query`) AT LOAD, which reaches the DB. A consolidated loader that
+   simply loads `discovery.el` will attempt a DB query at module-load time. Resolve per
+   the user's decision in the next handshake: run at load (accept the load-time DB open)
+   or defer to a post-init hook.
+5. **Add the REAL cold-load guard (reviewer Finding 1, spec-signal).** module-load-smoke
+   currently asserts the END STATE by path-loading submodules itself — it documents the
+   target but does NOT exercise the loader, so it stays green whether or not the loader
+   is correct. Once you consolidate the loader, switch `config/org-graph/test/module-load-spec.el`
+   to load via `(require 'org-graph)` ALONE (drop the explicit per-submodule
+   `require`s in its setup) and assert every registration fires from the loader path.
+   THAT is the test that guards the invariant. Only when it passes does the invariant
+   move **divergent → reconciled** — closing the loop this task owns.
+
+Step 1 ("after gptel AND workspaces" in `jf/enabled-modules`, RE-5) is unchanged and
+confirmed.

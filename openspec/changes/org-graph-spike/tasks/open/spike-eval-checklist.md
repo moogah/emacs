@@ -99,3 +99,17 @@ design.md § Open Questions; design.md § Re-evaluation.
 - Cites added: `register/boundary/org-graph-agent-tools` (the surface the runbook
   exercises) and `register/invariant/org-graph-loader-ordered-sequence` (the runbook is
   the day-to-day proof the consolidated module loads and registers in a real session).
+
+## Cycle 1782570180 updates (cycle-1782570180)
+> Still blocked on `wire-into-init`. Context only — no prose invalidated.
+
+- **The cold-load gate now exists.** `module-load-smoke` landed this cycle (merge
+  `d74a0d55`): `config/org-graph/test/module-load-spec.el` asserts every org-graph
+  registration fires and org-roam is intact. Your runbook's "confirm the consolidated
+  module loads and registers in a real session" item is now backed by a spec — but note
+  that the cited invariant `register/invariant/org-graph-loader-ordered-sequence` is
+  **DIVERGENT** until `wire-into-init` consolidates the loader and adds a real
+  `(require 'org-graph)`-alone cold-load guard. By the time this runbook task runs
+  (blocked-by `wire-into-init`), the loader will be consolidated and the invariant
+  reconciled — so the runbook's live-session load check is the day-to-day proof the
+  reconciled loader holds. No prose change needed; this is a dependency note.
