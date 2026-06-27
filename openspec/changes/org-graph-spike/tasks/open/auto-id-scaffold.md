@@ -80,3 +80,96 @@ From the foundation Architect audit; cited register entry in `interfaces.org`.
 - **Literate discipline.** Edit the `.org` sources and tangle both
   (`./bin/tangle-org.sh config/workspaces/scaffold.org` and
   `… config/gptel/sessions/commands.org`); commit `.org` + `.el` together.
+
+## Observations
+
+- Implemented file-level `org-id-get-create` stamping in both writers,
+  additively and idempotently, with all three target suites green:
+  `config/workspaces` 356/0, `config/gptel/sessions` 160/0,
+  `config/org-graph` 22/0 (unperturbed).
+- **home.org** (`config/workspaces/scaffold.org`): stamping is composed
+  in a throwaway `org-mode` buffer and written in the *single* existing
+  `with-temp-file` of `workspace--scaffold-write-home-org` (new helper
+  `workspace--scaffold-home-org-content`). The file-level `:ID:` drawer
+  necessarily precedes `#+TITLE:` (a file-level property drawer must be
+  the first element). The stage-3 `(unless (file-exists-p path) ...)`
+  guard is retained, so the `:ID:` is captured in the first commit on
+  fresh creation and re-runs never touch an existing home.
+- **session.org** (`config/gptel/sessions/commands.org`): new helper
+  `jf/gptel--stamp-session-org-id` stamps the composed content before
+  the existing single `write-region`. The `:ID:` lands *inside* the
+  existing point-min `:PROPERTIES:` drawer, so the drawer-first-element
+  and drawer->body adjacency invariants are preserved byte-for-byte at
+  the head/tail. The caller-supplied `INITIAL-CONTENT` override is left
+  verbatim (NOT stamped) to honour the override contract.
+- New assertions added: scaffold-spec.el (`:ID:` present, captured in
+  HEAD:home.org, idempotent across re-run); session-org-creation-spec.el
+  (`:ID:` inside drawer, override not stamped, helper idempotent).
+- `(require 'org-id)` added to both modules.
+
+## Discoveries
+
+- class: register-pushback
+  affected_register_entry: register/invariant/indexable-requires-id
+  detail: |
+    The core invariant (ID assignment is additive + idempotent; an
+    existing :ID: is left unchanged) HELD and is enforced by new tests.
+    BUT the entry's enforcement note "existing scaffold/session specs
+    stay green (IDs additive)" was only partly right. "Additive" is true
+    at the org-element level (a property/drawer is added, never user
+    content removed) but it is NOT byte-prefix-stable for home.org: a
+    file-level :ID: drawer MUST be the document's first element, so it
+    lands ABOVE #+TITLE:. This broke one over-specified scaffold-spec
+    assertion that pinned `\`#\+TITLE:` (start-of-STRING). I retargeted
+    that assertion to the reader's actual contract (`^#\+TITLE:`,
+    start-of-LINE — which the home-org reader already uses and is
+    documented to tolerate content above the title) and added a positive
+    assertion that the file begins with the :ID: drawer. Session specs
+    needed no such change (the :ID: lands inside the pre-existing drawer,
+    so head/tail anchors still match).
+    RECOMMENDATION: speculated -> confirmed, with the wording refined:
+    "additive at the org-element level (never removes user content); for
+    home.org the :ID: drawer precedes #+TITLE:, which is safe because the
+    title reader is start-of-line anchored."
+
+- class: implementation-constraint
+  affected_register_entry: register/invariant/indexable-requires-id
+  detail: |
+    org-id-get-create insists on a file-visiting buffer (it errors in
+    org-id-add-location when buffer-file-name is nil). To stamp in a
+    throwaway buffer I bind `org-id-overriding-file-name` to the target
+    path and use `delay-mode-hooks (org-mode)`. This was deliberate: a
+    session.org carries the :GPTEL_*: drawer signature that
+    magic-mode-alist uses to drive gptel-chat-mode, whose save hook
+    rewrites the drawer on every save. Visiting/saving the file to stamp
+    it would risk perturbing the drawer (see MEMORY: drawer corruption).
+    Stamping the content string before the single write avoids any
+    chat-mode activation or save-hook entirely.
+
+- class: deviation
+  affected_register_entry: register/invariant/indexable-requires-id
+  detail: |
+    The task/brief described a pipeline-level stamp ("after writing the
+    home.org skeleton ... open the file and call org-id-get-create";
+    "org-id-get-create on the session buffer"). I deviated to
+    compose-and-stamp-before-write in both cases. Rationale: (1) sessions
+    have no live buffer in create-core and opening one triggers the
+    chat-mode/save-hook risk above; (2) for home.org it preserves the
+    single-with-temp-file write and the
+    home-org-user-authored-after-creation "sole writer" invariant (no
+    second toucher of home.org), and is the most minimal behavioural
+    change (only effect: the file now carries an :ID: drawer). Net
+    on-disk result is identical to the brief's intent.
+
+- class: scope-nuance
+  affected_register_entry: register/invariant/indexable-requires-id
+  detail: |
+    Because home.org stamping lives behind the stage-3
+    `(unless (file-exists-p path) ...)` guard, the "anchor an existing
+    repo whose home.org already exists" sub-case does NOT stamp that
+    pre-existing user file (it has no :ID: and stays unindexed until the
+    user or another process adds one). This is the conservative reading
+    of home-org-user-authored-after-creation (never modify a user's
+    existing home.org). Freshly-scaffolded homes — the common case — are
+    always stamped. Flagging in case the spike wants anchored homes
+    indexed too (would require relaxing the guard for additive stamping).

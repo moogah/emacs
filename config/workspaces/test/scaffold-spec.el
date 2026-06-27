@@ -58,16 +58,25 @@
       (expect (file-directory-p (expand-file-name ".git" home))
               :not :to-be nil)))
 
-  (it "writes home.org with `#+TITLE: <name>' on line 1 (stage 3)"
+  (it "writes home.org with a `#+TITLE: <name>' line the reader can find (stage 3)"
     (scaffold-spec--with-tmp-home home
       (workspace-scaffold home "alpha" :init-and-commit? t)
       (let ((homeorg (expand-file-name "home.org" home)))
         (expect (file-exists-p homeorg) :not :to-be nil)
-        ;; Stage 3 of the home-org-read-pipeline scans for the
-        ;; `#+TITLE:' keyword anchored to start-of-line.  Pin that
-        ;; the first line of the skeleton matches that exact shape.
-        (expect (scaffold-spec--read-file homeorg)
-                :to-match "\\`#\\+TITLE: alpha\n"))))
+        ;; RE-2a / register/invariant/indexable-requires-id: the
+        ;; skeleton now carries a file-level org `:ID:' so the home is
+        ;; an indexable vulpea node.  A file-level property drawer must
+        ;; be the document's first element, so the `:ID:' drawer
+        ;; precedes `#+TITLE:'.  The home-org-read-pipeline reader scans
+        ;; for the title with a start-of-LINE regex (`^#\+TITLE:'), not
+        ;; start-of-file, so the title remains discoverable below the
+        ;; drawer.  Pin the reader's actual contract (a `#+TITLE: alpha'
+        ;; line), not the stricter "title on line 1" the pre-ID skeleton
+        ;; happened to satisfy.
+        (let ((content (scaffold-spec--read-file homeorg)))
+          (expect content :to-match "^#\\+TITLE: alpha$")
+          ;; The file begins with the file-level `:ID:' property drawer.
+          (expect content :to-match "\\`:PROPERTIES:\n:ID:[ \t]+\\S-")))))
 
   (it "creates sessions/ as a directory (stage 4)"
     (scaffold-spec--with-tmp-home home
@@ -133,6 +142,47 @@
         (with-temp-file homeorg (insert custom))
         (workspace-scaffold home "gamma" :init-and-commit? nil)
         (expect (scaffold-spec--read-file homeorg) :to-equal custom)))))
+
+;;; Indexable-at-birth (register/invariant/indexable-requires-id)
+
+(defun scaffold-spec--home-org-id (home)
+  "Return the file-level org `:ID:' value from HOME/home.org, or nil."
+  (let ((content (scaffold-spec--read-file (expand-file-name "home.org" home))))
+    (when (string-match ":ID:[ \t]+\\(\\S-+\\)" content)
+      (match-string 1 content))))
+
+(describe "workspace-scaffold home.org org-id stamp (indexable-requires-id)"
+  (it "stamps a stable file-level :ID: into a freshly-created home.org"
+    ;; RE-2a: vulpea only indexes notes carrying an :ID:, so a fresh
+    ;; workspace home is stamped at birth to become a graph node.
+    (scaffold-spec--with-tmp-home home
+      (workspace-scaffold home "alpha" :init-and-commit? t)
+      (expect (scaffold-spec--home-org-id home) :to-be-truthy)))
+
+  (it "captures the :ID: in the initial commit (stamped before git add)"
+    ;; The stamp lands before stage 5 (git add . && commit), so the id
+    ;; is part of the very first committed home.org.
+    (scaffold-spec--with-tmp-home home
+      (workspace-scaffold home "alpha" :init-and-commit? t)
+      (let ((committed (scaffold-spec--git
+                        home "show" "HEAD:home.org")))
+        (expect committed :to-match ":ID:[ \t]+\\S-"))))
+
+  (it "is idempotent: re-running scaffold leaves an existing :ID: unchanged"
+    ;; org-id-get-create is a no-op when an :ID: already exists, and the
+    ;; stage-3 guard never rewrites an existing home.org — so a re-run
+    ;; never churns the id (register/invariant/indexable-requires-id).
+    (scaffold-spec--with-tmp-home home
+      (workspace-scaffold home "alpha" :init-and-commit? t)
+      (let ((id-before (scaffold-spec--home-org-id home)))
+        (expect id-before :to-be-truthy)
+        ;; Re-run with INIT-AND-COMMIT? nil: a second commit on an
+        ;; unchanged tree would fail ("nothing to commit") — that is
+        ;; pre-existing scaffold behaviour, orthogonal to id stamping.
+        ;; The stage-3 guard + org-id-get-create idempotency are what we
+        ;; assert here.
+        (workspace-scaffold home "alpha" :init-and-commit? nil)
+        (expect (scaffold-spec--home-org-id home) :to-equal id-before)))))
 
 ;;; Failure-path invariants (scaffold-leave-partial-on-failure)
 
