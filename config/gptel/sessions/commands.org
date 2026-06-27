@@ -66,6 +66,7 @@ A workspace-scoped equivalent may land later.)
 
 (require 'cl-lib)
 (require 'gptel)
+(require 'org-id)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
@@ -483,6 +484,51 @@ template parses to exactly one empty user turn —
   "#+begin_user\n\n#+end_user\n")
 #+end_src
 
+** Org-ID Stamp Helper
+
+Stamps a stable file-level =org= =:ID:= into freshly-composed
+=session.org= content so the session becomes an indexable =vulpea=
+node and a valid =id:= link target (RE-2a /
+=register/invariant/indexable-requires-id=).  =vulpea= only indexes
+notes carrying an =:ID:=; without one the session is invisible to the
+graph.
+
+The stamp is *additive and idempotent*: =org-id-get-create= is a
+no-op when the drawer already carries an =:ID:=, so re-stamping the
+same content never churns the id.  The =:ID:= lands *inside* the
+existing point-min =:PROPERTIES:= drawer (the drawer stays the first
+element and =:END:= stays adjacent to the body), so the drawer shape
+and drawer→body adjacency invariants are preserved.
+
+We stamp in a throwaway buffer rather than by visiting the file: a
+=session.org= carries the =:GPTEL_*:= drawer signature that
+=magic-mode-alist= uses to drive =gptel-chat-mode= (whose save hook
+rewrites the drawer on every save), so a =find-file= round-trip here
+would risk perturbing the drawer.  =org-id-get-create= insists on a
+file-visiting buffer, so =org-id-overriding-file-name= supplies the
+target path for =org-id-add-location= without actually visiting it.
+=delay-mode-hooks= keeps =org-mode-hook= out of the picture entirely.
+
+#+begin_src emacs-lisp
+(defun jf/gptel--stamp-session-org-id (content session-file)
+  "Return CONTENT with a file-level org `:ID:' stamped into its drawer.
+SESSION-FILE is the on-disk destination, supplied to
+`org-id-add-location' via `org-id-overriding-file-name' (the content
+is stamped in a throwaway buffer, never by visiting the file).
+
+Additive and idempotent (RE-2a /
+`register/invariant/indexable-requires-id'): when CONTENT's point-min
+`:PROPERTIES:' drawer already carries an `:ID:', `org-id-get-create'
+is a no-op and CONTENT is returned unchanged."
+  (let ((org-id-overriding-file-name session-file))
+    (with-temp-buffer
+      (insert content)
+      (delay-mode-hooks (org-mode))
+      (goto-char (point-min))
+      (org-id-get-create)
+      (buffer-string))))
+#+end_src
+
 ** Create Session Core
 
 #+begin_src emacs-lisp
@@ -650,9 +696,22 @@ Returns plist with:
                           (jf/gptel--append-drawer-property
                            drawer-text "GPTEL_WORK_ROOT" project-root)
                         drawer-text))
-         (final-content (or initial-content
-                            (concat drawer-text
-                                    (jf/gptel--initial-session-body)))))
+         ;; Stamp a stable file-level org `:ID:' into the composed
+         ;; session.org so it is an indexable `vulpea' node and a valid
+         ;; `id:' link target (RE-2a;
+         ;; `register/invariant/indexable-requires-id').  Additive and
+         ;; idempotent — the `:ID:' lands inside the existing point-min
+         ;; `:PROPERTIES:' drawer, so the drawer-first-element and
+         ;; drawer->body adjacency invariants are preserved.  A
+         ;; caller-supplied INITIAL-CONTENT override is left BYTE-VERBATIM
+         ;; (the caller owns the whole on-disk shape), so it is NOT
+         ;; stamped.
+         (final-content (if initial-content
+                            initial-content
+                          (jf/gptel--stamp-session-org-id
+                           (concat drawer-text
+                                   (jf/gptel--initial-session-body))
+                           session-file))))
 
     ;; Create session file with initial content (file-level config
     ;; drawer followed by an empty `#+begin_user' / `#+end_user'

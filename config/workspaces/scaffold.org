@@ -26,10 +26,17 @@ entries:
    =home.org=.  Its guarded =(unless (file-exists-p path) ...)= body
    ensures the file is written exactly once.
 
-The =home.org= skeleton begins with =#+TITLE:= on line 1 (no leading
-comments, no leading blank line) so the
-=register/boundary/home-org-read-pipeline= reader's stage-4 regex
-finds it on first call.
+The =home.org= skeleton carries a stable file-level =org= =:ID:= so the
+workspace home is an indexable =vulpea= node and a valid =id:= link
+target (RE-2a / =register/invariant/indexable-requires-id=).  Because a
+file-level =:PROPERTIES:= drawer must be the first element of the
+document, the =:ID:= drawer precedes the =#+TITLE:= keyword.  This is
+safe: the =register/boundary/home-org-read-pipeline= reader scans for
+=#+TITLE:= with a start-of-*line* regex (=^#\+TITLE:=), not start-of-
+file, and is explicitly documented to tolerate content above the title
+(see =home-org.org=).  The =:ID:= is stamped additively and
+idempotently — a =home.org= that already carries an =:ID:= is left
+unchanged.
 
 * Lexical Binding
 
@@ -42,6 +49,7 @@ silently fall back to dynamic binding.
 ;;; scaffold.el --- Workspaces directory scaffolder -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'org-id)
 (require 'workspace-data-model)
 #+end_src
 
@@ -75,20 +83,34 @@ Signal `user-error' with stderr on non-zero exit."
 
 * home.org skeleton writer
 
-Writes the initial =home.org= skeleton to =HOME=.  The skeleton is
-three lines of frontmatter (=#+TITLE: <name>=) plus two top-level
-headings (=Description=, =Notes=).
+Writes the initial =home.org= skeleton to =HOME=.  The skeleton is a
+file-level =:PROPERTIES:= =:ID:= drawer, =#+TITLE: <name>= frontmatter,
+and two top-level headings (=Description=, =Notes=).
 
-Two contractual properties:
+Three contractual properties:
 
 1. *Single-writer invariant.*  This function is the SOLE permitted
    writer of =home.org= in the package.  Cycle 1's cross-module lint
    treats this exact symbol name as the allow-listed writer — any
-   rename requires updating the lint's allow-list in lockstep.
+   rename requires updating the lint's allow-list in lockstep.  The
+   skeleton (including the =:ID:= stamp) is composed in a throwaway
+   buffer and committed in a *single* =with-temp-file= write, so the
+   "exactly one write of =home.org=" invariant is preserved verbatim.
 2. *Idempotent.*  The =(unless (file-exists-p path) ...)= guard
    protects the user's authored content if =home.org= already exists.
    This is the contract that makes the "anchor existing repo with
-   user-written home.org" sub-case safe.
+   user-written home.org" sub-case safe.  It also makes the =:ID:=
+   stamp idempotent at the file level: an existing =home.org= is never
+   re-stamped, so re-running scaffold never churns its =:ID:=.
+3. *Indexable at birth.*  A fresh =home.org= carries a stable file-level
+   =org= =:ID:= (RE-2a / =register/invariant/indexable-requires-id=) so
+   the workspace home is an indexable =vulpea= node / =id:= link target.
+   The =:ID:= is stamped via =org-id-get-create= in a throwaway
+   =org-mode= buffer (=org-id-overriding-file-name= supplies the
+   destination path without visiting the file); since a file-level
+   property drawer must be the first element, the =:ID:= drawer precedes
+   =#+TITLE:= (the title reader is start-of-line anchored, so this is
+   safe — see =home-org.org=).
 
 The skeleton intentionally does NOT include a =* Sessions= heading.
 The spec is explicit that the package never auto-renders or syncs
@@ -96,18 +118,40 @@ session lists into =home.org= (design.md §D6 / spec
 "home.org is user-authored after creation").
 
 #+begin_src emacs-lisp
+(defun workspace--scaffold-home-org-content (home name)
+  "Return the `home.org' skeleton string for HOME, carrying a file-level `:ID:'.
+
+NAME is used for the `#+TITLE:'.  HOME's `home.org' path is supplied to
+`org-id-add-location' via `org-id-overriding-file-name' so the id can be
+stamped without visiting the file.  The `:ID:' drawer precedes `#+TITLE:'
+because a file-level property drawer must be the document's first element
+(RE-2a / `register/invariant/indexable-requires-id')."
+  (let ((org-id-overriding-file-name (workspace-home-org-path home)))
+    (with-temp-buffer
+      (insert (format "#+TITLE: %s\n\n" name))
+      (insert "* Description\n\n")
+      (insert "* Notes\n")
+      (delay-mode-hooks (org-mode))
+      (goto-char (point-min))
+      (org-id-get-create)
+      (buffer-string))))
+
 (defun workspace--scaffold-write-home-org (home name)
   "Write the initial `home.org' skeleton into HOME, using NAME for #+TITLE:.
 Does nothing if `home.org' already exists.
+
+The skeleton carries a stable file-level org `:ID:' so the workspace
+home is an indexable `vulpea' node (RE-2a;
+`register/invariant/indexable-requires-id').  The whole skeleton —
+`:ID:' drawer included — is composed in a throwaway buffer and written
+in a single `with-temp-file', preserving the single-write contract.
 
 This function is the SOLE writer of `home.org' in the workspaces
 package — see `register/invariant/home-org-user-authored-after-creation'."
   (let ((path (workspace-home-org-path home)))
     (unless (file-exists-p path)
       (with-temp-file path
-        (insert (format "#+TITLE: %s\n\n" name))
-        (insert "* Description\n\n")
-        (insert "* Notes\n")))))
+        (insert (workspace--scaffold-home-org-content home name))))))
 #+end_src
 
 * Pipeline (workspace-scaffold)
