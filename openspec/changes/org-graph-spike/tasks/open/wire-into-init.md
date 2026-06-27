@@ -140,12 +140,16 @@ concretely scoped — it MUST:
 3. **Reorder to canonical** `schemas → extractor → coordinator → query → finders →
    tools → discovery`, `workspace-integration` after `tools`. Load every submodule BY
    PATH via `jf/load-module` (basename ≠ feature trap holds for all of them).
-4. **Decide load-time vs deferred for the discovery seed (OPEN USER ASK
-   `ask-cycle-1782570180-1`).** `discovery.el` runs `org-graph/seed-org-id-locations`
-   (a `vulpea-db-query`) AT LOAD, which reaches the DB. A consolidated loader that
-   simply loads `discovery.el` will attempt a DB query at module-load time. Resolve per
-   the user's decision in the next handshake: run at load (accept the load-time DB open)
-   or defer to a post-init hook.
+4. **Defer the discovery seed to a post-init hook (USER-RESOLVED ASK
+   `ask-cycle-1782570180-1`: defer-to-post-init-hook).** `discovery.el` runs
+   `org-graph/seed-org-id-locations` (a `vulpea-db-query`) AT LOAD today, which reaches
+   the DB. A consolidated loader that simply loads `discovery.el` would attempt a DB
+   query at module-load time. **The user chose to defer:** register the seed on
+   `after-init-hook` / `emacs-startup-hook` (or equivalent) so module load stays
+   DB-free, and the seed runs once the session is up. This is consistent with the
+   existing design principle that org-graph registration is function-exposed precisely
+   to avoid require-time DB opens — make the load of `discovery.el` side-effect-free and
+   move the seed call out of load time.
 5. **Add the REAL cold-load guard (reviewer Finding 1, spec-signal).** module-load-smoke
    currently asserts the END STATE by path-loading submodules itself — it documents the
    target but does NOT exercise the loader, so it stays green whether or not the loader
