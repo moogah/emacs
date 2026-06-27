@@ -2,10 +2,12 @@
 name: note-type-schemas
 description: Define vulpea-schema note-type definitions for log, debug, topic, reference, and project with field expectations and validation.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:install-packages
   - blocked-by:test-helpers
+cites_register_entries:
+  - register/vocabulary/note-type-taxonomy
 ---
 
 ## Files to modify
@@ -65,4 +67,20 @@ keys: `:key` (string, required), `:type`
 ## Context
 design.md § Re-evaluation (RE-3); proposal.md § What Changes
 (schema-backed note-type taxonomy).
-</content>
+
+## Orchestrator brief addenda (cycle-1782551613)
+
+From the foundation Architect audit; cited register entry in `interfaces.org`.
+
+- **`agent-draft` is NOT a member of `register/vocabulary/note-type-taxonomy`.**
+  It is a cross-cutting filetag the agent write-tool stamps, not a note type.
+  Do NOT define an `org-graph-agent-draft` schema alongside the five types
+  (log/debug/topic/reference/project). Conflating them would break both the
+  per-type finders and the future draft-review finder.
+
+- **Helper coverage gap.** `org-graph-test/with-stubbed-vulpea` stubs
+  `vulpea-schema-validate` but NOT `vulpea-schema-validate-all`. Your
+  `validate-all-of-type` wrapper (step 3) will need its own `cl-letf` stub, or
+  extend the helper. Prefer a local `cl-letf` in the spec unless you find the
+  helper is the right home (if so, that's an additive helper change worth a
+  note for the reviewer).

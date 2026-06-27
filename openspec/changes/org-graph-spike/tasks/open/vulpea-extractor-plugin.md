@@ -2,9 +2,14 @@
 name: vulpea-extractor-plugin
 description: Wrap the pure parser as a vulpea extractor that registers a typed_edges table and stores edge tuples, scoped to the roam vault.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:parse-typed-edges
+cites_register_entries:
+  - register/shape/typed-edge-tuple
+  - register/vocabulary/relation-types
+  - register/invariant/typed-edge-extraction-scope
+  - register/boundary/parser-extractor-db
 ---
 
 ## Files to modify
@@ -67,4 +72,38 @@ in the pure function from `parse-typed-edges`.
 ## Context
 design.md § Decisions D2, D4; design.md § Re-evaluation (RE-4);
 architecture.md § Interfaces (Vulpea integration).
-</content>
+
+## Orchestrator brief addenda (cycle-1782551613)
+
+These come from the foundation Architect audit. Cited register entries are in
+`interfaces.org`; read them — they are reference material to pressure-test,
+not authority to defer to. Speculated entries carry explicit licence to push
+back.
+
+- **architecture.md is STALE except for the Vulpea-integration section you
+  cite.** Finding `arch-cycle-1782551613-01`: only the `make-vulpea-extractor`
+  + `typed_edges` + `notes(id)` FK `:on-delete :cascade` claim is still valid
+  (and matches step 1). Ignore every org-node / filetag / discovery reference
+  elsewhere in that doc.
+
+- **Single-source the relation vocabulary (folds in blocking finding
+  `arch-cycle-1782551613-02`).** The rel-type column you write MUST draw from
+  `register/vocabulary/relation-types` — do NOT re-list the four symbols.
+  Acceptance criterion (gate): add a buttercup spec that requires BOTH
+  `extractor.el` and `org-graph.el` and asserts
+  `(equal org-graph-extractor--default-relation-types org-graph-relation-types)`,
+  so the loader defcustom and the extractor fallback defconst can never
+  silently diverge. (D4's standalone-load fallback is legitimate; the guard,
+  not deletion, is the fix.)
+
+- **The scope gate is a load-bearing invariant (folds in finding
+  `arch-cycle-1782551613-04`).** `register/invariant/typed-edge-extraction-scope`:
+  step 3's roam-root check is the contract, not an optimisation. Step 5's
+  exclusion test (roam-path → tuples, non-roam-path → none) is the acceptance
+  gate for that invariant.
+
+- **String-vs-symbol storage decision.** Decide up front whether the
+  `typed_edges.rel-type` column stores the relation as a symbol or a string,
+  and record it: `register/shape/typed-edge-tuple` says the in-memory tuple
+  carries a **symbol**. The next task (typed-edge-query) will match on whatever
+  you store, so make the storage/readback round-trip explicit and tested.

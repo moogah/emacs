@@ -1,3 +1,31 @@
+> [!WARNING]
+> **PARTIALLY SUPERSEDED BY `design.md` "Re-evaluation (2026-06-27)" (RE-1..RE-6).**
+> This document predates the workspaces + vulpea-2.4 re-evaluation and the
+> implemented loader. Where it conflicts with `design.md` RE-1..RE-6 or
+> `config/org-graph/org-graph.org`, **those win.** Architect finding
+> `arch-cycle-1782551613-01` enumerates the false claims. In short:
+>
+> - **No org-node / org-mem.** Dropped (RE-2). vulpea is the single index.
+>   Ignore every "org-node integration", "org-node's navigator", and
+>   "org-node's discovery" reference below.
+> - **No `~/work` walk / `directory-files-recursively` eager-scan.** Discovery
+>   is registry-driven vulpea sync over `org-graph-roam-root` + workspace
+>   `:home` directories, plus an `org-id-locations` DB seed (RE-1/RE-2).
+> - **No `org-graph-watched-roots` / `org-graph-typed-graph-root` defcustom.**
+>   The implemented knobs are `org-graph-roam-root` (single dir) and
+>   `org-graph-watch-workspace-homes` (bool). There is no
+>   `(org-graph/watched-roots)` function.
+> - **Finders are schema-aware** (`vulpea-schema`), not filetag-predicate over
+>   org-node candidates (RE-3).
+> - **Test layout is flat**: `config/org-graph/test/{helpers,parse-typed-edges,coordinator}-spec.el`,
+>   not the nested `extractor/ finders/ query/ coordinator/ integration/` tree shown below.
+>
+> STILL VALID (do not re-derive): the `make-vulpea-extractor` + `typed_edges`
+> table + `notes(id)` FK `:on-delete :cascade` integration; the pure-parser
+> tuple shape `(FROM-ID REL-TYPE TO-ID)`; the `with-file-lock` signature;
+> Buttercup as the framework; the PROPERTIES-drawer typed-edge convention.
+> A full section rewrite is parked as a `.tasks/` doc-hygiene follow-up.
+
 ## Components
 
 The spike introduces a single new module `config/org-graph/`, organized

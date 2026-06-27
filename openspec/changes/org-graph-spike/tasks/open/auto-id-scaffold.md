@@ -2,9 +2,11 @@
 name: auto-id-scaffold
 description: Extend workspace scaffold and gptel session creation to auto-assign org IDs so home.org and session files participate in the vulpea index.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:install-packages
+cites_register_entries:
+  - register/invariant/indexable-requires-id
 ---
 
 ## Files to modify
@@ -58,4 +60,23 @@ babel block small and well-commented as to WHY (RE-2a).
 ## Context
 design.md § Re-evaluation (RE-2a); config/workspaces/scaffold.org;
 config/gptel/sessions/commands.el (jf/gptel--create-session-core).
-</content>
+
+## Orchestrator brief addenda (cycle-1782551613)
+
+From the foundation Architect audit; cited register entry in `interfaces.org`.
+
+- **`register/invariant/indexable-requires-id` is your acceptance contract.**
+  ID assignment MUST be additive and idempotent: a file that already has an
+  `:ID:` is left unchanged. Acceptance gate: existing `config/workspaces` and
+  `config/gptel/sessions` specs stay green, AND a new assertion that a re-run
+  (re-scaffold / re-save) leaves an existing `:ID:` untouched (no churn).
+
+- **This is the ONLY batch task that edits code outside `config/org-graph/`**
+  (it touches `config/workspaces/scaffold.org` and
+  `config/gptel/sessions/commands.org`). Confirm zero behavioural change beyond
+  the ID stamping — no change to scaffold naming, skeleton content, or the
+  `GPTEL_WORK_ROOT` drawer. The reviewer will check exactly this.
+
+- **Literate discipline.** Edit the `.org` sources and tangle both
+  (`./bin/tangle-org.sh config/workspaces/scaffold.org` and
+  `… config/gptel/sessions/commands.org`); commit `.org` + `.el` together.

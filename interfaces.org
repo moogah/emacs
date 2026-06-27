@@ -2071,6 +2071,55 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** typed-edge-tuple
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-typed-edge-tuple
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/typed-edge-tuple
+   tier: shape
+   status: confirmed
+   load_bearing: true
+   title: typed-edge tuple (FROM-ID REL-TYPE TO-ID)
+   purpose: |
+     The positional 3-list the pure parser emits and the vulpea extractor wrapper
+     consumes before writing the typed_edges DB row. It is the parser->extractor->DB
+     contract; the query API later reads the same column triple back. A positional
+     list (not a plist), so a field reorder is a silent corruption, not an error.
+   required_keys:
+     - name: "0 / from-id"
+       type: string
+       description: source note ID (always NOTE-ID passed to the parser).
+     - name: "1 / rel-type"
+       type: symbol
+       description: relation symbol, e.g. implements (NOT a string, NOT the PROPERTIES key).
+     - name: "2 / to-id"
+       type: string
+       description: destination org id extracted from an [[id:...]] link.
+   optional_keys: []
+   producers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/parse-typed-edges
+   consumers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/extract        # speculated, vulpea-extractor-plugin task
+       reads_keys: [from-id, rel-type, to-id]
+   validator: |
+     (defun shape/validate-typed-edge (val)
+       (cond ((not (and (listp val) (= (length val) 3))) 'not-a-triple)
+             ((not (stringp (nth 0 val))) 'bad-from-id)
+             ((not (symbolp (nth 1 val))) 'bad-rel-type)
+             ((not (stringp (nth 2 val))) 'bad-to-id)))
+   test_corpus:
+     valid:
+       - ["n1", implements, "abc"]
+     invalid:
+       - ["n1", "implements", "abc"]   # rel-type must be a symbol, not a string
+   discovered_from: parse-typed-edges
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -3242,6 +3291,97 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    closed_set: false   # open for extension; unimplemented members reported, not rendered
 
    discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** relation-types
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-relation-types
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/relation-types
+   tier: vocabulary
+   status: confirmed
+   load_bearing: true
+   title: typed-edge relation symbols
+   purpose: |
+     The closed initial set of semantic relation symbols (D3). The loader owns it as
+     the org-graph-relation-types defcustom; the extractor re-declares it as a
+     standalone fallback; the upcoming extractor wrapper writes it as the typed_edges
+     rel-type column. Three consumers, one literal -- see finding
+     arch-cycle-1782551613-02.
+   members:
+     - value: implements
+       description: source note implements the target concept.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
+     - value: contradicts
+       description: source contradicts the target.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
+     - value: supersedes
+       description: source supersedes the target.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
+     - value: relates-to
+       description: catch-all relation (design Open Question 4 flags it as possibly too broad).
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
+   consumer_mapping:
+     - consumer: config/org-graph/extractor.el
+       consumer_field: PROPERTIES drawer key
+       accepts: [implements, contradicts, supersedes, relates-to]
+       routing_function: org-graph-extractor--rel-key   # symbol -> "IMPLEMENTS"
+   canonical_mapping_function: |
+     ;; symbol -> PROPERTIES key and back. The ONLY allowed translation sites.
+     (defun org-graph-extractor--rel-key (symbol)        ; relates-to -> "RELATES_TO"
+       (upcase (replace-regexp-in-string "-" "_" (symbol-name symbol))))
+     (defun org-graph-extractor--key->rel (key) ...)     ; case-insensitive inverse
+   validator: |
+     (defun vocabulary/validate-rel (sym) (memq sym (org-graph-extractor--relation-types)))
+   closed_set: true   # configurable but the spike ships a closed initial set
+   discovered_from: parse-typed-edges
+   discovered_by: architect
+   #+end_src
+
+** note-type-taxonomy
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-note-type-taxonomy
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/note-type-taxonomy
+   tier: vocabulary
+   status: speculated
+   load_bearing: true
+   title: note-type taxonomy symbols
+   purpose: |
+     The fixed note-type set backing schema-aware finders (RE-3). The defcustom
+     org-graph-note-types already exists (confirmed); the per-type vulpea-schema
+     predicates and finders do not yet (note-type-schemas + finders tasks), so the
+     entry is speculated. NOTE: agent-draft is NOT a member here -- it is a
+     cross-cutting filetag applied by the write tool, not a taxonomy type; conflating
+     the two would break both the finders and the draft-review finder.
+   members:
+     - value: log
+       description: daily/work logs.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: debug
+       description: troubleshooting sessions.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: topic
+       description: durable concept notes (the typed-graph's natural home).
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: reference
+       description: annotated external content.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: project
+       description: project-local notes.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+   consumer_mapping:
+     - consumer: config/org-graph/schemas.el        # speculated, note-type-schemas task
+       consumer_field: vulpea-schema-define :predicate (filetag membership)
+       accepts: [log, debug, topic, reference, project]
+       routing_function: per-type :predicate lambda
+   closed_set: true
+   discovered_from: note-type-schemas
    discovered_by: architect
    #+end_src
 
@@ -6333,6 +6473,63 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** parser-extractor-db
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-parser-extractor-db
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/parser-extractor-db
+   tier: boundary
+   status: speculated   # stage 1 confirmed; stages 2-3 land in vulpea-extractor-plugin
+   load_bearing: true
+   title: typed-edge pipeline (parse -> scope-gate -> DB insert)
+   purpose: |
+     How a note's PROPERTIES drawer becomes typed_edges rows. Staged so the pure
+     parser stays vulpea-free and unit-testable (D4) while the scope gate and DB
+     write live in the vulpea wrapper. The scope gate is a deliberate hard
+     exclusion, not an optimisation.
+   stages:
+     - n: 1
+       name: parse
+       input: org-element AST + NOTE-ID
+       output: register/shape/typed-edge-tuple list
+       can_fail_with: []
+       notes: |
+         Pure function org-graph-extractor/parse-typed-edges. NEVER signals on
+         malformed or empty input (covered by parse-typed-edges-spec.el). CONFIRMED.
+     - n: 2
+       name: scope-gate
+       input: note path
+       output: tuples (roam-path) | nothing (non-roam-path)
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         org-graph-extractor/extract emits edges only when the note path is under
+         org-graph-roam-root (register/invariant/typed-edge-extraction-scope).
+         Bypassing this re-introduces the D2 dilution/inotify cost. SPECULATED.
+     - n: 3
+       name: db-insert
+       input: register/shape/typed-edge-tuple list
+       output: typed_edges rows (from-id, rel-type, to-id), FK notes(id) :on-delete :cascade
+       can_fail_with: [emacsql-error]
+       notes: |
+         emacsql insert into the vulpea-registered typed_edges table; rel-type
+         stored as a symbol (mind string/symbol coupling with the query API). SPECULATED.
+   cross_stage_invariants:
+     - register/invariant/typed-edge-extraction-scope
+   producers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/extract
+       enters_at_stage: 1
+   consumers:
+     - file: config/org-graph/extractor.el
+       function: typed_edges table (queried by typed-edge-query task)
+       reads_output_of_stage: 3
+   discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -9286,6 +9483,174 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/invariant/static-prerender-dynamic-compose
 
    discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** coordinator-lock-contract
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-coordinator-lock-contract
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/coordinator-lock-contract
+   tier: invariant
+   status: confirmed
+   load_bearing: true
+   title: per-file write lock -- distinct paths independent, errors release, acquisition atomic
+   statement: |
+     org-graph-coordinator/with-file-lock takes an exclusive lock keyed on the
+     canonicalised (expand-file-name + file-truename) path. BODY always releases the
+     lock via unwind-protect, including on error or non-local exit. Locks on distinct
+     canonical paths are fully independent. Acquisition is atomic: no
+     accept-process-output yield occurs between the gethash free-check and the puthash
+     claim. A busy path busy-waits up to org-graph-coordinator-timeout seconds, then
+     signals org-graph-coordinator-lock-timeout with the key as data.
+   why_it_matters: |
+     This is the corruption guard for concurrent gptel-tool writes (spec: "no
+     truncation, no interleaved bytes"); the repo has a documented history of gptel
+     session-drawer corruption from overlapping writes, which this lock exists to
+     prevent for graph writes.
+   enforcement_mechanism:
+     kind: test
+     location: config/org-graph/test/coordinator-spec.el
+     notes: |
+       atomic-check-and-set is enforced by structural-audit (architect on-touch when
+       --acquire changes), not by test -- single-threaded elisp gives no interleaving
+       to exercise (see finding arch-cycle-1782551613-05).
+   related_entries:
+     - register/shape/typed-edge-tuple
+   discovered_from: coordinator-lock
+   discovered_by: architect
+   #+end_src
+
+** lexical-binding-line-1
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-lexical-binding-line-1
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/lexical-binding-line-1
+   tier: invariant
+   status: confirmed
+   load_bearing: true
+   title: every tangled .el begins with the lexical-binding mode line on line 1
+   statement: |
+     Every org-graph .org file's first emacs-lisp babel block uses :comments no, so
+     the tangled .el's line 1 is ";;; <name>.el --- ... -*- lexical-binding: t; -*-"
+     with no org structure comment ahead of it. Emacs only honours lexical-binding
+     when the mode line is on line 1.
+   why_it_matters: |
+     Repo incident (MEMORY.md, fixed 2026-03-11): a structure comment ahead of the
+     mode line silently loads the file with dynamic binding, breaking closures
+     ("Symbol's value as variable is void: wrapper-callback"). The org-graph
+     coordinator macro and future gptel-tool callbacks rely on closures.
+   enforcement_mechanism:
+     kind: test
+     location: config/core/test/test-lexical-binding-headers.el
+     notes: |
+       Repo-wide header test; verified org-graph.org:28, extractor.org:31,
+       coordinator.org:20 all carry :comments no.
+   related_entries: []
+   discovered_from: scaffold-module
+   discovered_by: architect
+   #+end_src
+
+** typed-edge-extraction-scope
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-typed-edge-extraction-scope
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/typed-edge-extraction-scope
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: typed-edge extraction runs only under the roam root
+   statement: |
+     The vulpea extractor wrapper emits typed_edges rows only for notes whose path is
+     under org-graph-roam-root (default ~/org/roam/). Notes under workspace :home or
+     sessions/ are indexed for discovery and navigation but contribute zero typed
+     edges. The pure parser is path-agnostic; the scope decision lives in
+     org-graph-extractor/extract.
+   why_it_matters: |
+     D2/RE-4: typed edges are a curation discipline on durable concept notes;
+     extracting from transient project/session notes dilutes the graph and balloons
+     write/inotify load. The spec marks this a "hard boundary for the spike."
+   enforcement_mechanism:
+     kind: runtime-check
+     location: config/org-graph/extractor.el:org-graph-extractor/extract
+     notes: cheap path-prefix test inside extract; currently a gap (finding arch-cycle-1782551613-04).
+   related_entries:
+     - register/shape/typed-edge-tuple
+     - register/boundary/parser-extractor-db
+   discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
+** bounded-discovery-roots
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-bounded-discovery-roots
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/bounded-discovery-roots
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: discovery indexes explicit bounded roots; the wider work tree is never walked
+   statement: |
+     vulpea's sync roots are exactly org-graph-roam-root plus, when
+     org-graph-watch-workspace-homes is non-nil, each active workspace :home (and
+     sessions/) obtained from the workspaces registry. org-graph SHALL NOT
+     directory-files-recursively or otherwise walk ~/work wholesale to discover
+     notes. id: links resolve across sessions because org-id-locations is seeded from
+     the vulpea DB at module load.
+   why_it_matters: |
+     RE-1/RE-2: a blind ~/work recursive scan/watch is the original inotify-fsevents
+     blow-up risk org-node was going to incur; the registry gives a handful of homes
+     the user actually created. Replacing wholesale discovery with explicit roots is
+     the load-bearing decision that let org-node be dropped.
+   enforcement_mechanism:
+     kind: test
+     location: config/org-graph/test (discovery spec)
+     notes: |
+       spec asserts roots = roam-root + mocked workspace homes only, seeding calls
+       org-id-add-location once per DB note, and a negative: no
+       directory-files-recursively over ~/work.
+   related_entries: []
+   discovered_from: registry-discovery
+   discovered_by: architect
+   #+end_src
+
+** indexable-requires-id
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-indexable-requires-id
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/indexable-requires-id
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: workspace home.org and session files get a stable :ID: at birth, additively
+   statement: |
+     Because vulpea only indexes notes carrying an :ID:, workspace home.org and gptel
+     session files receive an org id at creation (org-id-get-create). ID assignment is
+     additive and idempotent: a file that already has an :ID: is left unchanged, so
+     re-running scaffold or re-saving a session never churns IDs.
+   why_it_matters: |
+     RE-2a: without an :ID:, workspace homes and sessions are invisible to the index
+     and cannot be id: link targets. This is the single place org-graph reaches into
+     the workspaces / gptel-sessions code; keeping it additive guarantees a workspace
+     with org-graph absent behaves identically.
+   enforcement_mechanism:
+     kind: test
+     location: config/workspaces/test and config/gptel/sessions/test
+     notes: |
+       existing scaffold/session specs stay green (IDs additive); a new assertion that
+       a re-run leaves an existing :ID: unchanged.
+   related_entries: []
+   discovered_from: auto-id-scaffold
    discovered_by: architect
    #+end_src
 
