@@ -2,7 +2,7 @@
 name: wire-into-init
 description: Add org-graph to jf/enabled-modules after gptel and workspaces, and verify the spike module loads cleanly during a real isolated Emacs boot.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:module-load-smoke
 cites_register_entries:
