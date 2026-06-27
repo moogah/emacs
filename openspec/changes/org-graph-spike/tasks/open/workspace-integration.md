@@ -126,3 +126,126 @@ Absorb before implementing:
   `workspace-integration.el` + its spec here; **`wire-into-init` owns consolidating
   the scattered loader sections into the ordered sequence** — do not pre-empt it,
   but keep your loader placeholder consistent with "after tools".
+
+## Observations
+
+- **`vulpea-db-sync-update-directory` is a one-shot INDEXER, not a watcher
+  installer — the task body conflates the two.** I implemented exactly the
+  prescribed `:on-create` calls (append payload `:home` to
+  `vulpea-db-sync-directories`, then `vulpea-db-sync-update-directory` on it),
+  but reading the real vulpea v2.4 source (`runtime/.../vulpea-db-sync.el`)
+  shows `vulpea-db-sync-update-directory` only lists+enqueues/indexes the org
+  files under the dir (lines 896-...); it does NOT install a filenotify/fswatch
+  watcher. Watchers are installed exclusively at autosync-START
+  (`vulpea-db-autosync-mode` enable → `vulpea-db-sync-autosync-start`), which
+  iterates the *then-current* `vulpea-db-sync-directories` via the private
+  `vulpea-db-sync--watch-directory` (filenotify) or
+  `vulpea-db-sync--setup-external-monitoring` (fswatch). On macOS the fswatch
+  path is the default and the private filenotify watch is *skipped entirely*
+  (sync.el:302-304). Net effect of the handler as prescribed: a workspace
+  created mid-session has its existing notes **indexed once**, but ongoing
+  edits under the new home are **not continuously watched** until the next
+  autosync restart. That restart is exactly what the `:menu` →
+  `org-graph/configure-sync` path performs (`configure-sync` calls
+  `(vulpea-db-autosync-mode 1)`, re-running start over the full root set). So
+  the two surfaces are complementary (on-create = immediate index; menu =
+  full re-watch), and the spike behaviour is acceptable — but the task's
+  stated rationale ("vulpea-db-sync-update-directory ... is the registration
+  [watcher] seam") is factually wrong about that one call. See Discoveries.
+
+- **The `:menu` COMMAND is invoked WITH the anchor payload (arity 1), so a bare
+  no-arg interactive command cannot be used directly.** The task suggested the
+  `:menu` entry "runs `org-graph/configure-sync`", but
+  `workspace--menu-invoke-integration` (config/workspaces/workspaces-transient.org)
+  does `(funcall command (workspace--integration-payload ...))`. `org-graph/configure-sync`
+  is a zero-arg interactive command; calling it with one arg would error. I
+  therefore wrapped it in `org-graph-workspace-integration--menu (_payload)`,
+  which ignores the payload (configure-sync re-reads the live registry itself)
+  and returns `ok`. This is the correct adaptation, not a deviation from intent.
+
+- **`:tools` slot population mutates the stored preset plist in place** via
+  `(setcdr (assq 'workspace-assistant gptel--known-presets) (plist-put ... :tools ...))`,
+  rather than re-calling `jf/gptel-preset-register`/`gptel-make-preset`.
+  Re-registering would re-run scope/mode extraction and is heavier; in-place
+  mutation of only the `:tools` slot is strictly additive and preserves every
+  other slot (asserted in the spec). Trigger is
+  `(with-eval-after-load 'gptel-preset-workspace-assistant ...)` — fires exactly
+  when `preset.el` finishes registering and `(provide)`s its feature, which is
+  the precise moment the preset exists in `gptel--known-presets`.
+
+- **Two soft-dependency triggers, no hard requires.** Registration is under
+  `with-eval-after-load 'workspaces`; tools population under
+  `with-eval-after-load 'gptel-preset-workspace-assistant`. The module hard-requires
+  only `cl-lib`, so it tangles/loads standalone (the spec loads it with neither
+  workspaces nor gptel present). `org-graph/agent-tools` /
+  `org-graph/configure-sync` are reached via `fboundp`/`declare-function`, not a
+  load-time require, keeping load order `wire-into-init`'s concern.
+
+- **Environment gap (not a code issue):** vulpea was absent from this worktree's
+  `runtime/straight/` (only package missing vs. the main checkout), so the
+  `-d config/org-graph` gate could not load (helpers-spec/db-location-spec
+  `(require 'vulpea)`). I copied vulpea's repo+build from the main checkout into
+  the gitignored worktree runtime to run the gate. `init-worktree-runtime.sh`
+  for this worktree predates vulpea landing in the main checkout; a re-run would
+  fix it. Nothing committed.
+
+## Discoveries
+
+- discovery_id: disc-workspace-integration-1
+  class: interface-drift
+  description: |
+    The task body (and its design rationale RE-2) prescribe the `:on-create`
+    watch-add as "append :home to `vulpea-db-sync-directories` + call
+    `vulpea-db-sync-update-directory` on it" with the justification "filenotify
+    watchers are NOT auto-installed for dirs added after autosync starts, so
+    this is the registration seam." Inspection of the pinned vulpea v2.4
+    source shows `vulpea-db-sync-update-directory (dir &optional force)` is a
+    one-shot indexer (lists org files under DIR and enqueues/indexes them); it
+    does not install any watcher. Watcher installation happens only at
+    `vulpea-db-autosync-mode` enable (autosync-start), iterating the
+    then-current `vulpea-db-sync-directories` via private
+    `vulpea-db-sync--watch-directory` (filenotify, SKIPPED when fswatch is the
+    active backend — the macOS default) or `--setup-external-monitoring`
+    (fswatch). So a directory appended mid-session and passed to
+    `update-directory` is indexed once but never continuously watched until a
+    later autosync restart.
+  affected_register_entry: register/shape/workspace-integration-anchor-payload
+  recommendation: |
+    Decouple "index the new home now" from "watch the new home going forward"
+    in the contract language. The implemented `:on-create` correctly delivers
+    the former (immediate index, PUSH-only from the payload). For the latter,
+    the only backend-agnostic seam is an autosync RESTART
+    (`(vulpea-db-autosync-mode 1)` re-runs start over the current dir set,
+    re-installing filenotify watchers AND re-setting up fswatch). The `:menu`
+    → `org-graph/configure-sync` path already does this. If continuous watching
+    of a mid-session workspace is required without a manual menu invoke, have
+    `:on-create` additionally trigger an autosync restart — but note that
+    `org-graph/configure-sync`/`org-graph/index-roots` CONSULT the live
+    workspace registry, which conflicts with the PUSH-not-consult contract; a
+    payload-only restart helper would be needed. Recommend updating the task /
+    RE-2 prose to stop attributing watcher-install to
+    `vulpea-db-sync-update-directory`, and to document on-create as
+    "index-on-birth" with re-watch delegated to configure-sync/next-session.
+
+- discovery_id: disc-workspace-integration-2
+  class: shape-fragmentation
+  description: |
+    The `:menu` COMMAND calling convention is arity-1 (payload), set by
+    `workspace--menu-invoke-integration` in
+    config/workspaces/workspaces-transient.org:
+    `(funcall command (workspace--integration-payload name home 'menu-invoke))`.
+    The registry boundary doc (integrations.org) describes `:menu` only as an
+    opaque `(KEY . COMMAND)` pair "stored as data; this module does not act on
+    it" and does not state the COMMAND arity — that contract lives only in the
+    transient module. The gptel-session integration's menu handler happens to
+    take a payload, but the org-graph task body implied a no-arg interactive
+    command (`org-graph/configure-sync`), which would error if used directly.
+  affected_register_entry: register/boundary/workspace-integration-registry
+  recommendation: |
+    Pin the `:menu` COMMAND arity (one arg: the menu-invoke anchor payload, a
+    `register/shape/workspace-integration-anchor-payload` with context
+    `menu-invoke`) explicitly in the workspace-integration-registry boundary
+    entry, not just implicitly in the transient module. Consumers otherwise
+    have to read the transient source to learn the calling convention. The
+    org-graph menu handler adapts correctly (`(_payload)` wrapper), so no code
+    change is needed — this is a documentation/contract-completeness gap.
