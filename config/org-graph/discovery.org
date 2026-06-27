@@ -38,6 +38,7 @@ position).
 ;;; discovery.el --- org-graph registry-driven vulpea discovery -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'org-id)   ; built-in; the org-id-locations seed depends on it explicitly
 #+end_src
 
 * Soft-dependency declarations
@@ -166,13 +167,21 @@ per-file-touch registration."
 * Load-time seed
 
 Run the seed once when this module loads (vulpea is available by the
-time discovery is loaded from the org-graph loader).  Wrapped in
-=ignore-errors= so a missing/unbuilt DB at load time never aborts module
-loading; the actual behaviour is unit-tested against
-=org-graph/seed-org-id-locations= directly.
+time discovery is loaded from the org-graph loader).  A missing/unbuilt
+DB at load time must not abort module loading, but the failure is
+*logged* rather than swallowed: a silent no-op here would mean =id:=
+links quietly stop resolving on a fresh session — exactly the gap this
+shim exists to close — so an unexpected failure should be visible.  The
+seed's behaviour is unit-tested against =org-graph/seed-org-id-locations=
+directly; this wrapper's only job is load-time resilience.
 
 #+begin_src emacs-lisp
-(ignore-errors (org-graph/seed-org-id-locations))
+(condition-case err
+    (org-graph/seed-org-id-locations)
+  (error
+   (display-warning 'org-graph
+                    (format "org-id-locations seed skipped: %S" err)
+                    :warning)))
 #+end_src
 
 * Module Initialization

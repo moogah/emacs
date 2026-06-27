@@ -1,6 +1,7 @@
 ;;; discovery.el --- org-graph registry-driven vulpea discovery -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'org-id)   ; built-in; the org-id-locations seed depends on it explicitly
 
 (defvar workspace--registry)
 (declare-function workspace--registered-names "workspace-tabs" ())
@@ -78,7 +79,12 @@ per-file-touch registration."
       (when (and id path)
         (org-id-add-location id path)))))
 
-(ignore-errors (org-graph/seed-org-id-locations))
+(condition-case err
+    (org-graph/seed-org-id-locations)
+  (error
+   (display-warning 'org-graph
+                    (format "org-id-locations seed skipped: %S" err)
+                    :warning)))
 
 (provide 'org-graph-discovery)
 ;;; discovery.el ends here
