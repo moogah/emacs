@@ -284,10 +284,16 @@ are only built when gptel is loaded; the reusable list is surfaced via
 
 Registration with the =workspaces= integration registry (=:on-create=
 watch-add handler, menu entry) and population of the
-=workspace-assistant= preset's =:tools= slot.
+=workspace-assistant= preset's =:tools= slot.  Implemented in the
+=workspace-integration= submodule, which attaches via
+=with-eval-after-load= to both =workspaces= and the preset (so it loads
+in any order and degrades cleanly when either is absent).  Per
+=register/invariant/org-graph-loader-ordered-sequence= it loads AFTER
+=tools= (its =:tools= population needs =org-graph/agent-tools=);
+=wire-into-init= owns the full ordered sequence.
 
 #+begin_src emacs-lisp
-;; implemented in workspace-integration
+(jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
 #+end_src
 
 * Submodules

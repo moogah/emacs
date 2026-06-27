@@ -64,7 +64,7 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 
-;; implemented in workspace-integration
+(jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
 
 ;; Submodule loads land here as tasks complete, e.g.:
 ;; (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
