@@ -95,3 +95,97 @@ implement directly. Plan-phase scoping notes:
 - `typed-edge-query` (same batch) reads the typed_edges table but builds its
   fixtures directly — your attribution change does not collide with its specs.
 - Stage files explicitly (no `git add -A`).
+
+## Observations
+- **Scoping mechanism chosen: AST-subtree, not `:properties` alist.** The
+  note-granular scope is implemented by `org-graph-extractor--note-property-drawer`,
+  which locates the `property-drawer` whose `:ID:` node-property equals the
+  note id, and `org-graph-extractor--edges-from-note`, which re-runs the
+  *existing pure parser* (`parse-typed-edges`) over that single drawer
+  sub-tree. This deliberately avoids reading `note-data`'s `:properties`
+  alist: the whole-AST parser preserves *repeated* relation keys (two
+  `:IMPLEMENTS:` → two edges), whereas a properties alist collapses a repeated
+  key to one pair and would silently drop edges. A regression spec asserts the
+  repeated-key case end-to-end through `extract`.
+- **`:level` is no longer consulted.** Attribution now follows whichever drawer
+  owns the id, uniformly for the file node and heading nodes. The removed guard
+  keyed on `(null (plist-member note-data :level))`; matching by `:ID:` is
+  strictly more precise and needs no special-casing of the file node.
+- **The scope-gate invariant is untouched.** `org-graph-extractor--roam-note-p`
+  still runs first in `extract`; note-granular only changes *which node* owns an
+  edge, never *whether* non-roam notes are excluded. All five scope-gate specs
+  (roam→tuples, non-roam→none, subdir→in, unset→closed, empty→closed) still pass.
+- **An ID'd note that owns no drawer contributes nothing.** Matching by `:ID:`
+  means a heading vulpea indexed but that authored no relations of its own
+  yields no edges and is never mis-credited with the file's edges. The old
+  "HEADING note inserts nothing" spec was repurposed to assert exactly this
+  (a note whose id matches no drawer), since the file-node-only rationale is gone.
+- **`build-tree` gained a `:headings` key** (list of heading plists: `:id`,
+  `:title`, `:level`, `:properties`) plus a shared `org-graph-test/--drawer`
+  helper, so specs can construct the multi-note file vulpea actually indexes.
+  A helper self-test asserts both the file-level and heading drawers carry their
+  own id.
+- Suite: `./bin/run-tests.sh -d config/org-graph` → **66 specs, 0 failed**
+  (was 60 at task entry; +6 = 1 helper self-test, 4 multi-note attribution
+  specs, and the repurposed no-drawer spec replacing the file-node-only spec).
+
+## Discoveries
+
+```yaml
+discoveries:
+  - id: note-granular-via-ast-subtree
+    kind: implementation-decision
+    summary: |
+      Note-granular scoping re-runs the pure AST parser over the single
+      property-drawer whose :ID: matches the note, rather than reading
+      note-data :properties. Preserves repeated relation keys; keeps the
+      parser->extractor->DB contract on one representation (org-element AST).
+    affected_register_entry: register/boundary/parser-extractor-db
+    rationale: |
+      A vulpea :properties alist may collapse a repeated key, dropping edges.
+      The AST sub-tree keeps repeated node-property entries distinct.
+
+  - id: reconcile-parser-extractor-db
+    kind: register-reconciliation
+    affected_register_entry: register/boundary/parser-extractor-db
+    recommendation: "divergent -> confirmed"
+    summary: |
+      The open model decision is resolved (NOTE-GRANULAR). Stage 2 (scope-gate)
+      now scopes per-note: extract routes through
+      org-graph-extractor--edges-from-note, which parses ONLY the note's own
+      :ID:-matched drawer. Multi-note files no longer duplicate or mis-attribute
+      edges; from-id is the authoring note. Stages 1 (parse) and 3 (db-insert)
+      unchanged and already confirmed. Recommend status -> confirmed with a
+      stage-2 note: "scope-gate now also performs per-note attribution via the
+      :ID:-matched drawer sub-tree (note-granular); file-level-only guard removed."
+      The cross_stage_invariant (typed-edge-extraction-scope) still holds — roam
+      exclusion is unchanged.
+
+  - id: reconfirm-typed-edge-tuple
+    kind: register-reconciliation
+    affected_register_entry: register/shape/typed-edge-tuple
+    recommendation: "reconfirmed (stays confirmed)"
+    summary: |
+      The (from-id rel-type to-id) tuple is unchanged: from-id is ALWAYS the
+      NOTE-ID actually being processed (now the heading id for heading notes,
+      the file id for the file node), rel-type a SYMBOL, to-id a string. The
+      multi-note specs assert from-id = the authoring note's id for both node
+      kinds, re-confirming the "from-id always NOTE-ID" clause under the
+      note-granular world. No shape change.
+
+  - id: why-foundation-tests-missed-misattribution
+    kind: test-gap-analysis
+    why_tests_missed: |
+      The foundation (cycle-1782551613) extractor specs built only SINGLE-NOTE
+      trees via org-graph-test/build-tree, which emitted exactly one file-level
+      PROPERTIES drawer and no headings. With one drawer per file, "parse the
+      whole-file AST" and "parse this note's drawer" are indistinguishable, so
+      the N×-duplication / wrong-from-id defect was structurally unreachable by
+      the fixtures. The interim file-node-only guard was likewise validated only
+      by a heading note whose id was ABSENT from the single-drawer tree (so it
+      got nothing for the trivial reason of no matching drawer, not because of
+      level-based suppression). The gap was a fixture-shape gap: no test
+      constructed a file with a file-level drawer AND an independent ID'd-heading
+      drawer. This task closes it by extending build-tree with :headings and
+      adding multi-note attribution specs that fail under whole-file extraction.
+```

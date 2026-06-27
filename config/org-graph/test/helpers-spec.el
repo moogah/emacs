@@ -45,17 +45,45 @@
 
 ;;; 1. Synthetic org-element AST
 
+(defun org-graph-test/--drawer (id properties)
+  "Return PROPERTIES-drawer text for ID and PROPERTIES.
+ID is an optional string `:ID:' value; PROPERTIES is an alist of
+\(KEY . VALUE) emitted IN ORDER, KEY a symbol or string.  KEY MAY repeat
+to model multi-occurrence typed-edge properties (the drawer keeps each as
+a distinct entry, so the whole-AST parser sees them all)."
+  (concat
+   ":PROPERTIES:\n"
+   (when id (format ":ID:       %s\n" id))
+   (mapconcat
+    (lambda (cell)
+      (let ((key (car cell)))
+        (format ":%s: %s\n"
+                (upcase (if (symbolp key) (symbol-name key) key))
+                (cdr cell))))
+    properties
+    "")
+   ":END:\n"))
+
 (defun org-graph-test/build-tree (spec)
   "Build an `org-element' parse tree from SPEC, a plist describing a note.
 
 Recognised SPEC keys:
-  :id         - string, becomes the note's :ID: property
+  :id         - string, becomes the file-level note's :ID: property
   :title      - string, becomes the #+title: keyword
   :properties - alist of (KEY . VALUE) where KEY is a symbol or string
-                and VALUE is a string.  Emitted as PROPERTIES-drawer
-                entries IN ORDER.  KEY MAY repeat (e.g. two `IMPLEMENTS'
-                entries) to model multi-occurrence typed-edge properties.
+                and VALUE is a string.  Emitted as the FILE-LEVEL
+                PROPERTIES-drawer entries IN ORDER.  KEY MAY repeat (e.g.
+                two `IMPLEMENTS' entries) to model multi-occurrence
+                typed-edge properties.
   :filetags   - list of strings, emitted as a #+filetags: keyword
+  :headings   - list of heading plists, each recognising:
+                  :id         - string, the heading's :ID: property
+                  :title      - string, the heading text (default \"Heading\")
+                  :level      - integer star count (default 1)
+                  :properties - alist as above, the HEADING's own drawer.
+                Models the multi-note file vulpea indexes (file node +
+                every ID'd heading), so specs can assert per-note
+                attribution.
 
 The result is the file-level org-element AST returned by
 `org-element-parse-buffer'.  No file I/O and no persistent org state:
@@ -64,22 +92,22 @@ the buffer is transient and `org-mode-hook' is suppressed."
          (title (plist-get spec :title))
          (properties (plist-get spec :properties))
          (filetags (plist-get spec :filetags))
+         (headings (plist-get spec :headings))
          (text
           (concat
-           ":PROPERTIES:\n"
-           (when id (format ":ID:       %s\n" id))
-           (mapconcat
-            (lambda (cell)
-              (let ((key (car cell)))
-                (format ":%s: %s\n"
-                        (upcase (if (symbolp key) (symbol-name key) key))
-                        (cdr cell))))
-            properties
-            "")
-           ":END:\n"
+           (org-graph-test/--drawer id properties)
            (when title (format "#+title: %s\n" title))
            (when filetags
-             (format "#+filetags: :%s:\n" (mapconcat #'identity filetags ":"))))))
+             (format "#+filetags: :%s:\n" (mapconcat #'identity filetags ":")))
+           (mapconcat
+            (lambda (h)
+              (concat
+               (make-string (or (plist-get h :level) 1) ?*)
+               " " (or (plist-get h :title) "Heading") "\n"
+               (org-graph-test/--drawer (plist-get h :id)
+                                        (plist-get h :properties))))
+            headings
+            ""))))
     (with-temp-buffer
       (insert text)
       (let ((org-mode-hook nil)
@@ -180,7 +208,28 @@ live only in the org-graph typed_edges index)."
                      (lambda (np)
                        (when (equal (org-element-property :key np) "IMPLEMENTS")
                          (org-element-property :value np))))))
-      (expect values :to-equal '("[[id:a]]" "[[id:b]]")))))
+      (expect values :to-equal '("[[id:a]]" "[[id:b]]"))))
+
+  (it "builds an ID'd heading node with its own PROPERTIES drawer"
+    (let* ((tree (org-graph-test/build-tree
+                  '(:id "file1"
+                    :properties ((IMPLEMENTS . "[[id:f]]"))
+                    :headings ((:id "head1" :title "A Heading"
+                                :properties ((RELATES_TO . "[[id:h]]")))))))
+           (headlines (org-element-map tree 'headline #'identity))
+           (heading (car headlines))
+           ;; Collect each property-drawer's owning :ID: value.
+           (drawer-ids (org-element-map tree 'property-drawer
+                         (lambda (d)
+                           (org-element-map d 'node-property
+                             (lambda (np)
+                               (when (equal (org-element-property :key np) "ID")
+                                 (org-element-property :value np)))
+                             nil t)))))
+      (expect (length headlines) :to-equal 1)
+      (expect (org-element-property :raw-value heading) :to-equal "A Heading")
+      ;; Both the file-level and the heading drawer carry their own id.
+      (expect drawer-ids :to-equal '("file1" "head1")))))
 
 (describe "org-graph-test/with-stubbed-vulpea"
   (it "stubs only the listed vulpea functions, scoped to the body"
