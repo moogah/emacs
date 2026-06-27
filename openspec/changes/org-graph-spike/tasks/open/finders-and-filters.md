@@ -2,7 +2,7 @@
 name: finders-and-filters
 description: Implement schema-aware per-type finder commands backed by vulpea-select with a note-type predicate.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:note-type-schemas
   - blocked-by:test-helpers
@@ -51,4 +51,21 @@ the passed `:filter-fn` rather than asserting on UI.
 ## Context
 design.md § Re-evaluation (RE-3); architecture.md § Components
 (org-graph-finders — superseded to schema-aware).
-</content>
+
+## Cycle 1782551613 updates (cycle-1782551613)
+> Unblocked: blockers `note-type-schemas` and `test-helpers` are done. Status flipped blocked → ready.
+
+Absorb from `note-type-schemas` (now merged) + the register diff:
+- **`register/vocabulary/note-type-taxonomy` (confirmed):** the five schemas
+  `org-graph-{log,debug,topic,reference,project}` exist (feature
+  `org-graph-schemas`), each selected by a filetag-membership `:predicate`.
+  Build finders on these predicates, not a hand-rolled filetag match.
+- **agent-draft is NOT a note type** — it is a cross-cutting filetag stamped by
+  the write tool. The agent-draft *review* finder (`org-graph/find-agent-drafts`)
+  filters on that filetag directly; do not route it through the type schemas.
+- The wrappers `org-graph/validate-note-type` / `org-graph/validate-all-of-type`
+  already exist; reuse them rather than re-deriving validation.
+- **Helper gap:** `org-graph-test/with-stubbed-vulpea` does not stub
+  `vulpea-schema-validate-all`; `note-type-schemas` added a local `cl-letf` in
+  its spec — follow that pattern (or extend the helper if it's clearly the right
+  home, and note it for review).

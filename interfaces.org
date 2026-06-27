@@ -3349,7 +3349,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/note-type-taxonomy
    tier: vocabulary
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1782551613 integrate: confirmed by note-type-schemas. Five members
+     implemented 1:1 as vulpea-schema-define with filetag-membership predicates;
+     agent-draft correctly excluded (tested). Refinement: the filetag is encoded
+     ONLY in the :predicate (selector); schema FIELDS read metadata via
+     vulpea-note-meta-get, so a filetag can never be a schema field. The earlier
+     "filetag is one validated field" phrasing was imprecise.
    load_bearing: true
    title: note-type taxonomy symbols
    purpose: |
@@ -6481,7 +6488,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/parser-extractor-db
    tier: boundary
-   status: speculated   # stage 1 confirmed; stages 2-3 land in vulpea-extractor-plugin
+   status: divergent
+   status_note: |
+     cycle-1782551613 integrate: DIVERGENT (escalation: user). Stage 1 (parse) and
+     stage 3 (db-insert) confirmed; stage 2 (scope-gate) confirmed and extended
+     with file-level-node scoping. DIVERGENCE: vulpea runs :extract-fn once per
+     ID-bearing note (file + every heading), but the pure parser walks the whole-
+     file AST, so multi-note files mis-attributed/duplicated edges (reviewer
+     finding -1). Defensive inline fix shipped (file-node-only via null :level).
+     The file-level-only vs note-granular MODEL decision is an open user ask; see
+     follow-up scope-extractor-edges-per-note. Resolves to confirmed once decided.
    load_bearing: true
    title: typed-edge pipeline (parse -> scope-gate -> DB insert)
    purpose: |
@@ -9563,7 +9579,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/typed-edge-extraction-scope
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1782551613 integrate: confirmed by vulpea-extractor-plugin. Roam-root
+     scope gate implemented in org-graph-extractor--roam-note-p + enforced in
+     extract; tested (roam->tuples, non-roam->none, subdir->in, empty/unset->fail
+     closed). Closes foundation finding arch-cycle-1782551613-04.
    load_bearing: true
    title: typed-edge extraction runs only under the roam root
    statement: |
@@ -9595,7 +9616,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/bounded-discovery-roots
    tier: invariant
-   status: speculated
+   status: confirmed
+   status_note: |
+     cycle-1782551613 integrate: confirmed by registry-discovery. index-roots =
+     roam-root + registry workspace homes (+ sessions/) only; negative no-walk
+     assertion (spies on directory-files-recursively AND directory-files) in the
+     discovery spec; seed calls org-id-add-location once per DB note.
    load_bearing: true
    title: discovery indexes explicit bounded roots; the wider work tree is never walked
    statement: |
@@ -9630,7 +9656,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/indexable-requires-id
    tier: invariant
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1782551613 integrate: RECONCILED by auto-id-scaffold. Core invariant
+     (additive + idempotent; existing :ID: untouched) held and is test-enforced.
+     Refinement: "additive" is at the org-element level (never removes user
+     content), NOT byte-prefix-stable for home.org -- a file-level :ID: drawer must
+     precede #+TITLE:, which is safe only because the title reader is start-of-line
+     anchored. why_tests_missed: one over-specified scaffold assertion pinned
+     #+TITLE: at start-of-FILE; no test distinguished start-of-file from
+     start-of-line, so the drawer-before-title reordering broke it (retargeted to
+     the reader's real ^#+TITLE: contract). prior: 'existing specs stay green (IDs
+     additive)'. new: as refined above.
    load_bearing: false
    title: workspace home.org and session files get a stable :ID: at birth, additively
    statement: |

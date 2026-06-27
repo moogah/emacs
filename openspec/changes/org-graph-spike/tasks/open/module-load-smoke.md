@@ -59,4 +59,24 @@ Assert presence/binding, not deep behavior (that is the per-module specs).
 design.md § Decisions D7, D8; design.md § Re-evaluation (RE-5);
 architecture.md § Testing Approach (Scenario Mapping — Coexistence,
 Module load).
-</content>
+
+## Cycle 1782551613 updates (cycle-1782551613)
+> Still blocked (blockers `finders-and-filters`, `typed-edge-query`, `gptel-tools`, `workspace-integration` remain open), but the foundation has shifted — read before implementing.
+
+- **Submodules exist but are NOT load-wired yet.** This cycle added
+  `config/org-graph/{schemas,discovery}.el` and extended `extractor.el`, each as
+  standalone submodules with their own `provide`. By deliberate decision the
+  `org-graph.org` Submodules section is still empty and the placeholder sections
+  are unfilled — **wiring the submodule loads into `org-graph.org` (and the load
+  order) is part of THIS task / `wire-into-init`.** So this smoke spec must
+  assert that, after the loader runs, `org-graph-schemas`/`-discovery`/extractor
+  registration have actually been invoked (registration is exposed as functions:
+  `org-graph-extractor-register`, `org-graph-schemas-register`,
+  `org-graph/configure-sync`, `org-graph/seed-org-id-locations`).
+- **Registration is function-exposed, not load-time** (avoids require-time DB
+  open). The smoke test should drive the loader path that calls them.
+- **D8 DB-path follow-up pending** (`set-vulpea-db-path-per-d8`): once it lands,
+  assert the vulpea DB resolves under `runtime/state/vulpea/`, not the default
+  `runtime/vulpea.db`.
+- **Typed-graph granularity is an open user decision** (`scope-extractor-edges-per-note`,
+  register `parser-extractor-db` = divergent) — keep the smoke spec model-agnostic.

@@ -2,7 +2,7 @@
 name: typed-edge-query
 description: Implement outgoing, incoming, and connected typed-edge queries on top of the vulpea typed_edges table, test-first with vulpea mocked.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:vulpea-extractor-plugin
   - blocked-by:test-helpers
@@ -51,4 +51,23 @@ present human-readable edges.
 ## Context
 design.md § Components (org-graph-query); design.md § Non-Goals
 (no auto-symmetry); architecture.md § Interfaces.
-</content>
+
+## Cycle 1782551613 updates (cycle-1782551613)
+> Unblocked: blocker `vulpea-extractor-plugin` is done. Status flipped blocked → ready.
+
+Absorb the cycle's register diff before implementing:
+- **`register/shape/typed-edge-tuple` (confirmed):** the `typed_edges` row is
+  `(from-id rel-type to-id)` with **`rel-type` stored as a SYMBOL** (emacsql
+  prin1/read round-trips symbols). Query predicates MUST match on the symbol,
+  not a string — e.g. `[:where (= rel-type 'implements)]`, not `"implements"`.
+- **`register/vocabulary/relation-types` (confirmed):** the relation set is
+  single-sourced; reuse `org-graph-relation-types` / the extractor's mapping
+  rather than re-listing symbols.
+- **`register/boundary/parser-extractor-db` (DIVERGENT — open user decision):**
+  the typed graph is currently **file-level-only** (the extractor emits edges
+  only for the file-level node; see follow-up `scope-extractor-edges-per-note`).
+  Queries read whatever is stored, so they are unaffected by the model decision,
+  but write your tests against file-level `from-id`s to match current behaviour.
+- The extractor exposes registration as `org-graph-extractor-register` (function,
+  not load-time); the `typed_edges` table exists only after the loader calls it —
+  mock the DB boundary in specs as the foundation specs do (`vulpea-db` stubbed).
