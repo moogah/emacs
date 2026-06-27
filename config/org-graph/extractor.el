@@ -65,5 +65,57 @@ empty values are skipped; the function never signals on bad input."
               (push (list note-id rel to-id) edges))))))
     (nreverse edges)))
 
+(defvar org-graph-roam-root)            ; defined by the loader's defcustom
+
+(defun org-graph-extractor--roam-note-p (path)
+  "Return non-nil when typed-edge extraction is in scope for PATH.
+PATH is in scope only when it lives under `org-graph-roam-root'.  A
+non-string PATH or an unbound/empty `org-graph-roam-root' yields nil, so
+the extractor fails closed (no edges) rather than indexing out-of-scope
+notes."
+  (and (stringp path)
+       (boundp 'org-graph-roam-root)
+       org-graph-roam-root
+       (string-prefix-p
+        (file-name-as-directory (expand-file-name org-graph-roam-root))
+        (expand-file-name path))))
+
+(defun org-graph-extractor/extract (ctx note-data)
+  "Vulpea extractor: write the note's typed edges into `typed_edges'.
+
+CTX is a `vulpea-parse-ctx' (provides the file AST and path); NOTE-DATA
+is the note plist vulpea is building.  Edges are emitted only for notes
+under `org-graph-roam-root' (scope gate).  Inserts
+\(from-id rel-type to-id) rows, rel-type stored as a symbol.  Returns
+NOTE-DATA unchanged, per the extractor contract."
+  (let ((note-id (plist-get note-data :id))
+        (path (vulpea-parse-ctx-path ctx)))
+    (when (and note-id (org-graph-extractor--roam-note-p path))
+      (let ((edges (org-graph-extractor/parse-typed-edges
+                    (vulpea-parse-ctx-ast ctx) note-id)))
+        (when edges
+          (emacsql (vulpea-db)
+                   [:insert :into typed_edges :values $v1]
+                   (mapcar (lambda (edge)
+                             (vector (nth 0 edge)    ; from-id  (string)
+                                     (nth 1 edge)    ; rel-type (symbol)
+                                     (nth 2 edge)))  ; to-id    (string)
+                           edges))))))
+  note-data)
+
+(defun org-graph-extractor-register ()
+  "Register the org-graph typed-edge extractor with vulpea.
+Applies the `typed_edges' schema and installs `org-graph-extractor/extract'
+at priority 50.  Idempotent; intended to be called by the loader."
+  (vulpea-db-register-extractor
+   (make-vulpea-extractor
+    :name 'org-graph-typed-edges
+    :version 1
+    :priority 50
+    :schema '((typed_edges
+               [(from-id :not-null) (rel-type :not-null) (to-id :not-null)]
+               (:foreign-key [from-id] :references notes [id] :on-delete :cascade)))
+    :extract-fn #'org-graph-extractor/extract)))
+
 (provide 'org-graph-extractor)
 ;;; extractor.el ends here
