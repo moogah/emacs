@@ -40,3 +40,7 @@ state/**
 
 # orchestrator worktree provisioning logs
 .runtime-init.log
+
+# vulpea DB (runtime; should live under runtime/state/ per design D8)
+runtime/*.db
+runtime/vulpea.db
