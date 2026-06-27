@@ -2,7 +2,7 @@
 name: parse-typed-edges
 description: Implement the pure typed-edge parser as a function over org-element AST, test-first, returning from-rel-to tuples.
 change: org-graph-spike
-status: blocked
+status: done
 relations:
   - blocked-by:test-helpers
 ---

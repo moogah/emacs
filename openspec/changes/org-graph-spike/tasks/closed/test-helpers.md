@@ -2,7 +2,7 @@
 name: test-helpers
 description: Build the shared Buttercup test helpers (AST builder, vulpea stub macro, schema/extractor stubs, note fixture) that the parser, finder, query, schema, and coordinator specs all consume.
 change: org-graph-spike
-status: blocked
+status: done
 relations:
   - blocked-by:scaffold-module
 ---

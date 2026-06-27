@@ -2,7 +2,7 @@
 name: coordinator-lock
 description: Implement org-graph-coordinator/with-file-lock with sequential lock semantics so concurrent agent writes to the same file serialize cleanly.
 change: org-graph-spike
-status: blocked
+status: done
 relations:
   - blocked-by:test-helpers
 ---

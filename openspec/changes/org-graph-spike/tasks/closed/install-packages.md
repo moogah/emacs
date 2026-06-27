@@ -2,7 +2,7 @@
 name: install-packages
 description: Install vulpea v2.4+ via straight.el with a pinned commit (org-node is NOT adopted) so subsequent tasks have the library available.
 change: org-graph-spike
-status: blocked
+status: done
 relations:
   - blocked-by:scaffold-module
 ---

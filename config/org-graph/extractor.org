@@ -1,0 +1,132 @@
+#+title: Org Graph — Typed-Edge Extractor
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle extractor.el
+#+auto_tangle: y
+
+Typed semantic edges for org-graph.  Authors declare relations as
+PROPERTIES-drawer entries on a note:
+
+#+begin_example
+:PROPERTIES:
+:ID:           <uuid>
+:IMPLEMENTS:   [[id:abc]]
+:RELATES_TO:   [[id:def]] [[id:ghi]]
+:END:
+#+end_example
+
+This file currently holds the *pure parser* only (=parse-typed-edges=
+task).  The vulpea extractor wrapper that registers the =typed_edges=
+table and stores tuples is added by the =vulpea-extractor-plugin= task,
+tangling to this same file.
+
+The parser is deliberately separable from vulpea's plugin runtime (D4):
+it is a pure function over an =org-element= AST, unit-tested with
+synthetic trees, so parsing behaviour can change independently of the
+storage backend.  vulpea's native link =:type= is link-*kind*
+(id/file/https), not semantic relation-*kind* (RE-4), so semantic edges
+must be parsed by us.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; extractor.el --- org-graph typed-edge extractor -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+(require 'org-element)
+#+end_src
+
+* Relation-type resolution
+
+The configured relation set lives in =org-graph-relation-types= (defined
+by the loader).  The parser tolerates being loaded standalone (e.g. in a
+unit spec) by falling back to the same default the loader's defcustom
+uses.
+
+A relation symbol maps to a PROPERTIES key by upcasing and turning
+hyphens into underscores: =relates-to= ⇄ =RELATES_TO=, =implements= ⇄
+=IMPLEMENTS=.  Lookup is case-insensitive.
+
+#+begin_src emacs-lisp
+(defconst org-graph-extractor--default-relation-types
+  '(implements contradicts supersedes relates-to)
+  "Fallback relation-type set when `org-graph-relation-types' is unbound.
+Kept in sync with the loader's defcustom default so the parser behaves
+identically whether loaded standalone or as part of the full module.")
+
+(defun org-graph-extractor--relation-types ()
+  "Return the active list of relation-type symbols."
+  (if (boundp 'org-graph-relation-types)
+      org-graph-relation-types
+    org-graph-extractor--default-relation-types))
+
+(defun org-graph-extractor--rel-key (symbol)
+  "Return the PROPERTIES-drawer key string for relation SYMBOL.
+E.g. `relates-to' -> \"RELATES_TO\"."
+  (upcase (replace-regexp-in-string "-" "_" (symbol-name symbol))))
+
+(defun org-graph-extractor--key->rel (key)
+  "Return the relation symbol for PROPERTIES KEY, or nil if not configured.
+KEY is matched case-insensitively against the configured relation types."
+  (let ((upper (upcase key)))
+    (cl-find-if (lambda (sym)
+                  (equal upper (org-graph-extractor--rel-key sym)))
+                (org-graph-extractor--relation-types))))
+#+end_src
+
+* Link extraction
+
+Pull every =[[id:...]]= target out of a property value.  The capture
+stops at the first =]=, so it works whether or not the link carries a
+description (=[[id:abc]]= and =[[id:abc][label]]= both yield =abc=).
+Non-=id:= links (e.g. =[[file:...]]=) and bare text never match, so
+malformed values simply contribute no edges.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor--ids-in-value (value)
+  "Return the list of `id:' link targets in VALUE, in order.
+VALUE is the raw string of a PROPERTIES entry.  Returns nil for an
+empty or malformed value rather than signalling."
+  (when (stringp value)
+    (let ((start 0) ids)
+      (while (string-match "\\[\\[id:\\([^]]+\\)\\]" value start)
+        (push (match-string 1 value) ids)
+        (setq start (match-end 0)))
+      (nreverse ids))))
+#+end_src
+
+* Pure parser
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor/parse-typed-edges (element-tree note-id)
+  "Parse typed-edge relations from ELEMENT-TREE for note NOTE-ID.
+
+ELEMENT-TREE is an `org-element' AST (as from `org-element-parse-buffer').
+Reads PROPERTIES-drawer entries whose key matches a configured relation
+type (`org-graph-relation-types'), extracts each value's `id:' link
+targets, and returns a list of (FROM-ID REL-TYPE TO-ID) tuples where
+FROM-ID is NOTE-ID and REL-TYPE is the relation symbol (e.g. `implements').
+
+A relation property MAY appear multiple times and MAY carry multiple
+links; each (property-occurrence, link) pair yields its own row.
+Directional, explicitly-authored edges: no inverse is derived.
+
+This is a pure function — no file I/O, no vulpea, no DB.  Malformed or
+empty values are skipped; the function never signals on bad input."
+  (let (edges)
+    (org-element-map element-tree 'node-property
+      (lambda (np)
+        (let ((rel (org-graph-extractor--key->rel
+                    (org-element-property :key np))))
+          (when rel
+            (dolist (to-id (org-graph-extractor--ids-in-value
+                            (org-element-property :value np)))
+              (push (list note-id rel to-id) edges))))))
+    (nreverse edges)))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-extractor)
+;;; extractor.el ends here
+#+end_src

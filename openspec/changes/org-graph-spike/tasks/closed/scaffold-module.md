@@ -2,7 +2,7 @@
 name: scaffold-module
 description: Create the config/org-graph/ module skeleton with literate loader, defcustoms, and empty submodule sections so subsequent tasks have a place to land code.
 change: org-graph-spike
-status: ready
+status: done
 relations: []
 ---
 

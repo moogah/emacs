@@ -1,0 +1,287 @@
+#+title: Org Graph
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle org-graph.el
+#+auto_tangle: y
+
+A layered knowledge-graph spike over [[https://github.com/d12frosted/vulpea][vulpea]] (v2.4+), plugged into the
+=workspaces= substrate. org-graph indexes the durable concept vault
+(=~/org/roam/=) plus each active workspace =:home=, extracts typed
+semantic edges from a PROPERTIES-drawer convention, exposes
+schema-backed note-type finders, and registers an agent-facing
+query/write surface into gptel and the =workspace-assistant= preset.
+
+This file is the top-level loader for the =org-graph= module. Behavior
+is implemented incrementally in submodules under =config/org-graph/=;
+they are loaded from the [[#submodules][Submodules]] section as they land.
+
+org-roam runs unchanged alongside this module for the duration of the
+spike — see =openspec/specs/org-graph/spec.md= (Coexistence with
+org-roam) and =openspec/changes/org-graph-spike/design.md=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position).
+
+#+begin_src emacs-lisp :comments no
+;;; org-graph.el --- Layered knowledge graph over vulpea -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Custom Group
+
+#+begin_src emacs-lisp
+(defgroup org-graph nil
+  "Layered knowledge graph over vulpea, plugged into workspaces."
+  :group 'convenience
+  :prefix "org-graph-")
+#+end_src
+
+* Defcustoms
+
+** Concept-vault / typed-edge root
+
+=~/org/roam/= is both the durable concept vault and the *only* scope in
+which typed-edge extraction runs (RE-4 / D2). Operational notes
+(workspace homes, sessions) are indexed for discovery but do not
+participate in the typed-edge index.
+
+#+begin_src emacs-lisp
+(defcustom org-graph-roam-root "~/org/roam/"
+  "Durable concept vault and typed-edge extraction scope.
+This directory is always indexed by vulpea, and it is the only root on
+which the typed-edge extractor runs.  Workspace homes are indexed for
+discovery/navigation but excluded from typed-edge extraction."
+  :type 'directory
+  :group 'org-graph)
+#+end_src
+
+** Relation types
+
+The closed initial set of semantic relation types (D3).  Adding
+domain-specific types is a follow-up, not part of the spike.
+
+#+begin_src emacs-lisp
+(defcustom org-graph-relation-types
+  '(implements contradicts supersedes relates-to)
+  "Closed set of typed-edge relation symbols recognised by the extractor.
+Each symbol maps to an uppercased PROPERTIES-drawer key (e.g. `implements'
+-> :IMPLEMENTS:)."
+  :type '(repeat symbol)
+  :group 'org-graph)
+#+end_src
+
+** Workspace-home watching
+
+Whether the =:on-create= workspace integration handler adds new
+workspace =:home= directories to vulpea's sync set (RE-2 / RE-5).
+
+#+begin_src emacs-lisp
+(defcustom org-graph-watch-workspace-homes t
+  "When non-nil, add workspace `:home' directories to vulpea's sync roots.
+Consumed by the registry-driven discovery layer and the workspace
+`:on-create' integration handler."
+  :type 'boolean
+  :group 'org-graph)
+#+end_src
+
+** Note-type taxonomy
+
+The fixed taxonomy of note types, backed by =vulpea-schema= definitions
+(RE-3).  The filetag is the type selector; the schema validates fields.
+
+#+begin_src emacs-lisp
+(defcustom org-graph-note-types
+  '(log debug topic reference project)
+  "Fixed taxonomy of note-type symbols backed by vulpea-schema definitions.
+Each symbol has a schema with a predicate (typically a filetag) selecting
+its notes and field expectations validated by `vulpea-schema-validate'."
+  :type '(repeat symbol)
+  :group 'org-graph)
+#+end_src
+
+* Packages
+:PROPERTIES:
+:CUSTOM_ID: packages
+:END:
+
+vulpea is the single index/discovery engine for the spike (RE-2:
+org-node is *not* adopted — vulpea already keeps =org-id-locations=
+populated via =org-id-add-location=, so a second index would be
+redundant double-work).
+
+The recipe is pinned to a specific commit rather than =master=. Pinning
+is ordinary hygiene here, not a spike-survival mechanism: vulpea 2.4's
+parser-epoch cache invalidation, schema-version auto-rebuild, and
+async-default sync retired the original "API still evolving" risk
+(RE-6).
+
+Pin = release tag =v2.4.0= (commit
+=0f55c96b6649872155d5486acb749710b3726e4a=). straight.el does *not*
+honour a recipe-level =:commit= keyword — version pinning is otherwise
+done through a profile *versions lockfile*, which this config does not
+maintain. straight *does* pass =:branch= to =git clone --branch=, and
+git accepts a tag name there, so =:branch "v2.4.0"= checks out the
+release tag (detached HEAD at the commit above). That is the
+working, declarative pin and it satisfies the task's "v2.4.x release
+tag/commit" requirement. A profile lockfile entry is the production-grade
+follow-up if the spike survives.
+
+Change detection prefers =fswatch= on macOS; if it is not installed,
+vulpea falls back to fd/find polling, so the spike does not require it.
+
+=:config= is intentionally minimal — directory sync and autosync wiring
+belong to the =registry-discovery= task, not here.
+
+#+begin_src emacs-lisp
+(use-package vulpea
+  :straight (vulpea :type git :host github :repo "d12frosted/vulpea"
+                    :branch "v2.4.0"))
+#+end_src
+
+* Discovery
+:PROPERTIES:
+:CUSTOM_ID: discovery
+:END:
+
+Registry-driven vulpea sync over the concept vault plus workspace homes,
+and the =org-id-locations= startup seed so =id:= links resolve across
+sessions.
+
+#+begin_src emacs-lisp
+;; implemented in registry-discovery
+#+end_src
+
+* Auto-ID scaffold
+:PROPERTIES:
+:CUSTOM_ID: auto-id-scaffold
+:END:
+
+Additive ID assignment so workspace =home.org= and gptel session files
+participate in the vulpea index.
+
+#+begin_src emacs-lisp
+;; implemented in auto-id-scaffold
+#+end_src
+
+* Note-type schemas
+:PROPERTIES:
+:CUSTOM_ID: note-type-schemas
+:END:
+
+=vulpea-schema-define= definitions for each note type in
+=org-graph-note-types=.
+
+#+begin_src emacs-lisp
+;; implemented in note-type-schemas
+#+end_src
+
+* Finders
+:PROPERTIES:
+:CUSTOM_ID: finders
+:END:
+
+Per-type finder commands backed by schema predicates, plus a catch-all
+and the agent-draft review finder.
+
+#+begin_src emacs-lisp
+;; implemented in finders-and-filters
+#+end_src
+
+* Typed-edge parser
+:PROPERTIES:
+:CUSTOM_ID: typed-edge-parser
+:END:
+
+Pure function over an =org-element= AST returning =(from-id rel-type
+to-id)= tuples.
+
+#+begin_src emacs-lisp
+;; implemented in parse-typed-edges
+#+end_src
+
+* Extractor
+:PROPERTIES:
+:CUSTOM_ID: extractor
+:END:
+
+vulpea extractor wrapper that registers the =typed_edges= table and
+stores edge tuples, scoped to the roam vault.
+
+#+begin_src emacs-lisp
+;; implemented in vulpea-extractor-plugin
+#+end_src
+
+* Query
+:PROPERTIES:
+:CUSTOM_ID: query
+:END:
+
+Outgoing / incoming / connected typed-edge queries over the
+=typed_edges= table.
+
+#+begin_src emacs-lisp
+;; implemented in typed-edge-query
+#+end_src
+
+* Coordinator
+:PROPERTIES:
+:CUSTOM_ID: coordinator
+:END:
+
+Per-file write lock that serialises agent writes to the same path and
+permits parallel writes to distinct paths.
+
+#+begin_src emacs-lisp
+;; implemented in coordinator-lock
+#+end_src
+
+* gptel tools
+:PROPERTIES:
+:CUSTOM_ID: gptel-tools
+:END:
+
+Graph query and coordinator-mediated write-node tools exposed to AI
+agents.
+
+#+begin_src emacs-lisp
+;; implemented in gptel-tools
+#+end_src
+
+* Workspace integration
+:PROPERTIES:
+:CUSTOM_ID: workspace-integration
+:END:
+
+Registration with the =workspaces= integration registry (=:on-create=
+watch-add handler, menu entry) and population of the
+=workspace-assistant= preset's =:tools= slot.
+
+#+begin_src emacs-lisp
+;; implemented in workspace-integration
+#+end_src
+
+* Submodules
+:PROPERTIES:
+:CUSTOM_ID: submodules
+:END:
+
+Submodules are loaded in dependency order as they land in subsequent
+tasks.  This list is currently empty: the skeleton sections above are
+placeholders, and each will either be filled in-place or split into a
+focused submodule file loaded from here, per the task plan.
+
+#+begin_src emacs-lisp
+;; Submodule loads land here as tasks complete, e.g.:
+;; (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph)
+;;; org-graph.el ends here
+#+end_src
