@@ -221,10 +221,10 @@ stores edge tuples, scoped to the roam vault.
 :END:
 
 Outgoing / incoming / connected typed-edge queries over the
-=typed_edges= table.
+=typed_edges= table.  Implemented in the =query= submodule.
 
 #+begin_src emacs-lisp
-;; implemented in typed-edge-query
+(jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
 #+end_src
 
 * Coordinator
