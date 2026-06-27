@@ -1,0 +1,183 @@
+#+title: Org Graph — Registry-Driven Discovery
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle discovery.el
+#+auto_tangle: y
+
+Registry-driven vulpea discovery for the spike (RE-1 / RE-2).  vulpea is
+the single index; this module feeds it an *explicit, bounded* set of
+roots and seeds =org-id-locations= from the vulpea DB at startup so
+=id:= links resolve immediately on a fresh session.
+
+The roots are =org-graph-roam-root= (the durable concept vault) plus,
+when =org-graph-watch-workspace-homes= is non-nil, each active workspace
+=:home= directory (and its =sessions/= subdirectory) taken from the
+=workspaces= registry.  The registry already enumerates the handful of
+homes the user actually created, so org-graph never walks a wider tree
+(e.g. =~/work=) to discover notes — that blind recursive scan/watch is
+the original inotify/fsevents blow-up risk that org-node would have
+incurred, and avoiding it is the load-bearing decision behind dropping
+org-node (=register/invariant/bounded-discovery-roots=).
+
+=workspaces= is a *soft* dependency: the registry lookups are guarded by
+=(featurep 'workspaces)= so org-graph degrades to the roam vault alone
+when workspaces is absent, mirroring
+=config/gptel/sessions/workspace-integration.org=.
+
+Dynamically watching a *new* workspace home created after autosync is
+enabled is handled by the =workspace-integration= task's =:on-create=
+handler, not here.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position).
+
+#+begin_src emacs-lisp :comments no
+;;; discovery.el --- org-graph registry-driven vulpea discovery -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Soft-dependency declarations
+
+=workspaces= and =vulpea= are loaded by the surrounding config, not
+required here (the discovery layer must not hard-pull them at tangle
+time).  These =declare-function= forms silence the byte-compiler and
+document the external contract this module consumes.
+
+#+begin_src emacs-lisp
+(defvar workspace--registry)
+(declare-function workspace--registered-names "workspace-tabs" ())
+(declare-function workspace--home "workspace-data-model" (ws))
+(declare-function workspace--sessions-dir "workspace-data-model" (home))
+
+(defvar vulpea-db-sync-directories)
+(declare-function vulpea-db-autosync-mode "vulpea-db-sync" (&optional arg))
+(declare-function vulpea-db-sync-full-scan "vulpea-db-sync" (&optional arg))
+(declare-function vulpea-db-query "vulpea-db-query" (&optional predicate))
+(declare-function vulpea-note-id "vulpea-db" (note))
+(declare-function vulpea-note-path "vulpea-db" (note))
+#+end_src
+
+* Workspace homes from the registry
+
+Read the active workspace =:home= directories (and their =sessions/=
+subdirectories) from the =workspaces= in-memory registry.  Returns nil
+when the =workspaces= feature is not loaded, so the discovery layer
+degrades cleanly to the roam vault alone.
+
+A missing =:home= on a (defensive: stale or hand-built) registry entry
+is skipped rather than signalled.
+
+#+begin_src emacs-lisp
+(defun org-graph--active-workspace-homes ()
+  "Return active workspace `:home' dirs and their `sessions/' subdirs.
+Reads the `workspaces' registry (`workspace--registry').  Each home is
+returned canonicalised (absolute, trailing slash) and followed by its
+`sessions/' subdirectory.  Returns nil when the `workspaces' feature is
+not loaded — workspaces is a soft dependency."
+  (when (featurep 'workspaces)
+    (let (dirs)
+      (dolist (name (workspace--registered-names))
+        (let* ((ws (gethash name workspace--registry))
+               (home (and ws (workspace--home ws))))
+          (when home
+            (push (file-name-as-directory (expand-file-name home)) dirs)
+            (push (file-name-as-directory (workspace--sessions-dir home))
+                  dirs))))
+      (nreverse dirs))))
+#+end_src
+
+* Index roots
+
+The explicit, bounded discovery set: the roam vault plus, when
+=org-graph-watch-workspace-homes= is non-nil, the registry-derived
+workspace homes.  This is the whole contract — there is no fallback that
+walks =~/work= or any wider tree.
+
+#+begin_src emacs-lisp
+(defun org-graph/index-roots ()
+  "Return the explicit list of directories vulpea SHALL index.
+This is `org-graph-roam-root' (canonicalised) plus, when
+`org-graph-watch-workspace-homes' is non-nil and the `workspaces'
+feature is loaded, each active workspace `:home' directory and its
+`sessions/' subdirectory from the workspaces registry.
+
+This is a bounded, explicit set.  org-graph deliberately NEVER walks a
+wider tree (e.g. ~/work) to discover notes: the registry already
+enumerates the handful of homes the user created
+\(`register/invariant/bounded-discovery-roots')."
+  (let ((roots (list (file-name-as-directory
+                      (expand-file-name
+                       (if (boundp 'org-graph-roam-root)
+                           org-graph-roam-root
+                         "~/org/roam/"))))))
+    (when (and (boundp 'org-graph-watch-workspace-homes)
+               org-graph-watch-workspace-homes)
+      (setq roots (append roots (org-graph--active-workspace-homes))))
+    (delete-dups roots)))
+#+end_src
+
+* Configure sync
+
+Point vulpea at the bounded roots, enable autosync, and trigger an
+initial async scan.  Interactive and idempotent so it can be re-run
+after the root set changes (e.g. a new workspace home).
+
+#+begin_src emacs-lisp
+(defun org-graph/configure-sync ()
+  "Point vulpea at the bounded discovery roots and enable autosync.
+Sets `vulpea-db-sync-directories' to `org-graph/index-roots', enables
+`vulpea-db-autosync-mode', and triggers an initial (async) full scan.
+
+Idempotent: re-running overwrites the directory list, leaves autosync
+enabled, and re-scans with smart change detection.  Interactive so it
+can be invoked after the active workspace set changes."
+  (interactive)
+  (setq vulpea-db-sync-directories (org-graph/index-roots))
+  (vulpea-db-autosync-mode 1)
+  (vulpea-db-sync-full-scan))
+#+end_src
+
+* Seed org-id-locations
+
+vulpea registers ids lazily (per file touch) and offers no bulk seed, so
+on a fresh session a previously-indexed note may not be =id:=-link
+resolvable until its file is re-touched.  Walk the vulpea DB once and
+register every id → path with =org-id-add-location= to close that gap.
+
+#+begin_src emacs-lisp
+(defun org-graph/seed-org-id-locations ()
+  "Seed Emacs's global `org-id-locations' from the vulpea DB.
+Iterate every note returned by `vulpea-db-query' and register its
+id -> path with `org-id-add-location'.  Notes missing an id or path are
+skipped.  Cheap; intended to run once at module load so `id:' links
+resolve on a fresh session without waiting for vulpea's lazy
+per-file-touch registration."
+  (dolist (note (vulpea-db-query))
+    (let ((id (vulpea-note-id note))
+          (path (vulpea-note-path note)))
+      (when (and id path)
+        (org-id-add-location id path)))))
+#+end_src
+
+* Load-time seed
+
+Run the seed once when this module loads (vulpea is available by the
+time discovery is loaded from the org-graph loader).  Wrapped in
+=ignore-errors= so a missing/unbuilt DB at load time never aborts module
+loading; the actual behaviour is unit-tested against
+=org-graph/seed-org-id-locations= directly.
+
+#+begin_src emacs-lisp
+(ignore-errors (org-graph/seed-org-id-locations))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-discovery)
+;;; discovery.el ends here
+#+end_src
