@@ -2,7 +2,7 @@
 name: vulpea-extractor-plugin
 description: Wrap the pure parser as a vulpea extractor that registers a typed_edges table and stores edge tuples, scoped to the roam vault.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:parse-typed-edges
 cites_register_entries:

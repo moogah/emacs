@@ -2,7 +2,7 @@
 name: auto-id-scaffold
 description: Extend workspace scaffold and gptel session creation to auto-assign org IDs so home.org and session files participate in the vulpea index.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:install-packages
 cites_register_entries:

@@ -2,7 +2,7 @@
 name: note-type-schemas
 description: Define vulpea-schema note-type definitions for log, debug, topic, reference, and project with field expectations and validation.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:install-packages
   - blocked-by:test-helpers

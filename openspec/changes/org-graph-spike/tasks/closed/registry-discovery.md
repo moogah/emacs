@@ -2,7 +2,7 @@
 name: registry-discovery
 description: Make vulpea the single index fed explicit roots from the workspace registry plus the roam vault, and seed org-id-locations from the vulpea DB at startup so id-links resolve immediately.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:install-packages
 cites_register_entries:
