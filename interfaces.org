@@ -6546,6 +6546,59 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** typed-edge-query-api
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-typed-edge-query-api
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/typed-edge-query-api
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-1782561220 plan: forward-mode speculation for task typed-edge-query. The read
+     half of the agent-facing graph surface, reading back the same column triple the
+     extractor writes (register/shape/typed-edge-tuple). Confirms once outgoing/incoming/
+     connected land with vulpea-mocked specs. NOTE: independent of the file-level-vs-note-
+     granular attribution decision (register/boundary/parser-extractor-db) — queries read
+     whatever from-id/to-id rows are stored, agnostic to how attribution was scoped.
+   load_bearing: true
+   title: typed_edges read surface (outgoing / incoming / connected)
+   purpose: |
+     How a caller (gptel tool, finder, user) reads typed edges back out of the
+     typed_edges table. Directional and NOT auto-symmetrized (design.md Non-Goals):
+     "incoming" is a real query against to-id, not a mirror of outgoing. A thin,
+     vulpea-mockable layer over vulpea-db-query so the gptel-tools layer (next cycle)
+     gets resolved notes, not bare ids.
+   functions:
+     - name: org-graph-query/outgoing
+       signature: "(from-id &optional rel-type) -> list of edge plists"
+       notes: edges where from-id matches; optional rel-type narrows on the SYMBOL.
+     - name: org-graph-query/incoming
+       signature: "(to-id &optional rel-type) -> list of edge plists"
+       notes: edges where to-id matches; how incoming relations resolve (no symmetry).
+     - name: org-graph-query/connected
+       signature: "(note-id) -> list of edge plists"
+       notes: union of outgoing and incoming for note-id.
+   output_shape: |
+     Each edge is a plist with :from (string id), :rel (symbol), :to (string id), and
+     where useful the resolved target vulpea-note (via vulpea-db-get-by-id) so callers
+     present titles, not ids. rel-type filtering matches the SYMBOL, never a string
+     (emacsql prin1/read round-trips symbols) — see register/shape/typed-edge-tuple.
+   producers:
+     - file: config/org-graph/query.el
+       function: org-graph-query/outgoing | /incoming | /connected
+   consumers:
+     - file: config/org-graph/tools.el
+       function: gptel graph-read tools (speculated, gptel-tools task, next cycle)
+   related_entries:
+     - register/shape/typed-edge-tuple
+     - register/vocabulary/relation-types
+     - register/boundary/parser-extractor-db
+   discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -9688,6 +9741,46 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        a re-run leaves an existing :ID: unchanged.
    related_entries: []
    discovered_from: auto-id-scaffold
+   discovered_by: architect
+   #+end_src
+
+** vulpea-db-isolation
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-vulpea-db-isolation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/vulpea-db-isolation
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1782561220 plan: forward-mode speculation for task set-vulpea-db-path-per-d8.
+     Foundation finding arch-cycle-1782551613-eoc-1 observed vulpea using its default
+     DB path (runtime/vulpea.db) — the D8 isolation guarantee is unmet. Confirms once
+     the loader sets vulpea-db-location under runtime/state/vulpea/ and a load-time
+     assertion / spec enforces it.
+   load_bearing: false
+   title: the org-graph vulpea DB lives under runtime/state/vulpea/, isolated from org-roam
+   statement: |
+     vulpea-db-location resolves to runtime/state/vulpea/notes.db (under the worktree
+     runtime dir), NOT vulpea's default runtime/vulpea.db and NOT any org-roam DB path.
+     Wiping or rebuilding the org-graph index never touches org-roam's DB or org-id's
+     locations cache. The path is set once by the org-graph loader (or configure-sync,
+     if it must precede first sync).
+   why_it_matters: |
+     D8: resilience through independent DBs sharing only the on-disk org format. If the
+     spike is abandoned, deleting config/org-graph/ + runtime/state/vulpea/ is the whole
+     rollback; org-roam is untouched throughout. A shared or default path silently
+     couples the two indices and defeats the spike's clean-rollback property.
+   enforcement_mechanism:
+     kind: test
+     location: config/org-graph/test (loader / db-path spec) + load-time setq
+     notes: |
+       spec (or load-time assertion) that vulpea-db-location resolves under
+       runtime/state/; manual check that no stray DB lands at runtime/vulpea.db.
+   related_entries:
+     - register/invariant/bounded-discovery-roots
+   discovered_from: registry-discovery
    discovered_by: architect
    #+end_src
 

@@ -6,11 +6,16 @@ status: ready
 relations:
   - blocked-by:note-type-schemas
   - blocked-by:test-helpers
+cites_register_entries:
+  - register/vocabulary/note-type-taxonomy
 ---
 
 ## Files to modify
-- `config/org-graph/finders.el` ← via `config/org-graph/org-graph.org`
-  (Finders section)
+- `config/org-graph/finders.el` ← via a **new** `config/org-graph/finders.org`
+  (own literate module, matching the one-org-per-el convention; NOT a section
+  in `org-graph.org`)
+- `config/org-graph/org-graph.org` (loader) — append the `finders` module to the
+  existing require/load sequence; **append-only**, do not reorder existing loads
 - `config/org-graph/test/finders-spec.el` (new)
 
 ## Implementation steps
@@ -69,3 +74,18 @@ Absorb from `note-type-schemas` (now merged) + the register diff:
   `vulpea-schema-validate-all`; `note-type-schemas` added a local `cl-letf` in
   its spec — follow that pattern (or extend the helper if it's clearly the right
   home, and note it for review).
+
+## Cycle 1782561220 updates (cycle-1782561220)
+Plan-phase decisions:
+- **New module `finders.org`.** `finders.el` did not exist; the repo convention
+  is one `.org` per `.el`. Create `config/org-graph/finders.org` tangling to
+  `finders.el`. Its **first** babel block MUST use `:comments no` so
+  `;;; finders.el --- ... -*- lexical-binding: t; -*-` lands on line 1
+  (`register/invariant/lexical-binding-line-1`). Loader registration in
+  `org-graph.org` is **append-only** (three tasks touch the loader this cycle —
+  do not reorder).
+- **Test-helper contention:** another batch task (`scope-extractor-edges-per-note`)
+  is extending the shared `org-graph-test/build-tree` helper. To avoid a merge
+  seam, prefer the **local `cl-letf`** pattern in your spec (per the helper-gap
+  note above) over editing the shared helpers file.
+- Stage source/test files explicitly when committing — do NOT `git add -A`.

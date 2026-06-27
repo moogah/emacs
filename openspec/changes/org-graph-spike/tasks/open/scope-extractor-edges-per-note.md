@@ -80,3 +80,18 @@ Pick the typed-graph granularity:
 Reviewer finding `.orchestrator/cycles/cycle-1782551613/reviews/vulpea-extractor-plugin.md`;
 design.md D2/D3/RE-4; `config/org-graph/extractor.org` (extractor-wrapper);
 register entries `parser-extractor-db`, `typed-edge-tuple` (status: divergent).
+
+## Cycle 1782561220 updates (cycle-1782561220)
+The model decision is **resolved: NOTE-GRANULAR (B)** — no further user ask;
+implement directly. Plan-phase scoping notes:
+- Work lands in `config/org-graph/extractor.org` (extractor-wrapper) +
+  `org-graph-test/build-tree` extension + the new multi-note spec. You do **not**
+  touch the loader (`org-graph.org`) — the three other batch tasks own loader
+  edits.
+- This task **reconciles** the cycle's only divergent boundary
+  (`register/boundary/parser-extractor-db`) and re-confirms
+  `register/shape/typed-edge-tuple`'s "from-id always NOTE-ID" contract. At
+  integrate these move `divergent → confirmed`; record the reconciliation note.
+- `typed-edge-query` (same batch) reads the typed_edges table but builds its
+  fixtures directly — your attribution change does not collide with its specs.
+- Stage files explicitly (no `git add -A`).

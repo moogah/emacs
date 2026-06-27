@@ -5,9 +5,20 @@ change: org-graph-spike
 status: ready
 relations:
   - discovered-from:registry-discovery
+cites_register_entries:
+  - register/invariant/vulpea-db-isolation
 discovered_by: architect
 discovered_class: interface-drift
 ---
+
+> **Cycle 1782561220 (plan):** cites the new speculative invariant
+> `register/invariant/vulpea-db-isolation`. This task IS that invariant's
+> enforcement mechanism — setting `vulpea-db-location` + a load-time
+> assertion/spec confirms `speculated → confirmed` at integrate. The path
+> home is the loader (`org-graph.org`); the loader is touched by two other
+> batch tasks this cycle — keep your edit **append-only / localized** to the
+> vulpea `use-package`/setq, do not reorder existing loads. Stage files
+> explicitly (no `git add -A`).
 
 ## Why
 End-of-cycle architect finding `arch-cycle-1782551613-eoc-1`. Design D8: "Vulpea

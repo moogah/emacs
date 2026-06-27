@@ -6,11 +6,19 @@ status: ready
 relations:
   - blocked-by:vulpea-extractor-plugin
   - blocked-by:test-helpers
+cites_register_entries:
+  - register/boundary/typed-edge-query-api
+  - register/shape/typed-edge-tuple
+  - register/vocabulary/relation-types
+  - register/boundary/parser-extractor-db
 ---
 
 ## Files to modify
-- `config/org-graph/query.el` ← via `config/org-graph/org-graph.org`
-  (Query section)
+- `config/org-graph/query.el` ← via a **new** `config/org-graph/query.org`
+  (own literate module, matching the one-org-per-el convention; NOT a section
+  in `org-graph.org`)
+- `config/org-graph/org-graph.org` (loader) — append the `query` module to the
+  existing require/load sequence; **append-only**, do not reorder existing loads
 - `config/org-graph/test/typed-edges-spec.el` (new)
 
 ## Implementation steps
@@ -71,3 +79,24 @@ Absorb the cycle's register diff before implementing:
 - The extractor exposes registration as `org-graph-extractor-register` (function,
   not load-time); the `typed_edges` table exists only after the loader calls it —
   mock the DB boundary in specs as the foundation specs do (`vulpea-db` stubbed).
+
+## Cycle 1782561220 updates (cycle-1782561220)
+This task is on the **critical path** (it unblocks `gptel-tools` →
+`workspace-integration` → `module-load-smoke`). Plan-phase decisions:
+- **New module `query.org`.** `query.el`/`finders.el` did not exist; the repo
+  convention is one `.org` per `.el`. Create `config/org-graph/query.org`
+  tangling to `query.el`. Its **first** babel block MUST use `:comments no` so
+  `;;; query.el --- ... -*- lexical-binding: t; -*-` lands on line 1
+  (`register/invariant/lexical-binding-line-1`). Loader registration in
+  `org-graph.org` is **append-only** (three tasks touch the loader this cycle —
+  do not reorder).
+- **Cite `register/boundary/typed-edge-query-api` (speculated, this cycle).**
+  It is the forward contract for this task: `outgoing`/`incoming`/`connected`
+  return edge plists `(:from :rel :to [resolved-note])`, `:rel` a SYMBOL, no
+  auto-symmetry. Pressure-test it; it confirms when your specs land. The query
+  surface is **agnostic** to the file-level-vs-note-granular attribution
+  decision in `scope-extractor-edges-per-note` (also this batch) — you read
+  stored rows by id, you do not re-attribute. Build fixtures directly; do not
+  drive them through the extractor.
+- Stage source/test files explicitly when committing — do NOT `git add -A`
+  (foundation-cycle implementors swept worktree artifacts into commits).
