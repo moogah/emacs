@@ -89,3 +89,53 @@ Plan-phase decisions:
   seam, prefer the **local `cl-letf`** pattern in your spec (per the helper-gap
   note above) over editing the shared helpers file.
 - Stage source/test files explicitly when committing — do NOT `git add -A`.
+
+## Observations
+- Implemented `finders.org` → `finders.el` as a standalone literate module
+  (first block `:comments no`, lexical-binding on line 1). Six finders plus a
+  thin `org-graph/note-of-type-p` helper and two private filter builders
+  (`org-graph-finders--type-filter`, `org-graph-finders--agent-draft-p`).
+- `org-graph/note-of-type-p` delegates to `vulpea-schema-applies-p` over the
+  schema name from `org-graph-schemas--schema-name`, guarded by
+  `vulpea-schema-get` (mirrors `org-graph/validate-note-type`'s guard). No
+  hand-rolled filetag matching for the typed finders.
+- All finders use `vulpea-find :require-match t` (selection+visit of existing
+  notes; finders navigate, they do not create). `find-any` passes no
+  `:filter-fn`, falling back to `vulpea-find-default-filter`.
+- `org-graph/find-agent-drafts` filters the `agent-draft` filetag directly via
+  `vulpea-note-tags`, deliberately bypassing the type schemas (agent-draft is
+  cross-cutting, not a taxonomy member).
+- Test approach per the helper-gap note: `vulpea-find` is not covered by
+  `org-graph-test/with-stubbed-vulpea`, so a local `cl-letf` captures the args
+  plist; the real schemas are registered and the genuine
+  `vulpea-schema-applies-p` runs through the captured `:filter-fn`. Did not
+  touch shared `helpers-spec.el` (avoids the seam with the concurrent
+  `build-tree` extension).
+- Loader registration is append-only: added one `jf/load-module` line for
+  `finders.el` to the Submodules block, with a comment noting the
+  schemas-before-finders ordering requirement.
+- Verification: `./bin/run-tests.sh -d config/org-graph` green — 73 specs, 0
+  failed (baseline 60 + 13 new finder specs).
+
+## Discoveries
+- class: invariant-gap
+  affected_register_entry: register/vocabulary/note-type-taxonomy
+  summary: |
+    `finders.el` `(require 'org-graph-schemas)` can ONLY be satisfied if
+    schemas.el was already loaded (feature provided), because the file basename
+    is `schemas.el`, not `org-graph-schemas.el` — `require` can never auto-load
+    it from `load-path`. The loader (`org-graph.org` Submodules block) currently
+    contains NO real `jf/load-module` calls for any submodule (schemas, extractor,
+    etc. are not wired). I appended the finders load append-only, but there is no
+    preceding schemas load, so loading `org-graph.el` today would fail at the
+    finders `require`. This is latent (org-graph is not in `jf/enabled-modules`
+    yet — vulpea/org-graph wiring is the `wire-into-init` task's job). Flagging so
+    wire-into-init establishes the ordered load sequence (schemas → finders) and
+    actually wires the submodules. The finder spec is unaffected: it requires
+    schemas.el by path before finders.el.
+- class: scope-question
+  summary: |
+    All finders use `:require-match t` (visit-existing semantics). The task said
+    "selection + visit only," which I read as no creation; `:require-match t`
+    enforces that. If a future finder should support quick-create (vulpea-find's
+    create-fn path), that is a deliberate follow-up, not a silent default.
