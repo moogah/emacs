@@ -6622,6 +6622,78 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** org-graph-agent-tools
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-org-graph-agent-tools
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/org-graph-agent-tools
+   tier: boundary
+   status: speculated
+   status_note: |
+     cycle-1782569000 plan: forward-mode SPECULATION for the gptel-tools task.
+     gptel-tools crystallises the agent-facing tool surface; workspace-integration
+     and module-load-smoke both CONSUME its shape (org-graph/agent-tools returning
+     the tool objects to hand to the workspace-assistant :tools slot, and the three
+     named tools appearing in the gptel registry). Speculated here so next integrate
+     reconciles the actual accessor shape and write-node semantics against this.
+   load_bearing: true
+   title: org-graph agent-tool surface (three gptel tools + reusable accessor)
+   purpose: |
+     The agent-facing read/write surface over the typed graph. Exposed BOTH into the
+     global gptel tool registry AND as a reusable list via org-graph/agent-tools, so
+     workspace-integration can populate the workspace-assistant preset :tools slot
+     (RE-5) without re-deriving the tools. Read tools wrap the confirmed query/finder
+     boundaries; the write tool routes every write through the coordinator lock and
+     stamps agent provenance.
+   functions:
+     - name: org-graph/agent-tools
+       signature: "() -> list of gptel tool objects (or names)"
+       notes: |
+         The reusable accessor workspace-integration hands to the preset :tools slot.
+         SPECULATED shape — returns the tool objects; confirm objects-vs-names at
+         integrate against what the workspace-assistant :tools slot actually wants.
+     - name: org-graph-query
+       signature: "structured note query -> list of note plists (:id :title :tags :path)"
+       notes: wraps vulpea-db-query / finders; reads the notes table only.
+     - name: org-graph-typed-edges
+       signature: "(note-id &optional direction rel-type) -> resolved edges"
+       notes: |
+         wraps org-graph-query/{outgoing,incoming,connected}
+         (register/boundary/typed-edge-query-api, CONFIRMED). Returns from/rel/to
+         with resolved far-end titles, not bare ids.
+     - name: org-graph-write-node
+       signature: "(... ) -> (:id new-id :path path)"
+       notes: |
+         create/update a note; MUST wrap the write in
+         org-graph-coordinator/with-file-lock
+         (register/invariant/coordinator-lock-contract, CONFIRMED, unconditional) and
+         stamp an :agent-draft: filetag on agent-created notes.
+   boundary_constraints: |
+     Typed-edge extraction runs ONLY on ~/org/roam/ notes
+     (register/invariant/typed-edge-extraction-scope, CONFIRMED), so a write to a
+     project-local note will not produce typed edges — the tool descriptions must say
+     so to keep agent prompts honest (D2/RE-4). Side tables (typed_edges) are read via
+     raw (emacsql (vulpea-db) ...), NOT vulpea-db-query (meta-discovery
+     cycle-1782561220: vulpea-side-table-read-boundary).
+   producers:
+     - file: config/org-graph/tools.el
+       function: org-graph/agent-tools + the three gptel-make-tool registrations (speculated)
+   consumers:
+     - file: config/org-graph/workspace-integration.el
+       function: populates workspace-assistant preset :tools slot (speculated, workspace-integration task)
+     - file: config/org-graph/test/module-load-spec.el
+       function: asserts the three tools present in the gptel registry (speculated, module-load-smoke task)
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/invariant/coordinator-lock-contract
+     - register/invariant/typed-edge-extraction-scope
+     - register/shape/typed-edge-tuple
+   discovered_from: typed-edge-query
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit

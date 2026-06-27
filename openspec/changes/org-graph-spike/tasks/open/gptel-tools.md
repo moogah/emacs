@@ -6,6 +6,11 @@ status: ready
 relations:
   - blocked-by:typed-edge-query
   - blocked-by:coordinator-lock
+cites_register_entries:
+  - register/boundary/org-graph-agent-tools
+  - register/boundary/typed-edge-query-api
+  - register/invariant/coordinator-lock-contract
+  - register/invariant/typed-edge-extraction-scope
 ---
 
 ## Files to modify
