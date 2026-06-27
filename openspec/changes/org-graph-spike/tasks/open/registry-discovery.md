@@ -86,3 +86,76 @@ From the foundation Architect audit; cited register entry in `interfaces.org`.
 - **Helper coverage gap.** `org-id-add-location` is NOT in the
   `org-graph-test/with-stubbed-vulpea` stub map. The discovery spec will need
   its own `cl-letf` for it (and for the workspaces registry accessors).
+
+## Observations
+
+- Implemented as a NEW submodule `config/org-graph/discovery.org`
+  (tangles `discovery.el`); `org-graph.org` was deliberately NOT edited
+  (load-wiring deferred per the structural rule). New spec:
+  `config/org-graph/test/discovery-spec.el` (buttercup).
+- Three public functions land: `org-graph/index-roots`,
+  `org-graph/configure-sync`, `org-graph/seed-org-id-locations`, plus a
+  private `org-graph--active-workspace-homes` helper.
+- Workspaces registry shape confirmed: the in-memory source of truth is
+  `workspace--registry` (hash, NAME→plist, defined in
+  `config/workspaces/tabs.el`); enumerate with
+  `workspace--registered-names`, resolve home via `workspace--home`,
+  sessions via `workspace--sessions-dir`. `index-roots` appends each
+  home AND its `sessions/` subdir (both canonicalised, trailing slash).
+- Soft-dep guard is `(featurep 'workspaces)` — `workspaces.el` provides
+  `'workspaces`; mirrors `gptel/sessions/filesystem.el` and the
+  `with-eval-after-load 'workspaces` pattern in `workspace-integration`.
+- vulpea 2.4 API verified against `runtime/straight/build/vulpea`:
+  `vulpea-db-sync-directories` (defcustom), `vulpea-db-autosync-mode`
+  (global minor mode), `vulpea-db-sync-full-scan` (async, optional arg),
+  `vulpea-db-query` (optional predicate → notes), `vulpea-note-id`,
+  `vulpea-note-path`, `org-id-add-location`.
+- Load-time seed is wrapped in `ignore-errors` so an unbuilt/missing DB
+  at load time never aborts module loading; the unit-tested behaviour is
+  exercised directly against `org-graph/seed-org-id-locations`.
+- Tests: `./bin/run-tests.sh -d config/org-graph` → Ran 36 specs, 0
+  failed (22 baseline + new discovery specs). Negative invariant asserted
+  via buttercup spies on `directory-files-recursively` AND
+  `directory-files` (`:not :to-have-been-called`).
+
+## Discoveries
+
+- class: register-confirmation
+  affected_register_entry: register/invariant/bounded-discovery-roots
+  detail: |
+    The speculated invariant held exactly as written and is now enforced
+    by the discovery spec. `org-graph/index-roots` returns ONLY
+    `org-graph-roam-root` plus registry-derived workspace homes (+ their
+    sessions/ subdirs); there is no fallback that walks a wider tree. The
+    spec includes the negative assertion (no `directory-files-recursively`
+    / `directory-files` during root computation), the per-DB-note seed
+    assertion (`org-id-add-location` once per note), the watch-flag-off
+    case, and the workspaces-absent degradation case.
+    RECOMMENDATION: promote speculated -> confirmed.
+  push_back: none — entry was accurate, including the "(and sessions/)"
+    detail, which is implemented.
+
+- class: helper-gap-confirmed
+  affected_register_entry: register/invariant/bounded-discovery-roots
+  detail: |
+    Confirmed the addenda's helper gap: `org-graph-test/with-stubbed-vulpea`
+    covers `vulpea-db-query` (used for the seed) but NOT
+    `org-id-add-location` nor the workspaces registry accessors. The
+    discovery spec installs its own scoped `cl-letf` stubs for
+    `org-id-add-location`, `workspace--registered-names`,
+    `workspace--home`, `workspace--sessions-dir`, and dynamically binds a
+    fixture `workspace--registry` + the `workspaces` feature (via
+    `let`-bound `features`). No change to the shared helper was made
+    (keeps the helper's vulpea-only boundary clean); if future tasks need
+    the same workspace stubs, consider promoting
+    `org-graph-test--with-workspaces` from this spec into helpers-spec.
+
+- class: stale-artifact
+  affected_register_entry: n/a
+  detail: |
+    architecture.md's `org-graph-watched-roots` defcustom (default
+    `'("~/org/roam/" "~/work/")`) and `~/work` eager recursive scan are
+    stale (already flagged by arch-cycle-1782551613-01). Implementation
+    follows design RE-1/RE-2: knobs are `org-graph-roam-root` +
+    `org-graph-watch-workspace-homes`, no `~/work` walk. No new finding;
+    just confirming the audit was correct.
