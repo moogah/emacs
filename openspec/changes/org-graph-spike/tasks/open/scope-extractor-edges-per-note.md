@@ -2,7 +2,7 @@
 name: scope-extractor-edges-per-note
 description: Decide and implement the typed-graph granularity model (file-level-only vs note-granular) so the extractor attributes edges to the authoring note, not the whole file.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - discovered-from:vulpea-extractor-plugin
 cites_register_entries:
@@ -10,8 +10,19 @@ cites_register_entries:
   - register/boundary/parser-extractor-db
 discovered_by: reviewer
 discovered_class: spec-signal
-blocked_by: user-model-decision
 ---
+
+> **User decision (cycle-1782551613, ask-cycle-1782551613-1): NOTE-GRANULAR.**
+> Implement option (B). ID'd heading concept-notes may carry their own typed
+> edges. Scope extraction to the note actually being processed (parse the note's
+> own subtree, or read its vulpea-extracted `:properties` — mind repeated-key
+> handling). **Remove** the interim file-level-only guard
+> (`org-graph-extractor--file-level-note-p`) shipped in cycle-1782551613, and add
+> a multi-note regression test. The guard is a safe-but-incomplete stopgap
+> (suppresses heading edges) and MUST be replaced, not kept. Reconcile
+> `register/boundary/parser-extractor-db` and `register/shape/typed-edge-tuple`
+> divergent → confirmed once the per-note scoping lands with the multi-note test.
+> This task is now READY (unblocked by the user model decision).
 
 ## Why
 Author-blind reviewer finding `arch/review-vulpea-extractor-plugin-1` (major,

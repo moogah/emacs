@@ -313,9 +313,16 @@ that:
    short timeout, polling the lock state. Times out at a configurable
    ceiling (default 5s) raising a structured error.
 
-Distinct paths are independent. Errors release the lock. The macro is
-a no-op for paths under no watched root if the user wants to bypass
-for non-graph writes (the macro accepts a `:scope 'graph-only` keyword).
+Distinct paths are independent. Errors release the lock.
+
+> **Amended cycle-1782551613 (user disposition of ask-cycle-1782551613-2,
+> architect finding arch-cycle-1782551613-03):** the `:scope 'graph-only`
+> keyword and the "no-op for paths under no watched root" behaviour are
+> **dropped**. `with-file-lock` is **unconditional** — it always locks the
+> canonicalised path. The keyword was speculative with no caller; a
+> non-graph bypass can be added when an actual caller
+> (gptel-tools / workspace-integration) needs one. The as-built contract is
+> captured in `interfaces.org` → `register/invariant/coordinator-lock-contract`.
 
 **Why:** Emacs is single-threaded for elisp; "concurrency" here means
 overlapping callbacks driven by gptel tool dispatch and timers, not
