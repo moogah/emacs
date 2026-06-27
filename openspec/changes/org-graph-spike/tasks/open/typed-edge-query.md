@@ -2,7 +2,7 @@
 name: typed-edge-query
 description: Implement outgoing, incoming, and connected typed-edge queries on top of the vulpea typed_edges table, test-first with vulpea mocked.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:vulpea-extractor-plugin
   - blocked-by:test-helpers

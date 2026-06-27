@@ -2,7 +2,7 @@
 name: scope-extractor-edges-per-note
 description: Decide and implement the typed-graph granularity model (file-level-only vs note-granular) so the extractor attributes edges to the authoring note, not the whole file.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - discovered-from:vulpea-extractor-plugin
 cites_register_entries:

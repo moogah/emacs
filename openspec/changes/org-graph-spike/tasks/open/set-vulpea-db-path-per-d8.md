@@ -2,7 +2,7 @@
 name: set-vulpea-db-path-per-d8
 description: Set vulpea-db-location to runtime/state/vulpea/notes.db per design D8 so the org-graph DB is isolated from org-roam, instead of the default runtime/vulpea.db.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - discovered-from:registry-discovery
 cites_register_entries:

@@ -2,7 +2,7 @@
 name: finders-and-filters
 description: Implement schema-aware per-type finder commands backed by vulpea-select with a note-type predicate.
 change: org-graph-spike
-status: ready
+status: done
 relations:
   - blocked-by:note-type-schemas
   - blocked-by:test-helpers
