@@ -49,3 +49,29 @@ committing the init change.
 design.md § Decisions D7; design.md § Re-evaluation (RE-5);
 CLAUDE.md § Module System.
 </content>
+
+## Cycle 1782561220 updates (cycle-1782561220)
+This task now owns a concrete, surfaced gap — the **full ordered submodule load
+sequence inside `org-graph.org`** (architect findings arch-cycle-1782561220-eoc-1
+and -eoc-2; meta-discovery "loader-wiring-prerequisite-gaps").
+
+- **The loader's submodule loads are scattered and only partially ordered.** As
+  of this cycle `org-graph.org` loads: `schemas` then `finders` (in the
+  "* Submodules" section), `query` (in a separate "* Query" section), and sets
+  `vulpea-db-location` in "* Packages". `extractor`, `coordinator`, `discovery`
+  are NOT yet load-wired. **This task must consolidate these into ONE ordered
+  Submodules sequence** and remove the scattered placeholders. Dependency-correct
+  order: `schemas → extractor → coordinator → query → finders → discovery`
+  (finders requires `org-graph-schemas`; gptel-tools, when it lands, after
+  `query` + `coordinator`).
+- **A schemas → finders inline fix already shipped** (`3fb895f2`) because the gap
+  surfaced as a merge regression: `finders.el` `(require 'org-graph-schemas)` had
+  no preceding schemas load, and file basename `schemas.el` ≠ feature
+  `org-graph-schemas`, so `require` cannot auto-load it. Keep that ordering;
+  extend it to the full sequence. **Watch the basename≠feature trap for every
+  submodule** — load by path via `jf/load-module`, in dependency order.
+- **`module-load-smoke` is the gate** that proves the consolidated loader loads
+  cleanly standalone (all registrations fire, org-roam intact) before this task
+  flips org-graph into `jf/enabled-modules`. Land the ordered sequence such that
+  the smoke spec's assertions pass.
+- Step 1's "after gptel AND workspaces" (RE-5) is unchanged and confirmed.

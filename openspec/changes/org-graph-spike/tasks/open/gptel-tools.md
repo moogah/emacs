@@ -2,7 +2,7 @@
 name: gptel-tools
 description: Register graph query and coordinator-mediated write-node gptel tools so AI agents can read the typed graph and write notes safely.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:typed-edge-query
   - blocked-by:coordinator-lock
@@ -60,3 +60,23 @@ design.md § Re-evaluation (RE-5); design.md § Decisions D5;
 architecture.md § Interfaces (gptel tool surface);
 config/gptel/presets/workspace-assistant/preset.org (empty :tools slot).
 </content>
+
+## Cycle 1782561220 updates (cycle-1782561220)
+> Unblocked: both blockers (`typed-edge-query`, `coordinator-lock`) are done. Status flipped blocked → ready.
+
+Absorb before implementing:
+- **`register/boundary/typed-edge-query-api` (CONFIRMED this cycle):** the read
+  surface (`org-graph-query/outgoing` / `-incoming` / `-connected`) now exists in
+  `config/org-graph/query.el`. It returns edge plists `(:from :rel :to :note)`,
+  `:rel` a SYMBOL, no auto-symmetry, `:note` the resolved far-end note. Build the
+  graph-read gptel tools on these functions; don't re-query the table directly.
+- **Side tables need raw emacsql, NOT `vulpea-db-query`.** `vulpea-db-query` reads
+  only vulpea's `notes` table; `typed_edges` is read via `(emacsql (vulpea-db) …)`.
+  If a tool must read org-graph side tables, use the raw connection.
+- **Coordinator-mediated writes:** `org-graph-coordinator/with-file-lock` is
+  unconditional (always locks the canonicalised path) per
+  `register/invariant/coordinator-lock-contract` — wrap write-node tools in it.
+- **Loader placement:** a new tools submodule follows the one-`.org`-per-`.el`
+  convention; it must load AFTER `query` and `coordinator`. The full ordered
+  submodule sequence is `wire-into-init`'s responsibility (see its stanza) — note
+  the dependency there rather than re-deriving load order here.

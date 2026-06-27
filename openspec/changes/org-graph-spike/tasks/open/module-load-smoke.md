@@ -80,3 +80,22 @@ Module load).
   `runtime/vulpea.db`.
 - **Typed-graph granularity is an open user decision** (`scope-extractor-edges-per-note`,
   register `parser-extractor-db` = divergent) — keep the smoke spec model-agnostic.
+
+## Cycle 1782561220 updates (cycle-1782561220)
+Most blockers now done — remaining: `gptel-tools`, `workspace-integration`.
+- **`finders-and-filters` + `typed-edge-query` landed** as new `finders.org` /
+  `query.org` submodules. Step 5 above should also assert the finder commands and
+  `org-graph-query/outgoing`/`-incoming`/`-connected` are defined after load.
+- **D8 satisfied — supersede the "DB-path follow-up pending" note above.**
+  `set-vulpea-db-path-per-d8` landed; assert `vulpea-db-location` resolves under
+  `runtime/state/vulpea/` and `!= runtime/vulpea.db`
+  (`register/invariant/vulpea-db-isolation`, CONFIRMED). `db-location-spec.el`
+  already exists — this smoke spec asserts it at the loader level.
+- **Supersede the "keep the smoke spec model-agnostic" note above.**
+  `parser-extractor-db` is RECONCILED note-granular (no longer divergent); the
+  granularity model is decided. No model-agnosticism needed.
+- **Loader load-order is the live risk (architect eoc-1/eoc-2).** schemas →
+  finders was inline-fixed this cycle (`3fb895f2`); the FULL ordered submodule
+  sequence is `wire-into-init`'s job. This smoke spec is the gate proving the
+  loader loads cleanly standalone with all submodules wired and org-roam intact —
+  share the canonical order with `wire-into-init`.

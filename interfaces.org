@@ -6488,16 +6488,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/parser-extractor-db
    tier: boundary
-   status: divergent
+   status: reconciled
    status_note: |
-     cycle-1782551613 integrate: DIVERGENT (escalation: user). Stage 1 (parse) and
-     stage 3 (db-insert) confirmed; stage 2 (scope-gate) confirmed and extended
-     with file-level-node scoping. DIVERGENCE: vulpea runs :extract-fn once per
-     ID-bearing note (file + every heading), but the pure parser walks the whole-
-     file AST, so multi-note files mis-attributed/duplicated edges (reviewer
-     finding -1). Defensive inline fix shipped (file-node-only via null :level).
-     The file-level-only vs note-granular MODEL decision is an open user ask; see
-     follow-up scope-extractor-edges-per-note. Resolves to confirmed once decided.
+     cycle-1782561220 integrate: RECONCILED by scope-extractor-edges-per-note
+     (user decision ask-cycle-1782551613-1 = NOTE-GRANULAR). The cycle-1782551613
+     DIVERGENCE (whole-file AST credited every ID-bearing note with every edge) is
+     resolved: stage-2 now scopes extraction PER NOTE via the :ID:-matched
+     property-drawer sub-tree (org-graph-extractor--note-property-drawer +
+     --edges-from-note), so from-id is the note actually processed (heading id for
+     headings, file id for the file node). The interim file-level-only guard
+     (null :level) is REMOVED, not kept. The roam-root cross-stage scope-gate is
+     unchanged. AST-subtree was chosen over note-data :properties to preserve
+     repeated relation keys (a properties-alist collapses them). Multi-note
+     regression specs assert per-note attribution for both node kinds; suite green.
+     why_tests_missed: foundation specs only ever built single-file-drawer trees,
+     making whole-file vs per-note extraction indistinguishable — a fixture-shape
+     gap, now closed (build-tree gained a :headings key). Author-blind reviewer
+     confirmed code+tests correct; only flagged this entry's then-stale text.
+     prior_form: file-level-only stopgap, scope-gate stages 2/3 SPECULATED.
+     new_form: note-granular per-:ID: drawer scoping, all stages CONFIRMED.
+     See .orchestrator/cycles/cycle-1782561220/reconciliations/parser-extractor-db.md.
    load_bearing: true
    title: typed-edge pipeline (parse -> scope-gate -> DB insert)
    purpose: |
@@ -6522,8 +6532,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        short_circuit_policy: deliberate
        notes: |
          org-graph-extractor/extract emits edges only when the note path is under
-         org-graph-roam-root (register/invariant/typed-edge-extraction-scope).
-         Bypassing this re-introduces the D2 dilution/inotify cost. SPECULATED.
+         org-graph-roam-root (register/invariant/typed-edge-extraction-scope), AND
+         scopes parsing to the note actually being processed: --note-property-drawer
+         locates the property-drawer whose :ID: equals the note id, --edges-from-note
+         re-runs the pure parser over that single drawer. from-id is therefore always
+         the note's own id (file node OR heading). Bypassing the roam gate re-introduces
+         the D2 dilution/inotify cost. CONFIRMED (cycle-1782561220, note-granular).
      - n: 3
        name: db-insert
        input: register/shape/typed-edge-tuple list
@@ -6531,7 +6545,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        can_fail_with: [emacsql-error]
        notes: |
          emacsql insert into the vulpea-registered typed_edges table; rel-type
-         stored as a symbol (mind string/symbol coupling with the query API). SPECULATED.
+         stored as a symbol. The READ side (register/boundary/typed-edge-query-api)
+         reads this table via raw (emacsql (vulpea-db) ...), NOT vulpea-db-query
+         (which only reads the notes table). CONFIRMED.
    cross_stage_invariants:
      - register/invariant/typed-edge-extraction-scope
    producers:
@@ -6554,22 +6570,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/typed-edge-query-api
    tier: boundary
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-1782561220 plan: forward-mode speculation for task typed-edge-query. The read
-     half of the agent-facing graph surface, reading back the same column triple the
-     extractor writes (register/shape/typed-edge-tuple). Confirms once outgoing/incoming/
-     connected land with vulpea-mocked specs. NOTE: independent of the file-level-vs-note-
-     granular attribution decision (register/boundary/parser-extractor-db) — queries read
-     whatever from-id/to-id rows are stored, agnostic to how attribution was scoped.
+     cycle-1782561220 integrate: CONFIRMED by typed-edge-query. The contract held
+     exactly — three functions, edge plists (:from string, :rel SYMBOL, :to string,
+     :note resolved far-end), rel-type matched on the symbol, no auto-symmetry. ONE
+     prose correction (implementor push-back + author-blind reviewer spec-signal,
+     independently): the plan-time wording "thin layer over vulpea-db-query" was
+     factually wrong. vulpea-db-query loads and elisp-filters the `notes` table ONLY;
+     typed_edges is org-graph's own side table, so the genuine read boundary is raw
+     (emacsql (vulpea-db) [:select ... :from typed_edges ...]) — the same connection
+     the extractor writes through. Corrected below. Confirmed: the behavioural
+     contract matched; only the mechanism description was fixed.
    load_bearing: true
    title: typed_edges read surface (outgoing / incoming / connected)
    purpose: |
      How a caller (gptel tool, finder, user) reads typed edges back out of the
      typed_edges table. Directional and NOT auto-symmetrized (design.md Non-Goals):
      "incoming" is a real query against to-id, not a mirror of outgoing. A thin,
-     vulpea-mockable layer over vulpea-db-query so the gptel-tools layer (next cycle)
-     gets resolved notes, not bare ids.
+     mockable layer over raw (emacsql (vulpea-db) ...) against typed_edges (NOT
+     vulpea-db-query, which only reads the notes table), so the gptel-tools layer
+     (next cycle) gets resolved notes, not bare ids. :note resolves the FAR end of
+     each edge (destination for outgoing, source for incoming) and is always present
+     (may be nil) for a stable consumer shape.
    functions:
      - name: org-graph-query/outgoing
        signature: "(from-id &optional rel-type) -> list of edge plists"
@@ -9752,21 +9775,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/vulpea-db-isolation
    tier: invariant
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-1782561220 plan: forward-mode speculation for task set-vulpea-db-path-per-d8.
-     Foundation finding arch-cycle-1782551613-eoc-1 observed vulpea using its default
-     DB path (runtime/vulpea.db) — the D8 isolation guarantee is unmet. Confirms once
-     the loader sets vulpea-db-location under runtime/state/vulpea/ and a load-time
-     assertion / spec enforces it.
-   load_bearing: false
+     cycle-1782561220 integrate: CONFIRMED by set-vulpea-db-path-per-d8 (author-blind
+     reviewer clean). Held exactly: vulpea-db-location now resolves to
+     runtime/state/vulpea/notes.db via (expand-file-name "state/vulpea/notes.db"
+     user-emacs-directory) — user-emacs-directory is the worktree runtime/ dir per
+     early-init.el, so the path is worktree-isolated; the default runtime/vulpea.db is
+     confirmed absent after a real run. Enforced by db-location-spec.el (asserts under
+     runtime/state/, basename notes.db, parent vulpea/, != default) + a make-directory
+     load-time side-effect. Now load-bearing. REFINEMENT (drops the plan-time
+     parenthetical): the home MUST be the loader's vulpea :config, not configure-sync —
+     discovery.el's load-time org-id seed calls vulpea-db-query AT MODULE LOAD, which
+     would open the DB at the default path before configure-sync ever runs.
+   load_bearing: true
    title: the org-graph vulpea DB lives under runtime/state/vulpea/, isolated from org-roam
    statement: |
      vulpea-db-location resolves to runtime/state/vulpea/notes.db (under the worktree
-     runtime dir), NOT vulpea's default runtime/vulpea.db and NOT any org-roam DB path.
-     Wiping or rebuilding the org-graph index never touches org-roam's DB or org-id's
-     locations cache. The path is set once by the org-graph loader (or configure-sync,
-     if it must precede first sync).
+     runtime dir, via user-emacs-directory), NOT vulpea's default runtime/vulpea.db and
+     NOT any org-roam DB path. Wiping or rebuilding the org-graph index never touches
+     org-roam's DB or org-id's locations cache. The path is set in the org-graph
+     loader's vulpea :config — which runs eagerly before any submodule loads, so it is
+     fixed before discovery.el's load-time org-id seed opens the DB. (configure-sync
+     would be too late.)
    why_it_matters: |
      D8: resilience through independent DBs sharing only the on-disk org format. If the
      spike is abandoned, deleting config/org-graph/ + runtime/state/vulpea/ is the whole
