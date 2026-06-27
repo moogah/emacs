@@ -40,7 +40,11 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 
 (use-package vulpea
   :straight (vulpea :type git :host github :repo "d12frosted/vulpea"
-                    :branch "v2.4.0"))
+                    :branch "v2.4.0")
+  :config
+  (setq vulpea-db-location
+        (expand-file-name "state/vulpea/notes.db" user-emacs-directory))
+  (make-directory (file-name-directory vulpea-db-location) t))
 
 ;; implemented in registry-discovery
 

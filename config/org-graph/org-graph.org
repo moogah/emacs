@@ -133,13 +133,35 @@ follow-up if the spike survives.
 Change detection prefers =fswatch= on macOS; if it is not installed,
 vulpea falls back to fd/find polling, so the spike does not require it.
 
-=:config= is intentionally minimal — directory sync and autosync wiring
-belong to the =registry-discovery= task, not here.
+=:config= pins =vulpea-db-location= to the isolated runtime path (D8 /
+=register/invariant/vulpea-db-isolation=) and otherwise stays minimal —
+directory sync and autosync wiring belong to the =registry-discovery=
+task, not here.
+
+D8 requires the org-graph index DB to live under the worktree runtime
+=state/= dir (=runtime/state/vulpea/notes.db=), distinct from org-roam
+and from vulpea's default (=runtime/vulpea.db=). Isolation is the
+spike's clean-rollback property: wiping/rebuilding the org-graph DB then
+never touches org-roam's DB or the =org-id-locations= cache.
+
+The path is set here in the *loader's* vulpea =:config=, not in
+=discovery/configure-sync=, because it MUST be fixed before any submodule
+opens the DB: =discovery.el='s load-time =org-id-locations= seed calls
+=vulpea-db-query= at module load, which would open the DB at the default
+path before =configure-sync= ever runs. The loader's vulpea =:config=
+runs eagerly when this block evaluates — before submodules load — so the
+path is fixed first. =user-emacs-directory= resolves to this worktree's
+=runtime/= dir (see =early-init.el=), so the path is worktree-isolated.
+The directory is created if vulpea has not already done so.
 
 #+begin_src emacs-lisp
 (use-package vulpea
   :straight (vulpea :type git :host github :repo "d12frosted/vulpea"
-                    :branch "v2.4.0"))
+                    :branch "v2.4.0")
+  :config
+  (setq vulpea-db-location
+        (expand-file-name "state/vulpea/notes.db" user-emacs-directory))
+  (make-directory (file-name-directory vulpea-db-location) t))
 #+end_src
 
 * Discovery
