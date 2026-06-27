@@ -2,10 +2,12 @@
 name: workspace-integration
 description: Register the org-graph workspace integration with an on-create watch-add handler, a menu entry, and population of the workspace-assistant tools slot.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:gptel-tools
   - blocked-by:registry-discovery
+cites_register_entries:
+  - register/boundary/org-graph-agent-tools
 ---
 
 ## Files to modify
@@ -66,3 +68,28 @@ design.md § Re-evaluation (RE-2, RE-5);
 openspec/specs/workspace-integrations/spec.md;
 config/gptel/sessions/workspace-integration.org.
 </content>
+
+## Cycle 1782564058 updates (cycle-1782564058)
+> **Unblocked: status flipped blocked → ready.** Both blockers are now done —
+> `gptel-tools` landed this cycle (`135139b4`) and `registry-discovery` closed
+> in a prior cycle.
+
+Absorb before implementing:
+- **`register/boundary/org-graph-agent-tools` is RECONCILED this cycle** (was
+  speculated). The accessor `org-graph/agent-tools` returns the constructed
+  **gptel-tool OBJECTS** — hand them directly to the `workspace-assistant`
+  preset's `:tools` slot (step 2). It returns **nil until
+  `org-graph-tools-register` has run**, and registration is gated on
+  `(fboundp 'gptel-make-tool)`, so populating the slot must tolerate an empty
+  list when gptel isn't loaded (your "skip silently if preset absent" guard
+  already covers the preset side; mirror it for an empty tool list).
+- The three LLM-facing tools are named (snake_case) `org_graph_query` /
+  `org_graph_typed_edges` / `org_graph_write_node`; backing fns are
+  `org-graph-tools/{query,typed-edges,write-node}`. You don't name them — you
+  pass the objects from `org-graph/agent-tools` — but the smoke/integration
+  assertions downstream key on the snake_case `:name`s.
+- Loader placement: `tools.el` now loads in `org-graph.org`'s gptel-tools
+  section; `workspace-integration.el` is still a loader placeholder
+  (`org-graph.org`, Workspace integration section) — wiring it into the full
+  ordered submodule sequence is `wire-into-init`'s job, after `tools` (since the
+  `:tools` slot population needs `org-graph/agent-tools`).

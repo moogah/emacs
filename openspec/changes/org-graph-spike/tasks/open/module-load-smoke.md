@@ -99,3 +99,23 @@ Most blockers now done — remaining: `gptel-tools`, `workspace-integration`.
   sequence is `wire-into-init`'s job. This smoke spec is the gate proving the
   loader loads cleanly standalone with all submodules wired and org-roam intact —
   share the canonical order with `wire-into-init`.
+
+## Cycle 1782564058 updates (cycle-1782564058)
+> Still blocked — sole remaining blocker is `workspace-integration` (now `ready`,
+> expected next cycle). `gptel-tools` landed this cycle (`135139b4`).
+
+- **Step 5 is now concrete.** `tools.el` is implemented and load-wired in
+  `org-graph.org`'s gptel-tools section. Assert the **three snake_case gptel
+  `:name`s** `org_graph_query` / `org_graph_typed_edges` / `org_graph_write_node`
+  are present in the gptel tool registry, and that `org-graph/agent-tools`
+  returns the constructed tool objects. Note registration is gated on
+  `(fboundp 'gptel-make-tool)` — drive the loader path that calls
+  `org-graph-tools-register`, or assert presence only when gptel is loaded
+  (mirror how `db-location-spec` loads `org-graph.el` without gptel on
+  `load-path`).
+- `register/boundary/org-graph-agent-tools` is **RECONCILED** (see the
+  reconciliation note) — the surface shape is now firm; assert against it.
+- Loader-order risk is unchanged: the full ordered submodule sequence
+  (now including `tools` after `query` + `coordinator`) is `wire-into-init`'s
+  job; this smoke spec is the gate proving the consolidated loader loads cleanly
+  standalone with all submodules wired and org-roam intact.

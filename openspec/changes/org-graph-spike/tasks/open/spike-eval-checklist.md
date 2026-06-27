@@ -55,3 +55,13 @@ nothing gets evaluated in a vacuum.
 proposal.md (spike framing, findings inform follow-up);
 design.md § Open Questions; design.md § Re-evaluation.
 </content>
+
+## Cycle 1782564058 updates (cycle-1782564058)
+> Still blocked on `wire-into-init`. Context update only — no prose invalidated.
+
+- The **Agent surface** eval section is now concretely backed: the three tools
+  exist (`org_graph_query`, `org_graph_typed_edges`, `org_graph_write_node`) with
+  coordinator-mediated, `:agent-draft:`-stamping `write-node`. When you write the
+  runbook, name the snake_case tool identifiers the assistant will expose, and
+  point the "no file corruption under rapid calls" check at
+  `org-graph-coordinator/with-file-lock` (the confirmed unconditional lock).

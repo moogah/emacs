@@ -75,3 +75,19 @@ and -eoc-2; meta-discovery "loader-wiring-prerequisite-gaps").
   flips org-graph into `jf/enabled-modules`. Land the ordered sequence such that
   the smoke spec's assertions pass.
 - Step 1's "after gptel AND workspaces" (RE-5) is unchanged and confirmed.
+
+## Cycle 1782564058 updates (cycle-1782564058)
+> Still blocked on `module-load-smoke`. Context update only.
+
+- **`tools.el` is now load-wired** in `org-graph.org`'s gptel-tools section
+  (added this cycle by `gptel-tools`, `135139b4`). When you consolidate the
+  scattered loads into ONE ordered Submodules sequence, `tools` belongs **after
+  `query` and `coordinator`** (it builds on both). Updated canonical order:
+  `schemas → extractor → coordinator → query → finders → tools → discovery`
+  (workspace-integration loads after `tools`, since it populates the assistant
+  `:tools` slot from `org-graph/agent-tools`). Watch the basename≠feature trap
+  for `tools.el` too.
+- `tools.el` gptel registration is guarded on `(fboundp 'gptel-make-tool)`, so it
+  is load-safe even when gptel isn't present — no load-order constraint against
+  gptel at the submodule level, but the init-level RE-5 rule (org-graph after
+  `gptel` AND `workspaces`) still governs when the whole module loads.
