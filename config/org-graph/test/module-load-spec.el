@@ -92,7 +92,7 @@
     (require 'org-graph-extractor (expand-file-name "extractor.el" module-dir))
     (require 'org-graph-discovery (expand-file-name "discovery.el" module-dir))))
 
-(describe "org-graph module load smoke (D7/D8, RE-5; probes register/invariant/org-graph-loader-ordered-sequence)"
+(describe "org-graph module load smoke (D7/D8, RE-5; asserts the END STATE of register/invariant/org-graph-loader-ordered-sequence -- which is DIVERGENT until wire-into-init consolidates the loader and adds the real cold-load guard)"
 
   ;; --- Step 2: loader defcustoms ---------------------------------------
 
@@ -227,21 +227,11 @@
       (expect (file-in-directory-p
                vulpea-db-location
                (expand-file-name org-roam-directory))
-              :not :to-be-truthy)))
+              :not :to-be-truthy))))
 
-  ;; --- DB isolation at the loader level (D8) ---------------------------
-
-  (describe "vulpea DB isolation pinned by the loader (D8)"
-
-    (it "resolves the vulpea DB under runtime state/, not vulpea's default"
-      (let ((state-dir (expand-file-name "state" user-emacs-directory)))
-        (expect (file-in-directory-p vulpea-db-location state-dir)
-                :to-be-truthy)
-        (expect (file-name-nondirectory vulpea-db-location)
-                :to-equal "notes.db")
-        (expect vulpea-db-location
-                :not :to-equal
-                (expand-file-name "vulpea.db" user-emacs-directory))))))
+  ;; NOTE: the loader-level vulpea DB isolation invariant (resolves under
+  ;; runtime state/ as notes.db, != vulpea's default vulpea.db) is owned
+  ;; by `config/org-graph/test/db-location-spec.el'; not re-asserted here.
 
 (provide 'module-load-spec)
 ;;; module-load-spec.el ends here
