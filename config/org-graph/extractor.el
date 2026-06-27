@@ -70,27 +70,38 @@ empty values are skipped; the function never signals on bad input."
 (defun org-graph-extractor--roam-note-p (path)
   "Return non-nil when typed-edge extraction is in scope for PATH.
 PATH is in scope only when it lives under `org-graph-roam-root'.  A
-non-string PATH or an unbound/empty `org-graph-roam-root' yields nil, so
-the extractor fails closed (no edges) rather than indexing out-of-scope
-notes."
+non-string PATH or an unbound/nil/empty `org-graph-roam-root' yields nil,
+so the extractor fails closed (no edges) rather than indexing
+out-of-scope notes.  The empty-string guard matters: an empty root would
+otherwise `expand-file-name' to `default-directory' and silently scope
+extraction to the current working directory."
   (and (stringp path)
        (boundp 'org-graph-roam-root)
-       org-graph-roam-root
+       (stringp org-graph-roam-root)
+       (not (string-empty-p (string-trim org-graph-roam-root)))
        (string-prefix-p
         (file-name-as-directory (expand-file-name org-graph-roam-root))
         (expand-file-name path))))
+
+(defun org-graph-extractor--file-level-note-p (note-data)
+  "Return non-nil when NOTE-DATA is a file-level note (not a heading).
+vulpea's file-node plist carries no `:level' key; heading-node plists do."
+  (null (plist-member note-data :level)))
 
 (defun org-graph-extractor/extract (ctx note-data)
   "Vulpea extractor: write the note's typed edges into `typed_edges'.
 
 CTX is a `vulpea-parse-ctx' (provides the file AST and path); NOTE-DATA
-is the note plist vulpea is building.  Edges are emitted only for notes
+is the note plist vulpea is building.  Edges are emitted only for the
+file-level note (see `org-graph-extractor--file-level-note-p') of a file
 under `org-graph-roam-root' (scope gate).  Inserts
 \(from-id rel-type to-id) rows, rel-type stored as a symbol.  Returns
 NOTE-DATA unchanged, per the extractor contract."
   (let ((note-id (plist-get note-data :id))
         (path (vulpea-parse-ctx-path ctx)))
-    (when (and note-id (org-graph-extractor--roam-note-p path))
+    (when (and note-id
+               (org-graph-extractor--file-level-note-p note-data)
+               (org-graph-extractor--roam-note-p path))
       (let ((edges (org-graph-extractor/parse-typed-edges
                     (vulpea-parse-ctx-ast ctx) note-id)))
         (when edges

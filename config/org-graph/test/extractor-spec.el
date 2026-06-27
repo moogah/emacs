@@ -128,6 +128,33 @@ opened."
         (org-graph-extractor/extract ctx '(:id "n4")))
       (expect org-graph-test/captured-inserts :to-equal nil)))
 
+  (it "fails closed (no insert) when org-graph-roam-root is the empty string"
+    ;; Regression: an empty root must NOT expand to default-directory and
+    ;; silently scope extraction to cwd (reviewer finding -2).
+    (let* ((org-graph-roam-root "")
+           (tree (org-graph-test/build-tree
+                  '(:id "n5" :properties ((IMPLEMENTS . "[[id:abc]]")))))
+           (ctx (org-graph-test/parse-ctx "/roam/note.org" tree)))
+      (org-graph-test/with-captured-db
+        (org-graph-extractor/extract ctx '(:id "n5")))
+      (expect org-graph-test/captured-inserts :to-equal nil)))
+
+  (it "inserts nothing for a HEADING note (file-node-only scoping)"
+    ;; Regression: vulpea runs the extractor once per ID-bearing note
+    ;; (file node + every heading). The pure parser walks the whole-file
+    ;; AST, so emitting for heading notes would N×-duplicate edges and
+    ;; mis-attribute them to heading ids. Only the file-level note (no
+    ;; :level key) may emit. Reviewer finding -1; see follow-up
+    ;; scope-extractor-edges-per-note for the note-granular model decision.
+    (let* ((org-graph-roam-root "/roam/")
+           (tree (org-graph-test/build-tree
+                  '(:id "n6" :properties ((IMPLEMENTS . "[[id:abc]]")))))
+           (ctx (org-graph-test/parse-ctx "/roam/note.org" tree)))
+      (org-graph-test/with-captured-db
+        ;; a heading node carries :level; the file node does not
+        (org-graph-extractor/extract ctx '(:id "h1" :level 1)))
+      (expect org-graph-test/captured-inserts :to-equal nil)))
+
   (it "returns NOTE-DATA unchanged per the extractor contract"
     (let* ((org-graph-roam-root "/roam/")
            (note-data '(:id "n1" :title "T"))
