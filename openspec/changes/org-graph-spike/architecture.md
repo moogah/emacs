@@ -1,65 +1,84 @@
-> [!WARNING]
-> **PARTIALLY SUPERSEDED BY `design.md` "Re-evaluation (2026-06-27)" (RE-1..RE-6).**
-> This document predates the workspaces + vulpea-2.4 re-evaluation and the
-> implemented loader. Where it conflicts with `design.md` RE-1..RE-6 or
-> `config/org-graph/org-graph.org`, **those win.** Architect finding
-> `arch-cycle-1782551613-01` enumerates the false claims. In short:
->
-> - **No org-node / org-mem.** Dropped (RE-2). vulpea is the single index.
->   Ignore every "org-node integration", "org-node's navigator", and
->   "org-node's discovery" reference below.
-> - **No `~/work` walk / `directory-files-recursively` eager-scan.** Discovery
->   is registry-driven vulpea sync over `org-graph-roam-root` + workspace
->   `:home` directories, plus an `org-id-locations` DB seed (RE-1/RE-2).
-> - **No `org-graph-watched-roots` / `org-graph-typed-graph-root` defcustom.**
->   The implemented knobs are `org-graph-roam-root` (single dir) and
->   `org-graph-watch-workspace-homes` (bool). There is no
->   `(org-graph/watched-roots)` function.
-> - **Finders are schema-aware** (`vulpea-schema`), not filetag-predicate over
->   org-node candidates (RE-3).
-> - **Test layout is flat**: `config/org-graph/test/{helpers,parse-typed-edges,coordinator}-spec.el`,
->   not the nested `extractor/ finders/ query/ coordinator/ integration/` tree shown below.
->
-> STILL VALID (do not re-derive): the `make-vulpea-extractor` + `typed_edges`
-> table + `notes(id)` FK `:on-delete :cascade` integration; the pure-parser
-> tuple shape `(FROM-ID REL-TYPE TO-ID)`; the `with-file-lock` signature;
-> Buttercup as the framework; the PROPERTIES-drawer typed-edge convention.
-> A full section rewrite is parked as a `.tasks/` doc-hygiene follow-up.
-
 ## Components
 
 The spike introduces a single new module `config/org-graph/`, organized
-into focused sub-modules:
+into focused sub-modules. The top-level loader (`org-graph.org`) declares
+the custom group + defcustoms, pins and configures vulpea, and loads the
+sub-modules in dependency order. vulpea (v2.4+) is the **single** index /
+discovery engine — there is no org-node / org-mem (RE-2).
 
-- **`org-graph.org`** — Top-level loader. Declares the module, loads
-  packages via straight, sets defcustoms (root directories, taxonomy
-  filetags, relation-type list), and dispatches to sub-modules.
-- **`org-graph-discovery`** — Eager-discovery entry point that walks
-  configured roots and registers ID-bearing files with
-  `org-id-locations`. Wraps org-node's discovery; provides
-  `org-graph/eager-discover` and an idempotent re-scan command.
-- **`org-graph-extractor`** — Vulpea extractor plugin that parses
-  typed-edge properties (`IMPLEMENTS`, `CONTRADICTS`, `SUPERSEDES`,
-  `RELATES_TO`) into a `typed_edges` table. The parser is factored as
-  a pure function over `org-element` AST so it can be unit-tested
-  independently of vulpea's plugin runtime.
-- **`org-graph-finders`** — Per-taxonomy finder commands
-  (`org-graph/find-topic`, `find-debug`, `find-log`, `find-reference`,
-  `find-project`, plus a catch-all `find-any`) backed by org-node's
-  navigator with a filetag predicate. Plus `org-graph/find-agent-drafts`
-  for review.
-- **`org-graph-query`** — Query API for typed edges:
+- **`org-graph.org`** — Top-level loader. Declares the `org-graph` custom
+  group and the module defcustoms (`org-graph-roam-root`,
+  `org-graph-relation-types`, `org-graph-watch-workspace-homes`,
+  `org-graph-note-types`), pins vulpea via straight (`:branch "v2.4.0"`)
+  and — in the vulpea `use-package` `:config` — sets `vulpea-db-location`
+  to the isolated worktree path `runtime/state/vulpea/notes.db` (D8 /
+  `register/invariant/vulpea-db-isolation`). The DB path is fixed here,
+  eagerly, before any sub-module opens the DB. The loader then loads
+  sub-modules in dependency order (schemas before finders).
+
+- **`discovery`** (`discovery.el`) — Registry-driven vulpea sync (RE-1 /
+  RE-2). Builds an *explicit, bounded* root set — `org-graph-roam-root`
+  plus, when `org-graph-watch-workspace-homes` is non-nil, each active
+  workspace `:home` and its `sessions/` subdir read from the `workspaces`
+  registry — and points `vulpea-db-sync-directories` at it. There is **no**
+  recursive `~/work` walk and no `directory-files-recursively` eager-scan;
+  the bounded-roots discipline is the load-bearing reason org-node was
+  dropped (`register/invariant/bounded-discovery-roots`). `workspaces` is a
+  *soft* dependency (guarded by `featurep`), so discovery degrades to the
+  roam vault alone when it is absent. A load-time shim seeds the global
+  `org-id-locations` from `(vulpea-db-query)` so `id:` links resolve on a
+  fresh session (vulpea registers IDs lazily and offers no bulk seed).
+
+- **`schemas`** (`schemas.el`) — Note-type taxonomy via `vulpea-schema`
+  (RE-3). Defines one `vulpea-schema-define` per type in
+  `org-graph-note-types` (`log debug topic reference project`). Each
+  schema's `:predicate` selects notes by **filetag membership** (the
+  filetag is the selector, encoded only in the predicate; schema *fields*
+  read metadata via `vulpea-note-meta-get`, so a filetag is never itself a
+  field). `agent-draft` is **not** a note type — it is a cross-cutting
+  filetag the write tool stamps, with no schema. Also exposes validation
+  wrappers (`org-graph/validate-note-type`, `org-graph/validate-all-of-type`).
+
+- **`finders`** (`finders.el`) — Schema-aware per-type finder commands
+  (RE-3). Each finder drives `vulpea-find`'s `:filter-fn` from the *same*
+  note-type schema predicate the schemas module validates against (single
+  source of truth for "what a topic note is"), rather than a hand-rolled
+  filetag predicate over org-node candidates. `org-graph/find-agent-drafts`
+  filters the cross-cutting `agent-draft` filetag directly, bypassing the
+  type schemas.
+
+- **`extractor`** (`extractor.el`) — Typed-edge extraction. Holds the
+  **pure parser** (`org-graph-extractor/parse-typed-edges`, a pure function
+  over an `org-element` AST, unit-tested with synthetic trees) plus the
+  vulpea extractor wrapper and registration. The wrapper registers via
+  `make-vulpea-extractor` with a `typed_edges` schema foreign-keyed to
+  `notes(id)` `:on-delete :cascade`, at priority 50, and relies on the
+  vulpea 2.4 parser-epoch for cache invalidation (RE-4). A scope gate
+  restricts extraction to notes under `org-graph-roam-root`; extraction is
+  attributed note-granularly to each note's own PROPERTIES drawer.
+
+- **`query`** (`query.el`) — Read API for typed edges:
   `org-graph-query/outgoing`, `org-graph-query/incoming`,
-  `org-graph-query/connected`. Built on `vulpea-db-query` against the
-  `typed_edges` table.
-- **`org-graph-coordinator`** — Per-file write lock for agent tools.
-  Exposes `org-graph-coordinator/with-file-lock (path) BODY` that
-  serializes writes to the same path and permits parallel writes to
-  distinct paths. Releases the lock on error or non-local exit.
-- **`org-graph-tools`** — gptel tool registrations that wrap
-  `org-graph-query/*` and a `org-graph-tools/write-node` writer that
-  routes through the coordinator and stamps the `:agent-draft:`
-  filetag.
+  `org-graph-query/connected`. `typed_edges` is org-graph's own side table
+  (not a vulpea-managed `notes` table), so queries route through raw
+  emacsql on the shared `(vulpea-db)` connection via a single
+  `org-graph-query--select` seam — **not** `vulpea-db-query`. Results are
+  returned as edge plists (`:from :rel :to :note`), resolving the far-end
+  `vulpea-note` per edge.
+
+- **`coordinator`** (`coordinator.el`) — Per-file cooperative write lock
+  for agent tools (D5). `org-graph-coordinator/with-file-lock (PATH BODY...)`
+  serializes writes to the same canonicalised path and permits parallel
+  writes to distinct paths, releasing the lock in `unwind-protect` on error
+  or non-local exit. Busy-waits via `accept-process-output` up to
+  `org-graph-coordinator-timeout` (a defcustom owned by this sub-module),
+  then signals `org-graph-coordinator-lock-timeout`.
+
+- **gptel tools + workspace integration** (planned; loader placeholders) —
+  The loader carries placeholder sections for the gptel query/write tool
+  surface and the `workspaces` integration (`:on-create` watch-add handler,
+  menu entry, `workspace-assistant` `:tools` population, RE-5), to be
+  filled by their own tasks. They are not yet implemented.
 
 ## Interfaces
 
@@ -67,8 +86,9 @@ into focused sub-modules:
 
 ```
 ;; Discovery
-(org-graph/eager-discover)                       ;; one-shot scan
-(org-graph/watched-roots)                        ;; -> list of dirs
+(org-graph/index-roots)                          ;; -> bounded list of dirs to index
+(org-graph/configure-sync)                       ;; point vulpea at roots, enable autosync, scan
+(org-graph/seed-org-id-locations)                ;; seed org-id-locations from the vulpea DB
 
 ;; Finders (interactive)
 (org-graph/find-topic)
@@ -78,6 +98,10 @@ into focused sub-modules:
 (org-graph/find-project)
 (org-graph/find-any)
 (org-graph/find-agent-drafts)
+
+;; Schemas / validation
+(org-graph/validate-note-type NOTE)              ;; in-memory, no DB
+(org-graph/validate-all-of-type TYPE)            ;; hits the vulpea DB
 
 ;; Query
 (org-graph-query/outgoing FROM-ID &optional REL-TYPE)
@@ -92,40 +116,58 @@ into focused sub-modules:
 ;; -> list of (FROM-ID REL-TYPE TO-ID) tuples
 ```
 
-**Vulpea integration:** `org-graph-extractor` registers via
-`make-vulpea-extractor` with a `typed_edges` schema, foreign-keyed to
-`notes(id)` with `:on-delete :cascade`. The extractor is registered
-during module load after vulpea's DB is initialized.
+**Relation-type vocabulary** (`register/vocabulary/relation-types`,
+confirmed): the closed initial set is the symbols `implements`,
+`contradicts`, `supersedes`, `relates-to`, declared by the
+`org-graph-relation-types` defcustom. Each maps to a PROPERTIES-drawer key
+by upcasing and turning hyphens into underscores (`relates-to` ⇄
+`:RELATES_TO:`, `implements` ⇄ `:IMPLEMENTS:`), via
+`org-graph-extractor--rel-key` / `--key->rel` (the only allowed
+translation sites). The relation symbol is stored **verbatim as a SYMBOL**
+in the `typed_edges` `rel-type` column (emacsql `prin1`/`read` round-trips
+symbols), and the query layer matches on the symbol.
 
-**org-node integration:** Finders use `org-node-find` with a custom
-candidate filter. Eager discovery uses
-`(directory-files-recursively ROOT "\\.org\\'")` followed by
-`org-id-update-id-locations`.
+**Vulpea integration:** `extractor` registers via `make-vulpea-extractor`
+with a `typed_edges` schema, foreign-keyed to `notes(id)` with
+`:on-delete :cascade`, at priority 50 (after vulpea's core extractors).
+Registration applies the schema (opening the DB) and installs the
+extractor; it is exposed as a function the loader calls once vulpea is
+available, so a bare `require` does not touch the DB.
 
-**gptel tool surface:** Tools registered through the existing
-`gptel-make-tool` mechanism, namespaced `org-graph-*`. Read tools
-return plists; the write tool returns the new note's ID and path.
+**Discovery integration:** vulpea is the single index. Discovery feeds it
+explicit bounded roots from the `workspaces` registry plus
+`org-graph-roam-root` and enables `vulpea-db-autosync-mode`. The global
+`org-id-locations` cache is seeded from the vulpea DB at load. No
+`org-node`, no `org-id-update-id-locations` sweep, no
+`directory-files-recursively`.
+
+**gptel tool surface (planned):** Tools will register through
+`gptel-make-tool`, namespaced `org-graph-*`, and into the
+`workspace-assistant` preset `:tools` slot (RE-5). Read tools return
+plists; the write tool routes through the coordinator and stamps the
+`agent-draft` filetag. Not yet implemented.
 
 ## Boundaries
 
 **In scope for the spike:**
-- The seven sub-modules above.
-- The PROPERTIES-drawer convention for typed edges (initial relation
-  set: implements / contradicts / supersedes / relates-to).
-- Filetag taxonomy (log / debug / topic / reference / project /
-  agent-draft).
+- The sub-modules above (discovery, schemas, finders, extractor, query,
+  coordinator) plus the planned gptel-tools / workspace-integration.
+- The PROPERTIES-drawer convention for typed edges (initial relation set:
+  implements / contradicts / supersedes / relates-to).
+- Note-type taxonomy via `vulpea-schema` (log / debug / topic / reference /
+  project). `agent-draft` is a cross-cutting filetag, not a taxonomy type.
 - Coexistence with org-roam in the same vault.
-- Eager-scan helper for `~/work` so pre-existing project notes are
-  reachable on first launch.
+- Registry-driven vulpea discovery over `org-graph-roam-root` plus active
+  workspace `:home` directories, so pre-existing notes are reachable.
 
 **Out of scope for the spike (deferred to follow-up changes):**
 - Migrating any content out of `~/org/roam/`.
 - Retiring or modifying the existing org-roam configuration.
 - A graph visualization UI (org-supertag's React-Flow board, vulpea-ui
   dashboards). Findings inform whether to add one.
-- Bidirectional typed-edge inference (declaring `IMPLEMENTS` on one
-  side and auto-creating `IMPLEMENTED_BY` on the other).
-- Promotion workflow for `:agent-draft:` notes (review → demote tag).
+- Bidirectional typed-edge inference (declaring `IMPLEMENTS` on one side
+  and auto-creating `IMPLEMENTED_BY` on the other).
+- Promotion workflow for `agent-draft` notes (review → demote tag).
 - Capture templates for any of the new note types.
 - Org-roam-to-org-graph sync of legacy backlinks.
 
@@ -133,31 +175,31 @@ return plists; the write tool returns the new note's ID and path.
 
 ### Test Framework
 
-**Buttercup** (BDD-style, codebase preferred for new tests). Tests
-live in `*-spec.el` files; ERT is not introduced for any new spike
-code.
+**Buttercup** (BDD-style, codebase preferred for new tests). Tests live in
+`*-spec.el` files; ERT is not introduced for any new spike code.
 
 ### Test Organization
 
+Flat layout — one `*-spec.el` per sub-module concern under
+`config/org-graph/test/`:
+
 ```
 config/org-graph/test/
-├── helpers-spec.el                  ; shared fixtures, AST builders
-├── extractor/
-│   └── parse-typed-edges-spec.el    ; pure-parser unit tests
-├── finders/
-│   └── filetag-filter-spec.el       ; finder filtering behavior
-├── query/
-│   └── typed-edges-spec.el          ; query API behavior, vulpea mocked
-├── coordinator/
-│   └── lock-semantics-spec.el       ; write-coordinator lock tests
-└── integration/
-    └── module-load-spec.el          ; module loads cleanly, defcustoms set
+├── helpers-spec.el            ; shared fixtures, AST builders, vulpea stubs
+├── db-location-spec.el        ; vulpea DB isolation invariant (D8)
+├── discovery-spec.el          ; index-roots, seed-org-id-locations, configure-sync
+├── schemas-spec.el            ; note-type schema registration + validation
+├── finders-spec.el            ; schema-aware finder filtering behavior
+├── parse-typed-edges-spec.el  ; pure-parser unit tests
+├── extractor-spec.el          ; scope gate, note-granular attribution, storage shape, registration
+├── typed-edges-spec.el        ; query API (outgoing/incoming/connected), vulpea stubbed
+└── coordinator-spec.el        ; write-coordinator lock semantics
 ```
 
 ### Naming Conventions
 
 - File: `<concern>-spec.el` (matches existing codebase).
-- Suite: `(describe "org-graph-<sub-module>" ...)`.
+- Suite: `(describe "org-graph-<concern>" ...)`.
 - Test: `(it "<expected behavior>" ...)`. Tests phrased as observable
   behavior, not implementation.
 
@@ -165,7 +207,6 @@ config/org-graph/test/
 
 ```
 ./bin/run-tests.sh -d config/org-graph                        # All
-./bin/run-tests.sh -d config/org-graph/test/extractor          # Subset
 ./bin/run-tests.sh -d config/org-graph -f buttercup            # Explicit
 make test-buttercup-directory DIR=config/org-graph             # Make
 make test-report DIR=config/org-graph                          # Snapshot
@@ -175,62 +216,70 @@ Interactive: `C-c t` (existing transient menu).
 
 ### Test Patterns
 
-**Mocking strategy: API-boundary mocks via `cl-letf`.** Tests do not
-spin up a real vulpea SQLite DB. Functions on the vulpea API surface
-are stubbed inside each spec:
+**Mocking strategy: API-boundary mocks via `cl-letf`.** Tests do not spin
+up a real vulpea SQLite DB. Functions on the vulpea API surface are stubbed
+inside each spec:
 
 ```elisp
-(cl-letf (((symbol-function 'vulpea-db-query)
-           (lambda (predicates) <fixture rows>)))
+(cl-letf (((symbol-function 'org-graph-query--select)
+           (lambda (column id &optional rel-type) <fixture rows>)))
   ...)
 ```
 
 This matches the codebase's behavioral-test convention (function-scoped
 mocks, no global state).
 
-**Pure-parser tests** (`extractor/parse-typed-edges-spec.el`): construct
-synthetic `org-element` trees in-memory via the test helper
+**Pure-parser tests** (`parse-typed-edges-spec.el`): construct synthetic
+`org-element` trees in-memory via the test helper
 `org-graph-test/build-tree`; assert the parser returns the expected
 `(from-id rel-type to-id)` tuples. No file I/O, no vulpea, no org-mode
 state.
 
-**Finder tests** mock `org-node-find` and the candidate-source
-function; assert the candidate predicate filters the right set.
+**Extractor tests** (`extractor-spec.el`) exercise the scope gate
+(in/out-of-`org-graph-roam-root`), note-granular attribution (a heading's
+own drawer, never a descendant's), the symbol storage shape, and
+`make-vulpea-extractor` registration — with `emacsql` / `vulpea-db`
+stubbed.
+
+**Finder tests** stub `vulpea-find` and `vulpea-schema-applies-p`; assert
+the per-type filter admits the right notes and that `agent-draft` is
+orthogonal to the type finders.
 
 **Coordinator tests** are sequential. They verify:
 - A function executed under `with-file-lock` runs to completion.
 - A second `with-file-lock` on the same path queues until the first
-  releases (simulated by inspecting the in-process lock table, not by
-  spawning real timers).
+  releases (by inspecting the in-process lock table).
 - An error inside the body releases the lock.
 - Locks on distinct paths are independent.
+- A held lock past `org-graph-coordinator-timeout` signals
+  `org-graph-coordinator-lock-timeout`.
 
-No real concurrent timer-driven writes — that's deferred to the
-follow-up change if findings justify it.
+**DB-isolation test** (`db-location-spec.el`) asserts `vulpea-db-location`
+resolves under `runtime/state/vulpea/notes.db`, distinct from org-roam and
+from vulpea's default (D8).
 
 **Shared helpers** (`helpers-spec.el`):
-- `org-graph-test/build-tree` — build an `org-element` AST with
-  PROPERTIES drawers and filetags from a plist spec.
-- `org-graph-test/with-stubbed-vulpea` — macro wrapping common
-  `cl-letf` stubs for `vulpea-db-query`, `vulpea-db-insert`,
-  `vulpea-db-get-by-id`.
-- `org-graph-test/note-fixture` — construct a `vulpea-note`-shaped
-  plist for query tests.
+- `org-graph-test/build-tree` — build an `org-element` AST with PROPERTIES
+  drawers and filetags from a plist spec.
+- `org-graph-test/with-stubbed-vulpea` — macro wrapping common `cl-letf`
+  stubs for the vulpea API surface.
+- `org-graph-test/note-fixture` / `org-graph-test/link-plist` — construct
+  `vulpea-note`-shaped plists / link plists for query and finder tests.
 
 ### Scenario Mapping
 
-This is **spike-grade** coverage: every requirement gets at least one
-test, but not every scenario. Priorities:
+This is **spike-grade** coverage: every requirement gets at least one test,
+but not every scenario. Priorities:
 
 | Spec Requirement                  | Test Coverage |
 |-----------------------------------|---------------|
-| Distributed Note Discovery        | One eager-scan test against a temp dir tree (real `org-id-update-id-locations`); auto-watch and reindex are smoke-tested only via module-load. The 5-second / external-change scenarios are validated manually during the spike. |
-| Typed Semantic Edges              | Full coverage of the pure parser: single property, multi-valued, multiple property types, malformed input, empty drawer. Query API: outgoing, incoming, connected — each tested with stubbed `vulpea-db-query`. The "project-local excluded" scenario is tested by asserting the extractor is only registered for the typed-graph root. |
-| Note-Type Taxonomy and Finders    | One test per finder asserting candidate-filter behavior; one negative test for an untagged note. |
-| Agent-Facing Graph Tools          | Tool-registration smoke test (gptel registry contains the three tools); write-tool stamps `:agent-draft:`; concurrent-write scenario covered by coordinator tests below. |
-| Coexistence with org-roam         | Module-load test asserts org-roam variables and functions remain bound; a manual check during the spike covers org-roam UX continuity. |
-| Non-Blocking Synchronization      | **Not automatically tested.** Latency budget validated manually during spike usage; if the spike promotes to a permanent module the follow-up change adds a benchmark spec. |
-| Coordinator (cross-cutting)       | Lock acquired/released, queued call waits, error releases lock, distinct paths independent. |
+| Distributed Note Discovery        | `discovery-spec` covers `index-roots` (bounded roam + workspace homes, no wider walk), the `org-id-locations` seed, and `configure-sync`. The 5-second / external-change scenarios are validated manually during the spike. |
+| Typed Semantic Edges              | Full coverage of the pure parser (`parse-typed-edges-spec`): single property, multi-valued, multiple property types, malformed input, empty drawer. Extractor (`extractor-spec`): scope gate, note-granular attribution, storage-as-symbol, registration. Query API (`typed-edges-spec`): outgoing, incoming, connected — each with stubbed `org-graph-query--select`. |
+| Note-Type Taxonomy and Finders    | `schemas-spec` covers schema registration, predicate selection, and validation; `finders-spec` covers one filter test per finder plus the agent-draft orthogonality case. |
+| Agent-Facing Graph Tools          | Coordinator tests below cover the concurrent-write path. gptel tool-registration and write-tool filetag stamping land with the (pending) gptel-tools task. |
+| Coexistence with org-roam         | `db-location-spec` asserts DB isolation; org-roam UX continuity is a manual check during the spike. |
+| Non-Blocking Synchronization      | **Not automatically tested.** Latency budget validated manually during spike usage; a benchmark spec is deferred to a permanent-module follow-up. |
+| Coordinator (cross-cutting)       | `coordinator-spec`: lock acquired/released, queued call waits, error releases lock, distinct paths independent, timeout signals. |
 
 Manually validated during spike (not in the test suite): file-watcher
 latency, external-change detection, save-latency budget, real concurrent
@@ -239,49 +288,62 @@ agent-tool writes against the live coordinator.
 ## Dependencies
 
 **New emacs packages (via straight.el):**
-- `org-node` (meedstrom/org-node) — distributed discovery + navigator.
-- `vulpea` v2 (d12frosted/vulpea) — typed-edge index host.
-- `vulpea-journal` (d12frosted/vulpea-journal) — daily-log slot.
-- Likely transitive: `org-mem` (pulled by org-node).
+- `vulpea` v2.4+ (d12frosted/vulpea) — the single index / discovery engine
+  and typed-edge index host. Pinned via `:branch "v2.4.0"` (release tag,
+  detached HEAD at commit `0f55c96…`).
+- `vulpea-journal` (d12frosted/vulpea-journal) — provisional daily-log slot
+  (Open Question 5).
+
+There is **no** `org-node` and **no** `org-mem`: vulpea already keeps
+`org-id-locations` populated via `org-id-add-location`, so a second index
+would be redundant (RE-2).
 
 **Existing dependencies the module relies on:**
-- `org-id` (built-in) — ID-based discovery.
+- `org-id` (built-in) — ID-based discovery; the discovery seed depends on
+  it explicitly.
 - `org-element` (built-in) — AST for the pure parser.
-- `gptel` — tool registration. Module load order: org-graph after gptel.
+- `workspaces` — **soft** dependency. Discovery reads the workspace
+  registry for `:home` roots, guarded by `(featurep 'workspaces)`, and
+  degrades to the roam vault alone when absent.
+- `gptel` — tool registration (pending gptel-tools task). Load order:
+  org-graph after both `gptel` and `workspaces` (RE-5).
 - `straight.el` — package management (existing infrastructure).
 
 **System dependencies:**
-- `fswatch` — required by vulpea v2 for external-change detection.
-  Already available on macOS via `brew install fswatch`. The module
-  surfaces a startup check that warns if `fswatch` is missing.
+- `fswatch` — preferred for vulpea change detection on macOS, but
+  **optional**: vulpea 2.4 falls back to fd/find polling, so the spike does
+  not require it.
 
 ## Constraints
 
 - **Org-roam coexistence:** No org-roam variable, advice, or schema
-  modification is permitted. The vulpea DB lives at
-  `runtime/state/vulpea/notes.db`, distinct from any org-roam path.
-- **Performance:** Save latency under watched roots SHALL stay under
-  50ms in the foreground. The spike does not enforce this in CI; manual
-  measurement during use is the gate. If save latency regresses, the
-  watched-root list is the first thing to narrow.
-- **Filesystem-watcher load:** Watching `~/work` recursively on a
-  machine with many checked-out repos may exceed inotify/fsevents
-  limits. The module exposes `org-graph-watched-roots` as a defcustom
-  so the user can tune it; default is `'("~/org/roam/" "~/work/")` but
-  the user may shrink to just `"~/org/roam/"` if watcher load is
-  excessive.
-- **AI agent writes:** All gptel tool writes producing graph files MUST
-  go through `org-graph-coordinator/with-file-lock`. Any tool that
-  writes outside the coordinator is a bug; the spike includes a
-  module-load assertion that the registered write tool wraps the
-  coordinator.
-- **Scope of the typed-edge index:** The extractor only runs on notes
-  whose path is under `org-graph-typed-graph-root` (default
-  `~/org/roam/`). Project-local notes participate in discovery and
-  navigation but not in typed-edge analysis. This is a hard boundary
-  for the spike.
-- **Spike duration:** This change is scoped for ~1 week of evaluation.
-  If at the end the user wants to keep it, a follow-up `org-graph-v1`
-  change captures the production hardening (latency benchmarks, full
-  scenario coverage, capture templates, promotion workflow,
-  documentation).
+  modification is permitted. The org-graph vulpea DB lives at
+  `runtime/state/vulpea/notes.db` (D8 / `register/invariant/vulpea-db-isolation`),
+  distinct from any org-roam path and from vulpea's default
+  (`runtime/vulpea.db`). DB isolation is the spike's clean-rollback
+  property: wiping/rebuilding the org-graph DB never touches org-roam's DB
+  or the `org-id-locations` cache.
+- **Bounded discovery roots:** Discovery indexes only `org-graph-roam-root`
+  plus the active workspace `:home` directories the registry enumerates
+  (`register/invariant/bounded-discovery-roots`). org-graph deliberately
+  **never** walks `~/work` or any wider tree — that blind recursive
+  scan/watch is the inotify/fsevents blow-up risk that dropping org-node
+  avoids. The user tunes the root set via `org-graph-roam-root` and
+  `org-graph-watch-workspace-homes` (default `t`).
+- **Performance:** Save latency under watched roots SHOULD stay low in the
+  foreground. The spike does not enforce this in CI; manual measurement
+  during use is the gate. If save latency regresses, narrowing the watched
+  workspace-home set is the first lever.
+- **AI agent writes:** All gptel tool writes producing graph files MUST go
+  through `org-graph-coordinator/with-file-lock`. Any tool that writes
+  outside the coordinator is a bug.
+- **Scope of the typed-edge index:** The extractor only runs on notes whose
+  path is under `org-graph-roam-root` (default `~/org/roam/`, the durable
+  concept vault). Notes under workspace `:home` / `sessions/` participate in
+  discovery and navigation but contribute zero typed edges
+  (`register/invariant/typed-edge-extraction-scope`, RE-4 / D2). This is a
+  hard boundary for the spike.
+- **Spike duration:** This change is scoped for ~1 week of evaluation. If
+  the user keeps it, a follow-up `org-graph-v1` change captures production
+  hardening (latency benchmarks, full scenario coverage, capture templates,
+  promotion workflow, documentation).
