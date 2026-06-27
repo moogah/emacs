@@ -84,3 +84,65 @@ From the foundation Architect audit; cited register entry in `interfaces.org`.
   extend the helper. Prefer a local `cl-letf` in the spec unless you find the
   helper is the right home (if so, that's an additive helper change worth a
   note for the reviewer).
+
+## Observations
+
+- Implemented in a NEW submodule `config/org-graph/schemas.org` (→ `schemas.el`,
+  feature `org-graph-schemas`), following the extractor.org/coordinator.org
+  pattern. Did NOT touch `org-graph.org` (load-wiring deferred to
+  `wire-into-init`/`module-load-smoke`).
+- Five schemas registered (`org-graph-{log,debug,topic,reference,project}`) via
+  a `org-graph-schemas-register` function called at load. Honest, minimal field
+  sets: `reference` requires `source`; `project` requires `status`
+  (`:one-of (active paused done)`); `log`→optional `date`, `debug`→optional
+  `status` (`:one-of (open resolved)`), `topic`→optional `category`.
+- No `org-graph-agent-draft` schema (per addenda) — a spec asserts its absence.
+- Wrappers named exactly per task body: `org-graph/validate-note-type (note)`
+  (DB-free; loops `org-graph-note-types`, validates against every applying
+  schema) and `org-graph/validate-all-of-type (type)` (delegates to
+  `vulpea-schema-validate-all`).
+- 12 new specs in `config/org-graph/test/schemas-spec.el`; full suite green at
+  34 specs (22 baseline + 12), 0 failed.
+
+## Discoveries
+
+- class: register-confirmation
+  affected_register_entry: register/vocabulary/note-type-taxonomy
+  detail: The speculated taxonomy held exactly as written. The five members
+    (log/debug/topic/reference/project) map 1:1 to schemas; the
+    consumer_mapping (`config/org-graph/schemas.el`, per-type `:predicate`
+    lambda doing filetag membership) is now implemented as described; and the
+    "agent-draft is NOT a member" warning was honored. RECOMMEND
+    speculated -> confirmed. Note for register accuracy: the consumer_field
+    "filetag membership" predicate uses `vulpea-note-tags` (filetags live in
+    the note's `tags` slot), whereas schema *fields* read note *metadata* via
+    `vulpea-note-meta-get` — so the filetag is encoded ONLY in the predicate
+    (the selector), never as a validated field. The task's prose "the filetag
+    is one validated field" is imprecise: with vulpea 2.4's engine a filetag
+    cannot be a schema field. Implemented faithfully to the engine: predicate =
+    filetag, fields = honest meta keys.
+
+- class: api-confirmation
+  affected_register_entry: (none)
+  detail: Verified against vulpea 2.4 source
+    (`runtime/straight/repos/vulpea/vulpea-schema.el`). Signature
+    `(cl-defun vulpea-schema-define (name &key predicate fields))` and field
+    keys (`:key :type :required :one-of :multiple :validate`) and violation
+    types (`missing-required wrong-type invalid-reference disallowed-value
+    invalid-value`) match the task body's "Design pattern" exactly. The body's
+    example fields `:key "ID"`/`:key "TITLE"` would be read from note METADATA
+    (not the ID property / #+title), so I did not encode ID/TITLE as fields —
+    they are not honest meta keys in this engine.
+
+- class: deviation
+  affected_register_entry: (none)
+  detail: Step 4 says "use `org-graph-test/with-stubbed-vulpea`" (which stubs
+    `vulpea-schema-define`/`vulpea-schema-validate`). I deliberately did NOT
+    stub the validation engine: it is pure/DB-free for our field sets, and
+    stubbing it would make the field-spec assertions vacuous (testing the stub,
+    not the schema). Instead the specs run the REAL define/validate against
+    real fixtures and mock ONLY the DB boundary — a local `cl-letf` on
+    `vulpea-db-query` for `validate-all-of-type` (which applies the predicate to
+    an in-memory note list). This honors "mock at the API boundary; no real
+    DB" while keeping the assertions meaningful. Did NOT extend the shared
+    helper — the local `cl-letf` is the right home (only this spec needs it).

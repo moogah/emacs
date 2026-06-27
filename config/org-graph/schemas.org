@@ -1,0 +1,156 @@
+#+title: Org Graph — Note-Type Schemas
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle schemas.el
+#+auto_tangle: y
+
+Schema-backed note-type taxonomy for org-graph (RE-3).  The fixed set of
+note types lives in =org-graph-note-types= (=log debug topic reference
+project=); this module gives each one a vulpea 2.4 =vulpea-schema= so
+finders can be schema-aware and the agent can be told what a well-formed
+note of each type looks like.
+
+Two things are deliberately *not* here:
+
+- =agent-draft= is *not* a note type.  It is a cross-cutting filetag the
+  write tool stamps on any note; it is not a member of
+  =org-graph-note-types= and gets no schema (conflating it would break the
+  per-type finders and the future draft-review finder).
+- DB tables.  =vulpea-schema= is validation-only — it reads a note's
+  already-extracted metadata and reports violations.  It never creates the
+  =typed_edges= table (that is the extractor's job), so this module is
+  independent of the typed-edge extractor.
+
+Each schema's =:predicate= selects which notes it governs by *filetag
+membership* (the filetag is the selector, not the whole taxonomy).  Field
+sets are small and honest — this is a spike: =reference= must carry a
+=source=, =project= must carry a =status=; =log=/=debug=/=topic= are
+lighter.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; schemas.el --- org-graph note-type schemas -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+(require 'vulpea)
+#+end_src
+
+* Note-type resolution
+
+Like the extractor, this module tolerates being loaded standalone (e.g.
+in a unit spec) by falling back to the same default the loader's
+defcustom uses when =org-graph-note-types= is unbound.
+
+A note-type symbol maps to a schema name by prefixing =org-graph-=
+(=topic= ⇄ =org-graph-topic=) and to a filetag by its bare symbol name
+(=topic= ⇄ the =topic= filetag).
+
+#+begin_src emacs-lisp
+(defconst org-graph-schemas--default-note-types
+  '(log debug topic reference project)
+  "Fallback note-type set when `org-graph-note-types' is unbound.
+Kept in sync with the loader's defcustom default so the schemas behave
+identically whether loaded standalone or as part of the full module.")
+
+(defun org-graph-schemas--note-types ()
+  "Return the active list of note-type symbols."
+  (if (boundp 'org-graph-note-types)
+      org-graph-note-types
+    org-graph-schemas--default-note-types))
+
+(defun org-graph-schemas--schema-name (type)
+  "Return the vulpea-schema name symbol for note-type TYPE.
+E.g. `topic' -> `org-graph-topic'."
+  (intern (format "org-graph-%s" type)))
+
+(defun org-graph-schemas--tag-predicate (tag)
+  "Return a predicate selecting notes carrying filetag TAG.
+The returned function takes a `vulpea-note' and is non-nil when TAG is
+among the note's tags."
+  (lambda (note) (and (member tag (vulpea-note-tags note)) t)))
+#+end_src
+
+* Schema registration
+
+One =vulpea-schema-define= per note type.  =vulpea-schema-define= has the
+signature =(name &key predicate fields)=; each field is a plist with a
+string =:key= and optional =:type= / =:required= / =:one-of= (verified
+against the vulpea 2.4 source).  Fields read from a note's metadata via
+=vulpea-note-meta-get=, so a filetag cannot itself be a field — the
+filetag is encoded in the =:predicate= and the fields are honest meta
+keys.
+
+#+begin_src emacs-lisp
+(defun org-graph-schemas-register ()
+  "Define and register a vulpea-schema for each org-graph note type.
+Idempotent: re-running replaces the existing registrations.  Returns the
+list of registered schema names."
+  (vulpea-schema-define 'org-graph-log
+    :predicate (org-graph-schemas--tag-predicate "log")
+    :fields '((:key "date" :type string)))
+
+  (vulpea-schema-define 'org-graph-debug
+    :predicate (org-graph-schemas--tag-predicate "debug")
+    :fields '((:key "status" :type symbol :one-of (open resolved))))
+
+  (vulpea-schema-define 'org-graph-topic
+    :predicate (org-graph-schemas--tag-predicate "topic")
+    :fields '((:key "category" :type string)))
+
+  (vulpea-schema-define 'org-graph-reference
+    :predicate (org-graph-schemas--tag-predicate "reference")
+    :fields '((:key "source" :type string :required t)))
+
+  (vulpea-schema-define 'org-graph-project
+    :predicate (org-graph-schemas--tag-predicate "project")
+    :fields '((:key "status" :type symbol :required t
+               :one-of (active paused done))))
+
+  (mapcar #'org-graph-schemas--schema-name (org-graph-schemas--note-types)))
+#+end_src
+
+Register on load so the schemas are available as soon as the module is
+present.
+
+#+begin_src emacs-lisp
+(org-graph-schemas-register)
+#+end_src
+
+* Validation wrappers
+
+Thin wrappers over the vulpea-schema validation engine.  Both return the
+list of =vulpea-violation= structs (=nil= when conformant).
+
+=org-graph/validate-note-type= validates a single in-memory note against
+whichever note-type schema(s) apply to it — no DB access.
+=org-graph/validate-all-of-type= delegates to
+=vulpea-schema-validate-all=, which selects matching notes from the
+vulpea DB and validates each.
+
+#+begin_src emacs-lisp
+(defun org-graph/validate-note-type (note)
+  "Validate NOTE against whichever org-graph note-type schema(s) apply.
+For each note-type in `org-graph-note-types' whose schema predicate
+matches NOTE (by filetag), run `vulpea-schema-validate' and return the
+appended list of `vulpea-violation's.  Returns nil when NOTE conforms or
+when no note-type schema applies.  Pure with respect to the DB."
+  (cl-loop for type in (org-graph-schemas--note-types)
+           for name = (org-graph-schemas--schema-name type)
+           when (and (vulpea-schema-get name)
+                     (vulpea-schema-applies-p note name))
+           append (vulpea-schema-validate note name)))
+
+(defun org-graph/validate-all-of-type (type)
+  "Return all violations for stored notes of note-type TYPE.
+TYPE is a symbol from `org-graph-note-types'.  Thin wrapper over
+`vulpea-schema-validate-all', which selects matching notes via the schema
+predicate and validates each; this hits the vulpea DB."
+  (vulpea-schema-validate-all (org-graph-schemas--schema-name type)))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-schemas)
+;;; schemas.el ends here
+#+end_src
