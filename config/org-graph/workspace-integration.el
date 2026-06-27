@@ -16,9 +16,10 @@ PAYLOAD is the anchor plist (`:name' `:home' `:sessions-dir'
 `:context').  Returns `skipped' when `org-graph-watch-workspace-homes'
 is nil or PAYLOAD carries no `:home'; otherwise appends the
 canonicalised home to `vulpea-db-sync-directories' (deduped) and calls
-`vulpea-db-sync-update-directory' on it — filenotify watchers are NOT
-auto-installed for directories added after autosync starts, so this is
-the registration seam (RE-2) — and returns `ok'.  Reads ONLY the pushed
+`vulpea-db-sync-update-directory' to index it immediately (a one-shot
+index, NOT a filenotify watcher install — ongoing watching of a
+post-autosync directory is picked up on the next autosync restart, via
+the `:menu'/`org-graph/configure-sync' path) — and returns `ok'.  Reads ONLY the pushed
 PAYLOAD; never consults the current/global workspace state.  A signalled
 error propagates to the registry's per-integration guard, which
 normalises it to (failed . REASON) without rolling back the workspace."

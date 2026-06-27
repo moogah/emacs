@@ -15,11 +15,14 @@ Two surfaces are registered for the =org-graph= integration:
 - =:on-create= — fired once at workspace birth with the pushed anchor
   payload (=:name :home :sessions-dir :context=).  When
   =org-graph-watch-workspace-homes= is non-nil it appends the payload's
-  =:home= to =vulpea-db-sync-directories= and installs a filenotify
-  watcher for it via =vulpea-db-sync-update-directory=.  This closes the
-  RE-2 gap: vulpea does NOT auto-install watchers for directories added
-  to the sync set *after* autosync has started, so a workspace created
-  mid-session would otherwise never be watched.  The handler reads ONLY
+  =:home= to =vulpea-db-sync-directories= and indexes it immediately via
+  =vulpea-db-sync-update-directory= (a one-shot index, NOT a filenotify
+  watcher install).  This addresses the RE-2 gap so a workspace created
+  mid-session is indexed at birth; vulpea does not retroactively install a
+  live filenotify watcher for a directory added to the sync set *after*
+  autosync has started, so ongoing watching of the new home is picked up
+  on the next autosync restart — which the =:menu= / =org-graph/configure-sync=
+  path performs.  The handler reads ONLY
   the pushed payload — it never consults the current/global workspace
   state — and returns the registry outcome protocol value
   (=ok= / =skipped= / a signalled error the registry normalises to
@@ -85,8 +88,10 @@ returns =skipped=.  A payload without a =:home= (defensive: a stale or
 hand-built anchor) is also =skipped= rather than signalled.  Otherwise it
 appends the canonicalised home to =vulpea-db-sync-directories= (deduped,
 appended so the roam vault keeps priority) and calls
-=vulpea-db-sync-update-directory= to install the watcher vulpea would not
-otherwise add for a post-autosync directory, then returns =ok=.
+=vulpea-db-sync-update-directory= to index the new home immediately (a
+one-shot index — a live filenotify watcher is not installed for a
+post-autosync directory until the next autosync restart), then returns
+=ok=.
 
 #+begin_src emacs-lisp
 (defun org-graph-workspace-integration--on-create (payload)
@@ -95,9 +100,10 @@ PAYLOAD is the anchor plist (`:name' `:home' `:sessions-dir'
 `:context').  Returns `skipped' when `org-graph-watch-workspace-homes'
 is nil or PAYLOAD carries no `:home'; otherwise appends the
 canonicalised home to `vulpea-db-sync-directories' (deduped) and calls
-`vulpea-db-sync-update-directory' on it — filenotify watchers are NOT
-auto-installed for directories added after autosync starts, so this is
-the registration seam (RE-2) — and returns `ok'.  Reads ONLY the pushed
+`vulpea-db-sync-update-directory' to index it immediately (a one-shot
+index, NOT a filenotify watcher install — ongoing watching of a
+post-autosync directory is picked up on the next autosync restart, via
+the `:menu'/`org-graph/configure-sync' path) — and returns `ok'.  Reads ONLY the pushed
 PAYLOAD; never consults the current/global workspace state.  A signalled
 error propagates to the registry's per-integration guard, which
 normalises it to (failed . REASON) without rolling back the workspace."
