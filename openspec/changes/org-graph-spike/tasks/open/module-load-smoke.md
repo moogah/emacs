@@ -159,3 +159,88 @@ Absorb before implementing:
   predates vulpea landing in `main`); the org-graph suite needs vulpea on `load-path`.
   Ensure a fresh `init-worktree-runtime.sh` (post-vulpea) or copy vulpea into the
   worktree runtime before running `-d config/org-graph`.
+
+## Observations
+
+- **The loader (`org-graph.el`) is scattered and omits two submodules.** The
+  current loader loads, in this order: `query` -> `tools` ->
+  `workspace-integration` -> `schemas` -> `finders` (coordinator pulled in
+  transitively by tools). It does NOT load `extractor.el` or `discovery.el`.
+  So a bare `(require 'org-graph)` does NOT define `org-graph-extractor-register`
+  nor `org-graph/configure-sync` / `org-graph/seed-org-id-locations`, and never
+  registers the typed-edge extractor. The smoke spec therefore loads every
+  submodule by path in the canonical dependency order
+  (`schemas -> extractor -> coordinator -> query -> finders -> tools ->
+  discovery`, workspace-integration after tools) and drives the
+  function-exposed registration entry points explicitly. This asserts the END
+  STATE the downstream `wire-into-init` task must make the consolidated loader
+  reach. See Discoveries (invariant-gap) for the register reconciliation.
+- **Loader order also differs from canonical even for the submodules it DOES
+  load:** it loads `query`/`tools`/`workspace-integration` BEFORE `schemas`,
+  whereas the canonical order puts `schemas` (and `extractor`) first. This works
+  today only because the schemas->finders edge is the sole hard load-time
+  dependency the loader currently honors; `wire-into-init` owns the full
+  reorder.
+- **Registration is function-exposed by design (not load-time) to avoid a
+  require-time DB open.** `org-graph-extractor-register` -> `vulpea-db-register-extractor`
+  -> `vulpea-db--apply-plugin-schema` -> `(vulpea-db)` opens SQLite; and
+  `discovery.el` runs `org-graph/seed-org-id-locations` (a `vulpea-db-query`) at
+  load. The spec stubs the vulpea DB boundary (`vulpea-db`/`emacsql`/`vulpea-db-query`
+  via `cl-letf`) so no live SQLite DB or fswatch is touched. This confirms the
+  "registration is function-exposed, not load-time" cycle note: extractor/tools
+  registration are safe to call, but the discovery seed at load DOES reach for
+  the DB (error-guarded) -- a consolidated loader that simply `require`s
+  discovery will attempt a DB query at load time. Flagged for `wire-into-init`.
+- **Tool registration is gptel-gated.** `tools.el` only registers when
+  `(fboundp 'gptel-make-tool)`. The spec loads gptel (adds the compat+gptel
+  straight build dirs, mirroring `tools-spec`) so the real registration path
+  fires and the three tools land in `gptel--known-tools` (asserted via
+  `gptel-get-tool`). The per-module `tools-spec` already covers the nil-tolerant
+  gptel-absent case, so this spec drives the present case.
+
+## Discoveries
+- discovery_id: disc-module-load-smoke-1
+  class: invariant-gap
+  description: |
+    `register/invariant/org-graph-loader-ordered-sequence` is currently
+    DIVERGENT, not reconciled. The invariant states `org-graph.org`/`.el`
+    load-wires EVERY submodule via `jf/load-module` BY PATH in one
+    consolidated dependency-correct sequence
+    (`schemas -> extractor -> coordinator -> query -> finders -> tools ->
+    discovery`, workspace-integration after tools). In reality the current
+    loader (1) OMITS `extractor.el` and `discovery.el` entirely, and (2)
+    loads the submodules it does load in a non-canonical order (query/tools/
+    workspace-integration before schemas). Consequence: a cold standalone
+    `(require 'org-graph)` does NOT fire all registrations -- the typed-edge
+    extractor is never registered and the discovery functions are undefined.
+    The smoke spec proves this by having to load `extractor.el`/`discovery.el`
+    by path itself (the loader did not) to make every registration land.
+  affected_register_entry: register/invariant/org-graph-loader-ordered-sequence
+  recommendation: |
+    Move the invariant speculated -> divergent until the downstream
+    `wire-into-init` task consolidates the loader. `wire-into-init` MUST: add
+    `extractor.el` and `discovery.el` to the loader; reorder to the canonical
+    `schemas -> extractor -> coordinator -> query -> finders -> tools ->
+    discovery` (workspace-integration after tools); and decide whether the
+    discovery seed should run at load (it reaches the DB) or be deferred to a
+    post-init hook. Once consolidated, this smoke spec can be simplified to
+    `(require 'org-graph)` alone (dropping the explicit per-submodule
+    `require`s) and the invariant can move divergent -> reconciled. Until then
+    the spec documents the END STATE the loader must reach.
+- discovery_id: disc-module-load-smoke-2
+  class: spec-signal
+  description: |
+    Step 5 of the task and the cycle update reference "the gptel tool
+    registry"; concretely that is gptel's `gptel--known-tools` alist, queried
+    via `gptel-get-tool` (which signals if absent), with the org-graph tools
+    filed under category "org-graph". `org-graph/agent-tools` is the separate
+    reusable accessor returning the constructed `gptel-tool` objects. Both
+    surfaces are asserted and both depend on `org-graph-tools-register` having
+    run under a loaded gptel. This is consistent with
+    `register/boundary/org-graph-agent-tools` (RECONCILED); no drift found
+    there.
+  affected_register_entry: register/boundary/org-graph-agent-tools
+  recommendation: |
+    No reconciliation needed -- entry matches implementation. Recorded only so
+    integrate has the concrete registry symbol (`gptel--known-tools` /
+    `gptel-get-tool`) the smoke gate uses.
