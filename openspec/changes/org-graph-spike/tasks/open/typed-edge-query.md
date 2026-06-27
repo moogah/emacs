@@ -1,53 +1,54 @@
 ---
 name: typed-edge-query
-description: Implement org-graph-query/{outgoing,incoming,connected} on top of vulpea-db-query, test-first with vulpea mocked.
+description: Implement outgoing, incoming, and connected typed-edge queries on top of the vulpea typed_edges table, test-first with vulpea mocked.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:test-helpers"
-  - "blocked-by:vulpea-extractor-plugin"
+  - blocked-by:vulpea-extractor-plugin
+  - blocked-by:test-helpers
 ---
 
 ## Files to modify
-
-- `config/org-graph/test/query/typed-edges-spec.el` (new) — Buttercup spec, written first.
-- `config/org-graph/org-graph.org` (modify) — fill the `Query` subtree.
+- `config/org-graph/query.el` ← via `config/org-graph/org-graph.org`
+  (Query section)
+- `config/org-graph/test/typed-edges-spec.el` (new)
 
 ## Implementation steps
-
-1. Write the spec first. `describe "org-graph-query"` with nested `describe`s for `outgoing`, `incoming`, `connected`. For each:
-   - returns rows matching the requested filter.
-   - filters by `rel-type` when provided.
-   - returns empty list when no edges exist.
-   - dedupes when the same `(from rel-type to)` would otherwise repeat.
-
-   Stub the underlying vulpea query function via `org-graph-test/with-stubbed-vulpea` so tests are deterministic without a real DB. Capture the query payload passed to `vulpea-db-query` and assert it shapes correctly (column projection, where clause).
-
-2. In the `Query` subtree, implement:
-   - `org-graph-query/outgoing (from-id &optional rel-type)` — selects rows from `typed_edges` where `from-id` matches and (optionally) `rel-type` matches.
-   - `org-graph-query/incoming (to-id &optional rel-type)` — selects rows where `to-id` matches.
-   - `org-graph-query/connected (note-id)` — union of outgoing and incoming for `note-id`, deduped.
-
-3. Each function returns a list of `(:from FROM :rel REL :to TO :to-title TITLE)` plists. Resolve `:to-title` via `vulpea-db-get-by-id` for each `to-id`. If a target has been deleted, the row may have already been cascaded away; defensive nil-check the title.
-
-4. Use `vulpea-db-query` with structured predicates per the vulpea v2 API. Read the vulpea source (`vulpea-db-query.el`) at implementation time to match the actual call signature.
-
-5. Run tests until green: `./bin/run-tests.sh -d config/org-graph/test/query`.
+1. Implement the typed-edge query API against the `typed_edges` table:
+   - `org-graph-query/outgoing (from-id &optional rel-type)` — edges where
+     `from-id` matches, optionally filtered by relation type.
+   - `org-graph-query/incoming (to-id &optional rel-type)` — edges where
+     `to-id` matches (this is how "incoming" relations resolve, since edges
+     are stored directionally and NOT auto-symmetrized — see Non-Goals).
+   - `org-graph-query/connected (note-id)` — union of outgoing and incoming.
+2. Back them with `vulpea-db-query` (or a direct emacsql select against
+   `typed_edges`). Return plists or structs with `:from`, `:rel`, `:to` and,
+   where useful, the resolved target `vulpea-note` (via `vulpea-db-get-by-id`)
+   so callers/agents get titles, not just ids.
+3. Keep relation-type filtering a simple predicate on the normalized symbol.
+4. Write `typed-edges-spec.el` with `org-graph-test/with-stubbed-vulpea`:
+   fixture `typed_edges` rows; assert outgoing/incoming/connected return the
+   right subsets, and that `rel-type` filtering narrows correctly. No live DB.
 
 ## Design rationale
+Edges are explicitly authored and directional — there is no auto-derived
+symmetry (design.md Non-Goals), so "incoming" is a real query against `to-id`,
+not a mirror of outgoing. This API is the read half of the agent-facing graph
+surface; keeping it a thin, mockable layer over `vulpea-db-query` matches the
+behavioral-test convention and isolates us from vulpea internals.
 
-The query API is the surface AI agents call most. Returning structured plists with resolved titles (`:to-title`) means agents don't need a second round-trip to render edges as something a human can read. Dedup in `connected` matters because reciprocal edges (A implements B, B relates-to A) could otherwise show A→B twice in one call.
-
-Mocking `vulpea-db-query` at the function boundary (architecture.md §Test Patterns) keeps the spec fast and isolates the test from vulpea's schema evolution. If vulpea changes its query API, this is the only file in the test suite that needs updating.
+## Design pattern
+Mock at the vulpea API boundary (`vulpea-db-query`, `vulpea-db-get-by-id`) per
+design.md Testing Approach. Return resolved notes so the gptel tool layer can
+present human-readable edges.
 
 ## Verification
-
-- `./bin/run-tests.sh -d config/org-graph/test/query` — green.
-- `grep -nE "defun org-graph-query/(outgoing|incoming|connected)" config/org-graph/org-graph.el` — 3 matches.
-- Manual: with the spike loaded and a few `:IMPLEMENTS:` properties added to `~/org/roam/` notes, `(org-graph-query/outgoing "<some-id>")` returns the expected rows.
+- `./bin/run-tests.sh -d config/org-graph/test` — query specs pass for
+  outgoing, incoming, connected, and rel-type-filtered cases.
+- Manual: against a roam note carrying `:IMPLEMENTS:`,
+  `org-graph-query/outgoing` returns the edge and resolves the target title.
 
 ## Context
-
-- specs/org-graph/spec.md §Typed Semantic Edges (query-API requirements)
-- architecture.md §Components §org-graph-query
-- design.md §D4
+design.md § Components (org-graph-query); design.md § Non-Goals
+(no auto-symmetry); architecture.md § Interfaces.
+</content>

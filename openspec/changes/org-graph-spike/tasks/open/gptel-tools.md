@@ -1,57 +1,62 @@
 ---
 name: gptel-tools
-description: Register three gptel tools (query-notes, typed-edges, write-node) so AI agents can read the graph and write coordinator-mediated notes.
+description: Register graph query and coordinator-mediated write-node gptel tools so AI agents can read the typed graph and write notes safely.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:typed-edge-query"
-  - "blocked-by:coordinator-lock"
+  - blocked-by:typed-edge-query
+  - blocked-by:coordinator-lock
 ---
 
 ## Files to modify
-
-- `config/org-graph/org-graph.org` (modify) — fill the `Tools` subtree.
+- `config/org-graph/tools.el` ← via `config/org-graph/org-graph.org`
+  (gptel tools section)
+- `config/org-graph/test/tools-spec.el` (new)
 
 ## Implementation steps
-
-1. In the `Tools` subtree, register three gptel tools using `gptel-make-tool` (or whatever the existing repo pattern is — check `config/gptel/tools/` for the canonical form):
-
-   - `org-graph-query-notes` (read) — args: optional `filetags` list, optional `title-match` regex. Returns a list of `{:id :title :tags :file}` plists. Implementation calls `vulpea-db-query` with predicates derived from args.
-
-   - `org-graph-typed-edges` (read) — args: `note-id`, optional `direction` (`outgoing` / `incoming` / `both` — defaults to `both`), optional `rel-type`. Delegates to `org-graph-query/outgoing` etc. Returns the plists from the query layer.
-
-   - `org-graph-write-node` (write) — args: `title`, `filetags` list, optional `body`, optional `typed-edges` (list of `{rel-type, to-id}` maps). Behavior:
-     1. Generate a slug from `title` and a deterministic filename `topic-<slug>-<yyyymmddhhmmss>.org` under `org-graph-typed-graph-root`.
-     2. Generate a fresh UUID via `org-id-new`.
-     3. Wrap the file write in `org-graph-coordinator/with-file-lock`. Inside: write a node with `:ID:`, `:PROPERTIES:` containing the typed-edge entries, `#+filetags:` line carrying the requested tags PLUS `:agent-draft:`.
-     4. Call `org-id-add-location` to register the new ID.
-     5. Return the new note's id and absolute path.
-
-2. The write tool MUST stamp `:agent-draft:` unconditionally unless the args explicitly include `(:no-draft-tag t)`. Per spec scenario: agent-authored notes carry the draft tag by default.
-
-3. Register the tools under a category like `'org-graph` (or whatever your existing gptel registry conventions use). Document the tool descriptions in the registration's `:description` field with a one-line summary so the model knows when to call them.
-
-4. Add a module-load assertion: `(cl-assert (functionp 'org-graph-coordinator/with-file-lock))` before the tool registration. If the coordinator isn't loaded, fail loudly rather than register a tool that bypasses the lock.
-
-5. Tangle: `./bin/tangle-org.sh config/org-graph/org-graph.org`.
+1. Register gptel tools via `gptel-make-tool`, namespaced `org-graph-*`:
+   - `org-graph-query` — structured note query (wraps `vulpea-db-query` /
+     finders); returns plists of matching notes (id, title, tags, path).
+   - `org-graph-typed-edges` — wraps `org-graph-query/{outgoing,incoming,
+     connected}`; returns resolved edges (from/rel/to with target titles).
+   - `org-graph-write-node` — creates/updates a note; the write MUST route
+     through `org-graph-coordinator/with-file-lock`. Stamp an
+     `:agent-draft:` filetag on agent-created notes. Returns the new note id
+     and path.
+2. Keep the tools as a registration LIST/function the workspace-integration
+   task can hand to the `workspace-assistant` preset `:tools` slot — do not
+   hard-wire them only into the global gptel tool registry. Expose
+   `org-graph/agent-tools` returning the tool objects/names.
+3. Tool descriptions must state the boundary: typed-edge extraction runs only
+   on `~/org/roam/` notes (D2/RE-4), so writing a project-local note will not
+   produce typed edges. This keeps agent prompts honest.
+4. Write `tools-spec.el`: assert the three tools are constructed; the
+   write-node path invokes the coordinator (stub `with-file-lock` and assert
+   it wrapped the write); the write stamps `:agent-draft:`.
 
 ## Design rationale
+RE-5: the agent-facing surface plugs into workspaces. Exposing the tools as a
+reusable list lets the workspace-integration task fill the
+`workspace-assistant` preset's deliberately-empty `:tools` slot, so the
+per-workspace agent (already directory-scoped via `GPTEL_WORK_ROOT`) can query
+the graph. Routing every write through the coordinator (D5) is the
+corruption-safety guarantee.
 
-The three-tool surface is the minimum viable agent contract: one read for "find me notes by tag/title", one read for "what does this note connect to", one write for "create a new node and link it". Anything more is YAGNI for the spike (design.md §Goals).
-
-Routing the write through the coordinator (design.md §D5) is the only thing standing between the user's vault and concurrent-write corruption. The cl-assert guards the contract — if a future change accidentally drops the wrap, the assertion catches it at module-load, not at the moment two agents collide on a file.
-
-The mandatory `:agent-draft:` stamping (design.md §Goals, spec scenarios) is the curation hygiene gate — it lets the user trust that nothing the agents write pollutes the topic finder until reviewed.
+## Design pattern
+`gptel-make-tool` per existing tools in `config/gptel/tools/`. Read tools
+return plists; the write tool returns id + path. Mirror the metadata/argument
+conventions of the filesystem tools and their contract tests in
+`config/gptel/tools/test/`.
 
 ## Verification
-
-- `./bin/tangle-org.sh config/org-graph/org-graph.org` — exits 0.
-- `grep -nE "gptel-make-tool.*org-graph-(query-notes|typed-edges|write-node)" config/org-graph/org-graph.el` — 3 matches.
-- `grep -n "with-file-lock" config/org-graph/org-graph.el | grep -i tools` — at least one match (write tool wraps the coordinator).
-- `grep -n "agent-draft" config/org-graph/org-graph.el` — at least one match in the Tools subtree (mandatory stamping).
+- `./bin/run-tests.sh -d config/org-graph/test` — tools spec passes
+  (construction, coordinator-wrapped write, draft stamp).
+- Manual smoke: the three tools appear in the gptel tool registry; a write
+  through `org-graph-write-node` creates a note with `:agent-draft:` and does
+  not corrupt under a simulated double call.
 
 ## Context
-
-- design.md §D5
-- specs/org-graph/spec.md §Agent-Facing Graph Tools (all four scenarios)
-- architecture.md §Components §org-graph-tools
+design.md § Re-evaluation (RE-5); design.md § Decisions D5;
+architecture.md § Interfaces (gptel tool surface);
+config/gptel/presets/workspace-assistant/preset.org (empty :tools slot).
+</content>

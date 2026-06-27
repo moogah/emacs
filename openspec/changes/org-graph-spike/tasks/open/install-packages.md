@@ -1,41 +1,58 @@
 ---
 name: install-packages
-description: Install org-node, vulpea v2, and vulpea-journal via straight.el with pinned commits so subsequent tasks have the libraries available.
+description: Install vulpea v2.4+ via straight.el with a pinned commit (org-node is NOT adopted) so subsequent tasks have the library available.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:scaffold-module"
+  - blocked-by:scaffold-module
 ---
 
 ## Files to modify
-
-- `config/org-graph/org-graph.org` (modify) — add a `Packages` subtree before submodule subtrees with three `use-package` blocks pinned via `:straight (... :commit "...")`.
+- `config/org-graph/org-graph.org` (modify) — add the `use-package`/straight
+  recipe(s) in the loader's package section.
 
 ## Implementation steps
-
-1. In `config/org-graph/org-graph.org`, add a `Packages` subtree with use-package + straight recipes for:
-   - `org-node` — `:straight (org-node :type git :host github :repo "meedstrom/org-node" :commit "...")`. Look up the current HEAD commit at implementation time.
-   - `vulpea` — `:straight (vulpea :type git :host github :repo "d12frosted/vulpea" :commit "...")`. Pin to a v2 release tag if available; otherwise current master at implementation time.
-   - `vulpea-journal` — install but `:defer t` and DO NOT bind keys (per design.md §Open Question 5).
-
-2. Add an `fswatch` precondition check that warns (does not error) at module-load if `(executable-find "fswatch")` returns nil. Vulpea v2 needs it for external-change detection.
-
-3. Tangle: `./bin/tangle-org.sh config/org-graph/org-graph.org`.
-
-4. Smoke-test in an isolated Emacs that the three packages load without error: `./bin/emacs-isolated.sh -nw --batch --eval "(progn (require 'org-node) (require 'vulpea) (require 'vulpea-journal) (message \"OK\"))"`.
+1. Add a `use-package vulpea` straight recipe pinned to a specific commit (NOT
+   `master`):
+   ```elisp
+   (use-package vulpea
+     :straight (vulpea :type git :host github :repo "d12frosted/vulpea" :commit "<pin>")
+     :config ...)  ;; sync-directories / autosync configured in registry-discovery task
+   ```
+   Pin to a v2.4.x release tag/commit. Record the chosen commit in a comment.
+2. Do NOT add org-node, org-mem. RE-2 resolved discovery to vulpea-only;
+   org-node's only unique value (global `org-id-locations` upkeep) is already
+   covered by vulpea's `org-id-add-location` calls. A second index would be
+   redundant double-work.
+3. `vulpea-journal` is OPTIONAL and deferred (Open Question 5): if installed,
+   use `:defer t` and bind no keys. Prefer to omit it entirely for the first
+   pass and add later if the eval wants daily-log evaluation.
+4. Verify the system has `fswatch` available (preferred vulpea change-detection
+   backend on macOS): `brew list fswatch` — note in a comment that absence
+   falls back to fd/find polling.
+5. Smoke-test load in isolated batch Emacs:
+   `./bin/emacs-isolated.sh -nw --batch --eval "(progn (require 'vulpea) (message \"OK %s\" (vulpea-version)))"`.
 
 ## Design rationale
+Pinning is now ordinary hygiene rather than a spike-survival mechanism: vulpea
+2.4 ships parser-epoch cache invalidation, schema-version auto-rebuild, and
+async-default sync, which retired the original "API still evolving" risk
+(RE-6). Vulpea-only avoids the two-scanner / two-cache cost of running
+org-node alongside it (RE-2).
 
-Pinning to specific commits is a hard requirement for vulpea v2 — released January 2026, API still evolving (design.md §Risks). Without pinning, a `straight pull` could break the spike unpredictably. `vulpea-journal` is installed-but-deferred so it's available for evaluation without committing to a daily-log workflow change yet (design.md §Open Question 5).
+## Design pattern
+Straight recipe style per CLAUDE.md § Packages and existing `use-package`
+blocks in `config/gptel/`. Keep the `:config` minimal here — directory sync
+and autosync wiring belong to `registry-discovery`.
 
 ## Verification
-
-- `./bin/tangle-org.sh config/org-graph/org-graph.org` — exits 0.
-- `grep -n ":commit" config/org-graph/org-graph.el | wc -l` — 3.
-- `./bin/emacs-isolated.sh -nw --batch --eval "(progn (require 'org-node) (require 'vulpea) (message \"OK\"))"` — prints `OK` and exits 0.
-- `grep -n "fswatch" config/org-graph/org-graph.el` — at least one match for the precondition check.
+- The smoke-test eval prints `OK <version>` and exits 0.
+- `vulpea-doctor` (M-x in an interactive isolated session) reports the version
+  and a sane configuration.
+- `grep -n "org-node\|org-mem" config/org-graph/org-graph.org` returns nothing
+  (org-node intentionally absent).
 
 ## Context
-
-- design.md §Decisions §D1, §Risks
-- design.md §Open Questions §5
+design.md § Re-evaluation (RE-2 discovery engine, RE-6 risk retired);
+design.md § Dependencies; CLAUDE.md § Packages (straight.el).
+</content>

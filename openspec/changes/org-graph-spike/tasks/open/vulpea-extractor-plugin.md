@@ -1,62 +1,70 @@
 ---
 name: vulpea-extractor-plugin
-description: Wrap the pure parser as a vulpea extractor plugin that registers the typed_edges schema and stores edge tuples for query.
+description: Wrap the pure parser as a vulpea extractor that registers a typed_edges table and stores edge tuples, scoped to the roam vault.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:parse-typed-edges"
+  - blocked-by:parse-typed-edges
 ---
 
 ## Files to modify
-
-- `config/org-graph/org-graph.org` (modify) — extend the `Extractor` subtree with the vulpea plugin wrapper.
+- `config/org-graph/extractor.el` ← via `config/org-graph/org-graph.org`
+  (Extractor section) — the vulpea-registration part
+- `config/org-graph/test/extractor-spec.el` (new)
 
 ## Implementation steps
-
-1. Inside the `Extractor` subtree (after the pure parser), define the plugin via `make-vulpea-extractor`:
-
+1. Register an extractor via `make-vulpea-extractor` + `vulpea-db-register-extractor`:
    ```elisp
-   (defvar org-graph-extractor--plugin
-     (make-vulpea-extractor
-      :name 'org-graph-typed-edges
-      :version 1
-      :priority 50
-      :schema '((typed_edges
-                 [(from-id :not-null) (rel-type :not-null) (to-id :not-null)]
-                 (:primary-key [from-id rel-type to-id])
-                 (:foreign-key [from-id] :references notes [id]
-                  :on-delete :cascade)))
-      :extract #'org-graph-extractor--extract))
+   (vulpea-db-register-extractor
+    (make-vulpea-extractor
+     :name 'org-graph-typed-edges
+     :version 1
+     :priority 50
+     :schema '((typed_edges
+                [(from-id :not-null) (rel-type :not-null) (to-id :not-null)]
+                (:foreign-key [from-id] :references notes [id] :on-delete :cascade)))
+     :extract-fn #'org-graph-extractor/extract))
    ```
-
-2. Implement the `:extract` callback:
-   - Receives `(parse-ctx note-data)`.
-   - **Bail out fast** if `(file-in-directory-p (vulpea-parse-ctx-path parse-ctx) org-graph-typed-graph-root)` is nil — only the typed-graph root participates in the index (design.md §D2, spec scenario "Project-local note is excluded").
-   - Call `org-graph-extractor/parse-typed-edges` with the AST and the note's id.
-   - Return `note-data` augmented with `:typed-edges <tuples>`. Vulpea handles inserting into `typed_edges` based on the schema declaration.
-
-3. Register the extractor with vulpea at module-load time (only after vulpea is loaded). Use `with-eval-after-load 'vulpea` to gate registration.
-
-4. The `:on-delete :cascade` on the foreign key is mandatory — when a note is deleted, its outgoing edges go with it. Per the vulpea plugin guide.
-
-5. Tangle: `./bin/tangle-org.sh config/org-graph/org-graph.org`.
+2. `org-graph-extractor/extract (ctx note-data)`: obtain the AST via
+   `vulpea-parse-ctx-ast` from `ctx`, call
+   `org-graph-extractor/parse-typed-edges` with the note's id, and insert the
+   resulting tuples into the `typed_edges` table via `emacsql`. Return
+   `note-data` (possibly unchanged) per the extractor contract.
+3. SCOPE the extraction to the roam vault: only emit edges when the note's
+   path is under `org-graph-roam-root`. Project/session notes participate in
+   discovery and navigation but NOT in the typed-edge index (D2/RE-4). Decide
+   the scope check inside `extract` (cheap path prefix test).
+4. Parser-epoch discipline: document that changing the parser's output for
+   the same input requires bumping `vulpea-db-parser-epoch` so vulpea clears
+   the file cache and re-extracts. Add a comment near the extractor noting
+   this.
+5. Write `extractor-spec.el`: stub `vulpea-parse-ctx-ast` and the emacsql
+   insert (via the helper), assert that for a roam-path note the extractor
+   inserts the expected tuples, and for a non-roam-path note it inserts
+   nothing.
 
 ## Design rationale
+RE-4: the semantic typed-edge extractor is net-new but now rides vulpea 2.4's
+mature plugin API (`make-vulpea-extractor`) and parser-epoch cache
+invalidation instead of bleeding-edge internals. Scoping to roam keeps the
+typed graph a curation discipline on durable concept notes (D2) and bounds
+write/inotify load.
 
-The plugin wrapper is intentionally thin — its only jobs are (a) declaring the schema vulpea should manage, and (b) gating extraction to the typed-graph root. All parsing logic lives in the pure function (previous task) so it remains testable without vulpea (design.md §D4). The root-gate enforces design §D2: project-local notes are visible to discovery and navigation but never participate in the typed-edge index.
-
-The `with-eval-after-load 'vulpea` gate ensures the registration doesn't break module-load if vulpea hasn't initialized yet.
+## Design pattern
+Extractor struct + registration from vulpea's plugin guide; `:on-delete
+:cascade` on the notes FK so deleting a note drops its edges. Priority 50
+(after core extractors 0-9). Keep the wrapper thin — all parsing logic lives
+in the pure function from `parse-typed-edges`.
 
 ## Verification
-
-- `./bin/tangle-org.sh config/org-graph/org-graph.org` — exits 0.
-- `grep -n "make-vulpea-extractor" config/org-graph/org-graph.el` — exactly one match.
-- `grep -n "on-delete :cascade" config/org-graph/org-graph.el` — at least one match.
-- `grep -n "file-in-directory-p.*org-graph-typed-graph-root" config/org-graph/org-graph.el` — at least one match (the root-gate).
-- Manual eval: in a fresh Emacs with the spike module loaded, `(member 'org-graph-typed-edges (mapcar #'vulpea-extractor-name (vulpea-db-extractors)))` returns non-nil.
+- `./bin/run-tests.sh -d config/org-graph/test` — extractor spec passes
+  (roam note → tuples inserted; non-roam note → none).
+- Manual: add an `:IMPLEMENTS:` property to a roam note, trigger a sync, and
+  confirm the `typed_edges` table has the row (queryable via the next task).
+- Caveat to check empirically (per research): confirm a `parser-epoch` bump
+  actually re-runs this extractor to repopulate `typed_edges`.
 
 ## Context
-
-- design.md §D2, §D4
-- architecture.md §Components §org-graph-extractor
-- specs/org-graph/spec.md §Typed Semantic Edges (especially the "project-local excluded" scenario)
+design.md § Decisions D2, D4; design.md § Re-evaluation (RE-4);
+architecture.md § Interfaces (Vulpea integration).
+</content>

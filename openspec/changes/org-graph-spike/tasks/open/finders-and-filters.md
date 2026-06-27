@@ -1,62 +1,54 @@
 ---
 name: finders-and-filters
-description: Implement per-taxonomy finder commands (find-topic, find-debug, etc.) backed by org-node-find with filetag predicates, test-first.
+description: Implement schema-aware per-type finder commands backed by vulpea-select with a note-type predicate.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:test-helpers"
-  - "blocked-by:install-packages"
+  - blocked-by:note-type-schemas
+  - blocked-by:test-helpers
 ---
 
 ## Files to modify
-
-- `config/org-graph/test/finders/filetag-filter-spec.el` (new) — Buttercup spec, written first.
-- `config/org-graph/org-graph.org` (modify) — fill the `Finders` subtree.
+- `config/org-graph/finders.el` ← via `config/org-graph/org-graph.org`
+  (Finders section)
+- `config/org-graph/test/finders-spec.el` (new)
 
 ## Implementation steps
-
-1. Write the spec first. `describe "org-graph-finders--filetag-predicate"` with these `it` blocks:
-   - returns t for a candidate carrying the requested filetag.
-   - returns nil for a candidate without the requested filetag.
-   - returns nil for a candidate with no filetags at all.
-   - returns t for a candidate carrying multiple filetags one of which matches.
-
-   The candidate object should be constructed via a lightweight fixture (a plist or struct with a `:tags` slot — match whatever org-node's candidate shape is; check `org-node-find` source if uncertain).
-
-   Add a `describe "org-graph/find-*"` outer block with one `it` per command verifying it calls `org-node-find` with the correct filetag predicate. Mock `org-node-find` via `cl-letf` and capture the predicate argument; assert behavior on the captured predicate.
-
-2. Implement `org-graph-finders--filetag-predicate (tag)` in the `Finders` subtree:
-   - Returns a `(lambda (candidate) ...)` that checks whether `tag` (symbol) is in the candidate's filetags.
-
-3. Implement the seven interactive commands:
-   - `org-graph/find-topic` — predicate filters on `topic`.
-   - `org-graph/find-debug` — `debug`.
-   - `org-graph/find-log` — `log`.
-   - `org-graph/find-reference` — `reference`.
-   - `org-graph/find-project` — `project`.
-   - `org-graph/find-any` — no filter (delegates to plain `org-node-find`).
-   - `org-graph/find-agent-drafts` — `agent-draft`.
-
-   Each is two lines: an interactive declaration and a call to `(org-node-find :predicate (org-graph-finders--filetag-predicate '<tag>))`. If `org-node-find`'s actual API uses a different keyword, adapt at implementation time.
-
-4. By default, the topic / reference finders should EXCLUDE `agent-draft` candidates. Implement this by composing predicates: `(and (has-tag <type>) (not (has-tag agent-draft)))`. Make the exclusion a defcustom: `org-graph-exclude-drafts-from` defaulting to `'(topic reference)`.
-
-5. Run tests until green: `./bin/run-tests.sh -d config/org-graph/test/finders`.
-
-6. Tangle: `./bin/tangle-org.sh config/org-graph/org-graph.org`.
+1. Implement per-type finder commands: `org-graph/find-topic`,
+   `org-graph/find-debug`, `org-graph/find-log`, `org-graph/find-reference`,
+   `org-graph/find-project`, plus a catch-all `org-graph/find-any`.
+2. Each finder calls `vulpea-find` (or `vulpea-select` then `vulpea-visit`)
+   with a `:filter-fn` that selects notes of the given type. Reuse the
+   note-type schema predicates from `note-type-schemas` as the source of
+   truth for "is this note of type X" — do not re-implement filetag matching
+   independently. A thin helper `org-graph/note-of-type-p (note type)` should
+   delegate to the schema's `:predicate` (or `vulpea-schema-applies-p`).
+3. Keep finders interactive (`;;;###autoload` not required for the spike) and
+   thin — selection + visit only.
+4. Write `finders-spec.el` with `org-graph-test/with-stubbed-vulpea`: stub
+   `vulpea-find`/`vulpea-select` to capture the `:filter-fn`, feed a small set
+   of `org-graph-test/note-fixture` notes through it, and assert the filter
+   admits the right type and rejects others (including an untagged note).
 
 ## Design rationale
+RE-3: finders become schema-aware. Driving the filter from the same
+`vulpea-schema` predicate that validates the type keeps one definition of
+"what a topic note is," instead of the original hand-rolled filetag predicate
+that could drift from the taxonomy. This replaces the org-node-find-based
+finder design in architecture.md.
 
-Each finder is intentionally trivial — a one-line predicate plus an `org-node-find` call. Building per-type finders rather than one parameterized command makes them keybind-friendly and gives users muscle memory like `M-x org-graph/find-topic`. The `agent-draft` exclusion default reflects spec scenario "Agent-authored note carries draft tag" — users invoke `find-topic` and don't want noise from drafts; they review drafts via `find-agent-drafts` explicitly.
+## Design pattern
+`vulpea-find` accepts `:filter-fn` `(note)->bool`. Selection candidates carry
+the note id as a text property and report `(metadata (category . vulpea-note))`
+— so marginalia/embark/consult annotations work for free. Test by capturing
+the passed `:filter-fn` rather than asserting on UI.
 
 ## Verification
-
-- `./bin/run-tests.sh -d config/org-graph/test/finders` — green.
-- `grep -nE "defun org-graph/find-(topic|debug|log|reference|project|any|agent-drafts)" config/org-graph/org-graph.el` — 7 matches.
-- `grep -n "defcustom org-graph-exclude-drafts-from" config/org-graph/org-graph.el` — 1 match.
+- `./bin/run-tests.sh -d config/org-graph/test` — finder specs pass.
+- Manual: `M-x org-graph/find-topic` lists only topic notes from `~/org/roam/`;
+  `org-graph/find-any` lists all indexed notes.
 
 ## Context
-
-- specs/org-graph/spec.md §Note-Type Taxonomy and Finders
-- specs/org-graph/spec.md §Agent-Facing Graph Tools (the agent-draft exclusion behavior)
-- architecture.md §Components §org-graph-finders
+design.md § Re-evaluation (RE-3); architecture.md § Components
+(org-graph-finders — superseded to schema-aware).
+</content>

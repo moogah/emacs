@@ -1,54 +1,57 @@
 ---
 name: test-helpers
-description: Build the shared Buttercup test helpers (AST builder, vulpea stub macro, note fixture) that the parser, finder, query, and coordinator specs all consume.
+description: Build the shared Buttercup test helpers (AST builder, vulpea stub macro, schema/extractor stubs, note fixture) that the parser, finder, query, schema, and coordinator specs all consume.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:scaffold-module"
+  - blocked-by:scaffold-module
 ---
 
 ## Files to modify
-
-- `config/org-graph/test/helpers-spec.el` (new) — Buttercup file with helper macros and defuns. Despite the `-spec` suffix, this file does not contain `describe` blocks — it provides infrastructure that other specs require.
+- `config/org-graph/test/helpers-spec.el` (new) — shared fixtures and macros
 
 ## Implementation steps
-
-1. Create `config/org-graph/test/helpers-spec.el` with a lexical-binding header. (This is a hand-written `.el` file, not tangled — Buttercup helpers don't need org-mode wrappers.)
-
-2. Implement `org-graph-test/build-tree` — accepts a plist describing a note (`:id`, `:title`, `:filetags`, `:properties` alist) and returns an org-element AST suitable for passing into the pure parser. Use `org-element-create` and friends; do not write to a file.
-
-3. Implement the macro `org-graph-test/with-stubbed-vulpea`:
-   ```elisp
-   (defmacro org-graph-test/with-stubbed-vulpea (rows &rest body)
-     "Run BODY with vulpea-db-query stubbed to return ROWS, and
-      vulpea-db-insert / vulpea-db-get-by-id stubbed to no-ops."
-     (declare (indent 1) (debug t))
-     `(cl-letf (((symbol-function 'vulpea-db-query)
-                 (lambda (&rest _) ,rows))
-                ((symbol-function 'vulpea-db-insert)
-                 (lambda (&rest _) nil))
-                ((symbol-function 'vulpea-db-get-by-id)
-                 (lambda (id) (cl-find id ,rows :key (lambda (n) (plist-get n :id)) :test #'equal))))
-        ,@body))
-   ```
-
-4. Implement `org-graph-test/note-fixture` — returns a plist shaped like a `vulpea-note` with reasonable defaults, accepts overrides as keyword args. Used as fixture data for query tests.
-
-5. Add a top-of-file `(require 'cl-lib)` and any other primitives helpers depend on. Do NOT require `vulpea` or `org-node` here — that would force the runtime deps on every test invocation.
+1. `org-graph-test/build-tree` — build an `org-element` AST (or the parsed
+   structure the typed-edge parser consumes) from a plist spec describing a
+   note: its `:id`, a `:properties` alist (including typed-edge props like
+   `IMPLEMENTS`), and `:filetags`. No file I/O, no live org-mode.
+2. `org-graph-test/with-stubbed-vulpea` — a macro that wraps common `cl-letf`
+   stubs (function-scoped, NOT global) for the vulpea API surface the specs
+   touch: `vulpea-db-query`, `vulpea-db-query-links`, `vulpea-db-query-links-from`,
+   `vulpea-db-query-links-to`, and the extractor/schema entry points
+   (`vulpea-db-register-extractor`, `vulpea-schema-define`,
+   `vulpea-schema-validate`). Accept fixture return values as arguments.
+3. `org-graph-test/note-fixture` — construct a `vulpea-note`-shaped value (id,
+   title, tags, properties, path) for query and finder tests.
+4. `org-graph-test/link-plist` — build a vulpea link plist
+   `(:source :dest :type :pos :description)` for query tests.
+5. Keep helpers framework-pure: they construct data and install scoped mocks,
+   they do not assert.
 
 ## Design rationale
+The codebase's behavioral-test convention is function-scoped mocks via
+`cl-letf` (CLAUDE.md § Testing — Behavioral), never global state. Centralising
+the vulpea stubs here means the parser/query/finder/schema specs never spin up
+a real SQLite DB and stay deterministic. The pure-parser design (D4) depends
+on being able to feed synthetic ASTs without org-mode state.
 
-Function-scoped `cl-letf` mocks are the codebase's behavioral-test convention (CLAUDE.md §Test levels: "Mocks are scoped to the function-under-test via cl-letf, not global"). Routing all vulpea API stubs through one macro keeps every spec consistent and makes it easy to extend the stub surface when the query API grows. The `build-tree` helper is the linchpin of the pure-parser test strategy (design.md §D4) — without it we'd be writing `.org` strings and re-parsing them, which is both slow and fragile.
+## Design pattern
+Mirror existing `helpers-spec.el` files under `config/gptel/scope/test/` and
+`config/gptel/tools/test/`. Buttercup `*-spec.el` suffix (preferred for new
+tests, CLAUDE.md). Stub example:
+```elisp
+(cl-letf (((symbol-function 'vulpea-db-query)
+           (lambda (&rest _) <fixture rows>)))
+  ...)
+```
 
 ## Verification
-
-- `./bin/run-tests.sh -d config/org-graph/test -f buttercup` — exits 0 even though no `describe` blocks exist (helpers-only file is valid).
-- `grep -n "defmacro org-graph-test/with-stubbed-vulpea" config/org-graph/test/helpers-spec.el` — matches.
-- `grep -n "defun org-graph-test/build-tree" config/org-graph/test/helpers-spec.el` — matches.
-- `grep -n "defun org-graph-test/note-fixture" config/org-graph/test/helpers-spec.el` — matches.
+- `./bin/run-tests.sh -d config/org-graph` loads `helpers-spec.el` without
+  error (even before other specs exist).
+- A throwaway `(describe ...)` using each helper passes, proving the helpers
+  produce the shapes downstream specs expect.
 
 ## Context
-
-- architecture.md §Testing Approach §Test Patterns
-- architecture.md §Testing Approach §Shared helpers
-- design.md §D4
+design.md § Testing Approach (Test Patterns, Shared helpers);
+architecture.md § Testing Approach; CLAUDE.md § Testing Infrastructure.
+</content>

@@ -1,57 +1,56 @@
 ---
 name: parse-typed-edges
-description: Implement the pure typed-edge parser as a function over org-element AST, test-first, returning (from-id rel-type to-id) tuples.
+description: Implement the pure typed-edge parser as a function over org-element AST, test-first, returning from-rel-to tuples.
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
-  - "blocked-by:test-helpers"
+  - blocked-by:test-helpers
 ---
 
 ## Files to modify
-
-- `config/org-graph/test/extractor/parse-typed-edges-spec.el` (new) — Buttercup spec, written first.
-- `config/org-graph/org-graph.org` (modify) — fill the `Extractor` subtree with the pure parser only (vulpea wrapper is a separate task).
+- `config/org-graph/extractor.el` ← via `config/org-graph/org-graph.org`
+  (Typed-edge parser section) — the pure-function part only
+- `config/org-graph/test/parse-typed-edges-spec.el` (new)
 
 ## Implementation steps
-
-1. Write the spec first. `describe "org-graph-extractor/parse-typed-edges"` with these `it` blocks:
-   - returns one tuple for a single `:IMPLEMENTS: [[id:abc]]` property.
-   - returns multiple tuples for a multi-valued property (`:RELATES_TO: [[id:a]] [[id:b]]`).
-   - returns tuples for multiple property types in the same drawer.
-   - normalizes relation type to lowercase symbol (`IMPLEMENTS` → `implements`, `RELATES_TO` → `relates-to`).
-   - returns an empty list for a drawer with no relation properties.
-   - ignores non-id links inside relation properties (e.g. `[[file:...]]`) and emits a `warn` (do not raise).
-   - skips property values that don't parse as id links (malformed input is non-fatal).
-
-   Use `org-graph-test/build-tree` to construct the input AST; do not write `.org` strings.
-
-2. Define `org-graph-extractor/parse-typed-edges (element-tree note-id)` in the `Extractor` subtree. Implementation outline:
-   - Find the top-level property drawer in `element-tree` via `org-element-map`.
-   - For each property whose key (uppercased, underscores normalized to dashes) is in `org-graph-relation-types`:
-     - Parse the value with `org-link-parse-string-list` or equivalent; collect every `id:` destination.
-     - Emit `(note-id rel-type-symbol to-id)` for each.
-   - Return the accumulated list. No I/O, no DB, no globals.
-
-3. Helper: `org-graph-extractor--normalize-rel (key)` — uppercase string `"RELATES_TO"` → symbol `relates-to`. Test indirectly via the parser's normalization scenario.
-
-4. Run tests until green: `./bin/run-tests.sh -d config/org-graph/test/extractor`.
-
-5. Tangle: `./bin/tangle-org.sh config/org-graph/org-graph.org`.
+1. Implement `org-graph-extractor/parse-typed-edges (element-tree note-id)`
+   as a PURE function: read the note's PROPERTIES drawer, extract entries
+   whose key matches a configured relation type (`org-graph-relation-types`:
+   `IMPLEMENTS`, `CONTRADICTS`, `SUPERSEDES`, `RELATES_TO`), parse each
+   value's `[[id:...]]` link(s), and return a list of
+   `(FROM-ID REL-TYPE TO-ID)` tuples. `FROM-ID` is `note-id`.
+2. Handle: single-valued property, multi-valued property (multiple links in
+   one value, space-separated), multiple relation properties on one note,
+   malformed/empty values (skip gracefully, no error), and a property key that
+   is not a configured relation type (ignore).
+3. Normalise the relation type to a symbol (`IMPLEMENTS` → `implements`) and
+   validate it against `org-graph-relation-types`.
+4. No file I/O, no vulpea, no DB. The function takes a parsed tree and an id,
+   returns tuples. This is the unit under test.
+5. Write `parse-typed-edges-spec.el` first (test-first), using
+   `org-graph-test/build-tree` to construct synthetic drawers; cover every
+   case in step 2.
 
 ## Design rationale
+D3/D4 stand under the re-evaluation (RE-4): the PROPERTIES-drawer convention
+and a pure parser are still correct. vulpea's native link `:type` is
+link-KIND (id/file/https), not semantic relation-KIND, so semantic edges must
+be parsed by us. Keeping the parser pure (separable from vulpea's plugin
+runtime) matches the codebase's behavioral-test convention and lets the
+extractor wrapper change independently if vulpea's plugin API evolves.
 
-Factoring extraction as a pure function over `org-element` AST (design.md §D4) lets us iterate on parsing without DB setup or vulpea's plugin runtime — and lets tests run in milliseconds against in-memory ASTs. If vulpea's plugin runtime API changes, only the wrapper (next task) breaks; the parser is insulated. This is the codebase's behavioral-test discipline applied at the right boundary.
-
-The closed initial relation-set (`implements / contradicts / supersedes / relates-to`, design.md §D3) keeps the parser surface tight; expanding it is a one-line `defcustom` change later.
+## Design pattern
+Pure-function-over-AST with synthetic-tree tests, exactly as in design.md D4.
+Return value shape is the contract the extractor task consumes:
+`((from rel to) ...)`.
 
 ## Verification
-
-- `./bin/run-tests.sh -d config/org-graph/test/extractor` — green, all `it` blocks pass.
-- `grep -n "defun org-graph-extractor/parse-typed-edges" config/org-graph/org-graph.el` — matches.
-- `grep -nE "vulpea|org-id-find|find-file" config/org-graph/org-graph.el | grep -i extractor` — no matches inside the Extractor subtree (the parser must be I/O-free).
+- `./bin/run-tests.sh -d config/org-graph/test` — the parser spec passes with
+  full case coverage (single, multi-valued, multi-property, malformed, empty,
+  non-relation key).
+- The function never signals on malformed input — it returns the tuples it
+  could parse.
 
 ## Context
-
-- design.md §D3, §D4
-- architecture.md §Testing Approach §Pure-parser tests
-- specs/org-graph/spec.md §Typed Semantic Edges
+design.md § Decisions D3, D4; design.md § Re-evaluation (RE-4).
+</content>

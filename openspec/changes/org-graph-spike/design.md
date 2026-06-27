@@ -1,3 +1,136 @@
+## Re-evaluation (2026-06-27)
+
+The branch sat cold from late April while ~500 commits landed on `main`.
+Two of those threads change the load-bearing assumptions below; this
+section records the deltas. **Where a decision here conflicts with the
+original D1–D8, this section wins.** The original decisions are preserved
+unedited for provenance.
+
+**What changed on `main`:**
+
+- The **`workspaces` package** now ships project-co-located structure as a
+  first-class concept (`:home` git repo + scaffolded `home.org` +
+  `sessions/`), a published integration registry
+  (`workspace-register-integration`: `:on-create` / `:on-purge` / `:menu`),
+  per-workspace directory-scoped gptel sessions (`GPTEL_WORK_ROOT` =
+  `:home`), and a `workspace-assistant` preset with a deliberately **empty
+  `:tools` slot**.
+- **vulpea 2.4** added a schema system (`vulpea-schema-define` /
+  `-validate`), a native link/graph query API (`vulpea-db-query-links` with
+  link `:type`, `dead-links`, `orphan-notes`, `isolated-notes`,
+  `backlink-counts`), a **parser epoch** invalidating the file cache when
+  extractors change, automatic DB rebuild on schema bumps, and
+  async-by-default sync + `vulpea-doctor`.
+
+**Decision deltas (user-confirmed direction: re-center as a workspace
+layer; use vulpea-schema for taxonomy):**
+
+- **RE-1 — Re-center on the substrate (revises Context friction #2 and the
+  co-location goal).** Project co-location is now delivered by `workspaces`.
+  org-graph stops re-deriving "discover notes co-located with repos" and
+  instead treats workspaces as substrate: index the workspace `:home`
+  directories the registry already enumerates (plus their `sessions/`),
+  and register through the integration registry. The co-location pillar
+  shrinks from "headline goal" to "consume what workspaces provides."
+
+- **RE-2 — Discovery engine: vulpea-only (RESOLVED 2026-06-27; supersedes
+  D1's "layer org-node + vulpea" and the org-node dependency).** org-node
+  is **dropped**. vulpea is the single index/discovery engine, fed
+  *explicit, bounded roots* from the workspace registry (each active
+  workspace `:home`, plus `~/org/roam/`) rather than a directory-less or
+  blind-`~/work`-walk scan.
+
+  Source investigation established that org-node's headline advantage —
+  keeping the global `org-id-locations` populated so `id:` links resolve in
+  arbitrary buffers — is **already covered by vulpea**: `vulpea-db-update-file`
+  calls `org-id-add-location` for every indexed ID (`vulpea-db-extract.el:1015`),
+  as do `vulpea-create` / `-insert` / rename. Running org-node alongside
+  vulpea would mean two scanners, two save-hook re-index paths, and two
+  caches of the same files — redundant cost, no benefit, since we *want*
+  explicit registry roots, not directory-less discovery. Registry-driven
+  roots also retire the original watch-load risk: we watch only the handful
+  of workspace homes the user has actually created, never `~/work`
+  wholesale.
+
+  Two small shims close the only real gaps vulpea leaves:
+  - **`org-id-locations` startup seed.** vulpea registers IDs *lazily* (per
+    file touch this session); it has no bulk-seed from its DB. On a fresh
+    Emacs an indexed note is link-resolvable only if org-id persisted it to
+    `org-id-locations-file` or its file is re-touched. → org-graph adds a
+    ~10-line startup function that seeds `org-id-locations` from
+    `(vulpea-db-query)`.
+  - **New-workspace watch registration.** Adding a directory after
+    `vulpea-db-autosync-mode` is enabled does not auto-install a filenotify
+    watcher for it. → org-graph's workspace `:on-create` integration handler
+    (RE-5) appends the new `:home` to `vulpea-db-sync-directories` and runs
+    `vulpea-db-sync-update-directory`.
+
+  Consequence: `org-node` (and its transitive `org-mem`) leaves the package
+  set entirely. `vulpea-journal` remains provisional (Open Question 5).
+
+- **RE-2a — Auto-assign IDs to workspace `home.org` and session files
+  (RESOLVED 2026-06-27).** vulpea only indexes notes carrying an `:ID:`
+  (`vulpea-db-extract.el:475`); workspace `home.org` and `sessions/*.org`
+  are scaffolded without IDs, so they would otherwise be invisible to the
+  index. The workspace **scaffold** (`config/workspaces/scaffold.org`) and
+  **session creation** (`jf/gptel--create-session-core`) are extended
+  *additively* to `org-id-get-create` the file at birth, so workspace homes
+  and sessions become indexed nodes and valid `id:` link targets. This is
+  the one place org-graph reaches into the `workspaces` / gptel-sessions
+  code; it is purely additive (a file that already has an ID is untouched)
+  and is captured as its own task.
+
+- **RE-3 — Taxonomy via `vulpea-schema`, not bare filetags (revises the
+  taxonomy goal and architecture's `org-graph-finders`/filetag design).**
+  Note types are `vulpea-schema-define` definitions with field expectations
+  and validation; the filetag becomes one validated field. Finders become
+  schema-aware queries. The hand-rolled filetag-predicate approach in
+  architecture.md is superseded.
+
+- **RE-4 — Typed-edge extractor builds on vulpea 2.4 infra (refines D3,
+  D4).** The PROPERTIES-drawer convention and pure-function parser (D3, D4)
+  stand — vulpea's native link `:type` is link-*kind*, not semantic
+  relation-*kind*, so the semantic extractor is still net-new. But it now
+  rides on the v2.4 plugin + parser-epoch + schema-rebuild machinery, so
+  the extractor wrapper should register via the current plugin API and rely
+  on parser-epoch for cache invalidation rather than manual resync.
+
+- **RE-5 — Agent surface plugs into workspaces (revises D7 and the
+  gptel-tools architecture).** Graph query/write tools register into the
+  `workspace-assistant` preset's empty `:tools` slot and via
+  `workspace-register-integration`, instead of standing alone. Load order
+  becomes: after **both** `gptel` and `workspaces`. The write-coordinator's
+  natural context is per-workspace writes already scoped by
+  `GPTEL_WORK_ROOT`.
+
+- **RE-6 — Risk retired (revises the "vulpea v2 is recent" risk).** vulpea
+  2.4's parser epoch, schema-version auto-rebuild, async-default sync, and
+  `vulpea-doctor` largely retire the "API still evolving, pin commits as a
+  hard requirement" risk. Pinning is now ordinary hygiene, not a
+  spike-survival mechanism.
+
+**Task impact:**
+- `install-packages` — drop `org-node`/`org-mem` (RE-2); vulpea (+ optional
+  `vulpea-journal`) only.
+- `implement-discovery` — rewrite as registry-driven vulpea sync over
+  workspace homes + `~/org/roam/`, plus the `org-id-locations` startup seed
+  (RE-1/RE-2).
+- `parse-typed-edges` / `vulpea-extractor-plugin` — target the current
+  `make-vulpea-extractor` plugin API + parser-epoch (RE-4).
+- `finders-and-filters` — schema-aware via `vulpea-schema` (RE-3).
+- `gptel-tools` / `wire-into-init` — register the `org-graph` workspace
+  integration and populate the `workspace-assistant` `:tools` slot; load
+  after `gptel` and `workspaces` (RE-5).
+- **New tasks:** (a) note-type **schema definitions** via
+  `vulpea-schema-define` (RE-3); (b) **workspace-integration registration**
+  including the `:on-create` watch-add handler (RE-2/RE-5); (c) **auto-ID
+  on scaffold/session-create** (RE-2a).
+
+The tasks under `tasks/open/` should be regenerated/adjusted before
+`/opsx-apply`.
+
+---
+
 ## Context
 
 Earlier conversation findings established three concrete friction points
