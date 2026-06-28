@@ -35,4 +35,3 @@ than in a removed broker.
 ## Context
 - design.md § Decisions 'D2' and 'D3'
 - design.md § Open Questions 'Convenience wrapper scope'
-</content>

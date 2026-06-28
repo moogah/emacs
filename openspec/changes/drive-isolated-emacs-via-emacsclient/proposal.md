@@ -40,6 +40,17 @@ the broker daemon, and the `emcp` dependency entirely.
   `run-command`) loaded into the target as ordinary Elisp, invoked via
   `emacsclient --eval`. `eval-elisp` needs no helper — it is `emacsclient --eval`
   directly.
+- **New: layered discoverability (replaces MCP's tool manifest).** A curated
+  `jf/agent/*` operation set (baseline ported from emcp — apropos/describe/
+  find-definition/get-variable/set-variable plus this change's eval/type-text/
+  send-keys/run-command/frame-state) backed by a frontend-agnostic tool-spec registry
+  with typed-arg metadata, a self-describing `(jf/agent-api)` manifest generated at call
+  time from that registry, per-operation drill-down via standard introspection, and a
+  minimal static seed (skill + `CLAUDE.md` pointer + RECIPES) naming only the entry
+  point. Raw `--eval` stays as the escape hatch beneath. This is how a shell-capable
+  client learns what it can call without a static, drift-prone tool list. emcp is used
+  as **prior art only — reimplemented thin over built-in Emacs, with no `emcp`
+  dependency.**
 - **New: frames attached on demand.** A headless target carries only its internal
   terminal frame; tests needing real keymap/redisplay behavior attach a real frame
   with `emacsclient -s <name> -c` (GUI) or `-t` (TTY). This resolves the prior
@@ -72,6 +83,16 @@ the broker daemon, and the `emcp` dependency entirely.
   serialized to JSON (current buffer + bounded/truncated contents, windows, point,
   minibuffer, echo area), with the optional screenshot path available only when a
   target has a graphical frame. Carried over from the discarded change.
+- `control-surface-discoverability`: How a shell-capable client *learns* what it can
+  call — the layer that replaces MCP's tool manifest. A curated `jf/agent/*` set of
+  intention-revealing operations (baseline ported from emcp as prior art), backed by a
+  frontend-agnostic tool-spec registry carrying typed-arg metadata; a self-describing
+  runtime manifest `(jf/agent-api)` generated from that registry (so it cannot drift);
+  per-operation drill-down via standard introspection; and a minimal static bootstrap
+  seed (skill + `CLAUDE.md` pointer + RECIPES) that names the entry point without
+  enumerating operations. The registry is designed so a future gptel adapter can
+  register the same operations as `gptel-make-tool` entries with no core changes. Raw
+  `--eval` (in `emacs-control-tools`) remains the escape hatch beneath it.
 
 ### Modified Capabilities
 <!-- None. This is purely additive new code in a new config/ module. gptel is out
@@ -98,8 +119,10 @@ the broker daemon, and the `emcp` dependency entirely.
   change; its MCP architecture is obsolete). The prior-art survey
   (emcp / emacs-jail-mcp / llm-test) and the rationale for rejecting MCP are carried
   into this change's `design.md`.
+- **Planned sibling (not this change):** a gptel adapter that registers the same
+  `jf/agent/*` operations as `gptel-make-tool` entries. This change builds the
+  frontend-agnostic registry it will consume (see `design.md` D11); the adapter and its
+  gptel-subsystem spec land separately so gptel's specs stay isolated.
 - **Out of scope:** inspecting/driving the user's *live* Emacs session (that is
-  `emcp`'s job), gptel integration (inverse direction), filesystem sandboxing /
-  containers, and MCP entirely.
-</content>
-</invoke>
+  `emcp`'s job), the gptel adapter code itself (planned sibling, above), filesystem
+  sandboxing / containers, and MCP entirely.

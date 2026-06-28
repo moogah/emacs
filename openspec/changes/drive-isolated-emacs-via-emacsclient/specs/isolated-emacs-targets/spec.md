@@ -108,4 +108,3 @@ for use only with trusted clients exercising the user's own code.
 - **WHEN** a target writes to a path on the host filesystem
 - **THEN** the write affects the host filesystem (isolation does not contain
   filesystem effects), consistent with the documented boundary
-</content>

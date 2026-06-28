@@ -47,4 +47,3 @@ targets without rediscovering it.
 - design.md § Decisions 'D1', 'D2', 'D6'
 - specs/emacs-control-tools/spec.md
 - specs/isolated-emacs-targets/spec.md § 'Documented Isolation Boundary'
-</content>

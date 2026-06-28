@@ -49,4 +49,3 @@ inert (no server/hooks) makes accidental loading into the user's live Emacs harm
 - design.md § Decisions 'D5. A small target-side support module provides observation + control helpers'
 - design.md § Decisions 'D8. Module layout (literate)'
 - MEMORY.md § 'Lexical Binding Mode Line Position'
-</content>

@@ -44,4 +44,3 @@ guarded because real daemons are slower/flakier.
 ## Context
 - design.md § Decisions 'D7. Testing approach'
 - specs/isolated-emacs-targets/spec.md
-</content>

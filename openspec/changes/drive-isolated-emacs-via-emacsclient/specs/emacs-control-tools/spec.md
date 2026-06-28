@@ -60,6 +60,36 @@ named interactive command via `call-interactively`, invocable over the control c
 - **THEN** the target runs the command interactively, and resulting state is observable
   via `jf/frame-state`
 
+### Requirement: Emacs Introspection and Variable Operations
+
+The system SHALL provide target-side operations, registered in the control registry,
+for querying and inspecting the target's Emacs environment, derived from established
+prior art (the emcp tool set). These SHALL include, at minimum: symbol search by regex
+with an optional kind filter (apropos), symbol documentation lookup (describe), source
+location lookup (find-definition), and reading a global variable's value
+(get-variable). A state-modifying operation to set a global variable's value
+(set-variable) SHALL also be provided and flagged as state-modifying in the registry.
+These operations SHALL be thin wrappers over built-in Emacs facilities and SHALL NOT
+introduce an external dependency.
+
+#### Scenario: Search for symbols by pattern
+
+- **WHEN** a client invokes the symbol-search operation with a regex pattern (optionally
+  restricted by kind) against a target
+- **THEN** it receives the matching symbol names from the target's loaded environment
+
+#### Scenario: Look up a symbol's documentation
+
+- **WHEN** a client invokes the documentation-lookup operation with a symbol name
+- **THEN** it receives that symbol's documentation from the target
+
+#### Scenario: Read and set a global variable
+
+- **WHEN** a client reads a global variable's value and then sets it via the respective
+  operations
+- **THEN** the read returns the current value and the set updates it, with the set
+  operation marked state-modifying in the registry
+
 ### Requirement: On-Demand Frame Attachment
 
 A target started headless SHALL carry no graphical frame by default. The system SHALL
@@ -80,4 +110,3 @@ exercised without requiring a frame for eval-based interaction.
   with `emacsclient -s <name> -c` or `-t`
 - **THEN** the target gains a real frame and frame-dependent control operations behave
   as in an interactive session
-</content>

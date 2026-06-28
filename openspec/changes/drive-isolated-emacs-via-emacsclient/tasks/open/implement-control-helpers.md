@@ -44,4 +44,3 @@ exercised separately.
 ## Context
 - specs/emacs-control-tools/spec.md
 - design.md § Decisions 'D5' and 'D6. Frames are attached on demand'
-</content>

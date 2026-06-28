@@ -56,4 +56,3 @@ observation contract.
 - **WHEN** a target is headless and a client needs to observe it
 - **THEN** `jf/frame-state` provides the observation, and the absence of a screenshot
   does not prevent observation
-</content>

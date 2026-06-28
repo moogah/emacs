@@ -46,4 +46,3 @@ Context).
 ## Context
 - specs/frame-state-observation/spec.md
 - design.md § Decisions 'D5' and 'D7. Testing approach'
-</content>
