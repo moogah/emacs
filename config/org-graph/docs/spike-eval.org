@@ -77,10 +77,11 @@ against a *real* DB on a normal boot.
   link, or eval =(org-id-find "<that-id>")=).  It resolves to the file.
   This proves =org-graph/seed-org-id-locations= populated the global
   =org-id-locations= from the vulpea DB at startup.
-- [ ] *Messages are clean.* Check =*Messages*= after boot for
+- [ ] *Warnings are clean.* Check the =*Warnings*= buffer after boot for
   =org-id-locations seed skipped= or =typed-edge extractor registration
-  skipped= warnings.  Their absence means neither deferred op hit its
-  resilient error guard.
+  skipped= warnings (both deferred ops report failures via
+  =display-warning=, which writes to =*Warnings*=, NOT =*Messages*=).
+  Their absence means neither deferred op hit its resilient error guard.
 
 * Capability: Discovery (vulpea-only) — RE-1, RE-2, RE-2a
 
@@ -123,11 +124,14 @@ workspace registry plus =~/org/roam/= — never a wholesale =~/work= walk.
   - Record under *Findings*: is "indexed-at-birth + manual re-index on
     demand" acceptable ergonomically, or does =:on-create= need to
     trigger a full autosync *restart* so later notes are watched live?
-- [ ] *Integrations menu "G".* Open the workspaces Integrations
-  transient and confirm an =org-graph= entry is bound to key ="G"=.
-  Invoking it runs =org-graph-workspace-integration--menu= →
-  =org-graph/configure-sync=, which re-reads the live registry and
-  re-indexes the current roots (returns =ok=; no error).
+- [ ] *Integrations menu "G".*  From INSIDE a workspace (the Integrations
+  group =user-error=s outside one, and the =org-graph= entry will be
+  absent — that is expected, not a failure), open the workspaces
+  transient with =M-x workspace-menu=, enter its Integrations group, and
+  confirm an =org-graph= entry is bound to key ="G"=.  Invoking it runs
+  =org-graph-workspace-integration--menu= → =org-graph/configure-sync=,
+  which re-reads the live registry and re-indexes the current roots
+  (returns =ok=; no error).
 
 * Capability: Taxonomy (vulpea-schema) — RE-3
 
@@ -264,10 +268,17 @@ Answer these from real usage during the window, not pre-emptively.
 - [ ] *OQ5 — vulpea-journal: add value or skip?*  If =vulpea-journal= is
   installed (unbound), evaluate whether it complements or fragments your
   existing org-roam dailies.  Decide: adopt, drop, or leave provisional.
-- [ ] *Parser-epoch actually repopulates =typed_edges=?*  After changing
-  the extractor (or on a schema/extractor version bump), confirm the
-  parser epoch invalidates the file cache and =typed_edges= is rebuilt —
-  i.e. re-querying =org-graph-query/outgoing= reflects edited edges
+- [ ] *RE-6 — vulpea 2.4 maturity holds up?*  RE-6 rests on vulpea 2.4
+  features: the parser epoch, automatic DB rebuild on schema bumps,
+  async-by-default sync, and =vulpea-doctor=.  Over the window, confirm
+  each behaves as relied upon: (a) =M-x vulpea-doctor= reports a healthy
+  DB; (b) async sync does not visibly stall the UI on save; (c) a schema
+  bump triggers an automatic rebuild (no manual DB delete).  Record any
+  feature that did NOT behave as the design assumed.
+- [ ] *RE-6 — Parser-epoch actually repopulates =typed_edges=?*  After
+  changing the extractor (or on a schema/extractor version bump), confirm
+  the parser epoch invalidates the file cache and =typed_edges= is rebuilt
+  — i.e. re-querying =org-graph-query/outgoing= reflects edited edges
   without a manual full resync.
 - [ ] *Do un-ID'd notes still slip through?*  vulpea only indexes notes
   with an =:ID:=.  Spot-check whether notes you *expected* indexed are
@@ -286,6 +297,7 @@ behaved unexpectedly, keyed by the =RE-= / =OQ-= identifier.)
 ** Typed edges (RE-4, D2, D3)
 ** Agent surface (RE-5)
 ** Coexistence (D8)
+** vulpea 2.4 maturity (RE-6: parser-epoch, schema-rebuild, async sync, vulpea-doctor)
 ** Deferred-op live-session firing (loader invariant)
 ** Open questions (OQ1-OQ5 + parser-epoch + un-ID'd notes)
 
