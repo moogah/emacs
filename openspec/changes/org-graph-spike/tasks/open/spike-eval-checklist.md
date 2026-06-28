@@ -147,3 +147,54 @@ design.md § Open Questions; design.md § Re-evaluation.
 - **`emacs-startup-hook` (not `after-init-hook`) is the post-init seam** under
   `emacs -q --load init.el`; mention this if the runbook references where deferred
   work runs.
+
+## Observations
+
+- **OQ3 has no implemented surface yet.** The task and design.md OQ3 ask whether
+  `:agent-draft:` exclusion from the type finders should be a defcustom. As built,
+  `config/org-graph/finders.el` ships `org-graph/find-agent-drafts` but the other
+  finders carry no draft-exclusion toggle (no `org-graph-exclude-drafts-from`
+  defcustom exists). The runbook frames OQ3 as still-open and notes this absence so
+  the evaluator records the felt need rather than expecting an existing knob.
+- **Typed-edge "roam-only" is enforced by a private predicate.** D2/RE-4 "project
+  notes do NOT get typed edges" is implemented as `org-graph-extractor--roam-note-p`
+  gating `org-graph-extractor--edges-from-note`. There is no public command to assert
+  this, so the runbook check is "author an edge on a non-roam note, re-index, confirm
+  the query returns nothing." Concretely checkable, but indirect.
+- **No defcustom for the agent-draft tag string.** `org-graph-tools/write-node`
+  hard-codes the `"agent-draft"` filetag (string literal), so the runbook names the
+  literal tag rather than a configurable symbol.
+- Everything else in the task body matched the source: the three snake_case gptel
+  tool `:name`s, `org-graph/agent-tools`, `org-graph-coordinator/with-file-lock`
+  (unconditional, 5.0s default timeout), the `:menu` "G" entry →
+  `org-graph/configure-sync`, the two `emacs-startup-hook` deferred ops
+  (`org-graph--register-extractor`, `org-graph--seed-org-id-locations-deferred`), and
+  the `vulpea-db-get-extractor 'org-graph-typed-edges` registration probe.
+
+## Discoveries
+- discovery_id: disc-spike-eval-checklist-1
+  class: spec-signal
+  description: |
+    OQ3 (`:agent-draft:` finder exclusion: defcustom vs hard-coded) is referenced by
+    the task/design but has no corresponding code surface. The type finders in
+    `config/org-graph/finders.el` do not exclude agent-draft notes and there is no
+    `org-graph-exclude-drafts-from` defcustom; only `org-graph/find-agent-drafts`
+    exists. This is consistent with OQ3 being an open question (decide after a week of
+    use), but worth flagging so a future implementor doesn't assume the toggle exists.
+  recommendation: |
+    Leave as-is for the spike; resolve OQ3 in the follow-up change based on runbook
+    findings. No register entry affected.
+- discovery_id: disc-spike-eval-checklist-2
+  class: interface-drift
+  description: |
+    Minor terminology drift between the original task body and as-built source. The
+    task's Discovery bullet said the new workspace `:home` "gets watched and indexed"
+    via `:on-create`; the source (`org-graph-workspace-integration--on-create` calling
+    `vulpea-db-sync-update-directory`) only ONE-SHOT INDEXES at birth and explicitly
+    does NOT install a live watcher. The later cycle stanzas (1782566912, 1782573574)
+    already corrected this; the runbook reflects the as-built one-shot-index behavior
+    and splits the check into birth-index vs ongoing-pickup accordingly.
+  affected_register_entry: register/boundary/org-graph-agent-tools
+  recommendation: |
+    No change needed — register entries and cycle stanzas already describe the
+    one-shot-index behavior. Recorded for provenance.

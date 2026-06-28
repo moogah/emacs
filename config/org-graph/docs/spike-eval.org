@@ -1,0 +1,319 @@
+#+title: org-graph Spike Evaluation Runbook
+
+This is the hands-on runbook for the ~1-week =org-graph= evaluation
+window.  Work through the checklist below during normal day-to-day use,
+record what you observe under *Findings*, then answer the *Decision
+prompt* at the end.
+
+org-graph is a *spike*: a layered graph/agent surface over the durable
+concept vault (=~/org/roam/=) that plugs into the =workspaces= substrate
+and runs alongside org-roam without touching it.  The point of this
+window is to learn what is actually load-bearing before committing to a
+long-term shape (see =openspec/changes/org-graph-spike/proposal.md=).
+Every resolved design decision (=RE-1=..=RE-6=, =RE-2a=) should get
+exercised and stress-tested here; every open question (=OQ1=..=OQ5= in
+=design.md= § Open Questions) should get an empirical answer.
+
+* How to use this runbook
+
+- Each =[ ]= item names the exact command, function, menu key, or
+  property to invoke and the observable result that means "pass".
+  Check it off when you have seen the expected result with your own
+  eyes; if it fails or surprises you, leave it unchecked and write the
+  surprise under *Findings*.
+- Where an item says "from a fresh boot", it means launch a brand-new
+  Emacs (e.g. the GUI =Emacs.app= for this worktree, or
+  =./bin/emacs-isolated.sh=), NOT a =M-x jf/reload-module=.  Several
+  checks specifically test work that only runs at startup — see
+  *Boot model and the reload caveat* immediately below.
+- "Eval" means =M-:= (=eval-expression=) for a one-off form, or place
+  point after a form in =*scratch*= and =C-x C-e=.
+
+* Boot model and the reload caveat (read before the Discovery checks)
+
+org-graph keeps cold module load *DB-free*: =(require 'org-graph)= loads
+all eight submodules in canonical order but touches no database
+(invariant: =register/invariant/org-graph-loader-ordered-sequence=).
+Two DB-touching operations are therefore *deferred* to
+=emacs-startup-hook= — which is the post-init seam under =emacs -q
+--load init.el= (NOT =after-init-hook=):
+
+1. Typed-edge extractor *registration* — =org-graph--register-extractor=
+   wraps =org-graph-extractor-register=, which applies the =typed_edges=
+   schema and opens the vulpea DB.
+2. The =org-id-locations= *seed* — =org-graph--seed-org-id-locations-deferred=
+   wraps =org-graph/seed-org-id-locations=, which queries the vulpea DB.
+
+These two are only *wiring-tested* by the automated suite (the suite
+asserts they are on the hook and drives them with the DB stubbed); their
+actual firing against a real DB at real launch is NOT covered by tests.
+That is exactly why this runbook verifies them by hand below.
+
+- [ ] *Caveat acknowledged:* re-running =M-x jf/reload-module RET
+  org-graph RET= mid-session does NOT re-run the two deferred ops (they
+  live on =emacs-startup-hook=, which has already fired).  A *restart*
+  is required to re-test them — or call the deferred functions directly
+  (=M-x org-graph--register-extractor=, =M-x
+  org-graph--seed-org-id-locations-deferred=).  Do not mistake a
+  mid-session reload that "loses" registration for a registration bug.
+
+* Live-session firing of deferred work (RE-2, loader invariant)
+
+These prove =emacs-startup-hook= fired and the deferred ops landed
+against a *real* DB on a normal boot.
+
+- [ ] *Module loaded and registered (cold load).* From a fresh boot,
+  eval =(featurep 'org-graph)= → non-nil, and =(fboundp
+  'org-graph/find-topic)= → =t=.  org-graph loads on a normal boot with
+  no manual step (backed by =config/org-graph/test/module-load-spec.el=).
+- [ ] *Typed-edge extractor actually registered.* From a fresh boot,
+  eval =(vulpea-db-get-extractor 'org-graph-typed-edges)= → non-nil.
+  Non-nil means =emacs-startup-hook= fired and the extractor +
+  =typed_edges= schema landed against the real vulpea DB.
+- [ ] *org-id seed ran — cross-workspace =id:= links resolve.* From a
+  fresh boot (no manual re-index, no opening the target files first),
+  follow an =id:= link that points from one workspace / =~/org/roam/=
+  into a note that lives in a *different* indexed root (=C-c C-o= on the
+  link, or eval =(org-id-find "<that-id>")=).  It resolves to the file.
+  This proves =org-graph/seed-org-id-locations= populated the global
+  =org-id-locations= from the vulpea DB at startup.
+- [ ] *Messages are clean.* Check =*Messages*= after boot for
+  =org-id-locations seed skipped= or =typed-edge extractor registration
+  skipped= warnings.  Their absence means neither deferred op hit its
+  resilient error guard.
+
+* Capability: Discovery (vulpea-only) — RE-1, RE-2, RE-2a
+
+vulpea is the single index, fed *explicit, bounded* roots from the
+workspace registry plus =~/org/roam/= — never a wholesale =~/work= walk.
+
+- [ ] *Roots are explicit and bounded.* Eval =(org-graph/index-roots)=.
+  The returned list contains =~/org/roam/= (=org-graph-roam-root=) and
+  the =:home= of each *active* workspace (=org-graph--active-workspace-homes=),
+  and nothing else.
+- [ ] *=~/work= is NOT walked wholesale.* Confirm =(org-graph/index-roots)=
+  and =vulpea-db-sync-directories= do NOT contain =~/work/= or any bare
+  project-repo root you did not create as a workspace.  (RE-1/RE-2: we
+  watch only the handful of workspace homes you actually created.)
+- [ ] *Workspace home auto-gets an =:ID:= (RE-2a).* Create a new
+  workspace (via the normal workspaces creation flow).  Open its
+  scaffolded =home.org= and confirm it has an =:ID:= property in the
+  top PROPERTIES drawer (it was =org-id-get-create='d at birth, so it
+  is indexable by vulpea).  Same for a freshly created =sessions/*.org=
+  session file.
+- [ ] *Birth-indexing — new home is indexed immediately (=:on-create=).*
+  Right after creating that workspace, query for it WITHOUT any manual
+  re-index: eval =(vulpea-db-query (lambda (n) (string-match-p "<home-basename>"
+  (vulpea-note-path n))))= (or run =M-x org-graph/find-any= and look for
+  the new =home.org=).  It appears.  This is the =:on-create= handler
+  calling =vulpea-db-sync-update-directory= — a *one-shot index at
+  birth*.
+- [ ] *Ongoing pickup — the load-bearing ergonomics question.* This is
+  the distinction the spike exists to settle.  Into that same new
+  workspace home, add a *new* note file (with an =:ID:=) AFTER the
+  workspace already existed.  WITHOUT any manual step, query for it
+  (=org-graph/find-any= / =vulpea-db-query=).
+  - Sub-check (a) — *does it appear on its own?*  =vulpea-db-sync-update-directory=
+    is a one-shot index; it does NOT install a live filenotify watcher
+    for a directory added after autosync started, so the expectation is
+    that a *later*-added note does NOT auto-appear.
+  - Sub-check (b) — *does the menu re-index pick it up?*  Now run the
+    Integrations menu "G" entry (next section) or =M-x
+    org-graph/configure-sync=, then re-query.  It now appears.
+  - Record under *Findings*: is "indexed-at-birth + manual re-index on
+    demand" acceptable ergonomically, or does =:on-create= need to
+    trigger a full autosync *restart* so later notes are watched live?
+- [ ] *Integrations menu "G".* Open the workspaces Integrations
+  transient and confirm an =org-graph= entry is bound to key ="G"=.
+  Invoking it runs =org-graph-workspace-integration--menu= →
+  =org-graph/configure-sync=, which re-reads the live registry and
+  re-indexes the current roots (returns =ok=; no error).
+
+* Capability: Taxonomy (vulpea-schema) — RE-3
+
+Note types =(log debug topic reference project)= are =vulpea-schema=
+definitions (registered by =org-graph-schemas-register=), with a filetag
+predicate and field expectations — not bare filetags.
+
+- [ ] *Tag one note of each type.* In =~/org/roam/=, create or tag five
+  notes, one per type, using the type filetag (=#+filetags: :log:= ,
+  =:debug:=, =:topic:=, =:reference:=, =:project:=).  Each note has an
+  =:ID:=.  Let vulpea sync (or run =org-graph/configure-sync=).
+- [ ] *Per-type finders return the right notes.*  Run each of =M-x
+  org-graph/find-topic=, =org-graph/find-debug=, =org-graph/find-log=,
+  =org-graph/find-reference=, =org-graph/find-project=.  Each lists the
+  note(s) you tagged with that type and excludes the others.  =M-x
+  org-graph/find-any= lists all of them.
+- [ ] *Validation surfaces violations.*  For each type, eval
+  =(org-graph/validate-all-of-type 'topic)= (and =log= / =debug= /
+  =reference= / =project=).  Eyeball the returned violations against the
+  notes you tagged.  Per-note spot check: =(org-graph/validate-note-type
+  NOTE)=.
+- [ ] *Judge the schema fit (feeds the follow-up).*  For each type ask:
+  is the schema's field expectation set *right*, too *strict* (flags
+  notes you consider valid), or too *loose* (passes notes you consider
+  malformed)?  Record per-type under *Findings* — this is the primary
+  RE-3 evaluation.
+
+* Capability: Typed edges — RE-4, D2, D3
+
+Authored as PROPERTIES-drawer entries; extraction is *roam-only*
+(=~/org/roam/=).  Relation symbols: =(implements contradicts supersedes
+relates-to)= → keys =:IMPLEMENTS:= / =:CONTRADICTS:= / =:SUPERSEDES:= /
+=:RELATES_TO:=.
+
+- [ ] *Author edges on 3-5 concept notes.*  On 3-5 existing =~/org/roam/=
+  concept notes, add typed-edge properties in the PROPERTIES drawer,
+  e.g.:
+  #+begin_example
+  :PROPERTIES:
+  :ID:           <uuid>
+  :IMPLEMENTS:   [[id:abc]]
+  :RELATES_TO:   [[id:def]] [[id:ghi]]
+  :END:
+  #+end_example
+  Use at least one each of =:IMPLEMENTS:=, =:CONTRADICTS:=,
+  =:SUPERSEDES:=, =:RELATES_TO:= across the set.  Let vulpea re-index.
+- [ ] *Outgoing query.*  Eval =(org-graph-query/outgoing "<from-id>")=
+  for a note you edited → returns the edges you authored *on* that note.
+  Optionally filter: =(org-graph-query/outgoing "<from-id>" 'implements)=.
+- [ ] *Incoming query.*  Eval =(org-graph-query/incoming "<to-id>")= for
+  a note pointed *at* → returns the edges authored elsewhere that target
+  it.  Confirm it is directional (NOT auto-symmetrized with outgoing).
+- [ ] *Connected query.*  Eval =(org-graph-query/connected "<note-id>")=
+  → returns the union of outgoing + incoming for that note.
+- [ ] *Project notes do NOT get typed edges (D2 / roam-only).*  Add an
+  =:IMPLEMENTS:= property to a *project* note that lives OUTSIDE
+  =~/org/roam/= (e.g. in a workspace home).  Re-index, then query its id
+  with =org-graph-query/outgoing= → returns nothing.  Extraction is
+  gated to roam notes (=org-graph-extractor--roam-note-p=).
+
+* Capability: Agent surface — RE-5, register/boundary/org-graph-agent-tools
+
+The per-workspace =workspace-assistant= exposes exactly three gptel
+tools (snake_case =:name=s): =org_graph_query=, =org_graph_typed_edges=,
+=org_graph_write_node=.  The reusable accessor is =org-graph/agent-tools=.
+
+- [ ] *Fresh-workspace assistant LISTS the tools.*  From a fresh boot,
+  create a new workspace and open its =workspace-assistant= chat.  Ask
+  the assistant to list its available tools (or inspect its preset).
+  All three of =org_graph_query=, =org_graph_typed_edges=,
+  =org_graph_write_node= are present.  This confirms the =:on-create= +
+  preset-population path (=org-graph-workspace-integration--populate-assistant-tools=)
+  fired in a live boot.  (Sanity-eval: =(org-graph/agent-tools)= →
+  three =gptel-tool= objects.)
+- [ ] *=org_graph_query= read.*  From the workspace assistant, ask it to
+  query the graph (e.g. "list notes tagged topic" / search by title).
+  It returns matching notes (routes through =org-graph-tools/query=).
+- [ ] *=org_graph_typed_edges= read.*  Ask the assistant for the typed
+  edges of one of the concept notes you edited above.  It returns the
+  outgoing/incoming/connected edges (routes through
+  =org-graph-tools/typed-edges=).
+- [ ] *=org_graph_write_node= stamps =:agent-draft:=.*  Ask the
+  assistant to create a new note via its write tool.  Open the created
+  file: it carries the =agent-draft= filetag (=org-graph-tools/write-node=
+  always adds it).  Confirm it surfaces in =M-x
+  org-graph/find-agent-drafts=.
+- [ ] *No file corruption under rapid calls (coordinator lock).*  Drive
+  several rapid agent writes (or eval several =org-graph-tools/write-node=
+  calls in quick succession, and/or repeated writes to the same target).
+  All resulting files are well-formed org (no interleaved/truncated
+  content).  Writes route through =org-graph-coordinator/with-file-lock=,
+  the confirmed *unconditional* per-path lock (busy-waits up to
+  =org-graph-coordinator-timeout=, default 5.0s, then signals
+  =org-graph-coordinator-lock-timeout=).
+
+* Capability: Coexistence with org-roam — D8
+
+org-roam runs unchanged throughout; independent DBs, shared on-disk
+format.
+
+- [ ] *org-roam UX unchanged.*  Use =org-roam-node-find=,
+  =org-roam-node-insert=, the backlinks buffer, and dailies as you
+  normally would.  Behaviour is identical to before the spike; no new
+  prompts, errors, or slowdowns attributable to org-graph.
+- [ ] *Independent state.*  Confirm the vulpea DB lives at
+  =runtime/state/vulpea/notes.db= and org-roam keeps its own DB path —
+  rebuilding one never disturbs the other.
+
+* Open questions to answer empirically (design.md § Open Questions)
+
+Answer these from real usage during the window, not pre-emptively.
+
+- [ ] *OQ1 — Cheap startup variant?*  Does the boot-time =org-id-locations=
+  seed (=org-graph/seed-org-id-locations=) feel instant, or does startup
+  visibly stall?  Confirm it does NOT trigger a recursive directory walk
+  (it reads from =(vulpea-db-query)=, not the filesystem).  Note whether
+  a cheaper/lazier variant is warranted.
+- [ ] *OQ2 — Right default for watched roots per machine?*  Note whether
+  the active workspace homes + =~/org/roam/= scope feels right on this
+  machine (apploi-mac vs personal-mac have different =~/work= shapes).
+  Record whether a machine-role override in =config/local/<role>.el= is
+  needed.
+- [ ] *OQ3 — =:agent-draft:= finder exclusion: defcustom or hard-coded?*
+  After a week of drafts accumulating, decide whether the type finders
+  (=topic= / =reference= especially) should hide =agent-draft= notes by
+  default, and whether that belongs behind a defcustom.  (Note: as built
+  there is =org-graph/find-agent-drafts= but no exclusion toggle on the
+  other finders yet — record the felt need.)
+- [ ] *OQ4 — Is =RELATES_TO= too broad?*  Watch how often you reach for
+  =:RELATES_TO:= as a catch-all vs the precise three (=IMPLEMENTS= /
+  =CONTRADICTS= / =SUPERSEDES=).  Decide after ~two weeks: drop it to
+  force precision, keep it, or add domain-specific relation types
+  (extend =org-graph-relation-types=).
+- [ ] *OQ5 — vulpea-journal: add value or skip?*  If =vulpea-journal= is
+  installed (unbound), evaluate whether it complements or fragments your
+  existing org-roam dailies.  Decide: adopt, drop, or leave provisional.
+- [ ] *Parser-epoch actually repopulates =typed_edges=?*  After changing
+  the extractor (or on a schema/extractor version bump), confirm the
+  parser epoch invalidates the file cache and =typed_edges= is rebuilt —
+  i.e. re-querying =org-graph-query/outgoing= reflects edited edges
+  without a manual full resync.
+- [ ] *Do un-ID'd notes still slip through?*  vulpea only indexes notes
+  with an =:ID:=.  Spot-check whether notes you *expected* indexed are
+  silently missing because they lack an =:ID:= (workspace homes /
+  sessions should be auto-ID'd per RE-2a; hand-authored notes may not
+  be).  Record any surprising omissions.
+
+* Findings
+
+(Fill in during the eval window. One short paragraph per capability is
+plenty; capture surprises, friction, and any item that failed or
+behaved unexpectedly, keyed by the =RE-= / =OQ-= identifier.)
+
+** Discovery (RE-1, RE-2, RE-2a)
+** Taxonomy (RE-3)
+** Typed edges (RE-4, D2, D3)
+** Agent surface (RE-5)
+** Coexistence (D8)
+** Deferred-op live-session firing (loader invariant)
+** Open questions (OQ1-OQ5 + parser-epoch + un-ID'd notes)
+
+* Decision prompt
+
+At the end of the window, pick the long-term shape and record the
+evidence that points to it.  This is the input to the follow-up change
+(=proposal.md=: findings inform the decision on long-term shape).
+
+- *Keep both (org-roam + org-graph layered).*  Pointed to if: the
+  taxonomy/typed-edges/agent surface earn their keep, org-roam UX stayed
+  clean (Coexistence checks all passed), and the dual-DB cost was
+  invisible in practice.
+- *Retire org-roam (org-graph/vulpea becomes primary).*  Pointed to if:
+  vulpea-backed discovery + schema taxonomy fully subsumed your org-roam
+  workflows, =id:= resolution was reliable across a fresh boot, and
+  running two indices felt purely redundant.
+- *Fold org-graph into workspaces.*  Pointed to if: the load-bearing
+  value was the per-workspace agent surface and birth-indexing, the
+  typed-edge/concept-vault layer saw little use, and the natural home
+  for what remained is the workspace integration itself.
+- *Abandon the spike.*  Pointed to if: the taxonomy felt mis-fit
+  (RE-3), typed edges went unused or =RELATES_TO= collapsed into noise
+  (OQ4), or the ergonomics of manual re-index / deferred-op fragility
+  outweighed the benefit.  Rollback is cheap: remove =org-graph= from
+  =jf/enabled-modules=, delete =config/org-graph/= and
+  =runtime/state/vulpea/=; authored PROPERTIES are inert without the
+  extractor.
+
+Capture, for whichever option you choose, the *specific checklist items
+and Findings* that drove the call.
