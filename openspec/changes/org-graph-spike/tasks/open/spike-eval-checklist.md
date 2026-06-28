@@ -2,7 +2,7 @@
 name: spike-eval-checklist
 description: Author the spike evaluation runbook so the user can systematically validate the layered system over the eval window before deciding the long-term shape.
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:wire-into-init
 cites_register_entries:
