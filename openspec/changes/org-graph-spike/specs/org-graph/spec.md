@@ -135,16 +135,19 @@ gate extraction.
 **Two authoring surfaces.** The system SHALL extract edges from both:
 
 1. **Prefixed PROPERTIES-drawer entries.** A drawer property is a typed
-   edge if and only if its key is `REL_<TYPE>`; the relation is `<TYPE>`
-   lowercased with underscores mapped to hyphens (`:REL_FALSIFIES:` →
-   `falsifies`). The `REL_` namespace is the sole discriminator: ordinary
-   properties SHALL NOT be treated as edges, even when their value contains
-   an `id:` link. Such a property MAY appear multiple times on one note and
-   MAY hold one or more `id:` references; each reference SHALL become a
-   separate row.
+   edge if and only if its key begins with the configured edge-property
+   prefix (a single configurable value, default `REL_`); the relation is the
+   remainder of the key lowercased with underscores mapped to hyphens
+   (`:REL_FALSIFIES:` → `falsifies`). The prefix namespace is the sole
+   discriminator: ordinary properties SHALL NOT be treated as edges, even
+   when their value contains an `id:` link. Such a property MAY appear
+   multiple times on one note and MAY hold one or more `id:` references; each
+   reference SHALL become a separate row.
 2. **Typed inline `rel:` links.** A link of the form
-   `[[rel:<type>:<target-id>][description]]` in a note's body SHALL become a
-   typed edge whose `to-id` is `<target-id>` and whose `from-id` is the
+   `[[rel:<type>:<target-id>][description]]` (the `rel` link-type name is
+   likewise a single configurable value, default `rel`) in a note's body
+   SHALL become a typed edge whose `to-id` is `<target-id>` and whose
+   `from-id` is the
    nearest ancestor node carrying an `:ID:` (the enclosing heading, else the
    file-level node). A `rel:` link with no ID-bearing ancestor SHALL be
    dropped, not attributed to an unrelated note.

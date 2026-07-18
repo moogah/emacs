@@ -8,7 +8,10 @@ discovery engine — there is no org-node / org-mem (RE-2).
 
 - **`org-graph.org`** — Top-level loader. Declares the `org-graph` custom
   group and the module defcustoms (`org-graph-roam-root`,
-  `org-graph-relation-types`, `org-graph-watch-workspace-homes`,
+  `org-graph-relation-types` (now a non-gating completion seed, OV-1),
+  `org-graph-edge-property-prefix` (default `"REL_"`, the drawer edge
+  discriminator, OV-2), `org-graph-edge-link-type` (default `"rel"`, the
+  inline link-type name, OV-3), `org-graph-watch-workspace-homes`,
   `org-graph-note-types`), pins vulpea via straight (`:branch "v2.4.0"`)
   and — in the vulpea `use-package` `:config` — sets `vulpea-db-location`
   to the isolated worktree path `runtime/state/vulpea/notes.db` (D8 /
@@ -52,8 +55,9 @@ discovery engine — there is no org-node / org-mem (RE-2).
   `org-element` AST, both emitting `(from-id rel-type to-id)` tuples and
   unit-tested with synthetic trees:
   `org-graph-extractor/parse-typed-edges` (drawer properties, edge iff the
-  key is `REL_<TYPE>` — the `REL_` namespace is the sole discriminator,
-  OV-2) and `org-graph-extractor/parse-rel-links` (inline `rel:` links,
+  key begins with `org-graph-edge-property-prefix` (default `"REL_"`) — that
+  prefix is the sole discriminator, OV-2) and
+  `org-graph-extractor/parse-rel-links` (inline `rel:` links,
   each attributed to the nearest ID-bearing ancestor via
   `org-element-lineage`, OV-4). The vulpea extractor wrapper runs both,
   unions the rows (OV-5), and registers via `make-vulpea-extractor` with a
@@ -156,12 +160,16 @@ discovery engine — there is no org-node / org-mem (RE-2).
 
 **Relation-type vocabulary** (`register/vocabulary/relation-types`,
 revised by OV-1/OV-2 — **open**): there is no closed set. A drawer property
-is an edge iff its key is `REL_<TYPE>`; the relation symbol is `<TYPE>`
+is an edge iff its key begins with `org-graph-edge-property-prefix` (a
+single `defcustom`, default `"REL_"`); the relation symbol is the remainder
 lowercased with `_`→`-` (`:REL_RELATES_TO:` ⇄ `relates-to`,
 `:REL_IMPLEMENTS:` ⇄ `implements`), via `org-graph-extractor--rel-key` /
-`--key->rel`, which are now **prefix add/strip**, not list lookups (the
-only allowed translation sites). Inline `rel:<type>:<id>` links carry the
-type in the path directly. The relation symbol is stored **verbatim as a
+`--key->rel`, which are now **prefix add/strip derived from that defcustom**,
+not list lookups (the only allowed translation sites). The prefix is one
+knob so the authoring ergonomics can be retuned in one place (OV-Q4).
+Inline `rel:<type>:<id>` links carry the type in the path directly; the
+`rel` link-type name is itself read from `org-graph-edge-link-type` (default
+`"rel"`) at registration. The relation symbol is stored **verbatim as a
 SYMBOL** in the `typed_edges` `rel-type` column (emacsql `prin1`/`read`
 round-trips symbols), and the query layer matches on the symbol.
 `org-graph-relation-types` survives only as a **non-gating completion seed

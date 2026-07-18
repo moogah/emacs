@@ -26,20 +26,35 @@ list, and no data-migration task.
   ceremony (OV-2/OV-3); graduating one into a curated taxonomy is optional
   (OV-6).
 
-- **OV-2 — `REL_` namespace is the edge discriminator (splits the two jobs
-  D3's list conflated).** The old closed list did double duty: it was both
-  *the vocabulary* and *the signal that a property is an edge at all*
-  (`--key->rel` returned `nil` for non-members, and the parser dropped
-  them). With an open vocabulary, membership can no longer be the
-  discriminator. **A drawer property is a typed edge iff its key is
-  `REL_<TYPE>`**; the relation is `<TYPE>` lowercased with `_`→`-`
-  (`:REL_FALSIFIES:` → `falsifies`, `:REL_RELATES_TO:` → `relates-to`).
-  Ordinary properties — including ones whose value happens to hold an `id:`
-  link (`:SOURCE:`, `:CATEGORY:`) — are never edges. `--rel-key` /
-  `--key->rel` become prefix add/strip, not list lookups. The delimiter is
-  `_` (not the `/` sketched in exploration): it matches org property-key
-  convention and the existing hyphen→underscore transform, and keeps the
-  key a single completion token.
+- **OV-2 — A configurable namespace prefix is the edge discriminator
+  (splits the two jobs D3's list conflated).** The old closed list did
+  double duty: it was both *the vocabulary* and *the signal that a property
+  is an edge at all* (`--key->rel` returned `nil` for non-members, and the
+  parser dropped them). With an open vocabulary, membership can no longer be
+  the discriminator. **A drawer property is a typed edge iff its key starts
+  with the edge-property prefix**; the relation is the remainder lowercased
+  with `_`→`-` (with the default prefix: `:REL_FALSIFIES:` → `falsifies`,
+  `:REL_RELATES_TO:` → `relates-to`). Ordinary properties — including ones
+  whose value happens to hold an `id:` link (`:SOURCE:`, `:CATEGORY:`) — are
+  never edges. `--rel-key` / `--key->rel` become prefix add/strip, not list
+  lookups.
+
+  The prefix is **a single `defcustom`, `org-graph-edge-property-prefix`
+  (default `"REL_"`)**, not a hardcoded literal — the namespace *and* its
+  delimiter live in one knob so the ergonomics can be retuned in one place
+  (`"R_"`, `"EDGE_"`, a different separator, etc.) without touching parser
+  code. The default `"REL_"` uses an underscore because it matches org
+  property-key convention and the existing hyphen→underscore transform and
+  keeps the key a single completion token, but that choice is explicitly
+  **provisional** (see OV-Q4). Because there are effectively no existing
+  edges, changing the prefix now costs nothing; once notes are authored
+  against it, changing it means re-keying those properties, so the spike
+  should settle it early.
+
+  The inline surface (OV-3) has the parallel knob: the `rel:` link-type name
+  is likewise read from a single constant (`org-graph-edge-link-type`,
+  default `"rel"`) at registration, so both surfaces are retunable in one
+  place each.
 
 - **OV-3 — Typed inline links as a second authoring surface (support-both).**
   Register a custom `rel:` org link type with path syntax
@@ -123,6 +138,11 @@ list, and no data-migration task.
 - **OV-Q3 —** Cheapest source for the "observed types" completion set:
   `SELECT DISTINCT rel-type FROM typed_edges` (cached) vs. scanning
   registry notes only. Tentative: the distinct query, cached per session.
+- **OV-Q4 —** Does `"REL_"` have the right authoring ergonomics? It is only
+  the **default** of `org-graph-edge-property-prefix`; the prefix is a
+  single knob precisely because this is unsettled. Evaluate during the spike
+  against alternatives (shorter prefix, different separator) and lock the
+  default before real notes accumulate.
 
 ---
 
