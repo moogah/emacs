@@ -49,7 +49,7 @@ asserts they are on the hook and drives them with the DB stubbed); their
 actual firing against a real DB at real launch is NOT covered by tests.
 That is exactly why this runbook verifies them by hand below.
 
-- [ ] *Caveat acknowledged:* re-running =M-x jf/reload-module RET
+- [x] *Caveat acknowledged:* re-running =M-x jf/reload-module RET
   org-graph RET= mid-session does NOT re-run the two deferred ops (they
   live on =emacs-startup-hook=, which has already fired).  A *restart*
   is required to re-test them — or call the deferred functions directly
@@ -62,11 +62,11 @@ That is exactly why this runbook verifies them by hand below.
 These prove =emacs-startup-hook= fired and the deferred ops landed
 against a *real* DB on a normal boot.
 
-- [ ] *Module loaded and registered (cold load).* From a fresh boot,
+- [x] *Module loaded and registered (cold load).* From a fresh boot,
   eval =(featurep 'org-graph)= → non-nil, and =(fboundp
   'org-graph/find-topic)= → =t=.  org-graph loads on a normal boot with
   no manual step (backed by =config/org-graph/test/module-load-spec.el=).
-- [ ] *Typed-edge extractor actually registered.* From a fresh boot,
+- [x] *Typed-edge extractor actually registered.* From a fresh boot,
   eval =(vulpea-db-get-extractor 'org-graph-typed-edges)= → non-nil.
   Non-nil means =emacs-startup-hook= fired and the extractor +
   =typed_edges= schema landed against the real vulpea DB.
@@ -96,20 +96,20 @@ workspace registry plus =~/org/roam/= — never a wholesale =~/work= walk.
   and =vulpea-db-sync-directories= do NOT contain =~/work/= or any bare
   project-repo root you did not create as a workspace.  (RE-1/RE-2: we
   watch only the handful of workspace homes you actually created.)
-- [ ] *Workspace home auto-gets an =:ID:= (RE-2a).* Create a new
+- [x] *Workspace home auto-gets an =:ID:= (RE-2a).* Create a new
   workspace (via the normal workspaces creation flow).  Open its
   scaffolded =home.org= and confirm it has an =:ID:= property in the
   top PROPERTIES drawer (it was =org-id-get-create='d at birth, so it
   is indexable by vulpea).  Same for a freshly created =sessions/*.org=
   session file.
-- [ ] *Birth-indexing — new home is indexed immediately (=:on-create=).*
+- [x] *Birth-indexing — new home is indexed immediately (=:on-create=).*
   Right after creating that workspace, query for it WITHOUT any manual
   re-index: eval =(vulpea-db-query (lambda (n) (string-match-p "<home-basename>"
   (vulpea-note-path n))))= (or run =M-x org-graph/find-any= and look for
   the new =home.org=).  It appears.  This is the =:on-create= handler
   calling =vulpea-db-sync-update-directory= — a *one-shot index at
   birth*.
-- [ ] *Ongoing pickup — the load-bearing ergonomics question.* This is
+- [x] *Ongoing pickup — the load-bearing ergonomics question.* This is
   the distinction the spike exists to settle.  Into that same new
   workspace home, add a *new* note file (with an =:ID:=) AFTER the
   workspace already existed.  WITHOUT any manual step, query for it
