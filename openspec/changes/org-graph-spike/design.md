@@ -1,3 +1,131 @@
+## Open-Vocabulary Typed Edges (2026-07-17)
+
+Hands-on use during the spike-eval window established that the **closed
+relation set is the wrong shape**: a fixed list forces authors to overload
+`relates-to` as a junk drawer (the exact worry raised in Open Question 4)
+and blocks domain-specific precision (`benchmarks`, `deprecates`,
+`falsifies`, `refines`) that only surfaces in real use. This section
+pivots typed edges to an **open vocabulary with two authoring surfaces and
+an optional in-vault registry**. **Where it conflicts with D3, D4, RE-4,
+the "auto-derived symmetry" Non-Goal, or Open Question 4, this section
+wins.** Those are preserved below unedited for provenance.
+
+Because there are effectively **no real typed edges in the vault yet**,
+this is a **clean break** — there is no backward-compatibility obligation
+to the bare `:IMPLEMENTS:`-style keys or the closed `org-graph-relation-types`
+list, and no data-migration task.
+
+**User-confirmed direction:** folksonomy-with-optional-registry; support
+*both* drawer properties and inline links; drop the closed set.
+
+- **OV-1 — Open relation vocabulary (supersedes D3's closed set; resolves
+  OQ4).** There is no allowlist. A relation type is any author-coined
+  symbol and is extracted the moment it appears. `org-graph-relation-types`
+  stops being a *gate* and is redefined as a non-authoritative **seed
+  suggestion list for completion only**. Coining a new type requires zero
+  ceremony (OV-2/OV-3); graduating one into a curated taxonomy is optional
+  (OV-6).
+
+- **OV-2 — `REL_` namespace is the edge discriminator (splits the two jobs
+  D3's list conflated).** The old closed list did double duty: it was both
+  *the vocabulary* and *the signal that a property is an edge at all*
+  (`--key->rel` returned `nil` for non-members, and the parser dropped
+  them). With an open vocabulary, membership can no longer be the
+  discriminator. **A drawer property is a typed edge iff its key is
+  `REL_<TYPE>`**; the relation is `<TYPE>` lowercased with `_`→`-`
+  (`:REL_FALSIFIES:` → `falsifies`, `:REL_RELATES_TO:` → `relates-to`).
+  Ordinary properties — including ones whose value happens to hold an `id:`
+  link (`:SOURCE:`, `:CATEGORY:`) — are never edges. `--rel-key` /
+  `--key->rel` become prefix add/strip, not list lookups. The delimiter is
+  `_` (not the `/` sketched in exploration): it matches org property-key
+  convention and the existing hyphen→underscore transform, and keeps the
+  key a single completion token.
+
+- **OV-3 — Typed inline links as a second authoring surface (support-both).**
+  Register a custom `rel:` org link type with path syntax
+  `rel:<type>:<target-id>`, e.g. `[[rel:falsifies:<uuid>][the earlier
+  claim]]`. This lets an edge be asserted **in prose, where the claim is
+  actually made**, carrying its surrounding context, without a drawer
+  entry. `org-link-set-parameters` supplies the machinery for free:
+  `:follow` (jump to the target via org-id), `:complete` (prompt for type
+  then target-node, seeded from the vocabulary), `:face` (visually mark
+  rel-links so they don't read as ordinary `id:` links), and `:export`.
+  Both surfaces feed the **same** `(from-id rel-type to-id)` tuple stream
+  and the same `typed_edges` table — the storage model does not change.
+
+- **OV-4 — Inline-link edges attribute to the enclosing node.** A drawer
+  edge's `from-id` is the drawer's own `:ID:`. An inline `rel:` link has no
+  such anchor, so its `from-id` is the **nearest ancestor carrying an
+  `:ID:`** (the enclosing heading, else the file-level node), resolved via
+  `org-element-lineage` / property inheritance. This is the one genuinely
+  new piece of parsing complexity and the bulk of the new test surface:
+  link at file top, link under a subheading that has its own `:ID:`, link
+  under a heading that has none (walks further up), link with no ID-bearing
+  ancestor at all (dropped).
+
+- **OV-5 — Two pure scanners, one stream (refines D4).** D4's
+  pure-function boundary stands and generalizes. The extractor holds two
+  pure functions over an `org-element` AST —
+  `org-graph-extractor/parse-typed-edges` (drawer, `REL_`-prefix based) and
+  `org-graph-extractor/parse-rel-links` (inline, enclosing-node resolved) —
+  each emitting `(from-id rel-type to-id)` tuples. The vulpea extractor
+  wrapper runs both and unions the rows. The `typed_edges` schema is
+  unchanged because `rel-type` was already stored as an open symbol.
+
+- **OV-6 — Optional in-vault registry of edge types (folksonomy →
+  taxonomy).** A relation type works with **zero registration**. A note
+  tagged `:edge-type:` MAY *graduate* a type by declaring its metadata: a
+  human `LABEL`, `:INVERSE:` (a symbol), `:SYMMETRIC:` (boolean), and a
+  free-text description. The registry is **ordinary vault data** — coined
+  and edited at any time, git-versioned, discoverable via a dedicated
+  finder, and indexed like any other note. It is loaded to (a) seed
+  completion for both surfaces, (b) render inverse labels, and (c) mark
+  symmetric types. **Unregistered types remain fully functional** and
+  render as their raw symbol; the registry only enriches. Four seed
+  registry notes (`implements` / `contradicts` / `supersedes` /
+  `relates-to`, each with a sensible `:INVERSE:`) ship as starter data,
+  replacing the hardcoded closed list.
+
+- **OV-7 — Inverse/symmetry derived at query/display time, never
+  materialized (narrows the "auto-derived symmetry" Non-Goal and RE-4).**
+  The system still SHALL NOT write inverse rows — `typed_edges` stays
+  **canonical and directional**, so there is no double-write divergence. A
+  registered `:INVERSE:` lets the *display* layer render "X is falsified-by
+  Y" from a single stored `falsifies` edge, and `:SYMMETRIC: t` lets a read
+  query surface the relation in both directions. This is a read/render
+  concern only; storage is untouched.
+
+**Task impact:**
+- `parse-typed-edges` / `vulpea-extractor-plugin` (both closed) get a
+  **follow-up**: replace the allowlist with the `REL_` prefix, add the
+  `parse-rel-links` scanner with enclosing-node resolution, and union both
+  in the extractor wrapper.
+- **New task — `rel:` link type:** register via `org-link-set-parameters`
+  with `:follow` / `:complete` / `:face` / `:export`.
+- **New task — edge-type registry:** an `:edge-type:` predicate + a loader
+  that reads registry metadata, a `org-graph/find-edge-type` finder, and
+  the four seed registry notes.
+- `typed-edge-query` gets a **follow-up**: optional symmetric-aware reads
+  and inverse-label resolution from the registry.
+- **Docs:** the spike-eval runbook's typed-edge checks move to the new
+  surfaces.
+- **No migration task** — near-zero existing edges (user-confirmed).
+
+**New open questions:**
+- **OV-Q1 —** `rel:` link path shape: bare `rel:<type>:<id>` (chosen for
+  the spike — simplest to parse and complete) vs. a form that lets the
+  target carry a non-`id:` link kind. Revisit only if targets need
+  file/http kinds.
+- **OV-Q2 —** Should completion offer only registered + already-observed
+  types, or also free-text coinage? Spike default: **both** — offer
+  registered + observed as candidates, allow free text to coin a new type
+  on the spot.
+- **OV-Q3 —** Cheapest source for the "observed types" completion set:
+  `SELECT DISTINCT rel-type FROM typed_edges` (cached) vs. scanning
+  registry notes only. Tentative: the distinct query, cached per session.
+
+---
+
 ## Re-evaluation (2026-06-27)
 
 The branch sat cold from late April while ~500 commits landed on `main`.

@@ -1,0 +1,59 @@
+---
+name: parse-rel-links
+description: "Add the pure inline-link scanner parse-rel-links that extracts rel: links and attributes each to its nearest ID-bearing ancestor node (OV-3/OV-4/OV-5)."
+change: org-graph-spike
+status: ready
+relations:
+  - enables:extractor-union
+---
+
+> Second authoring surface for typed edges. Pure function only — the `rel:`
+> link *runtime* (follow/complete/face) is a separate task (`rel-link-type`).
+> See design.md § Open-Vocabulary Typed Edges, OV-3/OV-4/OV-5.
+
+## Files to modify
+- `config/org-graph/extractor.el` ← via `config/org-graph/extractor.org`
+  (new pure scanner alongside `parse-typed-edges`)
+- `config/org-graph/test/parse-rel-links-spec.el` (new)
+
+## Implementation steps
+1. Implement `org-graph-extractor/parse-rel-links (element-tree)` as a PURE
+   function returning `(from-id rel-type to-id)` tuples. It maps over `link`
+   elements with `:type "rel"`, splitting each path `<type>:<target-id>` on
+   the first `:` → `rel-type` (interned symbol) and `to-id`.
+2. **Enclosing-node attribution (OV-4):** `from-id` is the nearest ancestor
+   carrying an `:ID:`, resolved by walking `org-element-lineage` up to the
+   enclosing headline, falling back to the file-level (top) node's `:ID:`.
+   A `rel:` link with **no** ID-bearing ancestor yields **no** tuple (drop,
+   never mis-attribute).
+3. Handle: malformed path (missing `:` separator, empty type or target) →
+   skip gracefully, no error.
+4. Write `parse-rel-links-spec.el` first, using `org-graph-test/build-tree`
+   (extend the helper to place `rel:` links in body/headings as needed):
+   - link at file top → attributed to the file node's `:ID:`.
+   - link under a subheading with its **own** `:ID:` → that heading's id.
+   - link under a heading with **no** `:ID:`, nested inside one that has
+     → walks up to the ID-bearing ancestor.
+   - link with no ID-bearing ancestor at all → dropped.
+   - a bare `[[id:x]]` link in the same prose → produces no edge.
+   - malformed `rel:` path → no error, no row.
+
+## Design rationale
+Drawer edges anchor to the drawer's own `:ID:`; an inline link has no such
+anchor, so enclosing-node resolution is the one genuinely new parsing
+concern (OV-4) and the bulk of this task's test surface. Keeping it a pure
+function mirrors D4/OV-5 so the extractor wrapper can union both scanners.
+
+## Design pattern
+Pure-function-over-AST with synthetic-tree tests, same contract as
+`parse-typed-edges`: `((from rel to) ...)`.
+
+## Verification
+- `./bin/tangle-org.sh config/org-graph/extractor.org` validates.
+- `./bin/run-tests.sh -d config/org-graph/test` — parse-rel-links spec passes
+  all attribution cases.
+- Function never signals on malformed input.
+
+## Context
+design.md § Open-Vocabulary Typed Edges (OV-3, OV-4, OV-5); spec.md § Typed
+Semantic Edges (inline `rel:` links, enclosing-node attribution).

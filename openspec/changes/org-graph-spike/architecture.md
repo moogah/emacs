@@ -47,15 +47,40 @@ discovery engine — there is no org-node / org-mem (RE-2).
   filters the cross-cutting `agent-draft` filetag directly, bypassing the
   type schemas.
 
-- **`extractor`** (`extractor.el`) — Typed-edge extraction. Holds the
-  **pure parser** (`org-graph-extractor/parse-typed-edges`, a pure function
-  over an `org-element` AST, unit-tested with synthetic trees) plus the
-  vulpea extractor wrapper and registration. The wrapper registers via
-  `make-vulpea-extractor` with a `typed_edges` schema foreign-keyed to
-  `notes(id)` `:on-delete :cascade`, at priority 50, and relies on the
-  vulpea 2.4 parser-epoch for cache invalidation (RE-4). A scope gate
-  restricts extraction to notes under `org-graph-roam-root`; extraction is
-  attributed note-granularly to each note's own PROPERTIES drawer.
+- **`extractor`** (`extractor.el`) — Typed-edge extraction over an **open
+  relation vocabulary** (OV-1). Holds **two pure parsers** over an
+  `org-element` AST, both emitting `(from-id rel-type to-id)` tuples and
+  unit-tested with synthetic trees:
+  `org-graph-extractor/parse-typed-edges` (drawer properties, edge iff the
+  key is `REL_<TYPE>` — the `REL_` namespace is the sole discriminator,
+  OV-2) and `org-graph-extractor/parse-rel-links` (inline `rel:` links,
+  each attributed to the nearest ID-bearing ancestor via
+  `org-element-lineage`, OV-4). The vulpea extractor wrapper runs both,
+  unions the rows (OV-5), and registers via `make-vulpea-extractor` with a
+  `typed_edges` schema foreign-keyed to `notes(id)` `:on-delete :cascade`,
+  at priority 50, relying on the vulpea 2.4 parser-epoch for cache
+  invalidation (RE-4). A scope gate restricts extraction to notes under
+  `org-graph-roam-root`; drawer edges are attributed to each note's own
+  PROPERTIES drawer, inline edges to their enclosing node.
+
+- **`rel-link`** (`rel-link.el`, new) — Registers the `rel:` org link type
+  via `org-link-set-parameters` (OV-3), path syntax `rel:<type>:<target-id>`:
+  `:follow` jumps to the target via org-id, `:complete` prompts for type
+  (seeded from the vocabulary) then a target node, `:face` visually marks
+  rel-links, `:export` renders the description. This module owns the *inline
+  authoring UX*; the AST-level extraction of the same links lives in
+  `extractor` (`parse-rel-links`), so parsing stays testable without the
+  link runtime.
+
+- **`edge-type` registry** (`edge-type.el`, new) — The optional
+  folksonomy→taxonomy layer (OV-6). Defines the `:edge-type:` selector
+  (predicate over the filetag), a loader that reads registry metadata
+  (`LABEL`, `:INVERSE:`, `:SYMMETRIC:`, description) into a lookup, an
+  `org-graph/find-edge-type` finder, and ships four seed registry notes
+  (`implements` / `contradicts` / `supersedes` / `relates-to`). Consumed by
+  `rel-link`/completion (candidate types), by `query` (inverse-label and
+  symmetric-aware reads, OV-7), and by any display surface. A type absent
+  from the registry still works and renders as its raw symbol.
 
 - **`query`** (`query.el`) — Read API for typed edges:
   `org-graph-query/outgoing`, `org-graph-query/incoming`,
@@ -120,21 +145,27 @@ discovery engine — there is no org-node / org-mem (RE-2).
 ;; Coordinator
 (org-graph-coordinator/with-file-lock PATH BODY...)
 
-;; Pure parser (testable without vulpea)
-(org-graph-extractor/parse-typed-edges ELEMENT-TREE NOTE-ID)
-;; -> list of (FROM-ID REL-TYPE TO-ID) tuples
+;; Pure parsers (testable without vulpea) — both -> list of (FROM-ID REL-TYPE TO-ID)
+(org-graph-extractor/parse-typed-edges ELEMENT-TREE NOTE-ID)  ;; drawer, REL_-prefixed
+(org-graph-extractor/parse-rel-links   ELEMENT-TREE)          ;; inline rel: links, enclosing-node attributed
+
+;; Edge-type registry (optional metadata; extraction never depends on it)
+(org-graph/edge-types)                 ;; -> loaded registry metadata (label/inverse/symmetric)
+(org-graph/find-edge-type)             ;; interactive finder over :edge-type: notes
 ```
 
 **Relation-type vocabulary** (`register/vocabulary/relation-types`,
-confirmed): the closed initial set is the symbols `implements`,
-`contradicts`, `supersedes`, `relates-to`, declared by the
-`org-graph-relation-types` defcustom. Each maps to a PROPERTIES-drawer key
-by upcasing and turning hyphens into underscores (`relates-to` ⇄
-`:RELATES_TO:`, `implements` ⇄ `:IMPLEMENTS:`), via
-`org-graph-extractor--rel-key` / `--key->rel` (the only allowed
-translation sites). The relation symbol is stored **verbatim as a SYMBOL**
-in the `typed_edges` `rel-type` column (emacsql `prin1`/`read` round-trips
-symbols), and the query layer matches on the symbol.
+revised by OV-1/OV-2 — **open**): there is no closed set. A drawer property
+is an edge iff its key is `REL_<TYPE>`; the relation symbol is `<TYPE>`
+lowercased with `_`→`-` (`:REL_RELATES_TO:` ⇄ `relates-to`,
+`:REL_IMPLEMENTS:` ⇄ `implements`), via `org-graph-extractor--rel-key` /
+`--key->rel`, which are now **prefix add/strip**, not list lookups (the
+only allowed translation sites). Inline `rel:<type>:<id>` links carry the
+type in the path directly. The relation symbol is stored **verbatim as a
+SYMBOL** in the `typed_edges` `rel-type` column (emacsql `prin1`/`read`
+round-trips symbols), and the query layer matches on the symbol.
+`org-graph-relation-types` survives only as a **non-gating completion seed
+list**; the authoritative candidate set is registry notes ∪ observed types.
 
 **Vulpea integration:** `extractor` registers via `make-vulpea-extractor`
 with a `typed_edges` schema, foreign-keyed to `notes(id)` with
@@ -164,9 +195,16 @@ roam-only typed-edge boundary (D2/RE-4) so agent prompts stay honest.
 
 **In scope for the spike:**
 - The sub-modules above (discovery, schemas, finders, extractor, query,
-  coordinator, gptel-tools) plus the planned workspace-integration.
-- The PROPERTIES-drawer convention for typed edges (initial relation set:
-  implements / contradicts / supersedes / relates-to).
+  coordinator, gptel-tools) plus the new `rel-link` and `edge-type`
+  registry modules and the planned workspace-integration.
+- **Open-vocabulary typed edges** over two authoring surfaces:
+  `REL_`-prefixed drawer properties and inline `rel:<type>:<id>` links
+  (OV-1..OV-5). Any author-coined relation is extracted; the four seed
+  types (implements / contradicts / supersedes / relates-to) ship as
+  registry notes, not a closed list.
+- The optional `:edge-type:` registry supplying label / inverse / symmetric
+  metadata (OV-6); inverse and symmetric are derived at query/display time,
+  never stored (OV-7).
 - Note-type taxonomy via `vulpea-schema` (log / debug / topic / reference /
   project). `agent-draft` is a cross-cutting filetag, not a taxonomy type.
 - Coexistence with org-roam in the same vault.
@@ -178,8 +216,10 @@ roam-only typed-edge boundary (D2/RE-4) so agent prompts stay honest.
 - Retiring or modifying the existing org-roam configuration.
 - A graph visualization UI (org-supertag's React-Flow board, vulpea-ui
   dashboards). Findings inform whether to add one.
-- Bidirectional typed-edge inference (declaring `IMPLEMENTS` on one side
-  and auto-creating `IMPLEMENTED_BY` on the other).
+- Bidirectional typed-edge inference as **stored rows** (declaring
+  `REL_IMPLEMENTS` on one side and materializing an `implemented-by` row on
+  the other). Registry-driven inverse/symmetric rendering at read time
+  (OV-7) is in scope; writing inverse rows is not.
 - Promotion workflow for `agent-draft` notes (review → demote tag).
 - Capture templates for any of the new note types.
 - Org-roam-to-org-graph sync of legacy backlinks.
@@ -203,9 +243,12 @@ config/org-graph/test/
 ├── discovery-spec.el          ; index-roots, seed-org-id-locations, configure-sync
 ├── schemas-spec.el            ; note-type schema registration + validation
 ├── finders-spec.el            ; schema-aware finder filtering behavior
-├── parse-typed-edges-spec.el  ; pure-parser unit tests
-├── extractor-spec.el          ; scope gate, note-granular attribution, storage shape, registration
-├── typed-edges-spec.el        ; query API (outgoing/incoming/connected), vulpea stubbed
+├── parse-typed-edges-spec.el  ; drawer pure-parser: REL_ discriminator, novel type, non-edge props
+├── parse-rel-links-spec.el    ; inline pure-parser: enclosing-node attribution (top/subheading/no-id)
+├── rel-link-spec.el           ; rel: link type — follow/complete/face parse round-trip
+├── edge-type-spec.el          ; :edge-type: predicate, registry metadata load, seed notes, finder
+├── extractor-spec.el          ; scope gate, note-granular attribution, dual-scanner union, storage shape, registration
+├── typed-edges-spec.el        ; query API (outgoing/incoming/connected) + inverse/symmetric render, vulpea stubbed
 ├── coordinator-spec.el        ; write-coordinator lock semantics
 └── tools-spec.el              ; gptel tool construction, coordinator-wrapped write, agent-draft stamp
 ```
@@ -288,7 +331,7 @@ but not every scenario. Priorities:
 | Spec Requirement                  | Test Coverage |
 |-----------------------------------|---------------|
 | Distributed Note Discovery        | `discovery-spec` covers `index-roots` (bounded roam + workspace homes, no wider walk), the `org-id-locations` seed, and `configure-sync`. The 5-second / external-change scenarios are validated manually during the spike. |
-| Typed Semantic Edges              | Full coverage of the pure parser (`parse-typed-edges-spec`): single property, multi-valued, multiple property types, malformed input, empty drawer. Extractor (`extractor-spec`): scope gate, note-granular attribution, storage-as-symbol, registration. Query API (`typed-edges-spec`): outgoing, incoming, connected — each with stubbed `org-graph-query--select`. |
+| Typed Semantic Edges              | Drawer pure parser (`parse-typed-edges-spec`): `REL_` discriminator (edge vs. `:SOURCE: [[id:]]` non-edge), a novel/unregistered type, multi-valued, malformed, empty drawer. Inline pure parser (`parse-rel-links-spec`): enclosing-node attribution at file top / under an ID-bearing subheading / under a heading with no ID / no ID-bearing ancestor. `rel:` link type (`rel-link-spec`): path round-trip for follow/complete. Registry (`edge-type-spec`): `:edge-type:` predicate, metadata load, seed notes, finder. Extractor (`extractor-spec`): scope gate, note-granular attribution, dual-scanner union, storage-as-symbol, registration. Query API (`typed-edges-spec`): outgoing, incoming, connected, plus inverse-label and symmetric-aware render — each with stubbed `org-graph-query--select`. |
 | Note-Type Taxonomy and Finders    | `schemas-spec` covers schema registration, predicate selection, and validation; `finders-spec` covers one filter test per finder plus the agent-draft orthogonality case. |
 | Agent-Facing Graph Tools          | `tools-spec` covers gptel tool construction, the coordinator-wrapped write path, and `agent-draft` filetag stamping; `coordinator-spec` covers the concurrent-write semantics underneath. Wiring the tools into the per-workspace assistant `:tools` slot lands with the (pending) `workspace-integration` task. |
 | Coexistence with org-roam         | `db-location-spec` asserts DB isolation; org-roam UX continuity is a manual check during the spike. |

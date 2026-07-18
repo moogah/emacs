@@ -120,20 +120,48 @@ that already has an `:ID:` is left unchanged.
 
 ### Requirement: Typed Semantic Edges
 
-The system SHALL extract typed relations declared as PROPERTIES-drawer
-entries on a note and store them in a queryable `typed_edges` index,
-implemented as a custom `vulpea` extractor table. The supported relation
-types SHALL be configurable; the initial set is `IMPLEMENTS`, `CONTRADICTS`,
-`SUPERSEDES`, `RELATES_TO`.
+The system SHALL extract typed relations from notes and store them in a
+queryable `typed_edges` index, implemented as a custom `vulpea` extractor
+table holding `(from-id, rel-type, to-id)` rows. Edges are directional and
+explicitly authored; the system SHALL NOT materialize inverse rows.
 
-A typed-edge property MAY appear multiple times on the same note and MAY
-contain one or more `id:` link references. The extractor SHALL parse each
-into a separate `(from-id, rel-type, to-id)` row. Edges are directional and
-explicitly authored; the system SHALL NOT auto-derive inverse relations.
+**Open vocabulary.** The set of relation types SHALL be open: any
+author-coined relation is extracted the moment it appears, with no
+allowlist and no registration step. The relation type is stored verbatim as
+a symbol; the system SHALL NOT restrict extraction to a fixed set of type
+names. A configurable list MAY seed completion suggestions but SHALL NOT
+gate extraction.
 
-`vulpea`'s native link `:type` (link-kind: id/file/https) is NOT a semantic
-relation type; semantic relations exist only in the `typed_edges` index this
-requirement defines.
+**Two authoring surfaces.** The system SHALL extract edges from both:
+
+1. **Prefixed PROPERTIES-drawer entries.** A drawer property is a typed
+   edge if and only if its key is `REL_<TYPE>`; the relation is `<TYPE>`
+   lowercased with underscores mapped to hyphens (`:REL_FALSIFIES:` →
+   `falsifies`). The `REL_` namespace is the sole discriminator: ordinary
+   properties SHALL NOT be treated as edges, even when their value contains
+   an `id:` link. Such a property MAY appear multiple times on one note and
+   MAY hold one or more `id:` references; each reference SHALL become a
+   separate row.
+2. **Typed inline `rel:` links.** A link of the form
+   `[[rel:<type>:<target-id>][description]]` in a note's body SHALL become a
+   typed edge whose `to-id` is `<target-id>` and whose `from-id` is the
+   nearest ancestor node carrying an `:ID:` (the enclosing heading, else the
+   file-level node). A `rel:` link with no ID-bearing ancestor SHALL be
+   dropped, not attributed to an unrelated note.
+
+Both surfaces SHALL feed the same `typed_edges` table and the same query
+API. `vulpea`'s native link `:type` (link-kind: id/file/https) is NOT a
+semantic relation type; semantic relations exist only in the `typed_edges`
+index this requirement defines.
+
+**Optional edge-type registry.** A relation type SHALL function fully
+without registration and, when unregistered, SHALL render as its raw
+symbol. A note tagged `:edge-type:` MAY declare metadata for a type — a
+human label, an `:INVERSE:` symbol, a `:SYMMETRIC:` boolean, and a
+description — held as ordinary vault data (git-versioned, indexed,
+discoverable via a dedicated finder). Registry metadata SHALL only enrich
+reads and completion; it SHALL NOT be required for extraction, and its
+absence SHALL NOT drop any edge.
 
 The system SHALL expose a query API that returns:
 - All outgoing typed edges for a given note ID and relation type.
@@ -141,34 +169,69 @@ The system SHALL expose a query API that returns:
   relation type.
 - All notes connected to a given note by any typed relation.
 
+Inverse and symmetry SHALL be derived at query/display time from registry
+metadata, not stored: a registered `:INVERSE:` MAY be used to render a
+stored edge from the target's perspective, and a `:SYMMETRIC: t` type MAY
+be surfaced in both directions by reads, without any additional stored row.
+
 Typed-edge extraction SHALL only run on notes located under the
 typed-graph-scoped root (default: `~/org/roam/`), not on workspace-local or
 session notes that are indexed for discovery and navigation.
 
-#### Scenario: Single typed property creates one edge row
+#### Scenario: Prefixed drawer property creates one edge row
 
-- **WHEN** a note has `:IMPLEMENTS: [[id:abc]]` in its PROPERTIES drawer
+- **WHEN** a note has `:REL_IMPLEMENTS: [[id:abc]]` in its PROPERTIES drawer
   and the extractor runs
 - **THEN** the `typed_edges` index contains exactly one row with
   `from-id = <note-id>`, `rel-type = implements`, `to-id = abc`
 
-#### Scenario: Multi-valued typed property creates multiple edge rows
+#### Scenario: Novel unregistered relation type extracts with no configuration
 
-- **WHEN** a note has `:RELATES_TO: [[id:abc]] [[id:def]]` in its
+- **WHEN** a note declares `:REL_FALSIFIES: [[id:abc]]` and no
+  `falsifies` edge-type registry note or configuration entry exists
+- **THEN** the `typed_edges` index contains a row with
+  `rel-type = falsifies`, extracted purely from the `REL_` prefix
+
+#### Scenario: Ordinary property with an id link is not an edge
+
+- **WHEN** a note has `:SOURCE: [[id:abc]]` (no `REL_` prefix) in its
+  PROPERTIES drawer
+- **THEN** no row for it appears in the `typed_edges` index
+
+#### Scenario: Multi-valued prefixed property creates multiple edge rows
+
+- **WHEN** a note has `:REL_RELATES_TO: [[id:abc]] [[id:def]]` in its
   PROPERTIES drawer
 - **THEN** the `typed_edges` index contains two rows, one for each
   destination, sharing `from-id` and `rel-type = relates-to`
 
+#### Scenario: Inline rel link is attributed to its enclosing node
+
+- **WHEN** a note's body contains
+  `[[rel:falsifies:xyz][the earlier claim]]` under a heading that carries
+  its own `:ID: heading-id`
+- **THEN** the `typed_edges` index contains a row with
+  `from-id = heading-id`, `rel-type = falsifies`, `to-id = xyz`, and a
+  bare `id:` link in the same prose produces no edge
+
 #### Scenario: Typed-edge query returns incoming edges
 
-- **WHEN** notes A and B both declare `:IMPLEMENTS: [[id:C]]` and the
+- **WHEN** notes A and B both declare `:REL_IMPLEMENTS: [[id:C]]` and the
   user queries incoming edges of type `implements` for note C
 - **THEN** the query returns rows for both A and B
+
+#### Scenario: Registered inverse renders from the target's perspective
+
+- **WHEN** an `implements` edge-type registry note declares
+  `:INVERSE: implemented-by`, note A stores `:REL_IMPLEMENTS: [[id:B]]`,
+  and the display layer shows note B's relations
+- **THEN** the relation to A is presented as `implemented-by` without any
+  `implemented-by` row existing in `typed_edges`
 
 #### Scenario: Workspace-local note is excluded from typed-edge index
 
 - **WHEN** a note under a workspace `:home` (outside `~/org/roam/`) declares
-  an `:IMPLEMENTS:` property
+  a `:REL_IMPLEMENTS:` property
 - **THEN** that note is reachable via the navigator but no row for it
   appears in the `typed_edges` index
 
