@@ -134,15 +134,21 @@ gate extraction.
 
 **Two authoring surfaces.** The system SHALL extract edges from both:
 
-1. **Prefixed PROPERTIES-drawer entries.** A drawer property is a typed
-   edge if and only if its key begins with the configured edge-property
-   prefix (a single configurable value, default `REL_`); the relation is the
-   remainder of the key lowercased with underscores mapped to hyphens
-   (`:REL_FALSIFIES:` → `falsifies`). The prefix namespace is the sole
-   discriminator: ordinary properties SHALL NOT be treated as edges, even
-   when their value contains an `id:` link. Such a property MAY appear
-   multiple times on one note and MAY hold one or more `id:` references; each
-   reference SHALL become a separate row.
+1. **Edge-drawer items.** A dedicated drawer (its name a single
+   configurable value, default `EDGES`) holds description-list items of the
+   form `- <type> :: [[id:target][description]]`. The item tag is the
+   relation type — trimmed, lowercased, with spaces and underscores mapped
+   to hyphens, interned as a symbol (`- follows up ::` → `follows-up`). The
+   drawer name is the sole discriminator: ordinary PROPERTIES entries and
+   links outside the drawer SHALL NOT be treated as edges, even when a
+   property value contains an `id:` link. An item MAY hold one or more
+   `id:` references and a type MAY repeat across items; each reference
+   SHALL become a separate row. Edge-drawer rows SHALL attribute to the
+   nearest ancestor node carrying an `:ID:` (the enclosing heading, else
+   the file-level node) — the same rule as inline links; a drawer with no
+   ID-bearing ancestor SHALL contribute nothing. Non-item drawer content
+   and malformed items SHALL be ignored without error, and the drawer
+   SHALL be excluded from export by default.
 2. **Typed inline `rel:` links.** A link of the form
    `[[rel:<type>:<target-id>][description]]` (the `rel` link-type name is
    likewise a single configurable value, default `rel`) in a note's body
@@ -181,32 +187,40 @@ Typed-edge extraction SHALL only run on notes located under the
 typed-graph-scoped root (default: `~/org/roam/`), not on workspace-local or
 session notes that are indexed for discovery and navigation.
 
-#### Scenario: Prefixed drawer property creates one edge row
+#### Scenario: Edge-drawer item creates one edge row
 
-- **WHEN** a note has `:REL_IMPLEMENTS: [[id:abc]]` in its PROPERTIES drawer
+- **WHEN** a note's `EDGES` drawer contains `- implements :: [[id:abc]]`
   and the extractor runs
 - **THEN** the `typed_edges` index contains exactly one row with
   `from-id = <note-id>`, `rel-type = implements`, `to-id = abc`
 
 #### Scenario: Novel unregistered relation type extracts with no configuration
 
-- **WHEN** a note declares `:REL_FALSIFIES: [[id:abc]]` and no
-  `falsifies` edge-type registry note or configuration entry exists
+- **WHEN** a note's `EDGES` drawer contains `- falsifies :: [[id:abc]]` and
+  no `falsifies` edge-type registry note or configuration entry exists
 - **THEN** the `typed_edges` index contains a row with
-  `rel-type = falsifies`, extracted purely from the `REL_` prefix
+  `rel-type = falsifies`, extracted purely from its presence in the edge
+  drawer
 
-#### Scenario: Ordinary property with an id link is not an edge
+#### Scenario: Ordinary property or body link is not an edge
 
-- **WHEN** a note has `:SOURCE: [[id:abc]]` (no `REL_` prefix) in its
-  PROPERTIES drawer
-- **THEN** no row for it appears in the `typed_edges` index
+- **WHEN** a note has `:SOURCE: [[id:abc]]` in its PROPERTIES drawer and a
+  bare `[[id:def]]` link in its body, neither inside the `EDGES` drawer
+- **THEN** no row for either appears in the `typed_edges` index
 
-#### Scenario: Multi-valued prefixed property creates multiple edge rows
+#### Scenario: Multi-link edge-drawer item creates multiple edge rows
 
-- **WHEN** a note has `:REL_RELATES_TO: [[id:abc]] [[id:def]]` in its
-  PROPERTIES drawer
+- **WHEN** a note's `EDGES` drawer contains
+  `- relates-to :: [[id:abc]] [[id:def]]`
 - **THEN** the `typed_edges` index contains two rows, one for each
   destination, sharing `from-id` and `rel-type = relates-to`
+
+#### Scenario: Edge drawer under an ID-bearing heading attributes to that heading
+
+- **WHEN** a heading carrying `:ID: heading-id` has an `EDGES` drawer
+  containing `- implements :: [[id:abc]]`
+- **THEN** the row's `from-id` is `heading-id`, not the file-level node's
+  ID
 
 #### Scenario: Inline rel link is attributed to its enclosing node
 
@@ -219,22 +233,24 @@ session notes that are indexed for discovery and navigation.
 
 #### Scenario: Typed-edge query returns incoming edges
 
-- **WHEN** notes A and B both declare `:REL_IMPLEMENTS: [[id:C]]` and the
-  user queries incoming edges of type `implements` for note C
+- **WHEN** notes A and B each contain `- implements :: [[id:C]]` in their
+  `EDGES` drawers and the user queries incoming edges of type `implements`
+  for note C
 - **THEN** the query returns rows for both A and B
 
 #### Scenario: Registered inverse renders from the target's perspective
 
 - **WHEN** an `implements` edge-type registry note declares
-  `:INVERSE: implemented-by`, note A stores `:REL_IMPLEMENTS: [[id:B]]`,
-  and the display layer shows note B's relations
+  `:INVERSE: implemented-by`, note A's `EDGES` drawer contains
+  `- implements :: [[id:B]]`, and the display layer shows note B's
+  relations
 - **THEN** the relation to A is presented as `implemented-by` without any
   `implemented-by` row existing in `typed_edges`
 
 #### Scenario: Workspace-local note is excluded from typed-edge index
 
-- **WHEN** a note under a workspace `:home` (outside `~/org/roam/`) declares
-  a `:REL_IMPLEMENTS:` property
+- **WHEN** a note under a workspace `:home` (outside `~/org/roam/`)
+  contains an `- implements ::` item in its `EDGES` drawer
 - **THEN** that note is reachable via the navigator but no row for it
   appears in the `typed_edges` index
 

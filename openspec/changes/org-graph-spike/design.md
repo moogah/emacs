@@ -1,3 +1,147 @@
+## Links-Drawer Edge Surface (2026-08-10)
+
+A deep-research pass on typed-edge implementations across the Emacs and
+wider PKM ecosystems (research note:
+`~/org/roam/20260810132157-emacs_org_typed_edges.org`) established that
+the PROPERTIES drawer is the wrong host for the structured authoring
+surface. This section replaces that surface: typed edges move from
+`REL_`-prefixed drawer properties to a **dedicated links drawer** of
+description-list items. **Where it conflicts with OV-2, OV-4, OV-5,
+OV-Q4, or D3, this section wins.** Those are preserved below unedited
+for provenance. Everything else stands: the open vocabulary (OV-1), the
+inline `rel:` surface (OV-3), the registry (OV-6), read-time
+inverse/symmetry (OV-7), the `typed_edges` schema, the roam-only scope
+gate, and the query layer (surface-agnostic by design).
+
+Still a clean break: no notes have been authored against `REL_` keys,
+so there is no back-compat obligation and no migration task.
+
+**Decisive evidence** (verified with batch org-element experiments on
+Org 9.7.11; details and sources in the research note):
+
+- A link inside a PROPERTIES value is a **raw string** to org-element:
+  no link object exists in the AST, follow/fontification work only via
+  a special-cased regexp re-scan, and link completion does not work at
+  all while authoring one. D3's "properties are first-class in the
+  org-element AST" rationale is true of the *properties* but false of
+  the *links inside them* — which is what this feature is made of.
+- The same link inside a named drawer is a **first-class link object**
+  attributed to the correct headline; the relation type is structural
+  (the description-list item's `:tag`, not a string to re-parse); and
+  normal link UX — `org-open-at-point`, `org-roam-node-insert`
+  completion, fontification, org-roam indexing and backlink-buffer
+  visibility — works with zero extra machinery.
+- The item syntax `- <type> :: [[id:…]]` is byte-compatible with
+  vulpea-meta's metadata convention, and `::` is the typed-edge
+  spelling nearly every other tool converged on independently
+  (Semantic MediaWiki 2005, Roam, Logseq, Dataview, Obsidian
+  Breadcrumbs/Juggl).
+
+**Decisions:**
+
+- **LD-1 — A dedicated links drawer is the structured surface
+  (supersedes OV-2; revises D3).** Authors declare structured edges in
+  a drawer whose name comes from a single `defcustom`,
+  `org-graph-edge-drawer` (string, default `"EDGES"`), which replaces
+  `org-graph-edge-property-prefix` (deleted):
+
+  ```org
+  * Some heading
+  :PROPERTIES:
+  :ID: <uuid>
+  :END:
+  :EDGES:
+  - implements :: [[id:abc][Target note]]
+  - relates-to :: [[id:def]] [[id:ghi]]
+  :END:
+  ```
+
+  Org constrains drawer names to word characters, `-`, and `_`; the
+  loader warns on a customization org cannot parse as a drawer name.
+  As with the old prefix, the default should be settled before real
+  notes accumulate (LD-Q1).
+
+- **LD-2 — Items are description-list entries; the tag is the
+  relation.** An edge item is `- <type> :: <links…>`. The relation
+  symbol is the item tag trimmed, lowercased, with spaces and
+  underscores mapped to hyphens, interned (`- follows up ::` →
+  `follows-up`) — multi-word types are first-class, a known pain point
+  of other tools' single-token syntaxes. Each `id:` link in the item
+  yields one `(from rel to)` tuple; a type may repeat across items;
+  link descriptions are free text and carry no semantics. Non-item
+  drawer content, items with empty tags, and non-`id:` links are
+  ignored — malformed input never signals, per the pure-scanner
+  contract.
+
+- **LD-3 — The drawer name is the edge discriminator (replaces the
+  `REL_` prefix rule).** Content is a typed edge iff it is a
+  description-list item inside the configured drawer (matched
+  case-insensitively, per org drawer semantics). Ordinary PROPERTIES
+  entries — including ones whose value holds an `id:` link
+  (`:SOURCE:`, `:ROAM_REFS:`) — and ordinary body links are never
+  edges. This is a cleaner split than the prefix rule: the namespace is
+  a *container*, not a key-naming convention, and per-edge authoring
+  carries zero namespace overhead.
+
+- **LD-4 — One attribution model for both surfaces (amends OV-4).**
+  Drawer edges attribute exactly like inline `rel:` links: `from-id` is
+  the nearest ancestor carrying an `:ID:` (the enclosing heading, else
+  the file-level node), resolved via `org-element-lineage`; a drawer
+  with no ID-bearing ancestor contributes nothing (drop, never
+  mis-attribute). OV-4's drawer/inline split ("a drawer edge's
+  `from-id` is the drawer's own `:ID:`") dissolves, and with it the
+  PROPERTIES-specific ownership machinery (`--note-property-drawer` /
+  `--edges-from-note`, and the repeated-key re-parse rationale) is
+  deleted rather than ported. The ancestor walk becomes a shared helper
+  used by both scanners.
+
+- **LD-5 — Scanner swap, union unchanged (amends OV-5).**
+  `org-graph-extractor/parse-typed-edges` (properties) is replaced by
+  `org-graph-extractor/parse-drawer-edges (ELEMENT-TREE)` — same pure
+  contract and tuple stream, and now the same signature as
+  `parse-rel-links` since attribution is internal to the shared walk.
+  The wrapper still runs both scanners and unions (de-duplicates) the
+  rows; `typed_edges` and its symbol storage are unchanged.
+
+- **LD-6 — The edge drawer is excluded from export by default.**
+  Unlike properties, custom drawers export by default
+  (`org-export-with-drawers` excludes only `LOGBOOK`) — and export
+  invisibility was load-bearing in D3's original rationale. The loader
+  restores it: when `org-export-with-drawers` still has its default
+  shape, extend its exclusion list with the configured edge-drawer
+  name; a user who has customized that variable owns the outcome
+  (documented in the defcustom docstring).
+
+**Task impact:**
+- `open-vocab-drawer` (unstarted) is **replaced** by `edges-drawer`:
+  introduce `org-graph-edge-drawer`, implement `parse-drawer-edges`,
+  delete the allowlist, the `REL_` translation sites, and the
+  properties-ownership scoping machinery.
+- `extractor-union` — retargeted: unions `parse-drawer-edges` +
+  `parse-rel-links`; attribution note simplifies to the single model.
+- `parse-rel-links`, `rel-link-type`, `edge-type-registry`,
+  `query-inverse-symmetric` — mechanism unchanged; contract references
+  updated (`parse-drawer-edges`, the shared ancestor-walk helper,
+  `org-graph-edge-drawer` as the parallel knob).
+- `spike-eval-doc-update` — runbook checks retarget to drawer items.
+- Still no migration task.
+
+**Open questions (OV-Q4 is resolved by dissolution — there is no
+prefix left to tune):**
+- **LD-Q1 —** Default drawer name: `EDGES` (chosen: short, unambiguous,
+  low collision risk with org-super-links' `RELATED`/`BACKLINKS`) vs
+  `RELATIONS` vs `REL`. One knob; lock it before notes accumulate.
+- **LD-Q2 —** Should the scanner also accept vulpea-meta-style bare
+  description-list metadata *outside* the drawer (interop/migration)?
+  Tentative **no** — one discriminator, one place to look.
+- **LD-Q3 —** Per-edge metadata (evidence quotes, confidence): items
+  can grow trailing text or sub-structure after their links — the
+  drawer surface leaves room properties never had (this was D3's
+  original reopening condition for a block-based surface). Deferred
+  until real use demands it.
+
+---
+
 ## Open-Vocabulary Typed Edges (2026-07-17)
 
 Hands-on use during the spike-eval window established that the **closed

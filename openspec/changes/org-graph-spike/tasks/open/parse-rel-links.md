@@ -13,7 +13,7 @@ relations:
 
 ## Files to modify
 - `config/org-graph/extractor.el` ← via `config/org-graph/extractor.org`
-  (new pure scanner alongside `parse-typed-edges`)
+  (new pure scanner alongside `parse-drawer-edges`)
 - `config/org-graph/test/parse-rel-links-spec.el` (new)
 
 ## Implementation steps
@@ -21,11 +21,13 @@ relations:
    function returning `(from-id rel-type to-id)` tuples. It maps over `link`
    elements with `:type "rel"`, splitting each path `<type>:<target-id>` on
    the first `:` → `rel-type` (interned symbol) and `to-id`.
-2. **Enclosing-node attribution (OV-4):** `from-id` is the nearest ancestor
-   carrying an `:ID:`, resolved by walking `org-element-lineage` up to the
-   enclosing headline, falling back to the file-level (top) node's `:ID:`.
-   A `rel:` link with **no** ID-bearing ancestor yields **no** tuple (drop,
-   never mis-attribute).
+2. **Enclosing-node attribution (OV-4/LD-4):** `from-id` is the nearest
+   ancestor carrying an `:ID:`, resolved by walking `org-element-lineage` up
+   to the enclosing headline, falling back to the file-level (top) node's
+   `:ID:`. Implement the walk as a shared helper (e.g.
+   `org-graph-extractor--enclosing-note-id`) — the drawer scanner
+   (`edges-drawer` task) uses the same rule. A `rel:` link with **no**
+   ID-bearing ancestor yields **no** tuple (drop, never mis-attribute).
 3. Handle: malformed path (missing `:` separator, empty type or target) →
    skip gracefully, no error.
 4. Write `parse-rel-links-spec.el` first, using `org-graph-test/build-tree`
@@ -39,14 +41,15 @@ relations:
    - malformed `rel:` path → no error, no row.
 
 ## Design rationale
-Drawer edges anchor to the drawer's own `:ID:`; an inline link has no such
-anchor, so enclosing-node resolution is the one genuinely new parsing
-concern (OV-4) and the bulk of this task's test surface. Keeping it a pure
-function mirrors D4/OV-5 so the extractor wrapper can union both scanners.
+Enclosing-node resolution (OV-4/LD-4) is the bulk of this task's test
+surface, and it is no longer inline-only: LD-4 makes it the single
+attribution model for both surfaces, so the ancestor walk built here is
+shared with the drawer scanner. Keeping it a pure function mirrors D4/OV-5
+so the extractor wrapper can union both scanners.
 
 ## Design pattern
 Pure-function-over-AST with synthetic-tree tests, same contract as
-`parse-typed-edges`: `((from rel to) ...)`.
+`parse-drawer-edges`: `((from rel to) ...)`.
 
 ## Verification
 - `./bin/tangle-org.sh config/org-graph/extractor.org` validates.

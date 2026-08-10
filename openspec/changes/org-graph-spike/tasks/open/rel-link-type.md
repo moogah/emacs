@@ -20,8 +20,8 @@ relations:
 ## Implementation steps
 1. Register the link type via `org-link-set-parameters`, reading its name
    from `org-graph-edge-link-type` (a `defcustom`, default `"rel"`, declared
-   in `org-graph.org` — the parallel knob to `org-graph-edge-property-prefix`,
-   OV-2/OV-3). Path syntax `<link-type>:<type>:<target-id>` (default
+   in `org-graph.org` — the parallel knob to `org-graph-edge-drawer`,
+   LD-1/OV-3). Path syntax `<link-type>:<type>:<target-id>` (default
    `rel:<type>:<target-id>`):
    - `:follow` — parse `<type>:<target-id>`, jump to the target via
      `org-id-goto` / `org-id-find`.
