@@ -45,6 +45,7 @@ position).
 (require 'subr-x)
 (require 'org-id)
 (require 'vulpea)
+(require 'org-graph-extractor)
 #+end_src
 
 * Selector predicate
@@ -75,24 +76,13 @@ through the same normalization rule as both authoring surfaces
 (=register/vocabulary/relation-types=): trim → downcase → spaces and
 underscores map to hyphens → intern.
 
-The extractor owns the canonical translation site
-(=org-graph-extractor--tag->rel=, per architecture.md).  When it is
-defined (it loads before this module in the loader sequence), delegate
-to it so the registry can never fork one authored relation into two
-symbols; the local fallback implements the identical rule so this module
-stays standalone-loadable (e.g. in a unit spec).
-
-#+begin_src emacs-lisp
-(defun org-graph-edge-type--normalize-rel (raw)
-  "Normalize RAW (a string) into a stored relation symbol.
-Applies the shared normalization rule: trim, downcase, map space/underscore
-runs to hyphens, intern.  Delegates to the extractor's canonical helper
-`org-graph-extractor--tag->rel' when it is defined, so both surfaces and
-the registry share ONE translation site."
-  (if (fboundp 'org-graph-extractor--tag->rel)
-      (org-graph-extractor--tag->rel raw)
-    (intern (replace-regexp-in-string "[ _]+" "-" (downcase (string-trim raw))))))
-#+end_src
+The extractor owns the canonical translation site,
+=org-graph-extractor--normalize-rel= (=register/vocabulary/relation-types=).
+This module requires the extractor and calls that helper directly at
+every normalization point — there is deliberately no module-local copy
+or fallback, so the registry can never fork one authored relation into
+two symbols.  Standalone loads (e.g. the unit spec) load =extractor.el=
+first.
 
 * Registry-note metadata
 
@@ -133,11 +123,11 @@ plist with `:label' (LABEL property, else the raw title), `:inverse'
 usable title."
   (let ((title (vulpea-note-title note)))
     (when (and title (not (string-blank-p title)))
-      (let* ((rel (org-graph-edge-type--normalize-rel title))
+      (let* ((rel (org-graph-extractor--normalize-rel title))
              (inverse-raw (org-graph-edge-type--property note "INVERSE"))
              (inverse (and inverse-raw
                            (not (string-blank-p inverse-raw))
-                           (org-graph-edge-type--normalize-rel inverse-raw))))
+                           (org-graph-extractor--normalize-rel inverse-raw))))
         (cons rel
               (list :label (or (org-graph-edge-type--property note "LABEL")
                                title)

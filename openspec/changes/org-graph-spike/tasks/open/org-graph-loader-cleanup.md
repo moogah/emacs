@@ -2,12 +2,13 @@
 name: org-graph-loader-cleanup
 description: Low-priority cleanup of the consolidated org-graph loader — unify the two DB-free deferral wrappers and prune the now-dead skeleton placeholder sections in org-graph.org.
 change: org-graph-spike
-status: ready
+status: needs_review
 discovered_from: wire-into-init
 discovered_by: reviewer
 discovered_class: duplication
 relations:
   - discovered-from:wire-into-init
+merge_commit: 37e5ace7
 cites_register_entries:
   - register/invariant/org-graph-loader-ordered-sequence
 ---

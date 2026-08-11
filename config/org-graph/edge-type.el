@@ -5,6 +5,7 @@
 (require 'subr-x)
 (require 'org-id)
 (require 'vulpea)
+(require 'org-graph-extractor)
 
 (defconst org-graph-edge-type-tag "edge-type"
   "Filetag marking a note as an edge-type registry note.
@@ -17,16 +18,6 @@ type by declaring metadata: a human `LABEL', an `:INVERSE:' symbol, a
 Membership is filetag-based: NOTE carries `org-graph-edge-type-tag'
 among its tags.  Mirrors the schemas-module selector pattern."
   (and (member org-graph-edge-type-tag (vulpea-note-tags note)) t))
-
-(defun org-graph-edge-type--normalize-rel (raw)
-  "Normalize RAW (a string) into a stored relation symbol.
-Applies the shared normalization rule: trim, downcase, map space/underscore
-runs to hyphens, intern.  Delegates to the extractor's canonical helper
-`org-graph-extractor--tag->rel' when it is defined, so both surfaces and
-the registry share ONE translation site."
-  (if (fboundp 'org-graph-extractor--tag->rel)
-      (org-graph-extractor--tag->rel raw)
-    (intern (replace-regexp-in-string "[ _]+" "-" (downcase (string-trim raw))))))
 
 (defun org-graph-edge-type--property (note key)
   "Return NOTE's property KEY (a string), or nil.
@@ -52,11 +43,11 @@ plist with `:label' (LABEL property, else the raw title), `:inverse'
 usable title."
   (let ((title (vulpea-note-title note)))
     (when (and title (not (string-blank-p title)))
-      (let* ((rel (org-graph-edge-type--normalize-rel title))
+      (let* ((rel (org-graph-extractor--normalize-rel title))
              (inverse-raw (org-graph-edge-type--property note "INVERSE"))
              (inverse (and inverse-raw
                            (not (string-blank-p inverse-raw))
-                           (org-graph-edge-type--normalize-rel inverse-raw))))
+                           (org-graph-extractor--normalize-rel inverse-raw))))
         (cons rel
               (list :label (or (org-graph-edge-type--property note "LABEL")
                                title)

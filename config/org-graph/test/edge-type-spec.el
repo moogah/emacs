@@ -31,6 +31,9 @@
        (module-dir (expand-file-name ".." test-dir)))
   (add-to-list 'load-path test-dir)
   (require 'org-graph-test-helpers (expand-file-name "helpers-spec.el" test-dir))
+  ;; edge-type.el requires the extractor feature (canonical rel-normalization
+  ;; site lives there); load it by filename first in this standalone process.
+  (require 'org-graph-extractor (expand-file-name "extractor.el" module-dir))
   (require 'org-graph-edge-type (expand-file-name "edge-type.el" module-dir)))
 
 ;; Owned by the loader (a defcustom), not loaded in this standalone process.
