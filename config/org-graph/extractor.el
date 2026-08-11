@@ -17,6 +17,19 @@ than guessing a name."
        (not (string-empty-p org-graph-edge-drawer))
        org-graph-edge-drawer))
 
+(defvar org-graph-edge-link-type)       ; defined by the rel-link runtime's defcustom
+
+(defun org-graph-extractor--edge-link-type ()
+  "Return the configured rel-link type name, or nil when unavailable.
+`org-graph-edge-link-type' is owned by the rel-link runtime's
+defcustom.  When this file is loaded standalone and the variable is
+unbound, nil, or empty, return nil so the rel-link scanner fails closed
+\(no link ever matches) rather than guessing a name."
+  (and (boundp 'org-graph-edge-link-type)
+       (stringp org-graph-edge-link-type)
+       (not (string-empty-p org-graph-edge-link-type))
+       org-graph-edge-link-type))
+
 (defun org-graph-extractor--normalize-rel (raw)
   "Return the canonical relation symbol for RAW relation text, or nil.
 Normalization contract (register/vocabulary/relation-types): trim,
@@ -97,6 +110,56 @@ function never signals on malformed input."
                                     edges)))
                           nil nil 'item))))
                   nil nil 'item)))))))
+    (nreverse edges)))
+
+(defun org-graph-extractor--parse-rel-path (path)
+  "Split rel-link PATH \"<type>:<target-id>\" into (REL-TYPE . TO-ID), or nil.
+Splits on the FIRST colon (register/boundary/rel-link-path-syntax):
+the segment before it is normalized and interned via
+`org-graph-extractor--normalize-rel'; everything after it is TO-ID
+VERBATIM — a target id may itself contain colons.  Returns nil (skip,
+no signal) for a non-string PATH, a missing separator, a type segment
+that normalizes to nothing, or an empty target."
+  (when (stringp path)
+    (let ((sep (string-search ":" path)))
+      (when sep
+        (let ((rel (org-graph-extractor--normalize-rel (substring path 0 sep)))
+              (to-id (substring path (1+ sep))))
+          (when (and rel (not (string-empty-p to-id)))
+            (cons rel to-id)))))))
+
+(defun org-graph-extractor/parse-rel-links (element-tree)
+  "Parse typed edges from inline rel-links in ELEMENT-TREE.
+
+ELEMENT-TREE is an `org-element' AST (as from `org-element-parse-buffer').
+Scans every `link' whose `:type' equals `org-graph-edge-link-type' and
+splits its path `<type>:<target-id>' on the first colon into the
+relation symbol (normalized like a drawer item tag) and the target id;
+each well-formed link yields one (FROM-ID REL-TYPE TO-ID) tuple.
+FROM-ID is resolved per link by `org-graph-extractor--enclosing-note-id'
+— the nearest ID-bearing ancestor; a link with none contributes nothing
+\(drop, never mis-attribute).
+
+The relation vocabulary is OPEN: any author-coined type segment is a
+valid relation; nothing gates membership.  Ordinary `id:' links are
+never edges (the link type is the only discriminator).
+
+This is a pure function — no file I/O, no vulpea, no DB.  Links whose
+type is not registered at AST-parse time carry a different `:type' and
+are invisible here; malformed paths (missing separator, empty type or
+target) are skipped; the function never signals on malformed input."
+  (let ((link-type (org-graph-extractor--edge-link-type))
+        edges)
+    (when link-type
+      (org-element-map element-tree 'link
+        (lambda (link)
+          (when (equal (org-element-property :type link) link-type)
+            (let* ((parsed (org-graph-extractor--parse-rel-path
+                            (org-element-property :path link)))
+                   (from-id (and parsed
+                                 (org-graph-extractor--enclosing-note-id link))))
+              (when from-id
+                (push (list from-id (car parsed) (cdr parsed)) edges)))))))
     (nreverse edges)))
 
 (defvar org-graph-roam-root)            ; defined by the loader's defcustom
