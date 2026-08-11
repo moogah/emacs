@@ -70,29 +70,14 @@ can be invoked after the active workspace set changes."
   "Seed Emacs's global `org-id-locations' from the vulpea DB.
 Iterate every note returned by `vulpea-db-query' and register its
 id -> path with `org-id-add-location'.  Notes missing an id or path are
-skipped.  Cheap; intended to run once at module load so `id:' links
-resolve on a fresh session without waiting for vulpea's lazy
-per-file-touch registration."
+skipped.  Cheap; intended to run once per session — the org-graph loader
+defers it to `emacs-startup-hook' — so `id:' links resolve on a fresh
+session without waiting for vulpea's lazy per-file-touch registration."
   (dolist (note (vulpea-db-query))
     (let ((id (vulpea-note-id note))
           (path (vulpea-note-path note)))
       (when (and id path)
         (org-id-add-location id path)))))
-
-(defun org-graph--seed-org-id-locations-deferred ()
-  "Run the `org-id-locations' seed once, resiliently, for `emacs-startup-hook'.
-`org-graph/seed-org-id-locations' calls `vulpea-db-query', which opens the
-vulpea DB, so it is deferred out of module-load time (load stays DB-free).
-A missing/unbuilt DB is logged via `display-warning' rather than aborting
-startup."
-  (condition-case err
-      (org-graph/seed-org-id-locations)
-    (error
-     (display-warning 'org-graph
-                      (format "org-id-locations seed skipped: %S" err)
-                      :warning))))
-
-(add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
 
 (provide 'org-graph-discovery)
 ;;; discovery.el ends here

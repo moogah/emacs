@@ -46,20 +46,6 @@ its notes and field expectations validated by `vulpea-schema-validate'."
         (expand-file-name "state/vulpea/notes.db" user-emacs-directory))
   (make-directory (file-name-directory vulpea-db-location) t))
 
-;; implemented in registry-discovery
-
-;; implemented in auto-id-scaffold
-
-;; implemented in note-type-schemas
-
-;; implemented in finders-and-filters
-
-;; implemented in parse-typed-edges
-
-;; implemented in vulpea-extractor-plugin
-
-;; implemented in coordinator-lock
-
 (jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/extractor.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/coordinator.el" jf/emacs-dir))
@@ -69,18 +55,39 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
 
+(defun org-graph--run-deferred-op (fn what)
+  "Run FN, a deferred DB-touching org-graph op, resiliently.
+Shared body for the org-graph `emacs-startup-hook' deferrals: FN opens
+the vulpea DB and so runs post-init rather than at module-load time
+(module load stays DB-free).  WHAT is a short description used in the
+warning when FN fails.  A failure (e.g. a missing/unbuilt DB) is logged
+via `display-warning' rather than aborting startup."
+  (condition-case err
+      (funcall fn)
+    (error
+     (display-warning 'org-graph
+                      (format "%s skipped: %S" what err)
+                      :warning))))
+
+(defun org-graph--seed-org-id-locations-deferred ()
+  "Run the `org-id-locations' seed once, resiliently, for `emacs-startup-hook'.
+`org-graph/seed-org-id-locations' calls `vulpea-db-query', which opens
+the vulpea DB, so it is deferred out of module-load time (load stays
+DB-free).  A missing/unbuilt DB is logged via `display-warning' rather
+than aborting startup."
+  (org-graph--run-deferred-op #'org-graph/seed-org-id-locations
+                              "org-id-locations seed"))
+
+(add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
+
 (defun org-graph--register-extractor ()
   "Register the org-graph typed-edge extractor with vulpea, resiliently.
 Wraps `org-graph-extractor-register' (which applies the `typed_edges'
 schema and so opens the vulpea DB) for `emacs-startup-hook'.  A
 missing/unbuilt DB is logged via `display-warning' rather than aborting
 startup."
-  (condition-case err
-      (org-graph-extractor-register)
-    (error
-     (display-warning 'org-graph
-                      (format "typed-edge extractor registration skipped: %S" err)
-                      :warning))))
+  (org-graph--run-deferred-op #'org-graph-extractor-register
+                              "typed-edge extractor registration"))
 
 (add-hook 'emacs-startup-hook #'org-graph--register-extractor)
 

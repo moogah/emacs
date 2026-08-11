@@ -36,11 +36,14 @@
 ;; DB-free load contract: `(require 'org-graph)' must not open the vulpea
 ;; DB.  The two DB-touching registrations (the typed-edge extractor, which
 ;; applies its schema, and the discovery `org-id-locations' seed) are
-;; deferred by the loader to `emacs-startup-hook', which does NOT run under
-;; `-batch'.  So the guard asserts the EXTRACTOR differently from the
-;; others: it checks the loader WIRED `org-graph--register-extractor' onto
-;; `emacs-startup-hook', then drives that function directly with the
-;; vulpea DB boundary stubbed (`cl-letf', function-scoped) and asserts the
+;; deferred by the loader to `emacs-startup-hook' (both wired by the
+;; loader through the shared `org-graph--run-deferred-op' idiom), which
+;; does NOT run under `-batch'.  So the guard asserts the DEFERRALS
+;; differently from the others: it checks the loader WIRED
+;; `org-graph--register-extractor' and
+;; `org-graph--seed-org-id-locations-deferred' onto `emacs-startup-hook',
+;; then drives the extractor function directly with the vulpea DB
+;; boundary stubbed (`cl-letf', function-scoped) and asserts the
 ;; extractor landed.  No live SQLite DB or fswatch is required.
 ;;
 ;; Test process note: `make' runs specs via `EMACS_TEST_BATCH', which
@@ -138,12 +141,22 @@
     ;; asserts the extractor landed.  (This is the point-C resolution of
     ;; the registration-touches-DB tension.)
 
-    (it "wires org-graph--register-extractor onto emacs-startup-hook (deferred, not eager at load)"
-      ;; The loader added the DB-touching registration to the post-init
-      ;; seam instead of calling it at load -- this is the "not run at
+    (it "wires both DB-touching deferrals onto emacs-startup-hook (deferred, not eager at load)"
+      ;; The loader added the DB-touching registrations to the post-init
+      ;; seam instead of calling them at load -- this is the "not run at
       ;; module-load" evidence (the seam does not fire under -batch).
+      ;; The loader owns BOTH deferrals (extractor registration + the
+      ;; discovery org-id-locations seed) through the shared resilient
+      ;; idiom `org-graph--run-deferred-op'; each stays a NAMED function
+      ;; on the hook so this membership check (and idempotent re-load)
+      ;; keeps working.
       (expect (fboundp 'org-graph--register-extractor) :to-be-truthy)
       (expect (memq #'org-graph--register-extractor emacs-startup-hook)
+              :to-be-truthy)
+      (expect (fboundp 'org-graph--seed-org-id-locations-deferred)
+              :to-be-truthy)
+      (expect (memq #'org-graph--seed-org-id-locations-deferred
+                    emacs-startup-hook)
               :to-be-truthy))
 
     (it "the wired deferral registers org-graph-typed-edges carrying the typed_edges schema"
