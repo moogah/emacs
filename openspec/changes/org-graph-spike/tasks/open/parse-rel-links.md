@@ -2,10 +2,11 @@
 name: parse-rel-links
 description: "Add the pure inline-link scanner parse-rel-links that extracts rel: links and attributes each to its nearest ID-bearing ancestor node (OV-3/OV-4/OV-5)."
 change: org-graph-spike
-status: in_progress
+status: needs_review
 relations:
   - enables:extractor-union
   - blocked-by:edges-drawer
+merge_commit: f62f3a93
 cites_register_entries:
   - register/shape/typed-edge-tuple
   - register/vocabulary/relation-types
