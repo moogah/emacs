@@ -2,7 +2,7 @@
 name: edges-drawer
 description: Replace the REL_-prefixed properties surface with the dedicated edge drawer — parse-drawer-edges pure scanner over description-list items, drawer-name discriminator, unified enclosing-node attribution (LD-1..LD-6).
 change: org-graph-spike
-status: needs_review
+status: done
 relations:
   - enables:extractor-union
   - enables:parse-rel-links
