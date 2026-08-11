@@ -164,78 +164,19 @@ The directory is created if vulpea has not already done so.
   (make-directory (file-name-directory vulpea-db-location) t))
 #+end_src
 
-* Discovery
+* Submodule map
 :PROPERTIES:
-:CUSTOM_ID: discovery
+:CUSTOM_ID: submodule-map
 :END:
 
-Registry-driven vulpea sync over the concept vault plus workspace homes,
-and the =org-id-locations= startup seed so =id:= links resolve across
-sessions.
-
-#+begin_src emacs-lisp
-;; implemented in registry-discovery
-#+end_src
-
-* Auto-ID scaffold
-:PROPERTIES:
-:CUSTOM_ID: auto-id-scaffold
-:END:
-
-Additive ID assignment so workspace =home.org= and gptel session files
-participate in the vulpea index.
-
-#+begin_src emacs-lisp
-;; implemented in auto-id-scaffold
-#+end_src
-
-* Note-type schemas
-:PROPERTIES:
-:CUSTOM_ID: note-type-schemas
-:END:
-
-=vulpea-schema-define= definitions for each note type in
-=org-graph-note-types=.
-
-#+begin_src emacs-lisp
-;; implemented in note-type-schemas
-#+end_src
-
-* Finders
-:PROPERTIES:
-:CUSTOM_ID: finders
-:END:
-
-Per-type finder commands backed by schema predicates, plus a catch-all
-and the agent-draft review finder.
-
-#+begin_src emacs-lisp
-;; implemented in finders-and-filters
-#+end_src
-
-* Typed-edge parser
-:PROPERTIES:
-:CUSTOM_ID: typed-edge-parser
-:END:
-
-Pure function over an =org-element= AST returning =(from-id rel-type
-to-id)= tuples.
-
-#+begin_src emacs-lisp
-;; implemented in parse-typed-edges
-#+end_src
-
-* Extractor
-:PROPERTIES:
-:CUSTOM_ID: extractor
-:END:
-
-vulpea extractor wrapper that registers the =typed_edges= table and
-stores edge tuples, scoped to the roam vault.
-
-#+begin_src emacs-lisp
-;; implemented in vulpea-extractor-plugin
-#+end_src
+Discovery (registry-driven vulpea sync + the =org-id-locations= startup
+seed), the note-type schemas, the per-type finders, the typed-edge
+parser and its vulpea extractor, and the per-file write coordinator are
+implemented in their submodules under =config/org-graph/= and load-wired
+exclusively from the [[#submodules][Submodules]] sequence — this file
+carries no per-module load sections.  (The auto-ID scaffold landed
+outside this module entirely: =config/workspaces/scaffold.org= and
+=config/gptel/sessions/commands.org= stamp IDs at file-creation time.)
 
 * Query
 :PROPERTIES:
@@ -246,18 +187,6 @@ Outgoing / incoming / connected typed-edge queries over the
 =typed_edges= table.  Implemented in the =query= submodule, load-wired
 from the consolidated [[#submodules][Submodules]] sequence (not here) per
 =register/invariant/org-graph-loader-ordered-sequence=.
-
-* Coordinator
-:PROPERTIES:
-:CUSTOM_ID: coordinator
-:END:
-
-Per-file write lock that serialises agent writes to the same path and
-permits parallel writes to distinct paths.
-
-#+begin_src emacs-lisp
-;; implemented in coordinator-lock
-#+end_src
 
 * gptel tools
 :PROPERTIES:
@@ -315,11 +244,12 @@ because its =:tools= population needs =org-graph/agent-tools= from
 Module load stays *DB-free*.  The two registrations that open the vulpea
 DB — the discovery =org-id-locations= seed (=vulpea-db-query=) and the
 typed-edge extractor (=vulpea-db-register-extractor= applies the
-=typed_edges= schema) — are NOT run at load: the seed self-defers inside
-=discovery.el=, and the extractor registration is deferred below.  The
-DB-free registrations (schemas register in memory at load; gptel tools
-register at load when gptel is present; =workspace-integration= attaches
-via =with-eval-after-load=) all fire as their files load.
+=typed_edges= schema) — are NOT run at load: the loader defers both to
+=emacs-startup-hook= in the [[#deferred-registrations][Deferred
+DB-touching registrations]] section below.  The DB-free registrations
+(schemas register in memory at load; gptel tools register at load when
+gptel is present; =workspace-integration= attaches via
+=with-eval-after-load=) all fire as their files load.
 
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
@@ -332,23 +262,68 @@ via =with-eval-after-load=) all fire as their files load.
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
 #+end_src
 
-** Deferred typed-edge extractor registration
+** Deferred DB-touching registrations
 :PROPERTIES:
-:CUSTOM_ID: deferred-extractor-registration
+:CUSTOM_ID: deferred-registrations
 :END:
 
-=org-graph-extractor-register= applies the =typed_edges= schema, which
-opens the vulpea DB (=vulpea-db-register-extractor= →
-=vulpea-db--apply-plugin-schema=).  Registering it at module-load time
-would break the DB-free-load contract (and the cold-load guard), so it is
-deferred to =emacs-startup-hook= — the post-init seam that, unlike
-=after-init-hook=, runs AFTER this config's =-q --load init.el= command-line
-actions (see =bin/emacs-isolated.sh=; matches
-=config/look-and-feel/themes.el=).  In =-batch= no startup hook runs, so a
-bare =(require 'org-graph)= opens no DB — the cold-load guard
+The loader owns BOTH post-init deferrals, through one shared idiom.  The
+two DB-touching ops — the discovery =org-id-locations= seed
+(=org-graph/seed-org-id-locations= calls =vulpea-db-query=) and the
+typed-edge extractor registration (=org-graph-extractor-register=
+applies the =typed_edges= schema via =vulpea-db-register-extractor= →
+=vulpea-db--apply-plugin-schema=) — would each break the DB-free-load
+contract (and the cold-load guard) if run at module-load time
+(USER-RESOLVED decision =ask-cycle-1782570180-1=: defer to post-init).
+Both are deferred to =emacs-startup-hook= — the post-init seam that,
+unlike =after-init-hook=, runs AFTER this config's =-q --load init.el=
+command-line actions (see =bin/emacs-isolated.sh=; matches
+=config/look-and-feel/themes.el=).  In =-batch= no startup hook runs, so
+a bare =(require 'org-graph)= opens no DB — the cold-load guard
 (=config/org-graph/test/module-load-spec.el=) verifies the wiring and
-drives =org-graph--register-extractor= directly with the DB boundary
-stubbed.  A missing/unbuilt DB at registration is logged, not fatal.
+drives the wired functions directly with the DB boundary stubbed.
+
+Each deferral stays a *named* function on the hook (not a closure): the
+guard asserts membership by name, =add-hook= stays idempotent across
+module reloads, and =remove-hook= works interactively.  The shared
+resilience body lives in =org-graph--run-deferred-op=: a missing/unbuilt
+DB at startup is logged via =display-warning= — visible, but never
+aborting startup.  A silent no-op would be worse than a warning here
+(e.g. =id:= links quietly failing to resolve is exactly the gap the seed
+exists to close).
+
+#+begin_src emacs-lisp
+(defun org-graph--run-deferred-op (fn what)
+  "Run FN, a deferred DB-touching org-graph op, resiliently.
+Shared body for the org-graph `emacs-startup-hook' deferrals: FN opens
+the vulpea DB and so runs post-init rather than at module-load time
+(module load stays DB-free).  WHAT is a short description used in the
+warning when FN fails.  A failure (e.g. a missing/unbuilt DB) is logged
+via `display-warning' rather than aborting startup."
+  (condition-case err
+      (funcall fn)
+    (error
+     (display-warning 'org-graph
+                      (format "%s skipped: %S" what err)
+                      :warning))))
+#+end_src
+
+The seed's behaviour is unit-tested against
+=org-graph/seed-org-id-locations= directly (=discovery-spec.el=); this
+wrapper's only job is post-init resilience.
+
+#+begin_src emacs-lisp
+(defun org-graph--seed-org-id-locations-deferred ()
+  "Run the `org-id-locations' seed once, resiliently, for `emacs-startup-hook'.
+`org-graph/seed-org-id-locations' calls `vulpea-db-query', which opens
+the vulpea DB, so it is deferred out of module-load time (load stays
+DB-free).  A missing/unbuilt DB is logged via `display-warning' rather
+than aborting startup."
+  (org-graph--run-deferred-op #'org-graph/seed-org-id-locations
+                              "org-id-locations seed"))
+
+(add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
+#+end_src
 
 #+begin_src emacs-lisp
 (defun org-graph--register-extractor ()
@@ -357,12 +332,8 @@ Wraps `org-graph-extractor-register' (which applies the `typed_edges'
 schema and so opens the vulpea DB) for `emacs-startup-hook'.  A
 missing/unbuilt DB is logged via `display-warning' rather than aborting
 startup."
-  (condition-case err
-      (org-graph-extractor-register)
-    (error
-     (display-warning 'org-graph
-                      (format "typed-edge extractor registration skipped: %S" err)
-                      :warning))))
+  (org-graph--run-deferred-op #'org-graph-extractor-register
+                              "typed-edge extractor registration"))
 
 (add-hook 'emacs-startup-hook #'org-graph--register-extractor)
 #+end_src
