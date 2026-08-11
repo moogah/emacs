@@ -163,6 +163,27 @@
                     emacs-startup-hook)
               :to-be-truthy))
 
+    (it "org-graph--run-deferred-op logs a failing op as a warning and never signals"
+      ;; The resilience contract every deferral inherits: a failing op
+      ;; (e.g. missing/unbuilt DB at startup) is reported via
+      ;; `display-warning' with the "<what> skipped: <err>" message and
+      ;; must NOT propagate an error out of the hook function.
+      (let (warnings)
+        (cl-letf (((symbol-function 'display-warning)
+                   (lambda (type message &optional level &rest _)
+                     (push (list type message level) warnings))))
+          (expect
+           (org-graph--run-deferred-op
+            (lambda () (error "DB not built"))
+            "resilience-spec op")
+           :not :to-throw))
+        (expect (length warnings) :to-equal 1)
+        (pcase-let ((`(,type ,message ,level) (car warnings)))
+          (expect type :to-be 'org-graph)
+          (expect message :to-match "\\`resilience-spec op skipped: ")
+          (expect message :to-match "DB not built")
+          (expect level :to-be :warning))))
+
     (it "the wired deferral registers org-graph-typed-edges carrying the typed_edges schema"
       ;; Drive the deferred entry point directly.  `vulpea-db-register-extractor'
       ;; applies the plugin schema, which opens the DB; stub the DB boundary

@@ -208,14 +208,17 @@ spike's clean-rollback property: wiping/rebuilding the org-graph DB then
 never touches org-roam's DB or the =org-id-locations= cache.
 
 The path is set here in the *loader's* vulpea =:config=, not in
-=discovery/configure-sync=, because it MUST be fixed before any submodule
-opens the DB: =discovery.el='s load-time =org-id-locations= seed calls
-=vulpea-db-query= at module load, which would open the DB at the default
-path before =configure-sync= ever runs. The loader's vulpea =:config=
-runs eagerly when this block evaluates — before submodules load — so the
-path is fixed first. =user-emacs-directory= resolves to this worktree's
-=runtime/= dir (see =early-init.el=), so the path is worktree-isolated.
-The directory is created if vulpea has not already done so.
+=discovery/configure-sync=, because it MUST be fixed before the first
+DB open. Module load itself is DB-free (both DB-touching ops — the
+=org-id-locations= seed and the extractor registration — are deferred
+to =emacs-startup-hook=; see [[#deferred-registrations][Deferred
+DB-touching registrations]]), so the first open happens at a deferred
+op or an interactive command. The loader's vulpea =:config= runs
+eagerly when this block evaluates — before submodules load and long
+before the startup hook fires — so the path is fixed first in every
+case. =user-emacs-directory= resolves to this worktree's =runtime/=
+dir (see =early-init.el=), so the path is worktree-isolated. The
+directory is created if vulpea has not already done so.
 
 #+begin_src emacs-lisp
 (use-package vulpea

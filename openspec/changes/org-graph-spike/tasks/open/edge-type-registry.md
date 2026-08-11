@@ -2,10 +2,11 @@
 name: edge-type-registry
 description: "Add the optional in-vault edge-type registry: an :edge-type: selector, a metadata loader, a finder, and four seed registry notes (OV-6)."
 change: org-graph-spike
-status: ready
+status: needs_review
 relations:
   - enables:rel-link-type
   - enables:query-inverse-symmetric
+merge_commit: a9e9a933
 cites_register_entries:
   - register/boundary/edge-type-registry-lookup
   - register/vocabulary/relation-types
