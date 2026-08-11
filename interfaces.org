@@ -2081,6 +2081,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: shape
    status: confirmed
    status_note: |
+     cycle-1786458912 integrate (org-graph-spike): producers CONFIRMED
+     post-pivot (edges-drawer + parse-rel-links). Both replacement
+     producers shipped exactly as speculated — parse-drawer-edges and
+     parse-rel-links, signature (ELEMENT-TREE), from-id resolved
+     internally via the shared enclosing-node walk — and parse-typed-edges
+     is DELETED from extractor.el. The tuple shape itself is unchanged;
+     status stays confirmed. (The wrapper currently consumes the drawer
+     leg only; the rel-links union is extractor-union's remit — see
+     register/boundary/parser-extractor-db.) Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/typed-edge-tuple.md.
+
      cycle-1786458912 plan (forward-mode): shape HOLDS across the
      open-vocabulary + links-drawer pivots (design.md § Open-Vocabulary Typed
      Edges OV-5, commit dab1da12; § Links-Drawer Edge Surface LD-5, commit
@@ -2120,12 +2131,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    optional_keys: []
    producers:
      - file: config/org-graph/extractor.el
-       function: org-graph-extractor/parse-drawer-edges   # speculated, edges-drawer task (replaces deleted parse-typed-edges)
+       function: org-graph-extractor/parse-drawer-edges   # confirmed shipped (edges-drawer; replaces deleted parse-typed-edges)
      - file: config/org-graph/extractor.el
-       function: org-graph-extractor/parse-rel-links      # speculated, parse-rel-links task
+       function: org-graph-extractor/parse-rel-links      # confirmed shipped (parse-rel-links)
    consumers:
      - file: config/org-graph/extractor.el
-       function: org-graph-extractor/extract        # unions/dedups both producers' rows (extractor-union task)
+       function: org-graph-extractor/extract        # consumes the drawer leg today; unions/dedups both streams once extractor-union lands
        reads_keys: [from-id, rel-type, to-id]
    validator: |
      (defun shape/validate-typed-edge (val)
@@ -3324,8 +3335,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/relation-types
    tier: vocabulary
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer + edge-type-registry; on-touch
+     arch-cycle-1786458912-ot-edgetype-1 resolved). The canonical helper
+     landed under the register's speculated name,
+     org-graph-extractor--normalize-rel (extractor.el) — the SOLE
+     translation site: both scanners call it, and edge-type.el
+     (require 'org-graph-extractor) calls it directly with NO fallback
+     chain (the fboundp-guarded local copy flagged by the on-touch finding
+     did not survive integrate; architecture.md's --tag->rel name is dead).
+     Rule pinned: the whitespace class is "[[:space:]_]+" — ANY whitespace
+     run (spaces, tabs) plus underscores collapses to a single hyphen —
+     and empty-after-trim input yields nil (no symbol, no tuple).
+     why_tests_missed: the whitespace-class detail was under-specified in
+     the entry ("[ _]+", "exact collapsing pinned at reconciliation");
+     specs pinned it at implementation. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/relation-types.md.
+
      cycle-1786458912 plan (forward-mode): RE-STATED confirmed -> speculated.
      Two pivots invalidated the confirmed contract: the closed set is GONE
      (design.md § Open-Vocabulary Typed Edges OV-1, commit dab1da12), and the
@@ -3353,37 +3381,51 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    members: []   # open set — not enumerable; the normalization rule below replaces membership
    normalization_rule: |
      input (drawer item :tag text | rel-link <type> segment)
-       -> trim -> downcase -> spaces and underscores map to hyphens -> intern.
+       -> trim -> downcase -> each run of whitespace (spaces, tabs) and
+       underscores maps to a SINGLE hyphen -> intern.
      e.g. "- follows up ::" -> follows-up ; "Implements" -> implements ;
-     "FOLLOWS_UP" -> follows-up. The stored rel-type is ALWAYS the interned
-     symbol, never a string (register/shape/typed-edge-tuple).
+     "FOLLOWS_UP" -> follows-up. Empty after trim -> nil (no symbol, no
+     tuple). The stored rel-type is ALWAYS the interned symbol, never a
+     string (register/shape/typed-edge-tuple).
    consumer_mapping:
      - consumer: config/org-graph/extractor.el
        consumer_field: edge-drawer description-list item :tag
        accepts: any (open)
-       routing_function: shared normalization helper   # speculated, edges-drawer task
+       routing_function: org-graph-extractor--normalize-rel   # shipped, edges-drawer
      - consumer: config/org-graph/extractor.el
        consumer_field: "rel: link path <type> segment (before first colon)"
        accepts: any (open)
-       routing_function: same shared normalization helper   # speculated, parse-rel-links task
+       routing_function: org-graph-extractor--normalize-rel (via --parse-rel-path)   # shipped, parse-rel-links
+     - consumer: config/org-graph/edge-type.el
+       consumer_field: "registry note title / :INVERSE: property (lookup keys must equal stored edge symbols)"
+       accepts: any (open)
+       routing_function: org-graph-extractor--normalize-rel called directly ((require 'org-graph-extractor); NO local fallback)   # shipped, edge-type-registry
+     - consumer: config/org-graph/tools.el
+       consumer_field: "agent-supplied rel_type narrow on org_graph_typed_edges (string or symbol)"
+       accepts: any (open)
+       routing_function: org-graph-extractor--normalize-rel via org-graph-tools--rel-symbol ((require 'org-graph-extractor); symbols re-normalized through symbol-name)   # shipped, inline-fix arch-cycle-1786458912-eoc-2
      - consumer: config/org-graph/rel-link.el
        consumer_field: ":complete type candidates (registry + observed + seed; free text coins new types)"
        accepts: any (open)
        routing_function: org-graph-relation-types demoted to non-authoritative seed   # speculated, rel-link-type task
    canonical_mapping_function: |
-     ;; ONE normalization helper shared by both scanners; a second inline
-     ;; trim/downcase/replace chain anywhere else is a duplication bug.
-     ;; (name speculative; lives beside the scanners in extractor.el; exact
-     ;; whitespace-run collapsing pinned at reconciliation)
+     ;; ONE normalization helper shared by both scanners AND the edge-type
+     ;; registry (which requires the extractor and calls it directly — no
+     ;; fallback); a second inline trim/downcase/replace chain anywhere
+     ;; else is a duplication bug. SHIPPED verbatim (extractor.el,
+     ;; edges-drawer task):
      (defun org-graph-extractor--normalize-rel (raw)
-       (intern (replace-regexp-in-string "[ _]+" "-" (downcase (string-trim raw)))))
+       (let ((trimmed (string-trim (or raw ""))))
+         (unless (string-empty-p trimmed)
+           (intern (replace-regexp-in-string
+                    "[[:space:]_]+" "-" (downcase trimmed))))))
    validator: |
      ;; open set: validity = already-normalized symbol, NOT membership
      (defun vocabulary/validate-rel (sym)
        (and (symbolp sym)
             (let ((name (symbol-name sym)))
               (string= name (replace-regexp-in-string
-                             "[ _]+" "-" (downcase (string-trim name)))))))
+                             "[[:space:]_]+" "-" (downcase (string-trim name)))))))
    closed_set: false   # open folksonomy; the registry (register/boundary/edge-type-registry-lookup) only enriches
    discovered_from: edges-drawer
    discovered_by: architect
@@ -6557,8 +6599,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/parser-extractor-db
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer; parse-rel-links landed the second scanner). Stage 1
+     shipped as the TWO pure scanners —
+     org-graph-extractor/parse-drawer-edges + /parse-rel-links, both
+     signature (ELEMENT-TREE), attribution internal via the shared
+     enclosing-node walk. Stage 2's SPECULATED note-granularity filter is
+     IMPLEMENTED — pinned EARLY by edges-drawer, not extractor-union:
+     org-graph-extractor/extract seq-filters tuples to from-id = the note
+     being processed (extractor-spec multi-note cases prove it; without it
+     the cycle-1782551613 whole-file duplication divergence recurs under
+     vulpea's per-note :extract-fn invocation). Amendment to stage 4's
+     "registration untouched" note: the extractor :version was bumped
+     1 -> 2 for the surface swap (parser-epoch cache invalidation,
+     spec-asserted). STILL PENDING (extractor-union): the union/dedup of
+     the rel-links leg — the wrapper currently runs the DRAWER leg only;
+     parse-rel-links is shipped but not yet wired into extract.
+     why_tests_missed: the multi-note fixture requirement surfaced only
+     when the whole-file scanner met vulpea's per-note invocation.
+     Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/parser-extractor-db.md.
+
      cycle-1786458912 plan (forward-mode): RE-STATED reconciled -> speculated.
      Two design pivots since the cycle-1782561220 reconciliation: open
      vocabulary (design.md § Open-Vocabulary Typed Edges OV-5, commit
@@ -6598,7 +6661,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          contract. NEVER signal on malformed or empty input. Attribution is
          internal: each tuple's from-id comes from the shared enclosing-node
          walk (register/invariant/enclosing-node-attribution); there is no
-         NOTE-ID argument. SPECULATED (edges-drawer / parse-rel-links tasks).
+         NOTE-ID argument. SHIPPED (edges-drawer / parse-rel-links).
      - n: 2
        name: union
        input: two tuple lists
@@ -6607,12 +6670,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        notes: |
          The wrapper (org-graph-extractor/extract) unions both streams; an
          identical (from rel to) asserted on both surfaces yields ONE row
-         (set semantics, not multiset). SPECULATED note-granularity filter:
-         because the scanners attribute over the WHOLE file tree, the
-         per-note wrapper is expected to keep only tuples whose from-id
-         equals the note being processed — otherwise the cycle-1782551613
-         whole-file duplication divergence recurs under vulpea's per-note
-         extraction. Pin or refute at implementation (extractor-union).
+         (set semantics, not multiset). IMPLEMENTED note-granularity
+         filter (pinned early by edges-drawer): because the scanners
+         attribute over the WHOLE file tree, the per-note wrapper keeps
+         only tuples whose from-id equals the note being processed
+         (seq-filter in org-graph-extractor/extract; extractor-spec
+         multi-note cases) — otherwise the cycle-1782551613 whole-file
+         duplication divergence recurs under vulpea's per-note extraction.
+         PENDING (extractor-union): wiring the parse-rel-links leg into
+         the wrapper and the union/dedup of the two streams — the wrapper
+         currently runs the drawer leg only.
      - n: 3
        name: scope-gate
        input: note path + tuple list
@@ -6632,10 +6699,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        output: typed_edges rows (from-id, rel-type, to-id), FK notes(id) :on-delete :cascade
        can_fail_with: [emacsql-error]
        notes: |
-         Unchanged: emacsql insert into the vulpea-registered typed_edges
-         table; rel-type stored as a symbol; priority-50 registration and the
+         emacsql insert into the vulpea-registered typed_edges table;
+         rel-type stored as a symbol; priority-50 registration and the
          emacs-startup-hook DB-free-load deferral
-         (register/invariant/org-graph-loader-ordered-sequence) untouched.
+         (register/invariant/org-graph-loader-ordered-sequence) untouched
+         EXCEPT the extractor :version, bumped 1 -> 2 for the surface swap
+         (parser-epoch cache invalidation; spec-asserted).
          The READ side (register/boundary/typed-edge-query-api) reads this
          table via raw (emacsql (vulpea-db) ...), NOT vulpea-db-query.
    cross_stage_invariants:
@@ -6751,7 +6820,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/rel-link-path-syntax
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (parse-rel-links; on-touch arch-cycle-1786458912-ot-rellinks-1,
+     entry-side drift). The split-on-first-colon contract held EXACTLY:
+     target-id taken VERBATIM (may itself contain colons); missing
+     separator / empty type / empty target -> skip, never signal
+     (org-graph-extractor--parse-rel-path). ADDED stage 0 (register):
+     org-element only assigns the matching :type/:path when the link type
+     is registered in org-link-parameters at AST-parse time — an
+     unregistered [[rel:...]] parses as a FUZZY link (verified Org 9.7)
+     and is silently invisible to the scanner (zero rows, no signal), so
+     every extraction/reindex path depends on rel-link-type's registration
+     side effect running first. CORRECTED defcustom reference:
+     org-graph-edge-link-type is NOT yet declared anywhere — it will be
+     DECLARED IN THE LOADER org-graph.org (parallel to
+     org-graph-edge-drawer) by the rel-link-type task; until then the
+     scanner reads it through the fail-closed helper
+     org-graph-extractor--edge-link-type (bare defvar; unbound/nil/empty
+     -> the scanner emits nothing). why_tests_missed: the fuzzy-parse
+     behavior only surfaces against real org parsing; the spec fixture
+     registers the type itself (org-graph-rel-test/with-link-type),
+     pinning the precondition. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/rel-link-path-syntax.md.
    load_bearing: true
    title: "rel: link path syntax (<link-type>:<type>:<target-id>, split on first colon)"
    purpose: |
@@ -6762,12 +6854,31 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      in two modules — divergence is silent because the scanner's
      malformed-input policy is skip-without-signal, so a runtime-emitted path
      the scanner cannot parse simply produces no edge. The link-type name
-     comes from the defcustom org-graph-edge-link-type (default "rel",
-     declared in org-graph.org — the parallel knob to org-graph-edge-drawer,
-     OV-3/LD-1). Design provenance: design.md § Open-Vocabulary Typed Edges
+     comes from org-graph-edge-link-type (default "rel"; the defcustom will
+     be DECLARED IN THE LOADER org-graph.org by the rel-link-type task — the
+     parallel knob to org-graph-edge-drawer, OV-3/LD-1; until it lands the
+     scanner reads the variable via the fail-closed helper
+     org-graph-extractor--edge-link-type, unbound/empty -> scanner emits
+     nothing). Design provenance: design.md § Open-Vocabulary Typed Edges
      OV-3/OV-Q1 (commit dab1da12), contract references updated by the
      links-drawer pivot (commit 5fe66b39).
    stages:
+     - n: 0
+       name: register
+       input: org-graph-edge-link-type name, at module load
+       output: "org-link-parameters entry (org assigns :type/:path at AST-parse time)"
+       can_fail_with: []
+       notes: |
+         PRECONDITION for both later stages: the link type must be
+         registered in org-link-parameters BEFORE a file is parsed. An
+         unregistered [[rel:...]] parses as a FUZZY link carrying the whole
+         "rel:..." string and is INVISIBLE to the scanner — silent zero
+         rows, no signal (verified Org 9.7). Producer: the rel-link-type
+         task's org-link-set-parameters call at module load; every
+         extraction/reindex path therefore has a load-order dependency on
+         that registration (extractor-union must wire the scanner in
+         behind it). SPECULATED (rel-link-type task) — the consumer side
+         shipped first, fail-closed.
      - n: 1
        name: construct
        input: relation type (author text) + target node id
@@ -6799,7 +6910,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        enters_at_stage: 1
    consumers:
      - file: config/org-graph/extractor.el
-       function: org-graph-extractor/parse-rel-links    # speculated, parse-rel-links task
+       function: org-graph-extractor/parse-rel-links    # shipped (parse-rel-links); reads the type name via fail-closed org-graph-extractor--edge-link-type
        reads_output_of_stage: 2
      - file: config/org-graph/rel-link.el
        function: ":follow handler"          # speculated, rel-link-type task
@@ -6816,7 +6927,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/edge-type-registry-lookup
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edge-type-registry; on-touch arch-cycle-1786458912-ot-edgetype-2,
+     informational). The behavioral contract HELD: enrich-only, graceful
+     absence (empty lookup / nil consult are normal results), filetag
+     selector (org-graph-edge-type-note-p on the :edge-type: filetag),
+     four seeds with inverse/symmetric metadata. Mechanism deltas pinned:
+     (1) vulpea 2.4 has no reindex hook, so the session cache is keyed on
+     the vulpea DB FILE's mtime (a reindex rewrites the file -> new key ->
+     repopulate) plus an explicit org-graph-edge-type-invalidate-cache
+     command; (2) the stage-2 consult op got a named accessor,
+     org-graph/edge-type (rel) -> plist | nil, which returns a FRESH COPY
+     of the metadata plist; (3) the stage-1 table from
+     org-graph/edge-types IS the shared session cache, documented
+     READ-ONLY — consumers must not puthash/plist-put into it; (4) seeds
+     ship as data (org-graph-edge-type-seed-definitions) plus the
+     idempotent installer org-graph-edge-type-install-seeds (user-side
+     M-x step, skips existing files), NOT automatic vault writes.
+     why_tests_missed: n/a for behavior; the mtime-key mechanism gained
+     its own spec after review. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/edge-type-registry-lookup.md.
    load_bearing: false
    title: edge-type registry lookup (org-graph/edge-types, enrich-only)
    purpose: |
@@ -6840,27 +6972,38 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        notes: |
          Value per type: label (LABEL property, else title), inverse
          (:INVERSE: -> symbol or nil), symmetric (:SYMMETRIC: -> boolean),
-         description (free text). Cached per session; invalidated via the
-         normal vulpea reindex path. No registry notes -> EMPTY lookup, never
-         an error. Four seed notes ship (implements :INVERSE: implemented-by;
-         contradicts :SYMMETRIC: t; supersedes :INVERSE: superseded-by;
-         relates-to :SYMMETRIC: t), replacing the deleted hardcoded closed
-         list.
+         description (free text). Cached per session, keyed on the vulpea
+         DB file's mtime (vulpea 2.4 has no reindex hook; the reindex path
+         rewrites the file) + explicit
+         org-graph-edge-type-invalidate-cache command. The returned table
+         IS the shared session cache — READ-ONLY by contract (docstring-
+         pinned); consumers copy before decorating. No registry notes ->
+         EMPTY lookup, never an error. Four seed notes ship as data +
+         idempotent installer org-graph-edge-type-install-seeds (user-side
+         M-x step; skips existing files, never clobbers user edits):
+         implements :INVERSE: implemented-by; contradicts :SYMMETRIC: t;
+         supersedes :INVERSE: superseded-by; relates-to :SYMMETRIC: t —
+         replacing the deleted hardcoded closed list.
      - n: 2
        name: consult
        input: relation symbol
-       output: metadata (plist/alist per stage-1 value) | nil
+       output: metadata (plist per stage-1 value) | nil
        can_fail_with: []
        short_circuit_policy: none
        notes: |
-         nil is a NORMAL result, not an error; every consumer must degrade to
+         Named accessor org-graph/edge-type (rel) -> plist | nil; the
+         returned plist is a FRESH COPY, safe for callers to modify. nil
+         is a NORMAL result, not an error; every consumer must degrade to
          the raw symbol (query labels) or to observed+seed candidates
          (completion). No consumer may gate extraction or storage on registry
          membership.
    producers:
      - file: config/org-graph/edge-type.el
-       function: org-graph/edge-types       # speculated, edge-type-registry task
+       function: org-graph/edge-types       # shipped (edge-type-registry); returns the shared READ-ONLY cache table
        enters_at_stage: 1
+     - file: config/org-graph/edge-type.el
+       function: org-graph/edge-type        # shipped; (rel) -> fresh-copy plist | nil
+       enters_at_stage: 2
    consumers:
      - file: config/org-graph/rel-link.el
        function: ":complete candidate seeding"          # speculated, rel-link-type task
@@ -10044,15 +10187,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/enclosing-node-attribution
    tier: invariant
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer + parse-rel-links). Held EXACTLY: the speculated name
+     shipped verbatim (org-graph-extractor--enclosing-note-id), BOTH
+     scanners call it, grep org-element-lineage in extractor.el resolves to
+     the one helper, and all four attribution cases pass in BOTH spec files
+     (parse-drawer-edges-spec.el, parse-rel-links-spec.el). Mechanism
+     pinned: the walk reads org-element's CACHED :ID element properties on
+     `headline' lineage nodes and on the root `org-data' (which carries the
+     file-level PROPERTIES drawer's :ID) — no manual drawer digging;
+     requires Org >= 9.6 (verified by batch probe on the bundled Org).
+     why_tests_missed: n/a — speculation matched; the mechanism detail was
+     added. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/enclosing-node-attribution.md.
    load_bearing: true
    title: one shared enclosing-node walk attributes every typed edge; drop, never mis-attribute
    statement: |
      Both pure scanners (parse-drawer-edges, parse-rel-links) resolve from-id
-     through ONE shared helper (speculated name
-     org-graph-extractor--enclosing-note-id): the nearest ancestor carrying
-     an :ID:, resolved via org-element-lineage — the enclosing headline
-     chain, else the file-level node. An edge source (drawer item link or
+     through ONE shared helper, org-graph-extractor--enclosing-note-id
+     (shipped): the nearest ancestor carrying an :ID:, resolved via
+     org-element-lineage over `headline' nodes and the root `org-data' —
+     reading org-element's cached :ID element properties (Org >= 9.6; the
+     org-data node carries the file-level PROPERTIES drawer's :ID) — the
+     enclosing headline chain, else the file-level node. An edge source
+     (drawer item link or
      rel: link) with NO ID-bearing ancestor contributes NOTHING — dropped,
      never attributed to a neighbouring node or defaulted to a node it does
      not belong to. Neither scanner carries its own lineage walk; a second
@@ -10098,7 +10258,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/edge-drawer-discriminator
    tier: invariant
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer; on-touch arch-cycle-1786458912-ot-edgesdrawer-1). The
+     discriminator held as specified: drawer name read from the defcustom
+     at scan time, case-insensitive match, nothing else is ever an edge
+     (discriminator cases spec-pinned in parse-drawer-edges-spec.el). LD-6
+     mechanism EXTENDED beyond the speculation: the defcustom's customize
+     :set lambda now follows a RENAME into org-export-with-drawers when
+     the list still holds the loader-managed shape
+     ((not "LOGBOOK" <old-name>)), swapping in the new name; a `setq'
+     rename bypasses this and is documented in the docstring (re-evaluate
+     the exclusion or restart). Both behaviors are spec-pinned in
+     module-load-spec.el (no longer runbook-only). why_tests_missed:
+     rename-after-ox-load was a config-time edge no mandated case covered;
+     the architect on-touch audit caught it. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/edge-drawer-discriminator.md.
    load_bearing: true
    title: the configured drawer name is the ONLY structured-edge discriminator
    statement: |
@@ -10113,7 +10289,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      literal outside the defcustom default), and the loader excludes the
      configured drawer from export when org-export-with-drawers still has its
      default shape (LD-6; a user who customized that variable owns the
-     outcome).
+     outcome). A customize rename follows into the exclusion: the
+     defcustom's :set swaps the new name into org-export-with-drawers while
+     the list holds the loader-managed shape ((not "LOGBOOK" <old-name>));
+     a `setq' rename bypasses the :set and the docstring says so.
    why_it_matters: |
      A leaky discriminator pollutes the graph silently in both directions:
      admitting :SOURCE:-style properties or body links manufactures edges the
@@ -10134,9 +10313,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        Grep audit: the "EDGES" literal appears only in the defcustom default
        in config/org-graph/org-graph.el, never in extractor.el.
      notes: |
-       The LD-6 export-exclusion clause is loader behaviour, exercised by the
-       spike-eval runbook (spike-eval-doc-update) rather than the scanner
-       spec.
+       The LD-6 export-exclusion clause is loader behaviour, spec-pinned in
+       config/org-graph/test/module-load-spec.el ("edge-drawer export
+       exclusion follows customize renames" cases: loader-managed shape
+       follows the rename; a user-customized list is left alone), with the
+       spike-eval runbook (spike-eval-doc-update) as the secondary
+       live-boot check.
    related_entries:
      - register/boundary/parser-extractor-db
      - register/vocabulary/relation-types
@@ -10333,6 +10515,22 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: reconciled
    status_note: |
+     cycle-1786458912 integrate (org-graph-spike): HELD UNDER REFACTOR
+     (org-graph-loader-cleanup); stays RECONCILED, no status change. The
+     invariant is preserved exactly — one contiguous by-path ordered
+     "* Submodules" block, every DB-free registration at require, both
+     DB-touching ops on emacs-startup-hook with unchanged resilience
+     semantics. Refinements: deferral ownership is consolidated in the
+     LOADER — both named wrappers (org-graph--register-extractor,
+     org-graph--seed-org-id-locations-deferred) delegate to the shared
+     helper org-graph--run-deferred-op and are add-hooked from
+     org-graph.el (symmetric loader ownership; the seed no longer
+     self-defers inside discovery.el); the cold-load guard
+     (module-load-spec.el) now asserts BOTH wirings by name; and the
+     resilience semantics (failing op -> display-warning, never signals)
+     are execution-tested rather than prose-only. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/org-graph-loader-ordered-sequence.md.
+
      cycle-1782573574 integrate (org-graph-spike): DIVERGENT -> RECONCILED
      (re-stated) by wire-into-init (merge 50af89ae). The loader was consolidated
      into ONE ordered "* Submodules" sequence loading all eight submodules BY
@@ -10404,14 +10602,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      config/org-graph/org-graph.org load-wires every org-graph submodule via
      jf/load-module BY PATH, in ONE consolidated "* Submodules" sequence, in
      dependency-correct order:
-       schemas -> extractor -> coordinator -> query -> finders -> tools -> discovery
+       schemas -> extractor -> coordinator -> query -> finders -> edge-type
+       -> tools -> discovery
      with workspace-integration loaded AFTER tools (it populates the
      workspace-assistant :tools slot from org-graph/agent-tools, which only
-     exists once tools.el has loaded). No submodule is loaded from a scattered
+     exists once tools.el has loaded). edge-type loads AFTER extractor (it
+     requires feature org-graph-extractor for the canonical rel-normalization
+     helper) and BEFORE tools (added cycle-1786458912, edge-type-registry).
+     No submodule is loaded from a scattered
      standalone section, and no submodule that another requires is loaded after
      its requirer. Because file basenames do NOT match their provided features
      (schemas.el provides org-graph-schemas; finders.el provides org-graph-finders;
-     tools.el provides org-graph-tools; etc.), require CANNOT auto-resolve the
+     tools.el provides org-graph-tools; edge-type.el provides
+     org-graph-edge-type; etc.), require CANNOT auto-resolve the
      order — load order is load-bearing and MUST be explicit in the loader.
 
      REGISTRATION TIMING (re-stated cycle-1782573574): a cold (require 'org-graph)
@@ -10425,10 +10628,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      emacs-startup-hook, NOT after-init-hook, is the load-bearing post-init seam
      under "emacs -q --load init.el". So: every submodule loads by path in
      canonical order at require; every DB-free registration fires at require; the
-     two DB-touching ops fire post-init. The cold-load guard
+     two DB-touching ops fire post-init. Both deferrals delegate to the shared
+     loader helper org-graph--run-deferred-op and are add-hooked from
+     org-graph.el (org-graph-loader-cleanup). The cold-load guard
      (module-load-spec.el) verifies the by-path loads + DB-free registrations from
-     a bare require, AND that the extractor deferral is wired onto
-     emacs-startup-hook (then drives the wired fn with the DB boundary stubbed).
+     a bare require, AND that BOTH DB-touching deferrals
+     (org-graph--register-extractor, org-graph--seed-org-id-locations-deferred)
+     are wired onto emacs-startup-hook (then drives the wired fns with the DB
+     boundary stubbed).
    why_it_matters: |
      The basename!=feature trap means a missing or misordered jf/load-module
      line does not error at tangle time and does not always error at load time

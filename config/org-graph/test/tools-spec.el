@@ -233,6 +233,18 @@
         (org-graph-tools/typed-edges "n1" "outgoing" "implements")
         (expect captured :to-equal '("n1" implements)))))
 
+  (it "normalizes an agent rel-type string like the stored side (open vocabulary)"
+    ;; Stored relations pass through org-graph-extractor--normalize-rel,
+    ;; so the agent-facing string must take the same path: "FOLLOWS_UP"
+    ;; and "follows up" both narrow to stored `follows-up' rows.
+    (let (captured)
+      (cl-letf (((symbol-function 'org-graph-query/outgoing)
+                 (lambda (id rel) (setq captured (list id rel)) nil)))
+        (org-graph-tools/typed-edges "n1" "outgoing" "FOLLOWS_UP")
+        (expect captured :to-equal '("n1" follows-up))
+        (org-graph-tools/typed-edges "n1" "outgoing" "follows up")
+        (expect captured :to-equal '("n1" follows-up)))))
+
   (it "routes incoming"
     (let (captured)
       (cl-letf (((symbol-function 'org-graph-query/incoming)

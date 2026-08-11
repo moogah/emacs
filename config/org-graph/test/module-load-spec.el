@@ -229,6 +229,24 @@
           (expect (gptel-tool-p tool) :to-be t)
           (expect (gptel-tool-name tool) :to-equal name)))))
 
+  ;; --- Step 5b: edge-type registry loaded (finders -> edge-type -> tools) --
+
+  (describe "edge-type registry loaded from the loader path"
+
+    ;; edge-type.el (cycle-1786458912) sits between finders and tools in
+    ;; the canonical sequence; it requires org-graph-extractor for the
+    ;; shared rel-normalization helper.  DB-free at load: these are
+    ;; definition assertions only (the lookup touches the DB lazily).
+    (it "defines the registry selector, lookup, accessor, finder, and seed installer"
+      (expect (featurep 'org-graph-edge-type) :to-be-truthy)
+      (dolist (fn '(org-graph-edge-type-note-p
+                    org-graph/edge-types
+                    org-graph/edge-type
+                    org-graph/find-edge-type
+                    org-graph-edge-type-install-seeds
+                    org-graph-edge-type-invalidate-cache))
+        (expect (fboundp fn) :to-be-truthy))))
+
   ;; --- Step 6: workspace integration registered ------------------------
 
   (describe "workspace integration registered from the loader path"
@@ -311,6 +329,24 @@
               (funcall setter 'org-graph-edge-drawer "RELATIONS")
               (expect org-export-with-drawers
                       :to-equal '(not "LOGBOOK" "MYSTUFF")))
+          (set-default 'org-graph-edge-drawer saved))))
+
+    (it "warns on a value org cannot parse as a drawer name (LD-1)"
+      (let ((setter (get 'org-graph-edge-drawer 'custom-set))
+            (saved (default-value 'org-graph-edge-drawer))
+            warnings)
+        (unwind-protect
+            (cl-letf (((symbol-function 'display-warning)
+                       (lambda (type message &optional level &rest _)
+                         (push (list type message level) warnings))))
+              (funcall setter 'org-graph-edge-drawer "BAD NAME!")
+              (expect (length warnings) :to-equal 1)
+              (expect (nth 0 (car warnings)) :to-be 'org-graph)
+              (expect (nth 1 (car warnings))
+                      :to-match "not a valid org drawer name")
+              ;; A valid name warns nothing.
+              (funcall setter 'org-graph-edge-drawer "EDGES")
+              (expect (length warnings) :to-equal 1))
           (set-default 'org-graph-edge-drawer saved))))))
 
   ;; NOTE: the loader-level vulpea DB isolation invariant (resolves under

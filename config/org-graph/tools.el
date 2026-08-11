@@ -7,7 +7,9 @@
 (let ((dir (file-name-directory (or load-file-name buffer-file-name
                                     default-directory))))
   (require 'org-graph-query (expand-file-name "query.el" dir))
-  (require 'org-graph-coordinator (expand-file-name "coordinator.el" dir)))
+  (require 'org-graph-coordinator (expand-file-name "coordinator.el" dir))
+  ;; canonical rel-normalization site (register/vocabulary/relation-types)
+  (require 'org-graph-extractor (expand-file-name "extractor.el" dir)))
 
 (defun org-graph-tools--roam-root ()
   "Return the concept-vault / typed-edge root directory, with trailing slash.
@@ -57,11 +59,15 @@ returned.  Each result is `org-graph-tools--note->plist'-shaped."
 
 (defun org-graph-tools--rel-symbol (rel-type)
   "Coerce REL-TYPE to a relation SYMBOL, or nil.
-The query API matches relations as symbols (emacsql prin1/read
-round-trips them); an agent passes a string, so intern it."
+The query API matches relations as symbols, and stored relations are
+normalized (`org-graph-extractor--normalize-rel'), so an agent string
+takes the same normalization path — \"FOLLOWS_UP\" and \"follows up\"
+both match stored `follows-up' rows.  Symbols are re-normalized through
+their name for the same reason."
   (cond ((null rel-type) nil)
-        ((symbolp rel-type) rel-type)
-        ((stringp rel-type) (intern rel-type))))
+        ((symbolp rel-type)
+         (org-graph-extractor--normalize-rel (symbol-name rel-type)))
+        ((stringp rel-type) (org-graph-extractor--normalize-rel rel-type))))
 
 (defun org-graph-tools/typed-edges (note-id &optional direction rel-type)
   "Return resolved typed edges for NOTE-ID as agent-facing plists.

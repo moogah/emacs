@@ -61,7 +61,9 @@ provided, so there is no double-load.
 (let ((dir (file-name-directory (or load-file-name buffer-file-name
                                     default-directory))))
   (require 'org-graph-query (expand-file-name "query.el" dir))
-  (require 'org-graph-coordinator (expand-file-name "coordinator.el" dir)))
+  (require 'org-graph-coordinator (expand-file-name "coordinator.el" dir))
+  ;; canonical rel-normalization site (register/vocabulary/relation-types)
+  (require 'org-graph-extractor (expand-file-name "extractor.el" dir)))
 #+end_src
 
 * Roam root
@@ -146,18 +148,26 @@ Resolved typed edges for NOTE-ID, layered on the read API in =query.el=
 (it does NOT re-query the side table — =register/boundary/typed-edge-query-api=).
 DIRECTION selects =outgoing=, =incoming=, or =connected= (the default,
 the union of both).  REL-TYPE optionally narrows to a relation; the query
-API matches relations as SYMBOLS, so a string is interned.  =connected=
+API matches relations as SYMBOLS, and every STORED relation passed
+through =org-graph-extractor--normalize-rel= on the way in
+(=register/vocabulary/relation-types=), so an agent-supplied string must
+take the same path — a bare =intern= of ="FOLLOWS_UP"= or ="follows up"=
+would silently query a symbol the DB never contains.  =connected=
 takes no rel-type, so a rel-filtered "both directions" query is the union
 of the rel-filtered outgoing and incoming halves.
 
 #+begin_src emacs-lisp
 (defun org-graph-tools--rel-symbol (rel-type)
   "Coerce REL-TYPE to a relation SYMBOL, or nil.
-The query API matches relations as symbols (emacsql prin1/read
-round-trips them); an agent passes a string, so intern it."
+The query API matches relations as symbols, and stored relations are
+normalized (`org-graph-extractor--normalize-rel'), so an agent string
+takes the same normalization path — \"FOLLOWS_UP\" and \"follows up\"
+both match stored `follows-up' rows.  Symbols are re-normalized through
+their name for the same reason."
   (cond ((null rel-type) nil)
-        ((symbolp rel-type) rel-type)
-        ((stringp rel-type) (intern rel-type))))
+        ((symbolp rel-type)
+         (org-graph-extractor--normalize-rel (symbol-name rel-type)))
+        ((stringp rel-type) (org-graph-extractor--normalize-rel rel-type))))
 
 (defun org-graph-tools/typed-edges (note-id &optional direction rel-type)
   "Return resolved typed edges for NOTE-ID as agent-facing plists.
