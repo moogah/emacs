@@ -279,7 +279,39 @@
       (expect (file-in-directory-p
                vulpea-db-location
                (expand-file-name org-roam-directory))
-              :not :to-be-truthy))))
+              :not :to-be-truthy)))
+
+  ;; --- Edge-drawer export exclusion (LD-6) -----------------------------
+
+  (describe "edge-drawer export exclusion follows customize renames (LD-6)"
+
+    (it "swaps the drawer name in the loader-managed exclusion shape"
+      ;; The setter uses `set-default', so save/restore the default binding
+      ;; explicitly instead of let-binding (which set-default would bypass).
+      (let ((setter (get 'org-graph-edge-drawer 'custom-set))
+            (saved (default-value 'org-graph-edge-drawer))
+            (org-export-with-drawers (list 'not "LOGBOOK"
+                                           (default-value 'org-graph-edge-drawer))))
+        (expect setter :to-be-truthy)
+        (unwind-protect
+            (progn
+              (funcall setter 'org-graph-edge-drawer "RELATIONS")
+              (expect org-export-with-drawers
+                      :to-equal '(not "LOGBOOK" "RELATIONS"))
+              (expect (default-value 'org-graph-edge-drawer)
+                      :to-equal "RELATIONS"))
+          (set-default 'org-graph-edge-drawer saved))))
+
+    (it "leaves a user-customized exclusion list alone"
+      (let ((setter (get 'org-graph-edge-drawer 'custom-set))
+            (saved (default-value 'org-graph-edge-drawer))
+            (org-export-with-drawers '(not "LOGBOOK" "MYSTUFF")))
+        (unwind-protect
+            (progn
+              (funcall setter 'org-graph-edge-drawer "RELATIONS")
+              (expect org-export-with-drawers
+                      :to-equal '(not "LOGBOOK" "MYSTUFF")))
+          (set-default 'org-graph-edge-drawer saved))))))
 
   ;; NOTE: the loader-level vulpea DB isolation invariant (resolves under
   ;; runtime state/ as notes.db, != vulpea's default vulpea.db) is owned

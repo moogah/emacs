@@ -43,7 +43,12 @@ own excluding this drawer from export.
 
 Org can only parse drawer names made of word characters, `-' and `_';
 setting a value outside that alphabet triggers a warning, and no drawer
-will ever match it."
+will ever match it.
+
+Renaming through the customize setter keeps the export exclusion in
+step: when `org-export-with-drawers' still holds the loader-managed
+shape ((not \"LOGBOOK\" <old-name>)), the setter swaps in the new name.
+A `setq' rename bypasses this — re-evaluate the exclusion or restart."
   :type 'string
   :group 'org-graph
   :set (lambda (symbol value)
@@ -54,7 +59,15 @@ will ever match it."
             (format "`org-graph-edge-drawer' value %S is not a valid org drawer name (word characters, `-' and `_' only); no drawer will match it"
                     value)
             :warning))
-         (set-default symbol value)))
+         (let ((old (and (boundp symbol) (symbol-value symbol))))
+           (set-default symbol value)
+           ;; LD-6: if ox already loaded and the exclusion list still has
+           ;; the loader-managed shape for the OLD name, follow the rename;
+           ;; a user-customized `org-export-with-drawers' is left alone.
+           (when (and (stringp old)
+                      (boundp 'org-export-with-drawers)
+                      (equal org-export-with-drawers (list 'not "LOGBOOK" old)))
+             (setq org-export-with-drawers (list 'not "LOGBOOK" value))))))
 
 (with-eval-after-load 'ox
   (when (equal org-export-with-drawers '(not "LOGBOOK"))
