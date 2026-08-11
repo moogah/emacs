@@ -17,14 +17,15 @@ than guessing a name."
        (not (string-empty-p org-graph-edge-drawer))
        org-graph-edge-drawer))
 
-(defvar org-graph-edge-link-type)       ; defined by the rel-link runtime's defcustom
+(defvar org-graph-edge-link-type)       ; defcustom declared in the loader (org-graph.org)
 
 (defun org-graph-extractor--edge-link-type ()
   "Return the configured rel-link type name, or nil when unavailable.
-`org-graph-edge-link-type' is owned by the rel-link runtime's
-defcustom.  When this file is loaded standalone and the variable is
-unbound, nil, or empty, return nil so the rel-link scanner fails closed
-\(no link ever matches) rather than guessing a name."
+`org-graph-edge-link-type' is a defcustom declared in the loader
+\(org-graph.org), the parallel knob to `org-graph-edge-drawer'.  When
+this file is loaded standalone and the variable is unbound, nil, or
+empty, return nil so the rel-link scanner fails closed \(no link ever
+matches) rather than guessing a name."
   (and (boundp 'org-graph-edge-link-type)
        (stringp org-graph-edge-link-type)
        (not (string-empty-p org-graph-edge-link-type))

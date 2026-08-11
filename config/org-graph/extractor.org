@@ -80,22 +80,25 @@ than guessing a name."
 
 * Edge link-type resolution
 
-The inline surface's link-type name is owned by the rel-link runtime's
-=org-graph-edge-link-type= defcustom (the parallel knob to
-=org-graph-edge-drawer=, OV-3/LD-1); this file never hardcodes it.  The
-bare =defvar= below only marks the symbol special so this file loads
-standalone.  When the variable is unbound or not a usable string the
-rel-link scanner fails closed and emits nothing.
+The inline surface's link-type name is the =org-graph-edge-link-type=
+defcustom, declared in the loader =org-graph.org= exactly like its
+parallel knob =org-graph-edge-drawer= (OV-3/LD-1,
+=register/boundary/rel-link-path-syntax=); the rel-link runtime
+registers the link type under it, and this file never hardcodes it.
+The bare =defvar= below only marks the symbol special so this file
+loads standalone.  When the variable is unbound or not a usable string
+the rel-link scanner fails closed and emits nothing.
 
 #+begin_src emacs-lisp
-(defvar org-graph-edge-link-type)       ; defined by the rel-link runtime's defcustom
+(defvar org-graph-edge-link-type)       ; defcustom declared in the loader (org-graph.org)
 
 (defun org-graph-extractor--edge-link-type ()
   "Return the configured rel-link type name, or nil when unavailable.
-`org-graph-edge-link-type' is owned by the rel-link runtime's
-defcustom.  When this file is loaded standalone and the variable is
-unbound, nil, or empty, return nil so the rel-link scanner fails closed
-\(no link ever matches) rather than guessing a name."
+`org-graph-edge-link-type' is a defcustom declared in the loader
+\(org-graph.org), the parallel knob to `org-graph-edge-drawer'.  When
+this file is loaded standalone and the variable is unbound, nil, or
+empty, return nil so the rel-link scanner fails closed \(no link ever
+matches) rather than guessing a name."
   (and (boundp 'org-graph-edge-link-type)
        (stringp org-graph-edge-link-type)
        (not (string-empty-p org-graph-edge-link-type))
