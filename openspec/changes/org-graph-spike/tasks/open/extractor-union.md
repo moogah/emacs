@@ -6,7 +6,18 @@ status: blocked
 relations:
   - blocked-by:edges-drawer
   - blocked-by:parse-rel-links
+cites_register_entries:
+  - register/boundary/parser-extractor-db
+  - register/shape/typed-edge-tuple
+  - register/invariant/typed-edge-extraction-scope
+  - register/invariant/enclosing-node-attribution
 ---
+
+> Contract point to pin or refute (architect forward-mode,
+> cycle-1786458912): `register/boundary/parser-extractor-db` speculates a
+> note-granularity filter in the wrapper (keep only tuples whose from-id
+> equals the note being processed) to prevent the whole-file duplication
+> divergence from recurring. Decide explicitly; report in Discoveries.
 
 > Revises the (closed) `vulpea-extractor-plugin` wrapper to run two scanners
 > instead of one. `typed_edges` schema is unchanged. See design.md

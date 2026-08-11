@@ -2080,17 +2080,37 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    entry_id: register/shape/typed-edge-tuple
    tier: shape
    status: confirmed
+   status_note: |
+     cycle-1786458912 plan (forward-mode): shape HOLDS across the
+     open-vocabulary + links-drawer pivots (design.md § Open-Vocabulary Typed
+     Edges OV-5, commit dab1da12; § Links-Drawer Edge Surface LD-5, commit
+     5fe66b39) — the positional triple and symbol rel-type are unchanged.
+     PRODUCERS swapped: the single confirmed producer
+     org-graph-extractor/parse-typed-edges is DELETED and replaced by two pure
+     scanners with the same signature (ELEMENT-TREE) and the same tuple
+     contract: parse-drawer-edges (edges-drawer task) + parse-rel-links
+     (parse-rel-links task). from-id is no longer "always NOTE-ID passed to
+     the parser": both scanners resolve it internally via the shared
+     enclosing-node walk (register/invariant/enclosing-node-attribution). The
+     extractor wrapper unions/dedups both streams (extractor-union task).
+     Shape stays confirmed; the new producer set is speculated until those
+     tasks land.
    load_bearing: true
    title: typed-edge tuple (FROM-ID REL-TYPE TO-ID)
    purpose: |
-     The positional 3-list the pure parser emits and the vulpea extractor wrapper
-     consumes before writing the typed_edges DB row. It is the parser->extractor->DB
-     contract; the query API later reads the same column triple back. A positional
-     list (not a plist), so a field reorder is a silent corruption, not an error.
+     The positional 3-list the pure scanners emit and the vulpea extractor
+     wrapper consumes before writing the typed_edges DB row. It is the
+     scanner->extractor->DB contract; the query API later reads the same column
+     triple back. A positional list (not a plist), so a field reorder is a
+     silent corruption, not an error.
    required_keys:
      - name: "0 / from-id"
        type: string
-       description: source note ID (always NOTE-ID passed to the parser).
+       description: |
+         source note ID — the nearest ID-bearing ancestor of the edge's
+         authoring site, resolved inside the scanner by the shared
+         enclosing-node walk (was: the NOTE-ID argument; scanners take only
+         ELEMENT-TREE since LD-5).
      - name: "1 / rel-type"
        type: symbol
        description: relation symbol, e.g. implements (NOT a string, NOT the PROPERTIES key).
@@ -2100,10 +2120,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    optional_keys: []
    producers:
      - file: config/org-graph/extractor.el
-       function: org-graph-extractor/parse-typed-edges
+       function: org-graph-extractor/parse-drawer-edges   # speculated, edges-drawer task (replaces deleted parse-typed-edges)
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/parse-rel-links      # speculated, parse-rel-links task
    consumers:
      - file: config/org-graph/extractor.el
-       function: org-graph-extractor/extract        # speculated, vulpea-extractor-plugin task
+       function: org-graph-extractor/extract        # unions/dedups both producers' rows (extractor-union task)
        reads_keys: [from-id, rel-type, to-id]
    validator: |
      (defun shape/validate-typed-edge (val)
@@ -3302,42 +3324,68 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/relation-types
    tier: vocabulary
-   status: confirmed
+   status: speculated
+   status_note: |
+     cycle-1786458912 plan (forward-mode): RE-STATED confirmed -> speculated.
+     Two pivots invalidated the confirmed contract: the closed set is GONE
+     (design.md § Open-Vocabulary Typed Edges OV-1, commit dab1da12), and the
+     REL_-prefix key routing that briefly replaced it is ALSO gone with the
+     properties surface itself (§ Links-Drawer Edge Surface LD-2/LD-3, commit
+     5fe66b39). The vocabulary is now OPEN: any author-coined symbol is a
+     valid relation the moment it appears on either surface. What remains
+     register-worthy is the shared NORMALIZATION RULE below — it, not
+     membership, is the contract. org-graph-relation-types survives only as a
+     non-authoritative completion seed (docstring re-write, edges-drawer
+     task); --rel-key / --key->rel are deleted with the properties parser.
+     prior_form: closed 4-member set (implements/contradicts/supersedes/
+     relates-to), symbol<->PROPERTIES-key mapping via --rel-key/--key->rel,
+     closed_set: true, confirmed cycle-1782551613.
    load_bearing: true
-   title: typed-edge relation symbols
+   title: typed-edge relation symbols (open vocabulary; normalization rule is the contract)
    purpose: |
-     The closed initial set of semantic relation symbols (D3). The loader owns it as
-     the org-graph-relation-types defcustom; the extractor re-declares it as a
-     standalone fallback; the upcoming extractor wrapper writes it as the typed_edges
-     rel-type column. Three consumers, one literal -- see finding
-     arch-cycle-1782551613-02.
-   members:
-     - value: implements
-       description: source note implements the target concept.
-       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
-     - value: contradicts
-       description: source contradicts the target.
-       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
-     - value: supersedes
-       description: source supersedes the target.
-       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
-     - value: relates-to
-       description: catch-all relation (design Open Question 4 flags it as possibly too broad).
-       producer: { file: config/org-graph/org-graph.el, function: org-graph-relation-types }
+     Relation symbols are an OPEN folksonomy (OV-1): no allowlist, no gate.
+     The register-worthy contract is the single normalization rule that turns
+     author input into the stored symbol, shared by BOTH authoring surfaces:
+     edge-drawer item tags (LD-2) and rel: link path type segments (OV-3).
+     Divergent normalization between the two surfaces would silently fork one
+     authored relation into two stored symbols — the open-vocabulary analogue
+     of the old missing-member misroute.
+   members: []   # open set — not enumerable; the normalization rule below replaces membership
+   normalization_rule: |
+     input (drawer item :tag text | rel-link <type> segment)
+       -> trim -> downcase -> spaces and underscores map to hyphens -> intern.
+     e.g. "- follows up ::" -> follows-up ; "Implements" -> implements ;
+     "FOLLOWS_UP" -> follows-up. The stored rel-type is ALWAYS the interned
+     symbol, never a string (register/shape/typed-edge-tuple).
    consumer_mapping:
      - consumer: config/org-graph/extractor.el
-       consumer_field: PROPERTIES drawer key
-       accepts: [implements, contradicts, supersedes, relates-to]
-       routing_function: org-graph-extractor--rel-key   # symbol -> "IMPLEMENTS"
+       consumer_field: edge-drawer description-list item :tag
+       accepts: any (open)
+       routing_function: shared normalization helper   # speculated, edges-drawer task
+     - consumer: config/org-graph/extractor.el
+       consumer_field: "rel: link path <type> segment (before first colon)"
+       accepts: any (open)
+       routing_function: same shared normalization helper   # speculated, parse-rel-links task
+     - consumer: config/org-graph/rel-link.el
+       consumer_field: ":complete type candidates (registry + observed + seed; free text coins new types)"
+       accepts: any (open)
+       routing_function: org-graph-relation-types demoted to non-authoritative seed   # speculated, rel-link-type task
    canonical_mapping_function: |
-     ;; symbol -> PROPERTIES key and back. The ONLY allowed translation sites.
-     (defun org-graph-extractor--rel-key (symbol)        ; relates-to -> "RELATES_TO"
-       (upcase (replace-regexp-in-string "-" "_" (symbol-name symbol))))
-     (defun org-graph-extractor--key->rel (key) ...)     ; case-insensitive inverse
+     ;; ONE normalization helper shared by both scanners; a second inline
+     ;; trim/downcase/replace chain anywhere else is a duplication bug.
+     ;; (name speculative; lives beside the scanners in extractor.el; exact
+     ;; whitespace-run collapsing pinned at reconciliation)
+     (defun org-graph-extractor--normalize-rel (raw)
+       (intern (replace-regexp-in-string "[ _]+" "-" (downcase (string-trim raw)))))
    validator: |
-     (defun vocabulary/validate-rel (sym) (memq sym (org-graph-extractor--relation-types)))
-   closed_set: true   # configurable but the spike ships a closed initial set
-   discovered_from: parse-typed-edges
+     ;; open set: validity = already-normalized symbol, NOT membership
+     (defun vocabulary/validate-rel (sym)
+       (and (symbolp sym)
+            (let ((name (symbol-name sym)))
+              (string= name (replace-regexp-in-string
+                             "[ _]+" "-" (downcase (string-trim name)))))))
+   closed_set: false   # open folksonomy; the registry (register/boundary/edge-type-registry-lookup) only enriches
+   discovered_from: edges-drawer
    discovered_by: architect
    #+end_src
 
@@ -6509,77 +6557,100 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/parser-extractor-db
    tier: boundary
-   status: reconciled
+   status: speculated
    status_note: |
-     cycle-1782561220 integrate: RECONCILED by scope-extractor-edges-per-note
-     (user decision ask-cycle-1782551613-1 = NOTE-GRANULAR). The cycle-1782551613
-     DIVERGENCE (whole-file AST credited every ID-bearing note with every edge) is
-     resolved: stage-2 now scopes extraction PER NOTE via the :ID:-matched
-     property-drawer sub-tree (org-graph-extractor--note-property-drawer +
-     --edges-from-note), so from-id is the note actually processed (heading id for
-     headings, file id for the file node). The interim file-level-only guard
-     (null :level) is REMOVED, not kept. The roam-root cross-stage scope-gate is
-     unchanged. AST-subtree was chosen over note-data :properties to preserve
-     repeated relation keys (a properties-alist collapses them). Multi-note
-     regression specs assert per-note attribution for both node kinds; suite green.
-     why_tests_missed: foundation specs only ever built single-file-drawer trees,
-     making whole-file vs per-note extraction indistinguishable — a fixture-shape
-     gap, now closed (build-tree gained a :headings key). Author-blind reviewer
-     confirmed code+tests correct; only flagged this entry's then-stale text.
-     prior_form: file-level-only stopgap, scope-gate stages 2/3 SPECULATED.
-     new_form: note-granular per-:ID: drawer scoping, all stages CONFIRMED.
-     See .orchestrator/cycles/cycle-1782561220/reconciliations/parser-extractor-db.md.
+     cycle-1786458912 plan (forward-mode): RE-STATED reconciled -> speculated.
+     Two design pivots since the cycle-1782561220 reconciliation: open
+     vocabulary (design.md § Open-Vocabulary Typed Edges OV-5, commit
+     dab1da12) and the links-drawer surface (§ Links-Drawer Edge Surface
+     LD-1..LD-5, commit 5fe66b39). The single parse stage
+     (parse-typed-edges over the note's PROPERTIES drawer) is replaced by TWO
+     pure scanners over the same tree — parse-drawer-edges (edge-drawer
+     items) + parse-rel-links (inline rel: links) — whose rows the wrapper
+     UNIONS (set semantics, dedup identical tuples). The per-note
+     PROPERTIES-ownership machinery (--note-property-drawer /
+     --edges-from-note) is DELETED, not ported: attribution moves INSIDE the
+     scanners via the shared enclosing-node walk (LD-4,
+     register/invariant/enclosing-node-attribution). The roam-root scope gate
+     and the DB write are unchanged. Tasks: edges-drawer, parse-rel-links,
+     extractor-union.
+     prior_form: parse (parse-typed-edges, NOTE-ID argument) -> scope-gate
+     (roam root + per-note :ID:-matched drawer scoping) -> db-insert; all
+     stages CONFIRMED note-granular cycle-1782561220. Full prior history:
+     .orchestrator/cycles/cycle-1782561220/reconciliations/parser-extractor-db.md.
    load_bearing: true
-   title: typed-edge pipeline (parse -> scope-gate -> DB insert)
+   title: typed-edge pipeline (two scanners -> union -> scope-gate -> DB insert)
    purpose: |
-     How a note's PROPERTIES drawer becomes typed_edges rows. Staged so the pure
-     parser stays vulpea-free and unit-testable (D4) while the scope gate and DB
+     How a note's authored edges (edge-drawer items + inline rel: links)
+     become typed_edges rows. Staged so both pure scanners stay vulpea-free
+     and unit-testable (D4/OV-5) while the union, the scope gate, and the DB
      write live in the vulpea wrapper. The scope gate is a deliberate hard
      exclusion, not an optimisation.
    stages:
      - n: 1
-       name: parse
-       input: org-element AST + NOTE-ID
-       output: register/shape/typed-edge-tuple list
+       name: scan
+       input: org-element AST of the note's file
+       output: two register/shape/typed-edge-tuple lists
        can_fail_with: []
        notes: |
-         Pure function org-graph-extractor/parse-typed-edges. NEVER signals on
-         malformed or empty input (covered by parse-typed-edges-spec.el). CONFIRMED.
+         Pure functions org-graph-extractor/parse-drawer-edges +
+         /parse-rel-links, same signature (ELEMENT-TREE) and same tuple
+         contract. NEVER signal on malformed or empty input. Attribution is
+         internal: each tuple's from-id comes from the shared enclosing-node
+         walk (register/invariant/enclosing-node-attribution); there is no
+         NOTE-ID argument. SPECULATED (edges-drawer / parse-rel-links tasks).
      - n: 2
+       name: union
+       input: two tuple lists
+       output: one deduplicated tuple list
+       can_fail_with: []
+       notes: |
+         The wrapper (org-graph-extractor/extract) unions both streams; an
+         identical (from rel to) asserted on both surfaces yields ONE row
+         (set semantics, not multiset). SPECULATED note-granularity filter:
+         because the scanners attribute over the WHOLE file tree, the
+         per-note wrapper is expected to keep only tuples whose from-id
+         equals the note being processed — otherwise the cycle-1782551613
+         whole-file duplication divergence recurs under vulpea's per-note
+         extraction. Pin or refute at implementation (extractor-union).
+     - n: 3
        name: scope-gate
-       input: note path
+       input: note path + tuple list
        output: tuples (roam-path) | nothing (non-roam-path)
        can_fail_with: []
        short_circuit_policy: deliberate
        notes: |
-         org-graph-extractor/extract emits edges only when the note path is under
-         org-graph-roam-root (register/invariant/typed-edge-extraction-scope), AND
-         scopes parsing to the note actually being processed: --note-property-drawer
-         locates the property-drawer whose :ID: equals the note id, --edges-from-note
-         re-runs the pure parser over that single drawer. from-id is therefore always
-         the note's own id (file node OR heading). Bypassing the roam gate re-introduces
-         the D2 dilution/inotify cost. CONFIRMED (cycle-1782561220, note-granular).
-     - n: 3
+         Unchanged: rows are emitted only when the note path is under
+         org-graph-roam-root (register/invariant/typed-edge-extraction-scope).
+         Whether the gate runs before or after stage 1 is implementation
+         freedom (short-circuiting before the scan is cheaper); the contract
+         is that NO tuple from a non-roam note reaches stage 4. Bypassing the
+         gate re-introduces the D2 dilution/inotify cost.
+     - n: 4
        name: db-insert
        input: register/shape/typed-edge-tuple list
        output: typed_edges rows (from-id, rel-type, to-id), FK notes(id) :on-delete :cascade
        can_fail_with: [emacsql-error]
        notes: |
-         emacsql insert into the vulpea-registered typed_edges table; rel-type
-         stored as a symbol. The READ side (register/boundary/typed-edge-query-api)
-         reads this table via raw (emacsql (vulpea-db) ...), NOT vulpea-db-query
-         (which only reads the notes table). CONFIRMED.
+         Unchanged: emacsql insert into the vulpea-registered typed_edges
+         table; rel-type stored as a symbol; priority-50 registration and the
+         emacs-startup-hook DB-free-load deferral
+         (register/invariant/org-graph-loader-ordered-sequence) untouched.
+         The READ side (register/boundary/typed-edge-query-api) reads this
+         table via raw (emacsql (vulpea-db) ...), NOT vulpea-db-query.
    cross_stage_invariants:
      - register/invariant/typed-edge-extraction-scope
+     - register/invariant/enclosing-node-attribution
+     - register/invariant/edge-drawer-discriminator
    producers:
      - file: config/org-graph/extractor.el
        function: org-graph-extractor/extract
        enters_at_stage: 1
    consumers:
      - file: config/org-graph/extractor.el
-       function: typed_edges table (queried by typed-edge-query task)
-       reads_output_of_stage: 3
-   discovered_from: vulpea-extractor-plugin
+       function: typed_edges table (read via register/boundary/typed-edge-query-api)
+       reads_output_of_stage: 4
+   discovered_from: extractor-union
    discovered_by: architect
    #+end_src
 
@@ -6603,12 +6674,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (emacsql (vulpea-db) [:select ... :from typed_edges ...]) — the same connection
      the extractor writes through. Corrected below. Confirmed: the behavioural
      contract matched; only the mechanism description was fixed.
+
+     cycle-1786458912 plan (forward-mode): confirmed contract UNCHANGED; the
+     query-inverse-symmetric task ADDS read-time enrichment on top (design.md
+     § Open-Vocabulary Typed Edges OV-7, commit dab1da12; unaffected by the
+     links-drawer pivot 5fe66b39 — the query layer is surface-agnostic by
+     design). Speculated additions: an edge-label resolver
+     (org-graph-query/edge-label EDGE PERSPECTIVE) renders a registry
+     :INVERSE: from the far side, and :SYMMETRIC: t types surface
+     bidirectionally in connected — all derived at read time from
+     org-graph/edge-types (register/boundary/edge-type-registry-lookup).
+     Stored rows, the three confirmed functions' signatures, and directional
+     storage are untouched
+     (register/invariant/no-materialized-inverse-rows). Unregistered or
+     inverse-less types render their raw symbol.
    load_bearing: true
    title: typed_edges read surface (outgoing / incoming / connected)
    purpose: |
      How a caller (gptel tool, finder, user) reads typed edges back out of the
-     typed_edges table. Directional and NOT auto-symmetrized (design.md Non-Goals):
-     "incoming" is a real query against to-id, not a mirror of outgoing. A thin,
+     typed_edges table. Directional at STORAGE and not auto-symmetrized there
+     (design.md Non-Goals as narrowed by OV-7): "incoming" is a real query
+     against to-id, not a mirror of outgoing; registry-declared inverse labels
+     and symmetric surfacing are a read-time overlay only. A thin,
      mockable layer over raw (emacsql (vulpea-db) ...) against typed_edges (NOT
      vulpea-db-query, which only reads the notes table), so the gptel-tools layer
      (next cycle) gets resolved notes, not bare ids. :note resolves the FAR end of
@@ -6623,7 +6710,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        notes: edges where to-id matches; how incoming relations resolve (no symmetry).
      - name: org-graph-query/connected
        signature: "(note-id) -> list of edge plists"
-       notes: union of outgoing and incoming for note-id.
+       notes: |
+         union of outgoing and incoming for note-id. SPECULATED
+         (query-inverse-symmetric): surfaces :SYMMETRIC: t types in both
+         directions without an extra stored row.
+     - name: org-graph-query/edge-label
+       signature: "(edge perspective) -> string"   # speculated, query-inverse-symmetric task
+       notes: |
+         registry-driven display labelling: a stored implements edge renders
+         as implemented-by from the target's perspective when the registry
+         declares the inverse; unregistered/inverse-less types render the raw
+         symbol. Display helper only — rows and the three read functions'
+         outputs are unchanged.
    output_shape: |
      Each edge is a plist with :from (string id), :rel (symbol), :to (string id), and
      where useful the resolved target vulpea-note (via vulpea-db-get-by-id) so callers
@@ -6639,7 +6737,142 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/shape/typed-edge-tuple
      - register/vocabulary/relation-types
      - register/boundary/parser-extractor-db
+     - register/boundary/edge-type-registry-lookup
+     - register/invariant/no-materialized-inverse-rows
    discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
+** rel-link-path-syntax
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-rel-link-path-syntax
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/rel-link-path-syntax
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: "rel: link path syntax (<link-type>:<type>:<target-id>, split on first colon)"
+   purpose: |
+     The string contract between the interactive rel-link RUNTIME
+     (rel-link-type task: :complete constructs paths, :follow parses them to
+     jump) and the pure SCANNER (parse-rel-links task: consumes the same
+     paths during extraction). Two independent parsers of one string format
+     in two modules — divergence is silent because the scanner's
+     malformed-input policy is skip-without-signal, so a runtime-emitted path
+     the scanner cannot parse simply produces no edge. The link-type name
+     comes from the defcustom org-graph-edge-link-type (default "rel",
+     declared in org-graph.org — the parallel knob to org-graph-edge-drawer,
+     OV-3/LD-1). Design provenance: design.md § Open-Vocabulary Typed Edges
+     OV-3/OV-Q1 (commit dab1da12), contract references updated by the
+     links-drawer pivot (commit 5fe66b39).
+   stages:
+     - n: 1
+       name: construct
+       input: relation type (author text) + target node id
+       output: "\"<link-type>:<type>:<target-id>\" path string"
+       can_fail_with: []
+       notes: |
+         :complete (rel-link.el) is the canonical producer of well-formed
+         paths. The <type> segment is authored text; normalization to the
+         stored symbol happens on the consumer side
+         (register/vocabulary/relation-types).
+     - n: 2
+       name: parse
+       input: "link path after org strips \"<link-type>:\", i.e. \"<type>:<target-id>\""
+       output: "(rel-type-symbol . to-id) | skip"
+       can_fail_with: []
+       notes: |
+         SPLIT ON FIRST COLON: everything before the first ":" is the type
+         segment (normalized + interned per the vocabulary rule); everything
+         after it is the target id VERBATIM (a target id may itself contain
+         colons in principle). Missing separator, empty type, or empty target
+         -> skip gracefully, no signal, no row. Two consumers must implement
+         the identical split: :follow in rel-link.el (jump via org-id) and
+         org-graph-extractor/parse-rel-links in extractor.el (tuple emission).
+   cross_stage_invariants:
+     - register/invariant/enclosing-node-attribution
+   producers:
+     - file: config/org-graph/rel-link.el
+       function: ":complete handler"        # speculated, rel-link-type task
+       enters_at_stage: 1
+   consumers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/parse-rel-links    # speculated, parse-rel-links task
+       reads_output_of_stage: 2
+     - file: config/org-graph/rel-link.el
+       function: ":follow handler"          # speculated, rel-link-type task
+       reads_output_of_stage: 2
+   discovered_from: parse-rel-links
+   discovered_by: architect
+   #+end_src
+
+** edge-type-registry-lookup
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-edge-type-registry-lookup
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/edge-type-registry-lookup
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: edge-type registry lookup (org-graph/edge-types, enrich-only)
+   purpose: |
+     The folksonomy->taxonomy enrichment surface (design.md § Open-Vocabulary
+     Typed Edges OV-6, commit dab1da12). Registry notes are ordinary vault
+     notes tagged :edge-type: with an :ID:; org-graph/edge-types reads them
+     into a lookup KEYED BY RELATION SYMBOL whose values carry label /
+     inverse / symmetric / description. Consumers ENRICH ONLY: completion
+     seeding (rel-link :complete) and read-time inverse/symmetric rendering
+     (query layer). The load-bearing half of the contract is graceful
+     absence: an UNREGISTERED type is fully functional everywhere — missing
+     entry -> nil -> render the raw symbol — and NO extraction path consults
+     the registry. (load_bearing: false because violation degrades visibly to
+     raw symbols rather than corrupting silently.)
+   stages:
+     - n: 1
+       name: load
+       input: ":edge-type:-tagged vault notes (filetag-membership predicate, schemas-module pattern)"
+       output: lookup keyed by relation symbol
+       can_fail_with: []
+       notes: |
+         Value per type: label (LABEL property, else title), inverse
+         (:INVERSE: -> symbol or nil), symmetric (:SYMMETRIC: -> boolean),
+         description (free text). Cached per session; invalidated via the
+         normal vulpea reindex path. No registry notes -> EMPTY lookup, never
+         an error. Four seed notes ship (implements :INVERSE: implemented-by;
+         contradicts :SYMMETRIC: t; supersedes :INVERSE: superseded-by;
+         relates-to :SYMMETRIC: t), replacing the deleted hardcoded closed
+         list.
+     - n: 2
+       name: consult
+       input: relation symbol
+       output: metadata (plist/alist per stage-1 value) | nil
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         nil is a NORMAL result, not an error; every consumer must degrade to
+         the raw symbol (query labels) or to observed+seed candidates
+         (completion). No consumer may gate extraction or storage on registry
+         membership.
+   producers:
+     - file: config/org-graph/edge-type.el
+       function: org-graph/edge-types       # speculated, edge-type-registry task
+       enters_at_stage: 1
+   consumers:
+     - file: config/org-graph/rel-link.el
+       function: ":complete candidate seeding"          # speculated, rel-link-type task
+       reads_output_of_stage: 2
+     - file: config/org-graph/query.el
+       function: edge-label / symmetric-aware reads     # speculated, query-inverse-symmetric task
+       reads_output_of_stage: 2
+   related_entries:
+     - register/vocabulary/relation-types
+     - register/invariant/no-materialized-inverse-rows
+     - register/boundary/typed-edge-query-api
+   discovered_from: edge-type-registry
    discovered_by: architect
    #+end_src
 
@@ -9800,6 +10033,162 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/shape/typed-edge-tuple
      - register/boundary/parser-extractor-db
    discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
+** enclosing-node-attribution
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-enclosing-node-attribution
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/enclosing-node-attribution
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: one shared enclosing-node walk attributes every typed edge; drop, never mis-attribute
+   statement: |
+     Both pure scanners (parse-drawer-edges, parse-rel-links) resolve from-id
+     through ONE shared helper (speculated name
+     org-graph-extractor--enclosing-note-id): the nearest ancestor carrying
+     an :ID:, resolved via org-element-lineage — the enclosing headline
+     chain, else the file-level node. An edge source (drawer item link or
+     rel: link) with NO ID-bearing ancestor contributes NOTHING — dropped,
+     never attributed to a neighbouring node or defaulted to a node it does
+     not belong to. Neither scanner carries its own lineage walk; a second
+     copy of the walk is a duplication bug. (LD-4, commit 5fe66b39, dissolved
+     the drawer/inline attribution split of OV-4, commit dab1da12, and
+     deleted the PROPERTIES-ownership machinery rather than porting it.)
+   why_it_matters: |
+     Mis-attribution corrupts the graph SILENTLY — rows insert fine, queries
+     return plausible results, and only cross-note inspection reveals the
+     wrong from-id. This project already paid: cycle-1782551613's
+     parser-extractor-db DIVERGENCE credited every ID-bearing note in a file
+     with every edge (whole-file AST scan), caught only after multi-note
+     fixtures were built. LD-4 makes the walk the single attribution model
+     for BOTH surfaces; two diverging copies would fork attribution semantics
+     per surface, which no per-scanner test would notice.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/parse-rel-links-spec.el and
+       parse-drawer-edges-spec.el attribution cases: file-top -> file node
+       id; ID-bearing subheading -> its own id; ID-less heading nested inside
+       an ID-bearing ancestor -> walks up; no ID-bearing ancestor at all ->
+       dropped. Structural audit: grep org-element-lineage in
+       config/org-graph/extractor.el resolves to exactly ONE helper, called
+       by both scanners.
+     notes: |
+       Both specs must drive the SAME helper; the shared-helper (not
+       copied-walk) half of the invariant is grep-auditable, the
+       drop-never-mis-attribute half is test-enforced.
+   related_entries:
+     - register/shape/typed-edge-tuple
+     - register/boundary/parser-extractor-db
+     - register/boundary/rel-link-path-syntax
+   discovered_from: edges-drawer
+   discovered_by: architect
+   #+end_src
+
+** edge-drawer-discriminator
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-edge-drawer-discriminator
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/edge-drawer-discriminator
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: the configured drawer name is the ONLY structured-edge discriminator
+   statement: |
+     Content is a structured typed edge iff it is a description-list item
+     inside the drawer named by org-graph-edge-drawer (string defcustom,
+     default "EDGES"; matched case-insensitively per org drawer semantics).
+     Nothing else is: ordinary PROPERTIES entries — including ones whose
+     value holds an id: link (:SOURCE:, :ROAM_REFS:) — are NEVER edges;
+     ordinary body [[id:...]] links are NEVER edges; identical
+     description-list items in a differently-named drawer are NEVER edges.
+     The drawer name is read from the defcustom at scan time (no hardcoded
+     literal outside the defcustom default), and the loader excludes the
+     configured drawer from export when org-export-with-drawers still has its
+     default shape (LD-6; a user who customized that variable owns the
+     outcome).
+   why_it_matters: |
+     A leaky discriminator pollutes the graph silently in both directions:
+     admitting :SOURCE:-style properties or body links manufactures edges the
+     author never asserted; missing the case-insensitive match or the
+     defcustom indirection drops edges the author did assert. The REL_-prefix
+     discriminator this replaces (OV-2, commit dab1da12) was itself replaced
+     because a key-naming rule conflates "is an edge" with "which relation"
+     (design.md LD-3, commit 5fe66b39); the container rule only stays clean
+     if it is the ONLY rule — no secondary heuristic ever re-admits
+     properties or body links.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/parse-drawer-edges-spec.el discriminator cases:
+       :SOURCE: property holding an id: link -> no rows; bare body id: link
+       -> no rows; identical items in a differently-named drawer -> no rows;
+       rebound org-graph-edge-drawer -> discriminator follows the new name.
+       Grep audit: the "EDGES" literal appears only in the defcustom default
+       in config/org-graph/org-graph.el, never in extractor.el.
+     notes: |
+       The LD-6 export-exclusion clause is loader behaviour, exercised by the
+       spike-eval runbook (spike-eval-doc-update) rather than the scanner
+       spec.
+   related_entries:
+     - register/boundary/parser-extractor-db
+     - register/vocabulary/relation-types
+   discovered_from: edges-drawer
+   discovered_by: architect
+   #+end_src
+
+** no-materialized-inverse-rows
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-no-materialized-inverse-rows
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/no-materialized-inverse-rows
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: typed_edges stays canonical and directional; inverse/symmetry derived at read time only
+   statement: |
+     The system SHALL NOT write inverse or mirrored rows to typed_edges.
+     Every stored row is the single canonical, directional assertion the
+     author made. Registry-declared :INVERSE: labels and :SYMMETRIC: t
+     behaviour are derived at query/display time (the edge-label resolver and
+     symmetric-aware reads in query.el, fed by org-graph/edge-types) — a
+     read/render overlay that leaves rows, the typed_edges schema, and the
+     write path untouched. The extractor wrapper remains the only writer of
+     typed_edges.
+   why_it_matters: |
+     Materialized inverses double-write: the pair drifts the first time one
+     side is re-extracted, deleted, or re-typed without the other, and
+     afterwards no query can tell the canonical row from the derived one.
+     Design provenance: OV-7 (commit dab1da12) narrows the original
+     "auto-derived symmetry" Non-Goal and RE-4 to its storage half —
+     read-time enrichment is allowed, stored mirroring never; unaffected by
+     the links-drawer pivot (commit 5fe66b39; query layer is
+     surface-agnostic).
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/typed-edges-spec.el (query-inverse-symmetric
+       task): inverse and symmetric cases run against SINGLE stored rows with
+       the DB select stubbed, asserting labels/bidirectionality are derived,
+       not stored. Grep audit: no insert into typed_edges anywhere in
+       config/org-graph/query.el or edge-type.el; the extractor wrapper
+       (register/boundary/parser-extractor-db stage db-insert) is the sole
+       writer.
+     notes: ""
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/boundary/edge-type-registry-lookup
+     - register/boundary/parser-extractor-db
+   discovered_from: query-inverse-symmetric
    discovered_by: architect
    #+end_src
 

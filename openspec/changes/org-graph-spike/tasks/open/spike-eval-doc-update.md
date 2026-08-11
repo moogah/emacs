@@ -7,6 +7,12 @@ relations:
   - blocked-by:extractor-union
   - blocked-by:rel-link-type
   - blocked-by:query-inverse-symmetric
+cites_register_entries:
+  - register/invariant/edge-drawer-discriminator
+  - register/invariant/enclosing-node-attribution
+  - register/boundary/rel-link-path-syntax
+  - register/boundary/edge-type-registry-lookup
+  - register/vocabulary/relation-types
 ---
 
 > Docs follow implementation. The runbook currently checks the closed-set

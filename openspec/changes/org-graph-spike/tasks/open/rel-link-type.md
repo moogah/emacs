@@ -5,6 +5,10 @@ change: org-graph-spike
 status: blocked
 relations:
   - blocked-by:edge-type-registry
+cites_register_entries:
+  - register/boundary/rel-link-path-syntax
+  - register/boundary/edge-type-registry-lookup
+  - register/vocabulary/relation-types
 ---
 
 > The inline authoring UX. AST-level extraction of the same links lives in

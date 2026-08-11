@@ -6,6 +6,9 @@ status: ready
 relations:
   - enables:rel-link-type
   - enables:query-inverse-symmetric
+cites_register_entries:
+  - register/boundary/edge-type-registry-lookup
+  - register/vocabulary/relation-types
 ---
 
 > The folksonomy→taxonomy layer. Types work with zero registration; a note

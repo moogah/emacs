@@ -2,10 +2,21 @@
 name: parse-rel-links
 description: "Add the pure inline-link scanner parse-rel-links that extracts rel: links and attributes each to its nearest ID-bearing ancestor node (OV-3/OV-4/OV-5)."
 change: org-graph-spike
-status: ready
+status: blocked
 relations:
   - enables:extractor-union
+  - blocked-by:edges-drawer
+cites_register_entries:
+  - register/shape/typed-edge-tuple
+  - register/vocabulary/relation-types
+  - register/boundary/rel-link-path-syntax
+  - register/invariant/enclosing-node-attribution
 ---
+
+> Batch sequencing (cycle-1786458912 plan): blocked-by `edges-drawer` so the
+> extractor.org restructure and the shared ancestor-walk helper
+> (`org-graph-extractor--enclosing-note-id`, LD-4) land once; this task then
+> reuses the helper rather than racing to define it.
 
 > Second authoring surface for typed edges. Pure function only — the `rel:`
 > link *runtime* (follow/complete/face) is a separate task (`rel-link-type`).

@@ -5,6 +5,10 @@ change: org-graph-spike
 status: blocked
 relations:
   - blocked-by:edge-type-registry
+cites_register_entries:
+  - register/boundary/typed-edge-query-api
+  - register/invariant/no-materialized-inverse-rows
+  - register/boundary/edge-type-registry-lookup
 ---
 
 > Revises the (closed) `typed-edge-query` read API. Storage stays canonical

@@ -5,6 +5,13 @@ change: org-graph-spike
 status: ready
 relations:
   - enables:extractor-union
+  - enables:parse-rel-links
+cites_register_entries:
+  - register/shape/typed-edge-tuple
+  - register/vocabulary/relation-types
+  - register/boundary/parser-extractor-db
+  - register/invariant/edge-drawer-discriminator
+  - register/invariant/enclosing-node-attribution
 ---
 
 > Replaces `open-vocab-drawer` (properties surface, never started). Clean
