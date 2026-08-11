@@ -86,6 +86,10 @@ hash table mapping each declared relation symbol to its metadata plist
 is EMPTY, never an error; an unregistered type is fully functional
 everywhere and consumers must render its raw symbol.
 
+The returned table is the shared session cache — treat it as READ-ONLY;
+do not `puthash'/`remhash' into it (use `org-graph-edge-type-invalidate-cache'
+and re-read instead).
+
 Cached per session (see `org-graph-edge-type--cache'); a vulpea reindex
 invalidates via the DB file mtime.  Non-nil REFRESH forces a re-read."
   (let ((key (org-graph-edge-type--cache-key)))
@@ -105,8 +109,11 @@ invalidates via the DB file mtime.  Non-nil REFRESH forces a re-read."
   "Return registry metadata for relation symbol REL, or nil.
 Nil is a NORMAL result, not an error: it means REL is unregistered, and
 the caller must degrade to rendering the raw symbol.  The metadata is
-the plist described by `org-graph/edge-types'."
-  (gethash rel (org-graph/edge-types)))
+the plist described by `org-graph/edge-types'.  The plist is a fresh
+copy — callers may destructively modify it without corrupting the
+session cache."
+  (let ((entry (gethash rel (org-graph/edge-types))))
+    (and entry (copy-sequence entry))))
 
 (defun org-graph/find-edge-type ()
   "Find and visit an edge-type registry note.

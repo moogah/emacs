@@ -158,7 +158,30 @@ The stub applies the received predicate to NOTES, so the real
           (org-graph-edge-type-invalidate-cache)
           (org-graph/edge-types)
           (org-graph/edge-types 'refresh)
-          (expect calls :to-equal 3)))))
+          (expect calls :to-equal 3))))
+
+    (it "re-reads when the DB file's mtime changes (reindex path)"
+      ;; The invalidation contract: a vulpea reindex rewrites the DB file,
+      ;; so a changed mtime must repopulate the cache on the next read —
+      ;; exercised against a real temp file so `--cache-key' itself (the
+      ;; file-attributes accessor and the `equal' comparison) is under test.
+      (let* ((calls 0)
+             (db-file (make-temp-file "edge-type-spec-db"))
+             (vulpea-db-location db-file))
+        (unwind-protect
+            (cl-letf (((symbol-function 'vulpea-db-query)
+                       (lambda (&optional _pred) (cl-incf calls) nil)))
+              (org-graph/edge-types)
+              (org-graph/edge-types)
+              (expect calls :to-equal 1)
+              ;; Simulate the reindex rewrite: bump the file's mtime by 10s.
+              (set-file-times db-file
+                              (time-add (file-attribute-modification-time
+                                         (file-attributes db-file))
+                                        10))
+              (org-graph/edge-types)
+              (expect calls :to-equal 2))
+          (delete-file db-file)))))
 
   (describe "seed registry notes"
     (it "defines the four starter types with their inverse/symmetric metadata"
