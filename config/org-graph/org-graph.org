@@ -298,7 +298,7 @@ load order: order is *load-bearing* and is made explicit by loading each
 file BY PATH via =jf/load-module=.
 
 Canonical order: =schemas → extractor → coordinator → query → finders →
-tools → discovery=, with =workspace-integration= last (AFTER =tools=,
+edge-type → tools → discovery=, with =workspace-integration= last (AFTER =tools=,
 because its =:tools= population needs =org-graph/agent-tools= from
 =tools.el=).  Dependencies the order satisfies: =finders= requires
 =org-graph-schemas=; =tools= layers on =query= and =coordinator=;
@@ -320,6 +320,7 @@ gptel is present; =workspace-integration= attaches via
 (jf/load-module (expand-file-name "config/org-graph/coordinator.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/edge-type.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
