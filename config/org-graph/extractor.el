@@ -1,68 +1,102 @@
 ;;; extractor.el --- org-graph typed-edge extractor -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'seq)
 (require 'org-element)
 
-(defconst org-graph-extractor--default-relation-types
-  '(implements contradicts supersedes relates-to)
-  "Fallback relation-type set when `org-graph-relation-types' is unbound.
-Kept in sync with the loader's defcustom default so the parser behaves
-identically whether loaded standalone or as part of the full module.")
+(defvar org-graph-edge-drawer)          ; defined by the loader's defcustom
 
-(defun org-graph-extractor--relation-types ()
-  "Return the active list of relation-type symbols."
-  (if (boundp 'org-graph-relation-types)
-      org-graph-relation-types
-    org-graph-extractor--default-relation-types))
+(defun org-graph-extractor--edge-drawer-name ()
+  "Return the configured edge-drawer name, or nil when unavailable.
+`org-graph-edge-drawer' is owned by the loader's defcustom.  When this
+file is loaded standalone and the variable is unbound, nil, or empty,
+return nil so the scanner fails closed (no drawer ever matches) rather
+than guessing a name."
+  (and (boundp 'org-graph-edge-drawer)
+       (stringp org-graph-edge-drawer)
+       (not (string-empty-p org-graph-edge-drawer))
+       org-graph-edge-drawer))
 
-(defun org-graph-extractor--rel-key (symbol)
-  "Return the PROPERTIES-drawer key string for relation SYMBOL.
-E.g. `relates-to' -> \"RELATES_TO\"."
-  (upcase (replace-regexp-in-string "-" "_" (symbol-name symbol))))
+(defun org-graph-extractor--normalize-rel (raw)
+  "Return the canonical relation symbol for RAW relation text, or nil.
+Normalization contract (register/vocabulary/relation-types): trim,
+downcase, map each run of whitespace and underscores to a single
+hyphen, intern.  E.g. \"follows up\" -> `follows-up', \"FOLLOWS_UP\" ->
+`follows-up', \"Implements\" -> `implements'.  Returns nil for a nil
+RAW or text that is empty after trimming."
+  (let ((trimmed (string-trim (or raw ""))))
+    (unless (string-empty-p trimmed)
+      (intern (replace-regexp-in-string
+               "[[:space:]_]+" "-" (downcase trimmed))))))
 
-(defun org-graph-extractor--key->rel (key)
-  "Return the relation symbol for PROPERTIES KEY, or nil if not configured.
-KEY is matched case-insensitively against the configured relation types."
-  (let ((upper (upcase key)))
-    (cl-find-if (lambda (sym)
-                  (equal upper (org-graph-extractor--rel-key sym)))
-                (org-graph-extractor--relation-types))))
+(defun org-graph-extractor--enclosing-note-id (element)
+  "Return the note id ELEMENT's edges attribute to, or nil.
+Walks ELEMENT's ancestors via `org-element-lineage' for the nearest
+`headline' carrying its own `:ID:' property, falling back to the
+file-level node (the root `org-data', which carries the file's
+top-level PROPERTIES drawer).  Returns nil when no ancestor carries an
+id; the caller MUST then drop the edge — an edge with no ID-bearing
+ancestor is never attributed to a neighbouring node."
+  (let ((node (org-element-lineage element '(headline org-data)))
+        id)
+    (while (and node (not id))
+      (setq id (org-element-property :ID node))
+      (unless id
+        (setq node (org-element-lineage node '(headline org-data)))))
+    id))
 
-(defun org-graph-extractor--ids-in-value (value)
-  "Return the list of `id:' link targets in VALUE, in order.
-VALUE is the raw string of a PROPERTIES entry.  Returns nil for an
-empty or malformed value rather than signalling."
-  (when (stringp value)
-    (let ((start 0) ids)
-      (while (string-match "\\[\\[id:\\([^]]+\\)\\]" value start)
-        (push (match-string 1 value) ids)
-        (setq start (match-end 0)))
-      (nreverse ids))))
+(defun org-graph-extractor--item-relation (item)
+  "Return ITEM's relation symbol, or nil for an untagged item.
+ITEM is a plain-list `item' element.  A description-list item's tag
+carries the relation (LD-2); the tag is a parsed secondary string, so
+it is interpreted back to plain text and normalized via
+`org-graph-extractor--normalize-rel'.  Items with no tag (plain list
+items, or `- :: ...' items org parses as untagged) yield nil."
+  (let ((tag (org-element-property :tag item)))
+    (when tag
+      (org-graph-extractor--normalize-rel
+       (substring-no-properties (org-element-interpret-data tag))))))
 
-(defun org-graph-extractor/parse-typed-edges (element-tree note-id)
-  "Parse typed-edge relations from ELEMENT-TREE for note NOTE-ID.
+(defun org-graph-extractor/parse-drawer-edges (element-tree)
+  "Parse typed edges from the edge drawer(s) in ELEMENT-TREE.
 
 ELEMENT-TREE is an `org-element' AST (as from `org-element-parse-buffer').
-Reads PROPERTIES-drawer entries whose key matches a configured relation
-type (`org-graph-relation-types'), extracts each value's `id:' link
-targets, and returns a list of (FROM-ID REL-TYPE TO-ID) tuples where
-FROM-ID is NOTE-ID and REL-TYPE is the relation symbol (e.g. `implements').
+Scans every `drawer' whose name equals `org-graph-edge-drawer'
+\(case-insensitively); within each, every description-list item's tag is
+normalized to the relation symbol and each `id:' link in the item yields
+one (FROM-ID REL-TYPE TO-ID) tuple.  FROM-ID is resolved per drawer by
+`org-graph-extractor--enclosing-note-id' — the nearest ID-bearing
+ancestor; a drawer with none contributes nothing.
 
-A relation property MAY appear multiple times and MAY carry multiple
-links; each (property-occurrence, link) pair yields its own row.
-Directional, explicitly-authored edges: no inverse is derived.
+The relation vocabulary is OPEN: any author-coined tag is a valid
+relation; nothing gates membership.  Ordinary PROPERTIES entries and
+body links are never edges (the drawer name is the only discriminator).
 
-This is a pure function — no file I/O, no vulpea, no DB.  Malformed or
-empty values are skipped; the function never signals on bad input."
-  (let (edges)
-    (org-element-map element-tree 'node-property
-      (lambda (np)
-        (let ((rel (org-graph-extractor--key->rel
-                    (org-element-property :key np))))
-          (when rel
-            (dolist (to-id (org-graph-extractor--ids-in-value
-                            (org-element-property :value np)))
-              (push (list note-id rel to-id) edges))))))
+This is a pure function — no file I/O, no vulpea, no DB.  Non-item
+drawer content, untagged items, and non-`id:' links are skipped; the
+function never signals on malformed input."
+  (let ((drawer-name (org-graph-extractor--edge-drawer-name))
+        edges)
+    (when drawer-name
+      (org-element-map element-tree 'drawer
+        (lambda (drawer)
+          (when (string-equal
+                 (downcase (or (org-element-property :drawer-name drawer) ""))
+                 (downcase drawer-name))
+            (let ((from-id (org-graph-extractor--enclosing-note-id drawer)))
+              (when from-id
+                (org-element-map drawer 'item
+                  (lambda (item)
+                    (let ((rel (org-graph-extractor--item-relation item)))
+                      (when rel
+                        (org-element-map (org-element-contents item) 'link
+                          (lambda (link)
+                            (when (equal (org-element-property :type link) "id")
+                              (push (list from-id rel
+                                          (org-element-property :path link))
+                                    edges)))
+                          nil nil 'item))))
+                  nil nil 'item)))))))
     (nreverse edges)))
 
 (defvar org-graph-roam-root)            ; defined by the loader's defcustom
@@ -83,53 +117,25 @@ extraction to the current working directory."
         (file-name-as-directory (expand-file-name org-graph-roam-root))
         (expand-file-name path))))
 
-(defun org-graph-extractor--note-property-drawer (element-tree note-id)
-  "Return the `property-drawer' in ELEMENT-TREE owned by NOTE-ID, or nil.
-A note owns the drawer whose `:ID:' node-property equals NOTE-ID: this
-selects the file-level drawer for a file node and a heading's own drawer
-for a heading node, never a descendant heading's drawer.  Returns nil
-when no drawer carries NOTE-ID (e.g. an ID'd note that authored no
-PROPERTIES of its own)."
-  (org-element-map element-tree 'property-drawer
-    (lambda (drawer)
-      (when (org-element-map drawer 'node-property
-              (lambda (np)
-                (and (equal (org-element-property :key np) "ID")
-                     (equal (org-element-property :value np) note-id)))
-              nil t)
-        drawer))
-    nil t))
-
-(defun org-graph-extractor--edges-from-note (element-tree note-id)
-  "Return the typed-edge tuples authored by NOTE-ID's OWN drawer.
-Scopes extraction to the single note vulpea is processing: finds the
-property-drawer whose `:ID:' equals NOTE-ID (see
-`org-graph-extractor--note-property-drawer') and parses ONLY that drawer
-with the pure parser, so in a multi-note file each note is credited with
-just its own edges — no whole-file duplication, `from-id' = NOTE-ID.
-Parsing the drawer sub-tree (not `note-data''s `:properties' alist)
-preserves repeated relation keys.  Returns nil when the note owns no
-drawer."
-  (let ((drawer (org-graph-extractor--note-property-drawer
-                 element-tree note-id)))
-    (when drawer
-      (org-graph-extractor/parse-typed-edges drawer note-id))))
-
 (defun org-graph-extractor/extract (ctx note-data)
   "Vulpea extractor: write the note's typed edges into `typed_edges'.
 
 CTX is a `vulpea-parse-ctx' (provides the file AST and path); NOTE-DATA
-is the note plist vulpea is building.  Edges are scoped to the note's OWN
-PROPERTIES drawer (see `org-graph-extractor--edges-from-note') and emitted
-only for a note under `org-graph-roam-root' (scope gate).  Inserts
+is the note plist vulpea is building.  Runs the pure drawer scanner over
+the whole-file AST and keeps only the tuples the shared enclosing-node
+walk attributed to THIS note (from-id = the note's id), so a multi-note
+file never duplicates rows across its notes.  Emits only for a note
+under `org-graph-roam-root' (scope gate).  Inserts
 \(from-id rel-type to-id) rows, rel-type stored as a symbol.  Returns
 NOTE-DATA unchanged, per the extractor contract."
   (let ((note-id (plist-get note-data :id))
         (path (vulpea-parse-ctx-path ctx)))
     (when (and note-id
                (org-graph-extractor--roam-note-p path))
-      (let ((edges (org-graph-extractor--edges-from-note
-                    (vulpea-parse-ctx-ast ctx) note-id)))
+      (let ((edges (seq-filter
+                    (lambda (edge) (equal (nth 0 edge) note-id))
+                    (org-graph-extractor/parse-drawer-edges
+                     (vulpea-parse-ctx-ast ctx)))))
         (when edges
           (emacsql (vulpea-db)
                    [:insert :into typed_edges :values $v1]
@@ -147,7 +153,7 @@ at priority 50.  Idempotent; intended to be called by the loader."
   (vulpea-db-register-extractor
    (make-vulpea-extractor
     :name 'org-graph-typed-edges
-    :version 1
+    :version 2
     :priority 50
     :schema '((typed_edges
                [(from-id :not-null) (rel-type :not-null) (to-id :not-null)]

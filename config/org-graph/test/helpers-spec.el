@@ -19,9 +19,10 @@
 ;;
 ;; Provides:
 ;; 1. `org-graph-test/build-tree'         - synthetic org-element AST
-;; 2. `org-graph-test/with-stubbed-vulpea'- scoped vulpea API stubs
-;; 3. `org-graph-test/note-fixture'       - a `vulpea-note'-shaped value
-;; 4. `org-graph-test/link-plist'         - a vulpea link plist
+;; 2. `org-graph-test/edge-drawer-text'   - edge-drawer body text
+;; 3. `org-graph-test/with-stubbed-vulpea'- scoped vulpea API stubs
+;; 4. `org-graph-test/note-fixture'       - a `vulpea-note'-shaped value
+;; 5. `org-graph-test/link-plist'         - a vulpea link plist
 
 ;;; Code:
 
@@ -72,15 +73,19 @@ Recognised SPEC keys:
   :title      - string, becomes the #+title: keyword
   :properties - alist of (KEY . VALUE) where KEY is a symbol or string
                 and VALUE is a string.  Emitted as the FILE-LEVEL
-                PROPERTIES-drawer entries IN ORDER.  KEY MAY repeat (e.g.
-                two `IMPLEMENTS' entries) to model multi-occurrence
-                typed-edge properties.
+                PROPERTIES-drawer entries IN ORDER.  KEY MAY repeat.
   :filetags   - list of strings, emitted as a #+filetags: keyword
+  :body       - string, raw org text emitted after the file-level
+                drawer/title/filetags and before any heading (e.g. an
+                edge drawer built by `org-graph-test/edge-drawer-text',
+                or bare body links).
   :headings   - list of heading plists, each recognising:
                   :id         - string, the heading's :ID: property
                   :title      - string, the heading text (default \"Heading\")
                   :level      - integer star count (default 1)
-                  :properties - alist as above, the HEADING's own drawer.
+                  :properties - alist as above, the HEADING's own drawer
+                  :body       - string, raw org text emitted after the
+                                heading's PROPERTIES drawer.
                 Models the multi-note file vulpea indexes (file node +
                 every ID'd heading), so specs can assert per-note
                 attribution.
@@ -92,6 +97,7 @@ the buffer is transient and `org-mode-hook' is suppressed."
          (title (plist-get spec :title))
          (properties (plist-get spec :properties))
          (filetags (plist-get spec :filetags))
+         (body (plist-get spec :body))
          (headings (plist-get spec :headings))
          (text
           (concat
@@ -99,13 +105,15 @@ the buffer is transient and `org-mode-hook' is suppressed."
            (when title (format "#+title: %s\n" title))
            (when filetags
              (format "#+filetags: :%s:\n" (mapconcat #'identity filetags ":")))
+           body
            (mapconcat
             (lambda (h)
               (concat
                (make-string (or (plist-get h :level) 1) ?*)
                " " (or (plist-get h :title) "Heading") "\n"
                (org-graph-test/--drawer (plist-get h :id)
-                                        (plist-get h :properties))))
+                                        (plist-get h :properties))
+               (plist-get h :body)))
             headings
             ""))))
     (with-temp-buffer
@@ -115,7 +123,29 @@ the buffer is transient and `org-mode-hook' is suppressed."
         (delay-mode-hooks (org-mode)))
       (org-element-parse-buffer))))
 
-;;; 2. Scoped vulpea API stubs
+;;; 2. Edge-drawer body text
+
+;; The edge-drawer name is owned by the loader's defcustom; the test
+;; process (`make' loads init.el, which loads the org-graph module) has
+;; it bound.  Declared special here so specs can also `let'-bind it.
+(defvar org-graph-edge-drawer)
+
+(defun org-graph-test/edge-drawer-text (items &optional drawer-name)
+  "Return org drawer text holding typed-edge ITEMS.
+DRAWER-NAME defaults to the configured `org-graph-edge-drawer', so
+fixtures follow the defcustom rather than hardcoding a literal.  ITEMS
+is a list where each element is either a (TAG . LINKS) cons emitted as
+a description-list item `- TAG :: LINKS', or a bare string emitted as a
+raw drawer line (for non-item / malformed content cases)."
+  (concat ":" (or drawer-name org-graph-edge-drawer) ":\n"
+          (mapconcat (lambda (item)
+                       (if (consp item)
+                           (format "- %s :: %s\n" (car item) (cdr item))
+                         (concat item "\n")))
+                     items "")
+          ":END:\n"))
+
+;;; 3. Scoped vulpea API stubs
 
 (defmacro org-graph-test/with-stubbed-vulpea (bindings &rest body)
   "Evaluate BODY with vulpea API functions stubbed via `cl-letf'.
@@ -151,7 +181,7 @@ and unwound on exit; no global state is mutated."
     `(cl-letf (,@letf-forms)
        ,@body)))
 
-;;; 3. vulpea-note fixture
+;;; 4. vulpea-note fixture
 
 (cl-defun org-graph-test/note-fixture
     (&key id title (tags nil) (properties nil) (path "/tmp/note.org")
@@ -170,7 +200,7 @@ exercise the genuine accessors (`vulpea-note-tags', etc.)."
    :links links
    :meta meta))
 
-;;; 4. vulpea link plist
+;;; 5. vulpea link plist
 
 (cl-defun org-graph-test/link-plist
     (&key source dest (type "id") (pos 1) (description nil))
@@ -210,6 +240,23 @@ live only in the org-graph typed_edges index)."
                          (org-element-property :value np))))))
       (expect values :to-equal '("[[id:a]]" "[[id:b]]"))))
 
+  (it "emits :body text as parseable drawer content, file-level and per heading"
+    (let* ((file-drawer (org-graph-test/edge-drawer-text
+                         '(("implements" . "[[id:abc]]")) "EDGETEST"))
+           (head-drawer (org-graph-test/edge-drawer-text
+                         '(("relates-to" . "[[id:def]]")) "EDGETEST"))
+           (tree (org-graph-test/build-tree
+                  `(:id "f1"
+                    :body ,file-drawer
+                    :headings ((:id "h1" :body ,head-drawer)))))
+           (drawers (org-element-map tree 'drawer
+                      (lambda (d) (org-element-property :drawer-name d)))))
+      (expect drawers :to-equal '("EDGETEST" "EDGETEST"))
+      ;; the drawer links are first-class link objects in the AST
+      (expect (org-element-map tree 'link
+                (lambda (l) (org-element-property :path l)))
+              :to-equal '("abc" "def"))))
+
   (it "builds an ID'd heading node with its own PROPERTIES drawer"
     (let* ((tree (org-graph-test/build-tree
                   '(:id "file1"
@@ -230,6 +277,15 @@ live only in the org-graph typed_edges index)."
       (expect (org-element-property :raw-value heading) :to-equal "A Heading")
       ;; Both the file-level and the heading drawer carry their own id.
       (expect drawer-ids :to-equal '("file1" "head1")))))
+
+(describe "org-graph-test/edge-drawer-text"
+  (it "defaults the drawer name to the configured org-graph-edge-drawer"
+    (let ((org-graph-edge-drawer "MYEDGES"))
+      (expect (org-graph-test/edge-drawer-text '(("implements" . "[[id:a]]")))
+              :to-equal ":MYEDGES:\n- implements :: [[id:a]]\n:END:\n")))
+  (it "emits bare-string items as raw drawer lines"
+    (expect (org-graph-test/edge-drawer-text '("not an item") "D")
+            :to-equal ":D:\nnot an item\n:END:\n")))
 
 (describe "org-graph-test/with-stubbed-vulpea"
   (it "stubs only the listed vulpea functions, scoped to the body"
