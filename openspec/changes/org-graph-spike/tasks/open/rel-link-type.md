@@ -2,7 +2,7 @@
 name: rel-link-type
 description: "Register the custom rel: org link type (path rel:<type>:<id>) with follow/complete/face/export via org-link-set-parameters (OV-3)."
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:edge-type-registry
 cites_register_entries:
@@ -58,3 +58,26 @@ testable without the link runtime.
 ## Context
 design.md § Open-Vocabulary Typed Edges (OV-3, OV-Q2); spec.md § Typed
 Semantic Edges (inline `rel:` links); architecture.md § Components (`rel-link`).
+
+## Cycle updates (cycle-1786458912)
+
+- **Knob home settled:** declare `org-graph-edge-link-type` (defcustom,
+  default "rel") in the loader `org-graph.org`, parallel to
+  `org-graph-edge-drawer` — pinned by
+  register/boundary/rel-link-path-syntax (reconciled) and the
+  parse-rel-links review; the extractor already reads it via the
+  fail-closed `org-graph-extractor--edge-link-type` helper, so declaring
+  the defcustom activates the (already shipped and spec-tested)
+  `parse-rel-links` scanner.
+- **Stage-0 precondition:** register the link type at MODULE LOAD (DB-free,
+  before any reindex) — an unregistered type parses as `fuzzy` and is
+  invisible to extraction. Registration is load-bearing for the extraction
+  pipeline, not just authoring UX.
+- **:complete candidates:** the registry lookup is live —
+  `org-graph/edge-types` (READ-ONLY table) / `org-graph/edge-type`
+  (fresh-copy plist). Observed types (OQ per OV-Q3) and
+  `org-graph-relation-types` seed complete the candidate set; free-text
+  coinage stays allowed (OV-Q2).
+- **Normalization:** the type segment the runtime inserts should round-trip
+  through `org-graph-extractor--normalize-rel` semantics (completion may
+  offer `follows-up`; a user typing "follows up" coins the same symbol).

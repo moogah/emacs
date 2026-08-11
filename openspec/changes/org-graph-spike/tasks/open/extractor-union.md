@@ -2,7 +2,7 @@
 name: extractor-union
 description: Wire both pure scanners (drawer + inline) into the vulpea extractor wrapper, unioning their rows into the typed_edges table (OV-5/LD-5).
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:edges-drawer
   - blocked-by:parse-rel-links
@@ -13,11 +13,13 @@ cites_register_entries:
   - register/invariant/enclosing-node-attribution
 ---
 
-> Contract point to pin or refute (architect forward-mode,
-> cycle-1786458912): `register/boundary/parser-extractor-db` speculates a
-> note-granularity filter in the wrapper (keep only tuples whose from-id
-> equals the note being processed) to prevent the whole-file duplication
-> divergence from recurring. Decide explicitly; report in Discoveries.
+> Cycle cycle-1786458912: contract point RESOLVED — the note-granularity
+> filter shipped with `edges-drawer` (a `seq-filter` on from-id = note-id
+> in `org-graph-extractor/extract`; the whole-file scanner made it
+> non-deferrable). See
+> .orchestrator/cycles/cycle-1786458912/reconciliations/parser-extractor-db.md.
+> This task inherits it pinned and reduces to: add the `parse-rel-links`
+> leg + union/dedup.
 
 > Revises the (closed) `vulpea-extractor-plugin` wrapper to run two scanners
 > instead of one. `typed_edges` schema is unchanged. See design.md
@@ -35,8 +37,11 @@ cites_register_entries:
 2. Preserve the existing invariants: the scope gate still restricts to
    `org-graph-roam-root`; both scanners resolve attribution internally via
    the shared enclosing-node walk (LD-4), so the wrapper adds no attribution
-   logic. Storage shape (`rel-type` as a SYMBOL) and the
-   priority-50 registration are unchanged.
+   logic; the per-note from-id filter stays (it applies to the unioned
+   stream). Storage shape (`rel-type` as a SYMBOL) and the priority-50
+   registration are unchanged — note the extractor `:version` is already 2
+   (edges-drawer bumped it); bump to 3 ONLY if this task changes scanner
+   output for identical file content (adding the rel-links leg does: bump).
 3. De-duplicate identical `(from rel to)` tuples that could arise from the
    same edge asserted on both surfaces (union semantics, not multiset).
 4. Extend `extractor-spec.el`: a note with **both** an edge-drawer item and
@@ -60,3 +65,21 @@ wrapper (not the parsers) leaves each parser independently testable.
 design.md § Open-Vocabulary Typed Edges (OV-5) and § Links-Drawer Edge
 Surface (LD-4/LD-5); architecture.md § Components (`extractor`,
 dual-scanner union).
+
+## Cycle updates (cycle-1786458912)
+
+- **Stage-0 precondition (register/boundary/rel-link-path-syntax,
+  reconciled):** an unregistered link type parses as `fuzzy` — the
+  rel-links leg extracts NOTHING until the `rel:` type is registered in
+  `org-link-parameters` at parse time. Two consequences: (a) the
+  dual-surface spec case MUST register the link type in its fixture
+  (reuse the pattern in `parse-rel-links-spec.el`); (b) sequencing —
+  landing this before `rel-link-type` means the live rel-links leg unions
+  an always-empty stream (green-on-empty, eoc-4). Prefer implementing
+  with-or-after `rel-link-type`, or accept the staged emptiness knowingly
+  in Observations.
+- The wrapper currently runs the drawer leg + from-id filter only;
+  `parse-rel-links` is shipped but unwired (intentional staging).
+- Scanner reads the link-type name via the fail-closed
+  `org-graph-extractor--edge-link-type` (nil until the defcustom lands
+  with `rel-link-type`).

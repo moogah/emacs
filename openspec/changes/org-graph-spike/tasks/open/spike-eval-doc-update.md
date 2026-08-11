@@ -58,3 +58,20 @@ resolution during real use.
 design.md § Open-Vocabulary Typed Edges (OV-1..OV-7, OV-Q1..OV-Q3) and
 § Links-Drawer Edge Surface (LD-1..LD-6, LD-Q1..LD-Q3);
 spec.md § Typed Semantic Edges.
+
+## Cycle updates (cycle-1786458912)
+
+- Shipped surfaces to target: `org-graph-edge-drawer` default "EDGES"
+  (customize rename follows into the export exclusion; `setq` bypass
+  documented); open-vocabulary normalization pinned
+  (`[[:space:]_]+` -> "-", e.g. `- follows up ::` -> `follows-up`);
+  registry seeds install via a USER-SIDE step `M-x
+  org-graph-edge-type-install-seeds` (idempotent) — the runbook's registry
+  check should start there (ask-cycle-1786458912-1).
+- Inline-surface checks must respect the stage-0 precondition: `rel:`
+  links only extract once `rel-link-type` has registered the type — a
+  useful runbook check in itself (author a rel: link, confirm it
+  fontifies/follows, then confirm the typed_edges row after reindex).
+- Agent-tool check idea from eoc-2: `org_graph_typed_edges` with
+  rel_type "FOLLOWS_UP" / "follows up" must match stored `follows-up`
+  rows (normalization at the tool boundary).

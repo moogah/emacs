@@ -2,7 +2,7 @@
 name: query-inverse-symmetric
 description: Add registry-driven inverse-label rendering and symmetric-aware reads to the query layer, derived at read time with no stored inverse rows (OV-7).
 change: org-graph-spike
-status: blocked
+status: ready
 relations:
   - blocked-by:edge-type-registry
 cites_register_entries:
@@ -53,3 +53,20 @@ per-type semantics, consistent with the folksonomy→taxonomy model (OV-6).
 ## Context
 design.md § Open-Vocabulary Typed Edges (OV-7); spec.md § Typed Semantic
 Edges (inverse/symmetry derived at query/display time).
+
+## Cycle updates (cycle-1786458912)
+
+- **Registry API live:** consume `org-graph/edge-type (rel)` — returns a
+  FRESH COPY of the metadata plist (`:label` `:inverse` `:symmetric`
+  `:description`), nil for unregistered types (normal, render raw symbol).
+  The `org-graph/edge-types` table is the shared session cache: READ-ONLY.
+- **Owed test (arch-cycle-1786458912-eoc-5):**
+  register/invariant/no-materialized-inverse-rows has its grep half
+  enforced but no test half yet — this task's spec must assert that
+  inverse/symmetric reads derive at read time with ZERO new rows in
+  `typed_edges` (e.g. stubbed query layer sees only the single stored
+  directional row).
+- Agent-facing note: `org-graph-tools--rel-symbol` now normalizes
+  rel_type input through the shared helper; any tool-surface exposure of
+  inverse labels should reuse `org-graph-query/edge-label` rather than
+  re-deriving.
