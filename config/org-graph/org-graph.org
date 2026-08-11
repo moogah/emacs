@@ -6,8 +6,8 @@
 A layered knowledge-graph spike over [[https://github.com/d12frosted/vulpea][vulpea]] (v2.4+), plugged into the
 =workspaces= substrate. org-graph indexes the durable concept vault
 (=~/org/roam/=) plus each active workspace =:home=, extracts typed
-semantic edges from a PROPERTIES-drawer convention, exposes
-schema-backed note-type finders, and registers an agent-facing
+semantic edges from a dedicated edge drawer of description-list items,
+exposes schema-backed note-type finders, and registers an agent-facing
 query/write surface into gptel and the =workspace-assistant= preset.
 
 This file is the top-level loader for the =org-graph= module. Behavior
@@ -61,17 +61,80 @@ discovery/navigation but excluded from typed-edge extraction."
 
 ** Relation types
 
-The closed initial set of semantic relation types (D3).  Adding
-domain-specific types is a follow-up, not part of the spike.
+Relation symbols are an *open* vocabulary (design OV-1/LD-2): any
+author-coined edge-drawer item tag, normalized, is a valid relation the
+moment it appears in a note.  This list gates nothing — it survives
+only as a non-authoritative completion seed for authoring surfaces.
 
 #+begin_src emacs-lisp
 (defcustom org-graph-relation-types
   '(implements contradicts supersedes relates-to)
-  "Closed set of typed-edge relation symbols recognised by the extractor.
-Each symbol maps to an uppercased PROPERTIES-drawer key (e.g. `implements'
--> :IMPLEMENTS:)."
+  "Completion seed of typed-edge relation symbols.
+The relation vocabulary is OPEN: the extractor accepts any relation an
+author coins as an edge-drawer item tag (see `org-graph-edge-drawer'),
+and this list gates NOTHING.  It only seeds completion on authoring
+surfaces; author-coined relations are first-class the moment they
+appear in a note."
   :type '(repeat symbol)
   :group 'org-graph)
+#+end_src
+
+** Edge drawer
+
+The dedicated drawer holding typed-edge description-list items (design
+LD-1).  The drawer *name* is the one and only edge discriminator
+(LD-3): content is a typed edge iff it is a description-list item
+inside this drawer, matched case-insensitively.  Org constrains drawer
+names to word characters, =-= and =_=; the setter warns on a value org
+cannot parse as a drawer name.  Settle the name before real notes
+accumulate (LD-Q1).
+
+#+begin_src emacs-lisp
+(defcustom org-graph-edge-drawer "EDGES"
+  "Name of the drawer holding typed-edge description-list items.
+Each item `- <type> :: [[id:...]]' inside this drawer declares one
+typed edge per `id:' link; the item tag (normalized) is the relation.
+The drawer name is matched case-insensitively and is the ONLY edge
+discriminator: ordinary PROPERTIES entries and body links are never
+edges.
+
+Export: unlike properties, custom drawers export by default.  The
+loader therefore adds this drawer to `org-export-with-drawers''
+exclusion list -- but only while that variable still has its default
+value ((not \"LOGBOOK\")).  If you have customized
+`org-export-with-drawers' yourself, the loader leaves it alone and you
+own excluding this drawer from export.
+
+Org can only parse drawer names made of word characters, `-' and `_';
+setting a value outside that alphabet triggers a warning, and no drawer
+will ever match it."
+  :type 'string
+  :group 'org-graph
+  :set (lambda (symbol value)
+         (when (and (stringp value)
+                    (not (string-match-p "\\`[[:word:]_-]+\\'" value)))
+           (display-warning
+            'org-graph
+            (format "`org-graph-edge-drawer' value %S is not a valid org drawer name (word characters, `-' and `_' only); no drawer will match it"
+                    value)
+            :warning))
+         (set-default symbol value)))
+#+end_src
+
+** Edge-drawer export exclusion
+
+Custom drawers export by default (=org-export-with-drawers= excludes
+only =LOGBOOK=), but the edge drawer is graph data, not document
+content (design LD-6).  While the user has not customized
+=org-export-with-drawers=, extend its exclusion list with the
+configured edge drawer; a user who *has* customized it owns the
+outcome (documented in the defcustom docstring above).
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'ox
+  (when (equal org-export-with-drawers '(not "LOGBOOK"))
+    (setq org-export-with-drawers
+          (list 'not "LOGBOOK" org-graph-edge-drawer))))
 #+end_src
 
 ** Workspace-home watching

@@ -100,10 +100,14 @@
       (expect (boundp 'org-graph-roam-root) :to-be-truthy)
       (expect org-graph-roam-root :to-equal "~/org/roam/"))
 
-    (it "org-graph-relation-types is the closed relation set"
+    (it "org-graph-relation-types is the open-vocabulary completion seed"
       (expect (boundp 'org-graph-relation-types) :to-be-truthy)
       (expect org-graph-relation-types
               :to-equal '(implements contradicts supersedes relates-to)))
+
+    (it "org-graph-edge-drawer defaults to the EDGES drawer"
+      (expect (boundp 'org-graph-edge-drawer) :to-be-truthy)
+      (expect org-graph-edge-drawer :to-equal "EDGES"))
 
     (it "org-graph-note-types is the fixed note-type taxonomy"
       (expect (boundp 'org-graph-note-types) :to-be-truthy)
