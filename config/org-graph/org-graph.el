@@ -65,6 +65,7 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 (jf/load-module (expand-file-name "config/org-graph/coordinator.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/edge-type.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
