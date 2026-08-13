@@ -2,7 +2,8 @@
 name: boot-sync-deferral
 description: Defer org-graph/configure-sync to emacs-startup-hook as the third resilient deferred op
 change: vulpea-human-commands
-status: blocked
+status: done
+merge_commit: 295f31ea
 relations:
   - blocked-by:authoring-module
   - enables:menu-module
