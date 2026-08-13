@@ -19,14 +19,16 @@
 ;;   - the three snake_case gptel tools are in gptel's registry and
 ;;     `org-graph/agent-tools' returns the constructed tool objects,
 ;;   - the workspace integration registers an :on-create + :menu seam,
+;;   - the menu module defines the `org-graph-menu' transient prefix and
+;;     its note-at-point commands (evil-guarded SPC v install),
 ;;   - org-roam coexists unchanged and the vulpea DB path is isolated
 ;;     from org-roam's (D8, the spike's clean-rollback property).
 ;;
 ;; This spec is the REAL cold-load guard for
 ;; `register/invariant/org-graph-loader-ordered-sequence' (canonical
-;; ten-submodule order schemas -> extractor -> coordinator -> query ->
-;; finders -> authoring -> edge-type -> tools -> discovery, with
-;; workspace-integration AFTER tools).  It loads org-graph via
+;; eleven-submodule order schemas -> extractor -> coordinator -> query ->
+;; finders -> authoring -> edge-type -> tools -> discovery ->
+;; workspace-integration, with menu LAST).  It loads org-graph via
 ;; `(require 'org-graph)' ALONE -- it does
 ;; NOT path-load the submodules itself -- and then asserts that every
 ;; registration fired FROM THE LOADER PATH.  If the loader were still
@@ -368,6 +370,30 @@
           (expect (cdr menu) :to-be #'org-graph-workspace-integration--menu)
           (expect (fboundp 'org-graph-workspace-integration--menu)
                   :to-be-truthy)))))
+
+  ;; --- Step 6a: menu module loaded LAST (vulpea-human-commands) --------
+
+  (describe "menu module loaded from the loader path"
+
+    ;; menu.el is the ELEVENTH and LAST submodule: it dispatches commands
+    ;; defined by finders, authoring, query, discovery, and schemas, so
+    ;; everything it references is already loaded when it defines the
+    ;; transient prefix.  DB-free at load: it only defines commands (the
+    ;; edge queries and validate front door touch the DB at COMMAND time)
+    ;; and its SPC v install is inert until evil loads
+    ;; (register/invariant/spc-v-binding-evil-guarded).  Layout/behavior
+    ;; details are owned by menu-spec.el; this step only proves the
+    ;; loader path fired the definitions.
+    (it "defines the org-graph-menu prefix and its note-at-point commands"
+      (expect (featurep 'org-graph-menu) :to-be-truthy)
+      (expect (fboundp 'org-graph-menu--note-id-at-point) :to-be-truthy)
+      (dolist (cmd '(org-graph-menu
+                     org-graph/edges-outgoing-at-point
+                     org-graph/edges-incoming-at-point
+                     org-graph/edges-connected-at-point
+                     org-graph/validate-note-at-point-or-prompt))
+        (expect (fboundp cmd) :to-be-truthy)
+        (expect (commandp cmd) :to-be-truthy))))
 
   ;; --- Step 7: org-roam coexistence (D8) -------------------------------
 

@@ -116,6 +116,7 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/menu.el" jf/emacs-dir))
 
 (defun org-graph--run-deferred-op (fn what)
   "Run FN, a deferred DB-touching org-graph op, resiliently.
