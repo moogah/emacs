@@ -338,11 +338,13 @@ load order: order is *load-bearing* and is made explicit by loading each
 file BY PATH via =jf/load-module=.
 
 Canonical order: =schemas → extractor → coordinator → query → finders →
-edge-type → tools → discovery=, with =workspace-integration= last (AFTER =tools=,
-because its =:tools= population needs =org-graph/agent-tools= from
-=tools.el=).  Dependencies the order satisfies: =finders= requires
-=org-graph-schemas=; =tools= layers on =query= and =coordinator=;
-=workspace-integration= consumes =org-graph/agent-tools=.
+authoring → edge-type → tools → discovery=, with =workspace-integration=
+last (AFTER =tools=, because its =:tools= population needs
+=org-graph/agent-tools= from =tools.el=).  Dependencies the order
+satisfies: =finders= requires =org-graph-schemas=; =authoring= completes
+over what =finders= see (and hard-requires =vulpea=, like =finders=);
+=tools= layers on =query= and =coordinator=; =workspace-integration=
+consumes =org-graph/agent-tools=.
 
 Module load stays *DB-free*.  The two registrations that open the vulpea
 DB — the discovery =org-id-locations= seed (=vulpea-db-query=) and the
@@ -360,6 +362,7 @@ gptel is present; =workspace-integration= attaches via
 (jf/load-module (expand-file-name "config/org-graph/coordinator.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/authoring.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/edge-type.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))

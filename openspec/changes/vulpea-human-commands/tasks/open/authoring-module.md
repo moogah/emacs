@@ -94,3 +94,32 @@ block: `config/org-graph/discovery.org`. Test spying via `cl-letf`:
 ## Context
 design.md § Decisions 'D3 — Authoring commands are thin wrappers' and 'D4 — Two new modules'
 specs/org-graph-note-commands/spec.md (both requirements, all scenarios)
+
+## Observations
+
+- The canonical-order listing in `module-load-spec.el`'s commentary was
+  already stale before this task: it read "schemas -> extractor ->
+  coordinator -> query -> finders -> tools -> discovery", omitting
+  `edge-type` even though edge-type landed in cycle-1786458912 (the
+  Step 5b assertion block for it was present and correct — only the
+  prose order list had drifted). Fixed in passing while updating the
+  listing to the ten-module order, since the task owns that comment's
+  update anyway.
+- The task body's implementation steps were accurate end to end; the
+  two commands were implemented exactly as prescribed (verbatim
+  signatures/docstrings from the task body), and the loader entry slots
+  cleanly between finders and edge-type. No deviation from the
+  prescribed approach.
+- `authoring-spec.el` asserts `:require-match nil` via `plist-member` +
+  `plist-get` so an explicitly-passed nil is distinguished from the key
+  being absent — `(vulpea-find)` with no args would also default
+  require-match, but the register entry's contract is the explicit
+  `:require-match nil` call shape, so the spec pins that.
+- The count-drift warning in
+  `register/invariant/org-graph-loader-ordered-sequence` (trust the
+  name lists, not stale counts) was accurate but not needed here: this
+  task's body consistently said ten modules and listed ten names.
+
+## Discoveries
+
+none

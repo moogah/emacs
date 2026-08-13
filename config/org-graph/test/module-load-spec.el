@@ -24,9 +24,10 @@
 ;;
 ;; This spec is the REAL cold-load guard for
 ;; `register/invariant/org-graph-loader-ordered-sequence' (canonical
-;; submodule order schemas -> extractor -> coordinator -> query ->
-;; finders -> tools -> discovery, with workspace-integration AFTER
-;; tools).  It loads org-graph via `(require 'org-graph)' ALONE -- it does
+;; ten-submodule order schemas -> extractor -> coordinator -> query ->
+;; finders -> authoring -> edge-type -> tools -> discovery, with
+;; workspace-integration AFTER tools).  It loads org-graph via
+;; `(require 'org-graph)' ALONE -- it does
 ;; NOT path-load the submodules itself -- and then asserts that every
 ;; registration fired FROM THE LOADER PATH.  If the loader were still
 ;; scattered (omitting extractor/coordinator/discovery, or mis-ordered),
@@ -233,11 +234,27 @@
           (expect (gptel-tool-p tool) :to-be t)
           (expect (gptel-tool-name tool) :to-equal name)))))
 
-  ;; --- Step 5b: edge-type registry loaded (finders -> edge-type -> tools) --
+  ;; --- Step 5a: authoring module loaded (finders -> authoring -> edge-type) --
+
+  (describe "authoring module loaded from the loader path"
+
+    ;; authoring.el (vulpea-human-commands) sits between finders and
+    ;; edge-type in the canonical sequence.  DB-free at load: it only
+    ;; defines the two interactive thin wrappers over vulpea built-ins
+    ;; (the wrapped `vulpea-find'/`vulpea-insert' touch the DB at
+    ;; COMMAND time, never at load), so these are definition assertions
+    ;; only -- the same pattern as edge-type below.
+    (it "defines the two interactive authoring commands"
+      (expect (featurep 'org-graph-authoring) :to-be-truthy)
+      (dolist (cmd '(org-graph/find-or-create org-graph/insert-link))
+        (expect (fboundp cmd) :to-be-truthy)
+        (expect (commandp cmd) :to-be-truthy))))
+
+  ;; --- Step 5b: edge-type registry loaded (authoring -> edge-type -> tools) --
 
   (describe "edge-type registry loaded from the loader path"
 
-    ;; edge-type.el (cycle-1786458912) sits between finders and tools in
+    ;; edge-type.el (cycle-1786458912) sits between authoring and tools in
     ;; the canonical sequence; it requires org-graph-extractor for the
     ;; shared rel-normalization helper.  DB-free at load: these are
     ;; definition assertions only (the lookup touches the DB lazily).
