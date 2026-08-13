@@ -129,3 +129,71 @@ test shapes: as in the authoring-module task.
 ## Context
 design.md § Decisions 'D4', 'D6 — SPC v installed by the menu module', 'D7 — Note-at-point resolution', 'D8 — Edge results render in a dedicated org buffer'
 specs/org-graph-menu/spec.md (all three requirements)
+
+## Observations
+
+- The connected view (`org-graph/edges-connected-at-point`) calls the two
+  directional queries (`org-graph-query/outgoing` + `org-graph-query/incoming`)
+  rather than `org-graph-query/connected`, deviating from step 3's literal
+  "calls the matching ... connected". Rationale: connected is BY DEFINITION
+  their append (query.el:50-56), so behavior is identical, and per-direction
+  querying is what lets the renderer attribute the correct far end per
+  section — a flat connected list cannot re-attribute a self-edge (it appears
+  in both halves with FROM = TO). `org-graph-query/connected` keeps its live
+  caller (tools.el:89, the agent query tool); no dead branch.
+- Confirmed the plan-phase note: NO validator in schemas.el is interactive
+  (`org-graph/validate-note-type` takes a NOTE, `org-graph/validate-all-of-type`
+  takes a TYPE; neither is `commandp`). Added the thin interactive wrapper
+  `org-graph/validate-note-at-point-or-prompt` in menu.el as the task
+  anticipated: note-at-point path validates that note via
+  `vulpea-db-get-by-id` + `org-graph/validate-note-type`; no-note path prompts
+  over `org-graph-note-types` and runs `org-graph/validate-all-of-type`. No
+  validation logic added. Violations are echoed as a `%S` summary — vulpea 2.4
+  has no violation formatter (only the `vulpea-violation` struct); a prettier
+  renderer would be new presentation logic and is left out of this thin wrapper.
+- The "load without evil" scenario cannot be executed in the test process
+  (the `make` runner loads init.el, so evil is already loaded and cannot be
+  unloaded safely). menu-spec covers the invariant two ways instead: a
+  source-level assertion that menu.el wraps the install in
+  `with-eval-after-load 'evil` (holds regardless of process state), plus a
+  live `evil-normal-state-map` lookup asserting SPC v → `org-graph-menu` when
+  evil is present (with an `M-x`-reachability fallback branch for evil-less
+  processes). Real evil-less boot behavior remains a runbook item
+  (runbook-and-verify task).
+- The installed transient's layout suffix shape is `(CLASS . PLIST)` — the
+  legacy `(LEVEL CLASS PLIST)` list the task's fallback pattern implies was
+  upgraded away (transient.el `transient--layout-upgrade`). menu-spec's
+  `org-graph-menu-spec--suffix-command` helper tolerates both shapes, and the
+  green-on-empty guard (fboundp/commandp of every dispatched symbol, including
+  `vulpea-doctor`, verified interactive in vulpea 2.4) is asserted separately
+  from layout membership as the brief required.
+- The edges buffer render adds one header line ("Typed edges for id:<subject>")
+  above the direction sections — not in the register shape's required keys, but
+  a plain org line that names the subject (and is itself a followable plain
+  `id:` link). Empty directions render "No edges." under their section heading
+  rather than an empty section.
+
+## Discoveries
+
+- discovery_id: disc-menu-module-1
+  class: interface-drift
+  description: |
+    register/boundary/note-at-point-resolution declares the resolver
+    signature "() -> id string | signals user-error", but the same entry
+    lists the validate front door as a consumer that "may prompt instead
+    when point has no note" — and its duplication clause forbids a second
+    inlined org-entry-get. Those three constraints are only jointly
+    satisfiable if the ONE shared resolver can be asked not to signal.
+    Implemented org-graph-menu--note-id-at-point with an &optional NOERROR
+    parameter: default behavior is exactly the entry's contract (inherited
+    org-entry-get lookup, nil -> user-error "No note with an :ID: at
+    point"); the validate wrapper passes 'noerror and prompts on nil. The
+    inherited lookup still lives in exactly one place; edge-query commands
+    call it argument-less and keep the signal-on-nil guarantee (menu-spec
+    asserts the query is never reached with a nil id).
+  affected_register_entry: register/boundary/note-at-point-resolution
+  recommendation: |
+    Reconcile the entry's functions block to signature
+    "(&optional noerror) -> id string | nil (only when noerror) | signals
+    user-error"; keep the "commands MUST NOT query with a nil/empty id"
+    teeth and note the validate front door as the only noerror caller.

@@ -321,7 +321,25 @@ in any order and degrades cleanly when either is absent).  Per
 =register/invariant/org-graph-loader-ordered-sequence= it loads AFTER
 =tools= (its =:tools= population needs =org-graph/agent-tools=).  It is
 load-wired from the consolidated [[#submodules][Submodules]] sequence
-(not here), as the LAST submodule.
+(not here), immediately before the =menu= submodule.
+
+* Menu
+:PROPERTIES:
+:CUSTOM_ID: menu
+:END:
+
+The human interaction surface: the =org-graph-menu= transient prefix
+(Find / Author / Edges / Maintain groups), the note-at-point
+edge-query commands, and the evil-guarded =SPC v= install
+(=register/invariant/spc-v-binding-evil-guarded= — =config/core/evil.org=
+stays untouched).  Implemented in the =menu= submodule, load-wired
+from the consolidated [[#submodules][Submodules]] sequence (not here)
+as the LAST submodule per
+=register/invariant/org-graph-loader-ordered-sequence=: it dispatches
+commands defined by =finders=, =authoring=, =query=, =discovery=, and
+=schemas=.  DB-free at load; =transient= is a hard require, satisfied
+because init.org loads the =transient= module early in
+=jf/enabled-modules=, well before org-graph.
 
 * Submodules
 :PROPERTIES:
@@ -338,13 +356,16 @@ load order: order is *load-bearing* and is made explicit by loading each
 file BY PATH via =jf/load-module=.
 
 Canonical order: =schemas → extractor → coordinator → query → finders →
-authoring → edge-type → tools → discovery=, with =workspace-integration=
-last (AFTER =tools=, because its =:tools= population needs
-=org-graph/agent-tools= from =tools.el=).  Dependencies the order
-satisfies: =finders= requires =org-graph-schemas=; =authoring= completes
-over what =finders= see (and hard-requires =vulpea=, like =finders=);
-=tools= layers on =query= and =coordinator=; =workspace-integration=
-consumes =org-graph/agent-tools=.
+authoring → edge-type → tools → discovery → workspace-integration=,
+with =menu= last.  Dependencies the order satisfies: =finders= requires
+=org-graph-schemas=; =authoring= completes over what =finders= see (and
+hard-requires =vulpea=, like =finders=); =tools= layers on =query= and
+=coordinator=; =workspace-integration= loads AFTER =tools= (its
+=:tools= population needs =org-graph/agent-tools= from =tools.el=);
+=menu= loads LAST — it dispatches commands defined by =finders=,
+=authoring=, =query=, =discovery=, and =schemas=, and hard-requires
+=transient= (loaded early in =jf/enabled-modules=, well before
+org-graph).
 
 Module load stays *DB-free*.  The three ops that open the vulpea DB —
 the discovery =org-id-locations= seed (=vulpea-db-query=), the
@@ -357,7 +378,9 @@ all three to =emacs-startup-hook= in the
 below.  The DB-free registrations
 (schemas register in memory at load; gptel tools register at load when
 gptel is present; =workspace-integration= attaches via
-=with-eval-after-load=) all fire as their files load.
+=with-eval-after-load=; =menu= defines its transient prefix at load
+and wraps its =SPC v= install in =with-eval-after-load 'evil=) all
+fire as their files load.
 
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
@@ -370,6 +393,7 @@ gptel is present; =workspace-integration= attaches via
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/menu.el" jf/emacs-dir))
 #+end_src
 
 ** Deferred DB-touching registrations
