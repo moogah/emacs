@@ -34,10 +34,15 @@
 
 ;; Pull in the shared helpers (which also adds vulpea to `load-path' and
 ;; requires it), then load the module under test.
+(defvar org-graph-discovery-spec--module-file nil
+  "Absolute path of discovery.el, stashed at load time for reload specs.")
+
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (module-dir (expand-file-name ".." test-dir)))
   (require 'org-graph-test-helpers (expand-file-name "helpers-spec.el" test-dir))
-  (require 'org-graph-discovery (expand-file-name "discovery.el" module-dir)))
+  (setq org-graph-discovery-spec--module-file
+        (expand-file-name "discovery.el" module-dir))
+  (require 'org-graph-discovery org-graph-discovery-spec--module-file))
 
 ;; `org-graph-vault-root' / `org-graph-watch-workspace-homes' are defined
 ;; by the loader (org-graph.org), which is not loaded in this isolated
@@ -131,14 +136,27 @@ as <HOME>/sessions/ to mirror `workspace--sessions-dir'."
 
 (describe "note placement settings (Default notes directory section)"
 
-  (it "derives vulpea-default-notes-directory from the vault root"
-    ;; The module-load setq runs before this spec file's
-    ;; `org-graph-vault-root' defvar, so the boundp guard's "~/org"
-    ;; fallback applies — which expands to the same directory as the
+  (it "falls back to ~/org when org-graph-vault-root is unbound at load"
+    ;; The module-load setq ran before `org-graph-vault-root' was
+    ;; bound in this test process, so the boundp guard's "~/org"
+    ;; fallback applied — which expands to the same directory as the
     ;; vault-root default.  Placement and index root stay aligned.
     (expect vulpea-default-notes-directory
             :to-equal (file-name-as-directory
                        (expand-file-name "~/org/"))))
+
+  (it "derives vulpea-default-notes-directory from a bound vault root"
+    ;; Production (boundp) branch: re-run the module's load-time setq
+    ;; with `org-graph-vault-root' bound to a distinctive value.  The
+    ;; let-bound placement vars confine the reload's setqs to this
+    ;; spec; function redefinitions are idempotent.
+    (let ((org-graph-vault-root "/tmp/org-graph-spec-vault/")
+          (vulpea-default-notes-directory nil)
+          (vulpea-create-default-template nil))
+      (load org-graph-discovery-spec--module-file nil t)
+      (expect vulpea-default-notes-directory
+              :to-equal (file-name-as-directory
+                         (expand-file-name "/tmp/org-graph-spec-vault/")))))
 
   (it "pins the dash filename template (timestamp-slug.org)"
     ;; register/invariant/note-filename-template-dash: vulpea's own

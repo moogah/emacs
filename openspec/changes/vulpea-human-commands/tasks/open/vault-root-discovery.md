@@ -2,7 +2,8 @@
 name: vault-root-discovery
 description: Introduce org-graph-vault-root; widen index roots to ~/org/ and pin note placement/filename template
 change: vulpea-human-commands
-status: ready
+status: done
+merge_commit: 66b6593a
 relations:
   - enables:authoring-module
 ---
