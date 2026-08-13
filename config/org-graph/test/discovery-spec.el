@@ -8,13 +8,17 @@
 ;;; Commentary:
 
 ;; Tests for the registry-driven discovery layer (`registry-discovery'
-;; task).  Covers the bounded-discovery-roots invariant
+;; task; roots widened by `vault-root-discovery').  Covers the
+;; bounded-discovery-roots invariant
 ;; (`register/invariant/bounded-discovery-roots'): the explicit root set
-;; is `org-graph-roam-root' plus the mocked workspace homes only, and the
-;; wider work tree is NEVER walked (negative assertion on
+;; is `org-graph-vault-root' plus the mocked workspace homes only, and
+;; the wider work tree is NEVER walked (negative assertion on
 ;; `directory-files-recursively').  Also covers the `org-id-locations'
-;; startup seed (one `org-id-add-location' per DB note) and
-;; `org-graph/configure-sync' wiring.
+;; startup seed (one `org-id-add-location' per DB note),
+;; `org-graph/configure-sync' wiring, and the note-placement settings
+;; (`vulpea-default-notes-directory' derived from the vault root;
+;; `vulpea-create-default-template' pinning the dash filename separator,
+;; `register/invariant/note-filename-template-dash').
 ;;
 ;; All external dependencies are mocked at the API boundary via `cl-letf'
 ;; (function-scoped, never global): vulpea sync/query, `org-id', and the
@@ -35,11 +39,11 @@
   (require 'org-graph-test-helpers (expand-file-name "helpers-spec.el" test-dir))
   (require 'org-graph-discovery (expand-file-name "discovery.el" module-dir)))
 
-;; `org-graph-roam-root' / `org-graph-watch-workspace-homes' are defined
+;; `org-graph-vault-root' / `org-graph-watch-workspace-homes' are defined
 ;; by the loader (org-graph.org), which is not loaded in this isolated
 ;; test process.  Declare them so the discovery functions read concrete
 ;; values; individual specs `let'-bind them as needed.
-(defvar org-graph-roam-root "~/org/roam/")
+(defvar org-graph-vault-root "~/org/")
 (defvar org-graph-watch-workspace-homes t)
 
 ;; `workspace--registry' lives in `workspace-tabs' (not loaded here).
@@ -68,17 +72,24 @@ as <HOME>/sessions/ to mirror `workspace--sessions-dir'."
 
 (describe "org-graph/index-roots"
 
-  (it "always includes the canonicalised roam root first"
-    (let ((org-graph-roam-root "~/org/roam/")
+  (it "always includes the canonicalised vault root first"
+    (let ((org-graph-vault-root "~/org/")
           (org-graph-watch-workspace-homes nil))
       (expect (car (org-graph/index-roots))
               :to-equal (file-name-as-directory
-                         (expand-file-name "~/org/roam/")))))
+                         (expand-file-name "~/org/")))))
+
+  (it "does NOT carry ~/org/roam/ as a separate root (vault root covers it)"
+    (let ((org-graph-vault-root "~/org/")
+          (org-graph-watch-workspace-homes nil))
+      (expect (org-graph/index-roots)
+              :not :to-contain
+              (file-name-as-directory (expand-file-name "~/org/roam/")))))
 
   (it "includes each active workspace home and its sessions/ subdir"
     (org-graph-test--with-workspaces '("/ws/alpha/" "/ws/beta/")
       (let ((org-graph-watch-workspace-homes t)
-            (org-graph-roam-root "~/org/roam/"))
+            (org-graph-vault-root "~/org/"))
         (let ((roots (org-graph/index-roots)))
           (expect roots :to-contain "/ws/alpha/")
           (expect roots :to-contain "/ws/beta/")
@@ -90,33 +101,51 @@ as <HOME>/sessions/ to mirror `workspace--sessions-dir'."
   (it "omits workspace homes when watching is disabled"
     (org-graph-test--with-workspaces '("/ws/alpha/")
       (let ((org-graph-watch-workspace-homes nil)
-            (org-graph-roam-root "~/org/roam/"))
+            (org-graph-vault-root "~/org/"))
         (let ((roots (org-graph/index-roots)))
           (expect roots :not :to-contain "/ws/alpha/")
           (expect roots :to-equal
                   (list (file-name-as-directory
-                         (expand-file-name "~/org/roam/"))))))))
+                         (expand-file-name "~/org/"))))))))
 
-  (it "degrades to the roam vault alone when workspaces is absent"
+  (it "degrades to the vault root alone when workspaces is absent"
     ;; `features' deliberately omits `workspaces' here.
     (let ((features (remq 'workspaces features))
           (org-graph-watch-workspace-homes t)
-          (org-graph-roam-root "~/org/roam/"))
+          (org-graph-vault-root "~/org/"))
       (expect (org-graph/index-roots)
               :to-equal (list (file-name-as-directory
-                               (expand-file-name "~/org/roam/"))))))
+                               (expand-file-name "~/org/"))))))
 
   (it "NEVER walks the wider work tree to discover roots"
     ;; register/invariant/bounded-discovery-roots: the negative assertion.
-    ;; Roots come from the registry + roam root only; no wholesale walk.
+    ;; Roots come from the registry + vault root only; no wholesale walk.
     (spy-on 'directory-files-recursively)
     (spy-on 'directory-files :and-call-through)
     (org-graph-test--with-workspaces '("/ws/alpha/")
       (let ((org-graph-watch-workspace-homes t)
-            (org-graph-roam-root "~/org/roam/"))
+            (org-graph-vault-root "~/org/"))
         (org-graph/index-roots)))
     (expect 'directory-files-recursively :not :to-have-been-called)
     (expect 'directory-files :not :to-have-been-called)))
+
+(describe "note placement settings (Default notes directory section)"
+
+  (it "derives vulpea-default-notes-directory from the vault root"
+    ;; The module-load setq runs before this spec file's
+    ;; `org-graph-vault-root' defvar, so the boundp guard's "~/org"
+    ;; fallback applies — which expands to the same directory as the
+    ;; vault-root default.  Placement and index root stay aligned.
+    (expect vulpea-default-notes-directory
+            :to-equal (file-name-as-directory
+                       (expand-file-name "~/org/"))))
+
+  (it "pins the dash filename template (timestamp-slug.org)"
+    ;; register/invariant/note-filename-template-dash: vulpea's own
+    ;; default uses an underscore separator; the corpus convention is
+    ;; the dash.
+    (expect (plist-get vulpea-create-default-template :file-name)
+            :to-equal "${timestamp}-${slug}.org")))
 
 (describe "org-graph/seed-org-id-locations"
 
@@ -157,7 +186,7 @@ as <HOME>/sessions/ to mirror `workspace--sessions-dir'."
           (scanned nil)
           (vulpea-db-sync-directories nil)
           (org-graph-watch-workspace-homes nil)
-          (org-graph-roam-root "~/org/roam/"))
+          (org-graph-vault-root "~/org/"))
       (cl-letf (((symbol-function 'vulpea-db-autosync-mode)
                  (lambda (&optional arg) (setq autosync-arg arg)))
                 ((symbol-function 'vulpea-db-sync-full-scan)
@@ -165,7 +194,7 @@ as <HOME>/sessions/ to mirror `workspace--sessions-dir'."
         (org-graph/configure-sync)
         (setq set-dirs vulpea-db-sync-directories))
       (expect set-dirs :to-equal (list (file-name-as-directory
-                                        (expand-file-name "~/org/roam/"))))
+                                        (expand-file-name "~/org/"))))
       (expect autosync-arg :to-equal 1)
       (expect scanned :to-be t))))
 

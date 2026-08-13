@@ -96,6 +96,10 @@
 
   (describe "loader defcustoms exist with documented defaults"
 
+    (it "org-graph-vault-root defaults to the whole durable vault"
+      (expect (boundp 'org-graph-vault-root) :to-be-truthy)
+      (expect org-graph-vault-root :to-equal "~/org/"))
+
     (it "org-graph-roam-root defaults to the roam concept vault"
       (expect (boundp 'org-graph-roam-root) :to-be-truthy)
       (expect org-graph-roam-root :to-equal "~/org/roam/"))

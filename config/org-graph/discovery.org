@@ -8,8 +8,9 @@ the single index; this module feeds it an *explicit, bounded* set of
 roots and seeds =org-id-locations= from the vulpea DB at startup so
 =id:= links resolve immediately on a fresh session.
 
-The roots are =org-graph-roam-root= (the durable concept vault) plus,
-when =org-graph-watch-workspace-homes= is non-nil, each active workspace
+The roots are =org-graph-vault-root= (the whole durable note vault,
+including its =roam/= subdirectory) plus, when
+=org-graph-watch-workspace-homes= is non-nil, each active workspace
 =:home= directory (and its =sessions/= subdirectory) taken from the
 =workspaces= registry.  The registry already enumerates the handful of
 homes the user actually created, so org-graph never walks a wider tree
@@ -56,6 +57,7 @@ document the external contract this module consumes.
 
 (defvar vulpea-db-sync-directories)
 (defvar vulpea-default-notes-directory)
+(defvar vulpea-create-default-template)
 (declare-function vulpea-db-autosync-mode "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-sync-full-scan "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-query "vulpea-db-query" (&optional predicate))
@@ -72,14 +74,33 @@ is empty until =org-graph/configure-sync= has run in the session, so new
 notes would silently land in =org-directory=.  Pinning it makes note
 creation boot-order-independent.
 
-Set with plain =setq= (not a defcustom of our own): the variable is
-vulpea's own defcustom, and =defcustom= does not clobber an existing
+The directory derives from =org-graph-vault-root= (boundp-guarded, same
+pattern as the index-roots seed) so placement and the index root stay
+aligned: default-placed new notes live inside the re-scan boundary and
+survive a full DB rebuild.
+
+The filename template pins the *dash* separator between timestamp and
+slug (=20260813104944-some_note.org=), matching the existing corpus
+convention; vulpea's own default uses an underscore
+(=${timestamp}_${slug}.org=).  See
+=register/invariant/note-filename-template-dash= — the agent path
+(=tools.el= =org-graph-tools/write-node=) carries the same dash
+convention independently in its own format string.
+
+Set with plain =setq= (not defcustoms of our own): both variables are
+vulpea's own defcustoms, and =defcustom= does not clobber an existing
 binding, so this is safe regardless of whether vulpea loads before or
 after this module.
 
 #+begin_src emacs-lisp
 (setq vulpea-default-notes-directory
-      (file-name-as-directory (expand-file-name "~/org")))
+      (file-name-as-directory
+       (expand-file-name (if (boundp 'org-graph-vault-root)
+                             org-graph-vault-root
+                           "~/org"))))
+
+(setq vulpea-create-default-template
+      '(:file-name "${timestamp}-${slug}.org"))
 #+end_src
 
 * Workspace homes from the registry
@@ -113,7 +134,7 @@ not loaded — workspaces is a soft dependency."
 
 * Index roots
 
-The explicit, bounded discovery set: the roam vault plus, when
+The explicit, bounded discovery set: the vault root plus, when
 =org-graph-watch-workspace-homes= is non-nil, the registry-derived
 workspace homes.  This is the whole contract — there is no fallback that
 walks =~/work= or any wider tree.
@@ -121,20 +142,21 @@ walks =~/work= or any wider tree.
 #+begin_src emacs-lisp
 (defun org-graph/index-roots ()
   "Return the explicit list of directories vulpea SHALL index.
-This is `org-graph-roam-root' (canonicalised) plus, when
+This is `org-graph-vault-root' (canonicalised) plus, when
 `org-graph-watch-workspace-homes' is non-nil and the `workspaces'
 feature is loaded, each active workspace `:home' directory and its
 `sessions/' subdirectory from the workspaces registry.
 
-This is a bounded, explicit set.  org-graph deliberately NEVER walks a
-wider tree (e.g. ~/work) to discover notes: the registry already
-enumerates the handful of homes the user created
+This is a bounded, explicit set: the vault root plus the active
+workspace homes.  org-graph deliberately NEVER walks a wider tree
+\(e.g. ~/work) to discover notes: the registry already enumerates the
+handful of homes the user created
 \(`register/invariant/bounded-discovery-roots')."
   (let ((roots (list (file-name-as-directory
                       (expand-file-name
-                       (if (boundp 'org-graph-roam-root)
-                           org-graph-roam-root
-                         "~/org/roam/"))))))
+                       (if (boundp 'org-graph-vault-root)
+                           org-graph-vault-root
+                         "~/org/"))))))
     (when (and (boundp 'org-graph-watch-workspace-homes)
                org-graph-watch-workspace-homes)
       (setq roots (append roots (org-graph--active-workspace-homes))))

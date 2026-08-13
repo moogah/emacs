@@ -10,6 +10,7 @@
 
 (defvar vulpea-db-sync-directories)
 (defvar vulpea-default-notes-directory)
+(defvar vulpea-create-default-template)
 (declare-function vulpea-db-autosync-mode "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-sync-full-scan "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-query "vulpea-db-query" (&optional predicate))
@@ -17,7 +18,13 @@
 (declare-function vulpea-note-path "vulpea-db" (note))
 
 (setq vulpea-default-notes-directory
-      (file-name-as-directory (expand-file-name "~/org")))
+      (file-name-as-directory
+       (expand-file-name (if (boundp 'org-graph-vault-root)
+                             org-graph-vault-root
+                           "~/org"))))
+
+(setq vulpea-create-default-template
+      '(:file-name "${timestamp}-${slug}.org"))
 
 (defun org-graph--active-workspace-homes ()
   "Return active workspace `:home' dirs and their `sessions/' subdirs.
@@ -38,20 +45,21 @@ not loaded — workspaces is a soft dependency."
 
 (defun org-graph/index-roots ()
   "Return the explicit list of directories vulpea SHALL index.
-This is `org-graph-roam-root' (canonicalised) plus, when
+This is `org-graph-vault-root' (canonicalised) plus, when
 `org-graph-watch-workspace-homes' is non-nil and the `workspaces'
 feature is loaded, each active workspace `:home' directory and its
 `sessions/' subdirectory from the workspaces registry.
 
-This is a bounded, explicit set.  org-graph deliberately NEVER walks a
-wider tree (e.g. ~/work) to discover notes: the registry already
-enumerates the handful of homes the user created
+This is a bounded, explicit set: the vault root plus the active
+workspace homes.  org-graph deliberately NEVER walks a wider tree
+\(e.g. ~/work) to discover notes: the registry already enumerates the
+handful of homes the user created
 \(`register/invariant/bounded-discovery-roots')."
   (let ((roots (list (file-name-as-directory
                       (expand-file-name
-                       (if (boundp 'org-graph-roam-root)
-                           org-graph-roam-root
-                         "~/org/roam/"))))))
+                       (if (boundp 'org-graph-vault-root)
+                           org-graph-vault-root
+                         "~/org/"))))))
     (when (and (boundp 'org-graph-watch-workspace-homes)
                org-graph-watch-workspace-homes)
       (setq roots (append roots (org-graph--active-workspace-homes))))

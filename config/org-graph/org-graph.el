@@ -7,6 +7,15 @@
   :group 'convenience
   :prefix "org-graph-")
 
+(defcustom org-graph-vault-root "~/org/"
+  "Root of the durable note vault indexed by org-graph.
+Covers the whole vault (including its roam/ subdirectory), and is
+where new notes are placed by default.  Distinct from
+`org-graph-roam-root', which continues to gate typed-edge
+extraction and the agent write target."
+  :type 'directory
+  :group 'org-graph)
+
 (defcustom org-graph-roam-root "~/org/roam/"
   "Durable concept vault and typed-edge extraction scope.
 This directory is always indexed by vulpea, and it is the only root on
