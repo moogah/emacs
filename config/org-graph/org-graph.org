@@ -42,6 +42,30 @@ position).
 
 * Defcustoms
 
+** Vault root (discovery + placement)
+
+=~/org/= is the whole durable note vault — including its =roam/=
+subdirectory — and anchors *discovery* and *placement*: it seeds
+=org-graph/index-roots= and derives
+=vulpea-default-notes-directory= (both in =discovery.org=).  It is
+deliberately distinct from =org-graph-roam-root= below, which keeps
+anchoring the narrower *curation* boundary (typed-edge extraction,
+edge-type seeds, the agent write target).  A note at the vault top
+level is indexed/findable/linkable but contributes no typed edges and
+is not where agents write drafts
+(=register/boundary/vault-root-vs-roam-root=).
+
+#+begin_src emacs-lisp
+(defcustom org-graph-vault-root "~/org/"
+  "Root of the durable note vault indexed by org-graph.
+Covers the whole vault (including its roam/ subdirectory), and is
+where new notes are placed by default.  Distinct from
+`org-graph-roam-root', which continues to gate typed-edge
+extraction and the agent write target."
+  :type 'directory
+  :group 'org-graph)
+#+end_src
+
 ** Concept-vault / typed-edge root
 
 =~/org/roam/= is both the durable concept vault and the *only* scope in

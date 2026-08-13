@@ -81,3 +81,42 @@ and the soft-dependency `defvar`/`declare-function` block at the top of
 ## Context
 design.md § Decisions 'D1 — Separate org-graph-vault-root' and 'D2 — Note placement'
 specs/org-graph/spec.md § 'Workspace-Substrate Discovery' (MODIFIED), 'Boot-Order-Independent Default Note Placement'
+
+## Observations
+
+- Added a two-line default assertion for `org-graph-vault-root` to
+  `config/org-graph/test/module-load-spec.el` (alongside the existing
+  `org-graph-roam-root` one). This file is not in the task body's
+  files-to-modify list, but the load-bearing register entry
+  `register/boundary/vault-root-vs-roam-root` explicitly enumerates it
+  in `consumers_exhaustive` ("loader-defcustom default assertion (new,
+  alongside the org-graph-roam-root one at :99-101)"). Followed the
+  register's consumer map; recorded here as the deviation from the task
+  body's file list.
+- Weak-assertion note on the new placement specs in
+  `discovery-spec.el`: the placement `setq` runs at module load, which
+  in the isolated spec process happens BEFORE the spec file's
+  `(defvar org-graph-vault-root "~/org/")` shim — so what the
+  assertions actually exercise is the `boundp` guard's `"~/org"`
+  fallback, not the defcustom-derived branch. The fallback and the
+  defcustom default expand to the identical directory, so the asserted
+  value is correct either way, and the defcustom default itself is
+  pinned by the new module-load-spec assertion (which loads the real
+  loader). The defcustom-derived branch of the guard is therefore
+  covered only by the combination, not by a single spec.
+- Verified the agent-side half of the dash filename convention while
+  implementing the human-side half:
+  `grep -n '%s-%s.org' config/org-graph/tools.el` → line 122, as the
+  `note-filename-template-dash` entry records. tools.el untouched.
+- Boundary constraint audit: `grep -rn org-graph-vault-root config/`
+  confirms the only non-test consumers are `discovery.el` and the
+  defining `org-graph.el`; `extractor.el`, `edge-type.el`, and
+  `tools.el` still read only `org-graph-roam-root`, per the
+  `vault-root-vs-roam-root` boundary_constraints.
+
+## Discoveries
+
+none — the three cited speculated entries (`vault-root-vs-roam-root`,
+`bounded-discovery-roots`, `note-filename-template-dash`) matched what
+the code wanted exactly; no push-backs. Recommend the integrate phase
+flip all three toward confirmed as implemented.
