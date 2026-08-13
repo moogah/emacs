@@ -2,7 +2,8 @@
 name: authoring-module
 description: New authoring module with find-or-create and insert-link commands (thin vulpea wrappers)
 change: vulpea-human-commands
-status: blocked
+status: done
+merge_commit: 4b3bf068
 relations:
   - blocked-by:vault-root-discovery
   - enables:boot-sync-deferral
