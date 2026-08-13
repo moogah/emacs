@@ -9,11 +9,15 @@
 (declare-function workspace--sessions-dir "workspace-data-model" (home))
 
 (defvar vulpea-db-sync-directories)
+(defvar vulpea-default-notes-directory)
 (declare-function vulpea-db-autosync-mode "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-sync-full-scan "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-query "vulpea-db-query" (&optional predicate))
 (declare-function vulpea-note-id "vulpea-db" (note))
 (declare-function vulpea-note-path "vulpea-db" (note))
+
+(setq vulpea-default-notes-directory
+      (file-name-as-directory (expand-file-name "~/org")))
 
 (defun org-graph--active-workspace-homes ()
   "Return active workspace `:home' dirs and their `sessions/' subdirs.

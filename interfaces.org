@@ -2153,6 +2153,74 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** edge-results-buffer
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-edge-results-buffer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/edge-results-buffer
+   tier: shape
+   status: speculated
+   load_bearing: false
+   title: "*org-graph-edges* render buffer (read-only org, one list item per edge)"
+   purpose: |
+     How the menu's edge-query commands present typed-edge rows to a human
+     (design.md D8). All three commands render into ONE named buffer,
+     *org-graph-edges*: a read-only org-mode buffer (org-mode stays active so
+     id: links are followable — resolvable thanks to the startup org-id seed),
+     displayed via pop-to-buffer, one section per direction queried, one list
+     item per edge. Chosen over echo-area messages because multi-edge results
+     need navigation and org links give free follow-through.
+   required_keys:
+     - name: buffer-name
+       type: string
+       description: 'literally "*org-graph-edges*"; all three commands share it (each render replaces the previous contents)'
+     - name: line-format
+       type: string
+       description: |
+         one item per edge: "- <rel-type> :: [[id:<uuid>][<title>]]" — rel
+         printed as its raw symbol name; uuid is the FAR-end id (destination
+         for outgoing, source for incoming); title is the far-end note title.
+     - name: title-resolution
+       type: rule
+       description: |
+         titles come from the edge plist's :note slot, which query.el already
+         resolves via vulpea-db-get-by-id (query.el:26) — the renderer MUST NOT
+         re-query the DB per edge. When :note is nil (unresolvable id), fall
+         back to rendering the raw id string as the link description.
+     - name: buffer-state
+       type: rule
+       description: read-only (buffer-read-only t after render) + org-mode active; not special-mode (would kill org link following).
+   optional_keys: []
+   producers:
+     - file: config/org-graph/menu.el
+       function: org-graph/edges-outgoing-at-point | /edges-incoming-at-point | /edges-connected-at-point (speculated, menu-module task; ideally one shared render helper)
+   consumers:
+     - file: config/org-graph/test/menu-spec.el
+       function: render assertion from stubbed query rows (speculated)
+       reads_keys: [buffer-name, line-format, title-resolution]
+   validator: |
+     ;; per rendered line, in *org-graph-edges*:
+     (defun shape/validate-edge-result-line (line)
+       (if (string-match-p
+            "^- [^ ]+ :: \\[\\[id:[0-9a-fA-F-]+\\]\\[.+\\]\\]$" line)
+           nil 'bad-edge-line))
+   test_corpus:
+     valid:
+       - "- implements :: [[id:5e1c2a34-aaaa-bbbb-cccc-000000000001][Graph spike]]"
+       - "- relates-to :: [[id:5e1c2a34-aaaa-bbbb-cccc-000000000002][5e1c2a34-aaaa-bbbb-cccc-000000000002]]"   # unresolvable id: raw id as description
+     invalid:
+       - "- implements -> Graph spike"        # no id link; not followable
+       - "implements :: [[id:abc][t]]"        # not a list item
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/boundary/note-at-point-resolution
+     - register/shape/typed-edge-tuple
+   discovered_from: vulpea-human-commands (menu-module task)
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -7117,6 +7185,196 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** vault-root-vs-roam-root
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-vault-root-vs-roam-root
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/vault-root-vs-roam-root
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: two roots, disjoint consumer sets — vault root widens discovery; roam root keeps gating extraction and writes
+   purpose: |
+     vulpea-human-commands D1 splits the vault anchor into TWO defcustoms with
+     deliberately disjoint consumer sets. org-graph-vault-root (NEW, default
+     ~/org/, defined in the loader org-graph.org next to org-graph-roam-root)
+     anchors DISCOVERY and PLACEMENT: it seeds org-graph/index-roots and
+     derives vulpea-default-notes-directory. org-graph-roam-root (default
+     ~/org/roam/, unchanged) keeps anchoring the CURATION boundary: typed-edge
+     extraction gating, edge-type seed installation, and the agent write
+     target. Exactly ONE consumer repoints in this change —
+     discovery.el's org-graph/index-roots seed. Every other
+     org-graph-roam-root consumer stays put; repointing them (or repointing
+     the roam-root defcustom itself to ~/org/) would silently widen typed-edge
+     extraction to the whole vault and move agent drafts — spec-visible
+     changes the change did not propose (the spike spec's Typed Semantic
+     Edges requirement literally excludes notes outside ~/org/roam/ from
+     typed_edges; deferred to org-roam retirement, design.md OQ-A).
+   variables:
+     - name: org-graph-vault-root
+       default: "~/org/"
+       defined_in: config/org-graph/org-graph.org (loader defcustom; speculated, vault-root-discovery task)
+       consumers_exhaustive:   # grep 2026-08-13, whole config/ tree
+         - file: config/org-graph/discovery.el
+           function: org-graph/index-roots
+           note: seed of the bounded root set (REPOINTED from org-graph-roam-root; boundp-guarded, "~/org/" fallback literal)
+         - file: config/org-graph/discovery.el
+           function: "placement setq (vulpea-default-notes-directory derivation)"
+           note: replaces the current hardcoded (expand-file-name "~/org") literal at discovery.el:19
+         - file: config/org-graph/test/discovery-spec.el
+           function: root + placement assertions (repointed)
+         - file: config/org-graph/test/module-load-spec.el
+           function: loader-defcustom default assertion (new, alongside the org-graph-roam-root one at :99-101)
+     - name: org-graph-roam-root
+       default: "~/org/roam/"
+       defined_in: config/org-graph/org-graph.el:10 (shipped, UNCHANGED)
+       consumers_exhaustive:   # grep 2026-08-13, whole config/ tree; NONE of these repoint
+         - file: config/org-graph/extractor.el
+           function: org-graph-extractor--roam-note-p (lines 166-181)
+           note: typed-edge extraction scope gate (register/invariant/typed-edge-extraction-scope, CONFIRMED)
+         - file: config/org-graph/edge-type.el
+           function: org-graph-edge-type-install-seeds (lines 163-178)
+           note: default DIRECTORY for seed edge-type registry notes
+         - file: config/org-graph/tools.el
+           function: org-graph-tools--roam-root (lines 14-20) -> org-graph-tools/write-node default directory
+           note: >
+             the agent write target. MISSED TWICE in the prior cycle's
+             consumer enumerations (meta-discovery: untouched-neighbor drift)
+             — listed here explicitly so no task "cleans it up" in passing.
+         - file: config/org-graph/discovery.el
+           function: org-graph/index-roots (lines 41-53)
+           note: CURRENT consumer; the ONE that repoints to org-graph-vault-root in vault-root-discovery
+         - file: config/org-graph/test/{discovery,extractor,edge-type,module-load}-spec.el
+           function: defvar shims + default assertions (extractor/edge-type specs keep binding it; discovery-spec repoints)
+         - file: config/org-graph/docs/spike-eval.org
+           function: Discovery checklist line 92 (runbook-and-verify updates the expectation text)
+   boundary_constraints: |
+     After this change: a note at the vault top level (e.g. ~/org/inbox.org)
+     IS indexed/findable/linkable but contributes NO typed edges and is NOT
+     where agents write drafts. This asymmetry is deliberate and
+     runbook-verified (runbook-and-verify step 4 asserts an EDGES drawer on a
+     vault-top-level note yields zero typed_edges rows). Any task that makes
+     extractor.el, edge-type.el, or tools.el read org-graph-vault-root is
+     drift against this entry.
+   producers:
+     - file: config/org-graph/org-graph.org
+       function: the two defcustoms (vault-root speculated; roam-root shipped)
+   consumers:
+     - file: config/org-graph/discovery.el
+       function: org-graph/index-roots + placement setq (see consumers_exhaustive above)
+   related_entries:
+     - register/invariant/bounded-discovery-roots
+     - register/invariant/typed-edge-extraction-scope
+     - register/boundary/org-graph-agent-tools
+     - register/invariant/note-filename-template-dash
+   discovered_from: vulpea-human-commands (vault-root-discovery task)
+   discovered_by: architect
+   #+end_src
+
+** authoring-commands-delegation
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-authoring-commands-delegation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/authoring-commands-delegation
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: authoring commands are thin wrappers over vulpea built-ins — no custom completion or creation logic
+   purpose: |
+     The human-side authoring surface (org-graph-note-commands spec) delegates
+     WHOLESALE to installed vulpea 2.4 built-ins (design.md D3). The wrappers
+     exist to give the surface stable org-graph names (menu targets, future
+     filtering hooks, tests) — behavior is vulpea's. Every spec guarantee
+     (create-on-miss, synchronous birth-index: file written + :ID: assigned +
+     org-id-add-location + vulpea-db-update-file before return,
+     region-as-link-description inside an atomic-change-group) is vulpea-create /
+     vulpea-insert behavior, verified against the installed source. The
+     contract's teeth: any bespoke completing-read, creation, or link-insertion
+     plumbing added inside these wrappers is drift (duplication of vulpea
+     internals with divergent guarantees) — filtering/type-selection wants go
+     through vulpea's own extension points or a spec change (design.md OQ-B).
+   functions:
+     - name: org-graph/find-or-create
+       signature: "() interactive -> (vulpea-find :require-match nil)"
+       notes: |
+         Completes over EVERY indexed note (no filter arg — unlike the
+         type-scoped finders in finders.el, which pass :require-match t).
+         Miss routes through vulpea-find-default-create-fn -> vulpea-create.
+     - name: org-graph/insert-link
+       signature: "() interactive -> (vulpea-insert)"
+       notes: |
+         vulpea-insert-default-create-fn stays nil (the default). Active
+         region becomes the link description and is replaced by the
+         [[id:...]] link; miss creates via vulpea-create first.
+   producers:
+     - file: config/org-graph/authoring.el
+       function: both wrappers (speculated, authoring-module task; module provides org-graph-authoring)
+   consumers:
+     - file: config/org-graph/menu.el
+       function: org-graph-menu Author group entries "f"/"i" (speculated, menu-module task; dispatches the SAME commands as M-x)
+     - file: config/org-graph/test/authoring-spec.el
+       function: cl-letf spies asserting delegation args (speculated)
+   related_entries:
+     - register/invariant/bounded-discovery-roots
+     - register/invariant/note-filename-template-dash
+     - register/invariant/org-graph-loader-ordered-sequence
+   discovered_from: vulpea-human-commands (authoring-module task)
+   discovered_by: architect
+   #+end_src
+
+** note-at-point-resolution
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-note-at-point-resolution
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/note-at-point-resolution
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: one shared note-at-point ID resolver; nil is a user-error, never a silent empty query
+   purpose: |
+     How the menu's context commands (edge queries; the validate entry) find
+     their subject note (design.md D7). ONE helper,
+     org-graph-menu--note-id-at-point, resolves via
+     (org-entry-get nil "ID" t) — the INHERITED lookup vulpea itself uses in
+     vulpea-find-backlink: enclosing ID-bearing heading first, then the
+     file-level :ID:. When nothing at point carries an :ID: it signals
+     (user-error "No note with an :ID: at point") — commands MUST NOT query
+     with a nil/empty id (a nil id against typed_edges returns an empty
+     result that is indistinguishable from "no edges", masking the user's
+     real situation). Every menu context command calls this helper; a second
+     inlined org-entry-get (especially one missing the INHERIT flag, which
+     would silently skip file-level IDs) is a duplication bug. Kin to the
+     extractor-side register/invariant/enclosing-node-attribution, but this
+     resolver is buffer/point-based (org-entry-get), not org-element-lineage
+     based — the two serve different layers and do NOT share code.
+   functions:
+     - name: org-graph-menu--note-id-at-point
+       signature: "() -> id string | signals user-error"
+       notes: inherited property lookup; no DB access; pure buffer-state read.
+   producers:
+     - file: config/org-graph/menu.el
+       function: org-graph-menu--note-id-at-point (speculated, menu-module task)
+   consumers:
+     - file: config/org-graph/menu.el
+       function: org-graph/edges-outgoing-at-point | /edges-incoming-at-point | /edges-connected-at-point (speculated)
+     - file: config/org-graph/menu.el
+       function: the Maintain "validate note type" entry, when it resolves the note at hand (speculated; may prompt instead when point has no note)
+     - file: config/org-graph/test/menu-spec.el
+       function: heading / file-level / none->user-error cases in temp org buffers (speculated)
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/shape/edge-results-buffer
+     - register/invariant/enclosing-node-attribution
+   discovered_from: vulpea-human-commands (menu-module task)
+   discovered_by: architect
+   #+end_src
+
 * Invariant
 
   Entries describe rules that must hold across the system but don't fit
@@ -10382,8 +10640,27 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/bounded-discovery-roots
    tier: invariant
-   status: confirmed
+   status: speculated
    status_note: |
+     cycle-1786636086 plan (forward-mode): CONFIRMED -> SPECULATED (re-stated)
+     for vulpea-human-commands (vault-root-discovery task). The vault anchor of
+     the bounded set WIDENS: org-graph/index-roots seeds from the NEW loader
+     defcustom org-graph-vault-root (default ~/org/, the whole vault including
+     its roam/ subdirectory) instead of org-graph-roam-root (~/org/roam/).
+     Bounded-ness itself is unchanged — still exactly ONE explicit vault root
+     plus registry workspace homes (+ sessions/), still no ~/work walk, still
+     no directory-tree discovery. Rationale: notes created via the default
+     placement (vulpea-default-notes-directory = vault root) were indexed at
+     birth but silently DROPPED on any full re-scan/DB rebuild because re-scans
+     only walk vulpea-db-sync-directories; aligning index root with placement
+     root closes the trap (survey: 1106 org files under ~/org/, 1099 already
+     under roam/; vulpea skips ID-less files). org-graph-roam-root is NOT
+     repointed — it keeps its ~/org/roam/ default and its extraction/scan/
+     write-target consumers (register/boundary/vault-root-vs-roam-root).
+     discovery-spec.el root assertions repoint from ~/org/roam/ to the vault
+     root. Prior confirmed statement (cycle-1782551613) seeded from
+     org-graph-roam-root; superseded wording preserved below.
+
      cycle-1782551613 integrate: confirmed by registry-discovery. index-roots =
      roam-root + registry workspace homes (+ sessions/) only; negative no-walk
      assertion (spies on directory-files-recursively AND directory-files) in the
@@ -10391,12 +10668,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    load_bearing: true
    title: discovery indexes explicit bounded roots; the wider work tree is never walked
    statement: |
-     vulpea's sync roots are exactly org-graph-roam-root plus, when
+     vulpea's sync roots are exactly org-graph-vault-root (default ~/org/, the
+     whole durable vault including its roam/ subdirectory — NOT ~/org/roam/
+     alone, and never a separate second entry for roam/) plus, when
      org-graph-watch-workspace-homes is non-nil, each active workspace :home (and
      sessions/) obtained from the workspaces registry. org-graph SHALL NOT
      directory-files-recursively or otherwise walk ~/work wholesale to discover
      notes. id: links resolve across sessions because org-id-locations is seeded from
-     the vulpea DB at module load.
+     the vulpea DB at startup (deferred op). ID-bearing notes anywhere under the
+     vault root are indexed, so default-placed new notes share one index and one
+     re-scan boundary with the pre-existing roam/ corpus.
+   prior_statement: |
+     vulpea's sync roots are exactly org-graph-roam-root plus, when
+     org-graph-watch-workspace-homes is non-nil, each active workspace :home (and
+     sessions/) obtained from the workspaces registry. (Rest unchanged.)
    why_it_matters: |
      RE-1/RE-2: a blind ~/work recursive scan/watch is the original inotify-fsevents
      blow-up risk org-node was going to incur; the registry gives a handful of homes
@@ -10513,8 +10798,45 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/org-graph-loader-ordered-sequence
    tier: invariant
-   status: reconciled
+   status: speculated
    status_note: |
+     cycle-1786636086 plan (forward-mode): RECONCILED -> SPECULATED (re-stated)
+     for vulpea-human-commands (authoring-module, boot-sync-deferral,
+     menu-module tasks). Two amendments:
+
+     (1) MODULE COUNT: the canonical order grows NINE -> ELEVEN. authoring
+     inserts between finders and edge-type (it completes over what finders
+     see; hard (require 'vulpea) like finders.el); menu appends LAST, after
+     workspace-integration (it references commands from finders, authoring,
+     query, discovery, and hard-requires transient, which init.org loads
+     well before org-graph). COUNT-DRIFT WARNING for implementors: the live
+     loader has NINE modules today (org-graph.el:100-108: schemas, extractor,
+     coordinator, query, finders, edge-type, tools, discovery,
+     workspace-integration), but design.md D4 says "eight to ten" and the
+     task files say "grows to nine"/"grows to ten" while correctly listing
+     TEN/ELEVEN names — trust the NAME LISTS and this entry, not the stale
+     counts. module-load-spec.el's cold-load guard updates to the
+     eleven-module order in two steps (ten after authoring-module, eleven
+     after menu-module).
+
+     (2) DEFERRED OPS: the emacs-startup-hook deferral set grows TWO ->
+     THREE. org-graph--configure-sync-deferred (wrapping
+     org-graph/configure-sync via the shared org-graph--run-deferred-op
+     guard, warning tag "sync configuration skipped") joins, with runtime
+     hook order: extractor registration -> configure-sync -> org-id seed
+     (sync config before the seed so a first-ever boot seeds from a DB that
+     is at least being populated). MECHANISM: add-hook without APPEND pushes
+     to the FRONT, so runtime order is the reverse of add-hook file order —
+     the new add-hook line must sit BETWEEN the existing two (seed add at
+     org-graph.el:133, extractor add at :144). Cold (require 'org-graph)
+     stays DB-free: authoring and menu touch no DB at load, and only the
+     HOOK REGISTRATION for configure-sync happens at load —
+     org-graph/configure-sync itself (sets vulpea-db-sync-directories,
+     enables vulpea-db-autosync-mode, triggers an async full scan) runs at
+     hook time only. Known limits carried forward unchanged: mid-session
+     jf/reload-module does not re-fire startup-hook ops; roots added
+     mid-session get only the :on-create one-shot.
+
      cycle-1786458912 integrate (org-graph-spike): HELD UNDER REFACTOR
      (org-graph-loader-cleanup); stays RECONCILED, no status change. The
      invariant is preserved exactly — one contiguous by-path ordered
@@ -10601,41 +10923,52 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    statement: |
      config/org-graph/org-graph.org load-wires every org-graph submodule via
      jf/load-module BY PATH, in ONE consolidated "* Submodules" sequence, in
-     dependency-correct order:
-       schemas -> extractor -> coordinator -> query -> finders -> edge-type
-       -> tools -> discovery
-     with workspace-integration loaded AFTER tools (it populates the
+     dependency-correct order (ELEVEN modules, re-stated cycle-1786636086):
+       schemas -> extractor -> coordinator -> query -> finders -> authoring
+       -> edge-type -> tools -> discovery -> workspace-integration -> menu
+     workspace-integration loads AFTER tools (it populates the
      workspace-assistant :tools slot from org-graph/agent-tools, which only
      exists once tools.el has loaded). edge-type loads AFTER extractor (it
      requires feature org-graph-extractor for the canonical rel-normalization
      helper) and BEFORE tools (added cycle-1786458912, edge-type-registry).
-     No submodule is loaded from a scattered
+     authoring loads AFTER finders (added vulpea-human-commands); menu loads
+     LAST — it references commands defined by finders, authoring, query, and
+     discovery. No submodule is loaded from a scattered
      standalone section, and no submodule that another requires is loaded after
      its requirer. Because file basenames do NOT match their provided features
      (schemas.el provides org-graph-schemas; finders.el provides org-graph-finders;
      tools.el provides org-graph-tools; edge-type.el provides
-     org-graph-edge-type; etc.), require CANNOT auto-resolve the
+     org-graph-edge-type; authoring.el provides org-graph-authoring; etc.),
+     require CANNOT auto-resolve the
      order — load order is load-bearing and MUST be explicit in the loader.
 
-     REGISTRATION TIMING (re-stated cycle-1782573574): a cold (require 'org-graph)
+     REGISTRATION TIMING (re-stated cycle-1782573574; extended
+     cycle-1786636086): a cold (require 'org-graph)
      fires every DB-FREE registration at load (schemas register at load; gptel
      tools register at load when gptel is present; workspace-integration attaches
-     via with-eval-after-load). The submodule LOADS are all eager and by-path (the
-     ordered sequence above), but the two operations that open the vulpea DB — the
-     typed-edge extractor REGISTRATION (applies the typed_edges schema) and the
+     via with-eval-after-load; menu defines its transient prefix and wraps its
+     SPC v install in with-eval-after-load 'evil). The submodule LOADS are all
+     eager and by-path (the
+     ordered sequence above), but the three operations that touch the vulpea DB —
+     the typed-edge extractor REGISTRATION (applies the typed_edges schema), SYNC
+     CONFIGURATION (org-graph/configure-sync: sets vulpea-db-sync-directories,
+     enables vulpea-db-autosync-mode, triggers an async full scan), and the
      discovery org-id-locations SEED — are DEFERRED to emacs-startup-hook so module
      load stays DB-free (co-equal contract; user-resolved ask-cycle-1782570180-1).
-     emacs-startup-hook, NOT after-init-hook, is the load-bearing post-init seam
-     under "emacs -q --load init.el". So: every submodule loads by path in
+     Runtime hook order is extractor registration -> configure-sync -> org-id
+     seed. emacs-startup-hook, NOT after-init-hook, is the load-bearing post-init
+     seam under "emacs -q --load init.el". So: every submodule loads by path in
      canonical order at require; every DB-free registration fires at require; the
-     two DB-touching ops fire post-init. Both deferrals delegate to the shared
-     loader helper org-graph--run-deferred-op and are add-hooked from
-     org-graph.el (org-graph-loader-cleanup). The cold-load guard
+     three DB-touching ops fire post-init, in order. All deferrals delegate to the
+     shared loader helper org-graph--run-deferred-op (failures display-warning,
+     never abort startup) and are add-hooked from org-graph.el
+     (org-graph-loader-cleanup). The cold-load guard
      (module-load-spec.el) verifies the by-path loads + DB-free registrations from
-     a bare require, AND that BOTH DB-touching deferrals
-     (org-graph--register-extractor, org-graph--seed-org-id-locations-deferred)
-     are wired onto emacs-startup-hook (then drives the wired fns with the DB
-     boundary stubbed).
+     a bare require, AND that ALL THREE DB-touching deferrals
+     (org-graph--register-extractor, org-graph--configure-sync-deferred,
+     org-graph--seed-org-id-locations-deferred)
+     are wired onto emacs-startup-hook in that runtime order (then drives the
+     wired fns with the DB boundary stubbed).
    why_it_matters: |
      The basename!=feature trap means a missing or misordered jf/load-module
      line does not error at tangle time and does not always error at load time
@@ -10669,6 +11002,118 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/invariant/lexical-binding-line-1
      - register/boundary/org-graph-agent-tools
    discovered_from: gptel-tools
+   discovered_by: architect
+   #+end_src
+
+** note-filename-template-dash
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-note-filename-template-dash
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/note-filename-template-dash
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: new-note filenames use the dash separator (<timestamp>-<slug>.org) on BOTH creation paths
+   statement: |
+     Every org-graph note-creation path names its file
+     <timestamp>-<slug>.org with a DASH between timestamp and slug. The
+     human path gets this by setting vulpea-create-default-template's
+     :file-name to "${timestamp}-${slug}.org" in discovery.org's placement
+     section (vulpea's own default uses an underscore separator:
+     "${timestamp}_${slug}.org"); the agent path (tools.el
+     org-graph-tools/write-node) already hardcodes the dash form —
+     (format "%s-%s.org" (format-time-string "%Y%m%d%H%M%S") slug),
+     tools.el:121-124 — and deliberately does NOT read
+     vulpea-create-default-template (it owns its filename so the
+     coordinator can lock the path BEFORE the write; reconciled fact on
+     register/boundary/org-graph-agent-tools). Both are set with plain
+     setq / literal format: safe because the template variable is vulpea's
+     own defcustom and defcustom never clobbers an existing binding
+     (load-order-independent).
+   why_it_matters: |
+     The existing corpus follows the dash convention
+     (e.g. 20260813104944-vulpea_org_graph_spike.org, org-roam's style);
+     leaving vulpea's underscore default would fork the filename style the
+     first time a human creates a note through find-or-create, splitting
+     the corpus into two conventions for no reason. And because TWO
+     producers carry the convention independently (the template setq and
+     write-node's format string), a future "cleanup" of either one alone
+     silently forks agent-created from human-created filenames — the
+     cross-producer agreement is exactly what no per-site test would
+     notice. Slug-INTERNAL style is explicitly NOT pinned here: vulpea's
+     ${slug} uses underscores within the slug, tools.el's slug helper uses
+     dashes; only the separator between timestamp and slug is the shared
+     convention.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/discovery-spec.el (vault-root-discovery task):
+       asserts vulpea-create-default-template carries :file-name
+       "${timestamp}-${slug}.org". Grep audit for the agent side:
+       grep -n '%s-%s.org' config/org-graph/tools.el.
+     notes: |
+       The soft-dependency block in discovery.org gains
+       (defvar vulpea-create-default-template) alongside the existing
+       declarations.
+   related_entries:
+     - register/boundary/vault-root-vs-roam-root
+     - register/boundary/authoring-commands-delegation
+     - register/boundary/org-graph-agent-tools
+   discovered_from: vulpea-human-commands (vault-root-discovery task)
+   discovered_by: architect
+   #+end_src
+
+** spc-v-binding-evil-guarded
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-spc-v-binding-evil-guarded
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/spc-v-binding-evil-guarded
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: SPC v is installed by the menu module, guarded on evil; evil.org stays untouched
+   statement: |
+     The org-graph menu's SPC v binding is installed by menu.el itself, via
+     (with-eval-after-load 'evil
+       (evil-define-key 'normal 'global (kbd "<SPC> v") #'org-graph-menu))
+     — config/core/evil.org is NOT modified by this change. Loading
+     org-graph in a session without evil completes without error and
+     leaves org-graph-menu reachable via M-x (the with-eval-after-load
+     form is inert until evil loads). SPC v is verified unbound in
+     config/core/evil.el as of 2026-08-13 (the only "v" binding is inside
+     my-window-command-map, i.e. SPC w v — no conflict).
+   why_it_matters: |
+     Keeps org-graph self-contained while it is still a spike: rollback is
+     "remove authoring/menu from the loader and revert two org files"
+     (design.md Migration Plan) — a binding landed centrally in evil.org
+     would survive the rollback as a dangling reference to a deleted
+     command. The graceful-degradation half is a spec requirement
+     (org-graph-menu spec, "Absent evil degrades gracefully"): an unguarded
+     evil-define-key at load would hard-error any evil-less boot (batch
+     tests included). Revisit central placement if the module graduates
+     (design.md D6 alternative).
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/menu-spec.el (menu-module task): binding
+       installed when evil present; evil-absent load is clean and
+       org-graph-menu is commandp. Grep audit:
+       grep -n "SPC" config/core/evil.el shows no "v" addition;
+       grep -n "with-eval-after-load 'evil" config/org-graph/menu.el shows
+       the guard.
+     notes: |
+       Load-order note: transient must load before the menu module —
+       satisfied structurally because init.org loads "transient" early in
+       jf/enabled-modules and menu.el loads last inside org-graph
+       (register/invariant/org-graph-loader-ordered-sequence).
+   related_entries:
+     - register/invariant/org-graph-loader-ordered-sequence
+     - register/boundary/note-at-point-resolution
+   discovered_from: vulpea-human-commands (menu-module task)
    discovered_by: architect
    #+end_src
 

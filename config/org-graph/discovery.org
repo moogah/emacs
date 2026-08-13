@@ -55,11 +55,31 @@ document the external contract this module consumes.
 (declare-function workspace--sessions-dir "workspace-data-model" (home))
 
 (defvar vulpea-db-sync-directories)
+(defvar vulpea-default-notes-directory)
 (declare-function vulpea-db-autosync-mode "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-sync-full-scan "vulpea-db-sync" (&optional arg))
 (declare-function vulpea-db-query "vulpea-db-query" (&optional predicate))
 (declare-function vulpea-note-id "vulpea-db" (note))
 (declare-function vulpea-note-path "vulpea-db" (note))
+#+end_src
+
+* Default notes directory
+
+Where =vulpea-create= (and therefore the create-on-miss paths of
+=vulpea-find= / =vulpea-insert=) puts new notes.  Without this, vulpea
+falls back to the *first* entry of =vulpea-db-sync-directories= — which
+is empty until =org-graph/configure-sync= has run in the session, so new
+notes would silently land in =org-directory=.  Pinning it makes note
+creation boot-order-independent.
+
+Set with plain =setq= (not a defcustom of our own): the variable is
+vulpea's own defcustom, and =defcustom= does not clobber an existing
+binding, so this is safe regardless of whether vulpea loads before or
+after this module.
+
+#+begin_src emacs-lisp
+(setq vulpea-default-notes-directory
+      (file-name-as-directory (expand-file-name "~/org")))
 #+end_src
 
 * Workspace homes from the registry
