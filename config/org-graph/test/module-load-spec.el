@@ -35,17 +35,20 @@
 ;; fail.  This is what makes the guard meaningful rather than a tautology.
 ;;
 ;; DB-free load contract: `(require 'org-graph)' must not open the vulpea
-;; DB.  The two DB-touching registrations (the typed-edge extractor, which
-;; applies its schema, and the discovery `org-id-locations' seed) are
-;; deferred by the loader to `emacs-startup-hook' (both wired by the
-;; loader through the shared `org-graph--run-deferred-op' idiom), which
-;; does NOT run under `-batch'.  So the guard asserts the DEFERRALS
-;; differently from the others: it checks the loader WIRED
-;; `org-graph--register-extractor' and
-;; `org-graph--seed-org-id-locations-deferred' onto `emacs-startup-hook',
-;; then drives the extractor function directly with the vulpea DB
-;; boundary stubbed (`cl-letf', function-scoped) and asserts the
-;; extractor landed.  No live SQLite DB or fswatch is required.
+;; DB.  The three DB-touching ops (the typed-edge extractor, which
+;; applies its schema; the boot sync configuration, which enables
+;; autosync and triggers a full scan; and the discovery
+;; `org-id-locations' seed) are deferred by the loader to
+;; `emacs-startup-hook' (all wired by the loader through the shared
+;; `org-graph--run-deferred-op' idiom), which does NOT run under
+;; `-batch'.  So the guard asserts the DEFERRALS differently from the
+;; others: it checks the loader WIRED `org-graph--register-extractor',
+;; `org-graph--configure-sync-deferred', and
+;; `org-graph--seed-org-id-locations-deferred' onto `emacs-startup-hook'
+;; in runtime order extractor -> configure-sync -> seed (design D5), then
+;; drives the wired functions directly with the vulpea DB boundary
+;; stubbed (`cl-letf', function-scoped) and asserts the effects landed.
+;; No live SQLite DB or fswatch is required.
 ;;
 ;; Test process note: `make' runs specs via `EMACS_TEST_BATCH', which
 ;; loads `init.el'.  So `jf/load-module'/`jf/emacs-dir' are defined (the
@@ -150,23 +153,44 @@
     ;; asserts the extractor landed.  (This is the point-C resolution of
     ;; the registration-touches-DB tension.)
 
-    (it "wires both DB-touching deferrals onto emacs-startup-hook (deferred, not eager at load)"
-      ;; The loader added the DB-touching registrations to the post-init
-      ;; seam instead of calling them at load -- this is the "not run at
+    (it "wires all three DB-touching deferrals onto emacs-startup-hook (deferred, not eager at load)"
+      ;; The loader added the DB-touching ops to the post-init seam
+      ;; instead of calling them at load -- this is the "not run at
       ;; module-load" evidence (the seam does not fire under -batch).
-      ;; The loader owns BOTH deferrals (extractor registration + the
-      ;; discovery org-id-locations seed) through the shared resilient
-      ;; idiom `org-graph--run-deferred-op'; each stays a NAMED function
-      ;; on the hook so this membership check (and idempotent re-load)
-      ;; keeps working.
+      ;; The loader owns ALL THREE deferrals (extractor registration +
+      ;; boot sync configuration + the discovery org-id-locations seed)
+      ;; through the shared resilient idiom `org-graph--run-deferred-op';
+      ;; each stays a NAMED function on the hook so this membership check
+      ;; (and idempotent re-load) keeps working.
       (expect (fboundp 'org-graph--register-extractor) :to-be-truthy)
       (expect (memq #'org-graph--register-extractor emacs-startup-hook)
+              :to-be-truthy)
+      (expect (fboundp 'org-graph--configure-sync-deferred) :to-be-truthy)
+      (expect (memq #'org-graph--configure-sync-deferred emacs-startup-hook)
               :to-be-truthy)
       (expect (fboundp 'org-graph--seed-org-id-locations-deferred)
               :to-be-truthy)
       (expect (memq #'org-graph--seed-org-id-locations-deferred
                     emacs-startup-hook)
               :to-be-truthy))
+
+    (it "runs the deferrals in order extractor -> configure-sync -> org-id seed (D5)"
+      ;; `emacs-startup-hook' runs its elements front-to-back, so list
+      ;; position IS runtime order.  Sync configuration must run before
+      ;; the seed so a first-ever boot seeds from a DB that is at least
+      ;; being populated; the extractor registers first so the scan
+      ;; extracts typed edges.  (`add-hook' without APPEND pushes to the
+      ;; front, so the loader adds them in the REVERSE textual order.)
+      (let ((extractor (seq-position emacs-startup-hook
+                                     #'org-graph--register-extractor))
+            (sync (seq-position emacs-startup-hook
+                                #'org-graph--configure-sync-deferred))
+            (seed (seq-position emacs-startup-hook
+                                #'org-graph--seed-org-id-locations-deferred)))
+        (expect extractor :to-be-truthy)
+        (expect sync :to-be-truthy)
+        (expect seed :to-be-truthy)
+        (expect (< extractor sync seed) :to-be-truthy)))
 
     (it "org-graph--run-deferred-op logs a failing op as a warning and never signals"
       ;; The resilience contract every deferral inherits: a failing op
@@ -206,6 +230,52 @@
         ;; the typed_edges schema is present in the registered set
         (expect (assq 'typed_edges (vulpea-extractor-schema ex))
                 :to-be-truthy))))
+
+  ;; --- Step 4a: boot sync configuration DEFERRED + wired (D5) ----------
+
+  (describe "boot sync configuration deferred to post-init, wired by the loader"
+
+    ;; `org-graph/configure-sync' enables `vulpea-db-autosync-mode' and
+    ;; triggers an async full scan -- DB-touching, so the loader defers it
+    ;; to `emacs-startup-hook' like the other two ops (hook membership and
+    ;; runtime order are asserted in step 4 above).  Drive the wired
+    ;; function directly with the vulpea sync boundary stubbed.
+
+    (it "the wired deferral drives org-graph/configure-sync against the bounded roots"
+      (let ((vulpea-db-sync-directories 'untouched)
+            autosync-args
+            (scan-count 0))
+        (cl-letf (((symbol-function 'vulpea-db-autosync-mode)
+                   (lambda (&optional arg) (push arg autosync-args)))
+                  ((symbol-function 'vulpea-db-sync-full-scan)
+                   (lambda (&rest _) (cl-incf scan-count))))
+          (org-graph--configure-sync-deferred))
+        ;; sync directories point at the bounded discovery roots
+        ;; (register/invariant/bounded-discovery-roots)
+        (expect vulpea-db-sync-directories
+                :to-equal (org-graph/index-roots))
+        ;; autosync enabled exactly once, and the initial full scan fired
+        (expect autosync-args :to-equal '(1))
+        (expect scan-count :to-equal 1)))
+
+    (it "reports a failing sync configuration as a warning and never signals"
+      ;; Same resilience contract as the other two deferrals: a failure
+      ;; (e.g. missing/unbuilt DB at startup) is reported via
+      ;; `display-warning' with the "sync configuration skipped" tag and
+      ;; must NOT propagate out of the hook function.
+      (let (warnings)
+        (cl-letf (((symbol-function 'org-graph/configure-sync)
+                   (lambda () (error "DB not built")))
+                  ((symbol-function 'display-warning)
+                   (lambda (type message &optional level &rest _)
+                     (push (list type message level) warnings))))
+          (expect (org-graph--configure-sync-deferred) :not :to-throw))
+        (expect (length warnings) :to-equal 1)
+        (pcase-let ((`(,type ,message ,level) (car warnings)))
+          (expect type :to-be 'org-graph)
+          (expect message :to-match "\\`sync configuration skipped: ")
+          (expect message :to-match "DB not built")
+          (expect level :to-be :warning)))))
 
   ;; --- Step 5: gptel agent tools registered ----------------------------
 
