@@ -83,3 +83,49 @@ The two existing deferred ops in `org-graph.org` — shared guard body,
 design.md § Decisions 'D5 — Third deferred startup op: configure-sync'
 specs/org-graph/spec.md § 'Workspace-Substrate Discovery' scenarios 'Note added during a session…' and 'Externally modified file…'
 config/org-graph/docs/spike-eval.org § 'Boot model and the reload caveat'
+
+## Observations
+
+- The task body's cited `add-hook` line numbers (org-graph.el:133 / :144)
+  were stale on this branch: after the vault-root-discovery and
+  authoring-module merges the seed add sits at :143 and the extractor add
+  at :154. The structural instruction ("slot the new add-hook between the
+  existing two") was unambiguous and correct — consistent with the
+  register entry's own count-drift warning to trust names/structure over
+  stale numbers. No follow-up needed.
+- The new hook-order spec asserts RELATIVE positions on
+  `emacs-startup-hook` (`seq-position`, extractor < configure-sync <
+  seed) rather than absolute list contents, because the test process
+  loads `init.el` and other modules also register startup-hook entries.
+  Runtime order is list order (front-to-back), so relative position is
+  the exact property D5 pins.
+- The configure-sync drive spec stubs `vulpea-db-autosync-mode` /
+  `vulpea-db-sync-full-scan` and let-binds `vulpea-db-sync-directories`,
+  then compares the result against a live `(org-graph/index-roots)` call
+  in the same process — deterministic there, and it exercises the real
+  bounded-roots wiring rather than a hardcoded root list.
+
+## Discoveries
+
+- discovery_id: disc-boot-sync-deferral-1
+  class: spec-signal
+  description: |
+    The speculated deferred-ops amendment of
+    register/invariant/org-graph-loader-ordered-sequence held exactly as
+    re-stated: the deferral set grew two -> three via
+    org-graph--configure-sync-deferred delegating to the shared
+    org-graph--run-deferred-op guard (warning tag "sync configuration
+    skipped"); the add-hook-without-APPEND push-to-front mechanism means
+    the new add-hook line sits textually BETWEEN the seed add and the
+    extractor add, yielding runtime order extractor -> configure-sync ->
+    org-id seed (asserted by a new relative-position spec in
+    module-load-spec.el); cold (require 'org-graph) stays DB-free — only
+    the hook registration happens at load. bounded-discovery-roots also
+    held: the drive spec asserts vulpea-db-sync-directories lands on
+    (org-graph/index-roots) exactly.
+  affected_register_entry: register/invariant/org-graph-loader-ordered-sequence
+  recommendation: |
+    No re-statement needed from this task; the deferred-ops clause of the
+    entry can be confirmed as written once the sibling tasks
+    (authoring-module already merged; menu-module pending for the
+    eleven-module count) land.

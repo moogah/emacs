@@ -142,6 +142,18 @@ than aborting startup."
 
 (add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
 
+(defun org-graph--configure-sync-deferred ()
+  "Run sync configuration once, resiliently, for `emacs-startup-hook'.
+`org-graph/configure-sync' points `vulpea-db-sync-directories' at the
+bounded discovery roots, enables `vulpea-db-autosync-mode', and
+triggers an async full scan -- all DB-touching, so it is deferred out
+of module-load time (load stays DB-free).  Failures are reported via
+`display-warning' rather than aborting startup."
+  (org-graph--run-deferred-op #'org-graph/configure-sync
+                              "sync configuration"))
+
+(add-hook 'emacs-startup-hook #'org-graph--configure-sync-deferred)
+
 (defun org-graph--register-extractor ()
   "Register the org-graph typed-edge extractor with vulpea, resiliently.
 Wraps `org-graph-extractor-register' (which applies the `typed_edges'

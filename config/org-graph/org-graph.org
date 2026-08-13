@@ -346,12 +346,15 @@ over what =finders= see (and hard-requires =vulpea=, like =finders=);
 =tools= layers on =query= and =coordinator=; =workspace-integration=
 consumes =org-graph/agent-tools=.
 
-Module load stays *DB-free*.  The two registrations that open the vulpea
-DB — the discovery =org-id-locations= seed (=vulpea-db-query=) and the
+Module load stays *DB-free*.  The three ops that open the vulpea DB —
+the discovery =org-id-locations= seed (=vulpea-db-query=), the
 typed-edge extractor (=vulpea-db-register-extractor= applies the
-=typed_edges= schema) — are NOT run at load: the loader defers both to
-=emacs-startup-hook= in the [[#deferred-registrations][Deferred
-DB-touching registrations]] section below.  The DB-free registrations
+=typed_edges= schema), and the boot sync configuration
+(=org-graph/configure-sync= enables =vulpea-db-autosync-mode= and
+triggers an async full scan) — are NOT run at load: the loader defers
+all three to =emacs-startup-hook= in the
+[[#deferred-registrations][Deferred DB-touching registrations]] section
+below.  The DB-free registrations
 (schemas register in memory at load; gptel tools register at load when
 gptel is present; =workspace-integration= attaches via
 =with-eval-after-load=) all fire as their files load.
@@ -374,21 +377,32 @@ gptel is present; =workspace-integration= attaches via
 :CUSTOM_ID: deferred-registrations
 :END:
 
-The loader owns BOTH post-init deferrals, through one shared idiom.  The
-two DB-touching ops — the discovery =org-id-locations= seed
-(=org-graph/seed-org-id-locations= calls =vulpea-db-query=) and the
+The loader owns ALL THREE post-init deferrals, through one shared
+idiom.  The three DB-touching ops — the discovery =org-id-locations=
+seed (=org-graph/seed-org-id-locations= calls =vulpea-db-query=), the
 typed-edge extractor registration (=org-graph-extractor-register=
 applies the =typed_edges= schema via =vulpea-db-register-extractor= →
-=vulpea-db--apply-plugin-schema=) — would each break the DB-free-load
+=vulpea-db--apply-plugin-schema=), and the boot sync configuration
+(=org-graph/configure-sync= sets =vulpea-db-sync-directories= to the
+bounded =org-graph/index-roots=, enables =vulpea-db-autosync-mode=,
+and triggers an async full scan) — would each break the DB-free-load
 contract (and the cold-load guard) if run at module-load time
 (USER-RESOLVED decision =ask-cycle-1782570180-1=: defer to post-init).
-Both are deferred to =emacs-startup-hook= — the post-init seam that,
+All are deferred to =emacs-startup-hook= — the post-init seam that,
 unlike =after-init-hook=, runs AFTER this config's =-q --load init.el=
 command-line actions (see =bin/emacs-isolated.sh=; matches
 =config/look-and-feel/themes.el=).  In =-batch= no startup hook runs, so
 a bare =(require 'org-graph)= opens no DB — the cold-load guard
 (=config/org-graph/test/module-load-spec.el=) verifies the wiring and
 drives the wired functions directly with the DB boundary stubbed.
+
+Runtime order on the hook is load-bearing (design D5): extractor
+registration → configure-sync → org-id seed — sync configuration runs
+before the seed so a first-ever boot seeds from a DB that is at least
+being populated (the seed still reads whatever rows exist).  =add-hook=
+without APPEND pushes to the FRONT of the hook, so the runtime order is
+the *reverse* of the textual =add-hook= order below: the seed is added
+first, configure-sync second, the extractor registration last.
 
 Each deferral stays a *named* function on the hook (not a closure): the
 guard asserts membership by name, =add-hook= stays idempotent across
@@ -430,6 +444,30 @@ than aborting startup."
                               "org-id-locations seed"))
 
 (add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
+#+end_src
+
+Without this op nothing enables vulpea autosync on a normal boot — the
+DB stays frozen at the last manual re-index, while the spec's Discovery
+requirement promises save-time pickup and external-change detection
+(spike-eval finding, 2026-08-13).  =org-graph/configure-sync='s own
+behaviour is unit-tested in =discovery-spec.el=; this wrapper's only job
+is post-init resilience.  Known limits, unchanged: a mid-session
+=jf/reload-module= does not re-fire startup-hook ops, and roots added
+mid-session (new workspaces) still get only the =:on-create= one-shot —
+the menu's Maintain → re-index entry remains the manual recovery path.
+
+#+begin_src emacs-lisp
+(defun org-graph--configure-sync-deferred ()
+  "Run sync configuration once, resiliently, for `emacs-startup-hook'.
+`org-graph/configure-sync' points `vulpea-db-sync-directories' at the
+bounded discovery roots, enables `vulpea-db-autosync-mode', and
+triggers an async full scan -- all DB-touching, so it is deferred out
+of module-load time (load stays DB-free).  Failures are reported via
+`display-warning' rather than aborting startup."
+  (org-graph--run-deferred-op #'org-graph/configure-sync
+                              "sync configuration"))
+
+(add-hook 'emacs-startup-hook #'org-graph--configure-sync-deferred)
 #+end_src
 
 #+begin_src emacs-lisp
