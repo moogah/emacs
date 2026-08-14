@@ -7,7 +7,12 @@ prompt* at the end.
 
 org-graph is a *spike*: a layered graph/agent surface over the durable
 concept vault (=~/org/roam/=) that plugs into the =workspaces= substrate
-and runs alongside org-roam without touching it.  The point of this
+and runs alongside org-roam without touching it.  /Annotation
+(vulpea-human-commands):/ discovery and note placement have since
+widened to the vault root =~/org/= (typed-edge extraction and agent
+writes stay roam-gated), and the side-by-side framing is superseded —
+vulpea now replaces org-roam and interop is an explicit non-goal (see
+the Coexistence section).  The point of this
 window is to learn what is actually load-bearing before committing to a
 long-term shape (see =openspec/changes/org-graph-spike/proposal.md=).
 Every resolved design decision (=RE-1=..=RE-6=, =RE-2a=) should get
