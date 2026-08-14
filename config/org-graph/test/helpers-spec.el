@@ -23,6 +23,7 @@
 ;; 3. `org-graph-test/with-stubbed-vulpea'- scoped vulpea API stubs
 ;; 4. `org-graph-test/note-fixture'       - a `vulpea-note'-shaped value
 ;; 5. `org-graph-test/link-plist'         - a vulpea link plist
+;; 6. `org-graph-test/capture-call'       - scoped stub-and-capture of one call
 
 ;;; Code:
 
@@ -210,6 +211,19 @@ link-kind \"id\" (NOT a semantic relation type — semantic relations
 live only in the org-graph typed_edges index)."
   (list :source source :dest dest :type type :pos pos :description description))
 
+;;; 6. scoped call capture
+
+(defun org-graph-test/capture-call (target thunk)
+  "Invoke THUNK with function TARGET stubbed; return (CALLED-P . ARGS).
+TARGET is shadowed for the dynamic extent via `cl-letf' so no
+completion UI or DB access occurs; ARGS is the argument list of the
+\(single) capture."
+  (let (called args)
+    (cl-letf (((symbol-function target)
+               (lambda (&rest a) (setq called t args a) nil)))
+      (funcall thunk))
+    (cons called args)))
+
 ;;; Self-tests: prove each helper produces the expected shape.
 
 (describe "org-graph-test/build-tree"
@@ -315,6 +329,21 @@ live only in the org-graph typed_edges index)."
       (expect (plist-get link :source) :to-equal "a")
       (expect (plist-get link :dest) :to-equal "b")
       (expect (plist-get link :type) :to-equal "id"))))
+
+(describe "org-graph-test/capture-call"
+  (it "captures the stubbed target's call and args without invoking it"
+    (let ((capture (org-graph-test/capture-call
+                    'org-graph-test--capture-call-probe
+                    (lambda ()
+                      (org-graph-test--capture-call-probe :a 1)))))
+      (expect (car capture) :to-be-truthy)
+      (expect (cdr capture) :to-equal '(:a 1))))
+  (it "reports no call when the thunk never invokes the target"
+    (let ((capture (org-graph-test/capture-call
+                    'org-graph-test--capture-call-probe
+                    #'ignore)))
+      (expect (car capture) :to-be nil)
+      (expect (cdr capture) :to-be nil))))
 
 ;;; Provide
 

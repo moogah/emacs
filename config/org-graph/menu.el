@@ -87,8 +87,11 @@ buffer (see `org-graph-menu--render-edges')."
 (defun org-graph/edges-connected-at-point ()
   "Show every typed edge touching the note at point, both directions.
 Resolves the subject via `org-graph-menu--note-id-at-point' and
-renders an Outgoing and an Incoming section (one directional query
-each — their union is exactly `org-graph-query/connected')."
+renders an Outgoing and an Incoming section, deliberately issuing the
+two directional queries instead of `org-graph-query/connected': the
+renderer needs per-direction far-end attribution, which a flat union
+cannot supply for a self-edge.  Read-time enrichment added to
+`org-graph-query/connected' must be mirrored here."
   (interactive)
   (let ((id (org-graph-menu--note-id-at-point)))
     (org-graph-menu--render-edges

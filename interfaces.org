@@ -6869,7 +6869,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        function: org-graph-query/outgoing | /incoming | /connected
    consumers:
      - file: config/org-graph/tools.el
-       function: gptel graph-read tools (speculated, gptel-tools task, next cycle)
+       function: org-graph-tools--query-edges -> org_graph_query_edges gptel tool (shipped; connected keeps its live caller at tools.el:89)
+     - file: config/org-graph/menu.el
+       function: |
+         org-graph/edges-outgoing-at-point | /edges-incoming-at-point call the
+         directional pair; org-graph/edges-connected-at-point (shipped,
+         vulpea-human-commands) deliberately composes outgoing+incoming
+         instead of calling connected — the renderer needs per-direction
+         far-end attribution a flat union cannot supply for a self-edge.
+         COUPLING NOTE (arch-cycle-1786636086-eoc-1): read-time enrichment
+         added to connected (query-inverse-symmetric) must be mirrored in the
+         menu view or connected must grow direction-attributed output; see
+         .tasks/route-menu-connected-through-canonical-query.md.
    related_entries:
      - register/shape/typed-edge-tuple
      - register/vocabulary/relation-types
@@ -7334,7 +7345,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/note-at-point-resolution
    tier: boundary
-   status: speculated
+   status: reconciled
+   status_note: |
+     cycle-1786636086 integrate: SPECULATED -> RECONCILED (menu-module).
+     Implementor discovery disc-menu-module-1 and the author-blind reviewer
+     (Finding 3, spec-signal) independently converged: the entry's three
+     constraints (signal-on-nil, validate front door may prompt instead, no
+     second inlined org-entry-get) are only jointly satisfiable if the ONE
+     shared resolver can be asked not to signal. Signature widened to
+     "(&optional noerror)"; nil is returned ONLY under noerror, and the sole
+     noerror caller is the validate front door. The never-query-nil teeth are
+     unchanged and execution-tested. Reconciliation note:
+     .orchestrator/cycles/cycle-1786636086/reconciliations/note-at-point-resolution.md.
    load_bearing: false
    title: one shared note-at-point ID resolver; nil is a user-error, never a silent empty query
    purpose: |
@@ -7347,16 +7369,25 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (user-error "No note with an :ID: at point") — commands MUST NOT query
      with a nil/empty id (a nil id against typed_edges returns an empty
      result that is indistinguishable from "no edges", masking the user's
-     real situation). Every menu context command calls this helper; a second
-     inlined org-entry-get (especially one missing the INHERIT flag, which
-     would silently skip file-level IDs) is a duplication bug. Kin to the
+     real situation). The single deliberate exception: a caller that will NOT
+     query but instead falls through to another interaction (the validate
+     front door's prompt-for-type path) may pass NOERROR to receive nil
+     instead of the signal — it must never pass that nil onward as a query
+     id. Every menu context command calls this helper; a second inlined
+     org-entry-get (especially one missing the INHERIT flag, which would
+     silently skip file-level IDs) is a duplication bug. Kin to the
      extractor-side register/invariant/enclosing-node-attribution, but this
      resolver is buffer/point-based (org-entry-get), not org-element-lineage
      based — the two serve different layers and do NOT share code.
    functions:
      - name: org-graph-menu--note-id-at-point
-       signature: "() -> id string | signals user-error"
-       notes: inherited property lookup; no DB access; pure buffer-state read.
+       signature: "(&optional noerror) -> id string | nil (only when noerror) | signals user-error"
+       notes: |
+         inherited property lookup; no DB access; pure buffer-state read.
+         nil return exists only for the noerror mode; the three edge-query
+         commands call argument-less and keep the signal-on-nil guarantee
+         (menu-spec asserts the query is never reached with a nil id). Sole
+         noerror caller: org-graph/validate-note-at-point-or-prompt.
    producers:
      - file: config/org-graph/menu.el
        function: org-graph-menu--note-id-at-point (speculated, menu-module task)

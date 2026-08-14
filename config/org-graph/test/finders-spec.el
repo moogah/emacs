@@ -42,13 +42,10 @@
 
 (defun org-graph-test--capture-find-args (thunk)
   "Invoke THUNK with `vulpea-find' stubbed; return the captured args plist.
-THUNK is a finder command.  `vulpea-find' is shadowed for the dynamic
-extent so no completion UI or DB access occurs."
-  (let (captured)
-    (cl-letf (((symbol-function 'vulpea-find)
-               (lambda (&rest args) (setq captured args) nil)))
-      (funcall thunk))
-    captured))
+THUNK is a finder command.  Thin wrapper over the shared
+`org-graph-test/capture-call' (helpers-spec.el), hardwired to
+`vulpea-find'."
+  (cdr (org-graph-test/capture-call 'vulpea-find thunk)))
 
 (defun org-graph-test--capture-filter (thunk)
   "Return the `:filter-fn' a finder THUNK passes to `vulpea-find'."

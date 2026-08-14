@@ -34,17 +34,6 @@
   (require 'org-graph-test-helpers (expand-file-name "helpers-spec.el" test-dir))
   (require 'org-graph-authoring (expand-file-name "authoring.el" module-dir)))
 
-(defun org-graph-test--capture-call (target thunk)
-  "Invoke THUNK with function TARGET stubbed; return (CALLED-P . ARGS).
-TARGET is shadowed for the dynamic extent via `cl-letf' so no
-completion UI or DB access occurs; ARGS is the argument list of the
-\(single) capture."
-  (let (called args)
-    (cl-letf (((symbol-function target)
-               (lambda (&rest a) (setq called t args a) nil)))
-      (funcall thunk))
-    (cons called args)))
-
 (describe "org-graph authoring commands (thin vulpea wrappers)"
 
   (describe "org-graph/find-or-create"
@@ -53,7 +42,7 @@ completion UI or DB access occurs; ARGS is the argument list of the
       (expect (commandp #'org-graph/find-or-create) :to-be-truthy))
 
     (it "delegates to vulpea-find with :require-match nil"
-      (let* ((capture (org-graph-test--capture-call
+      (let* ((capture (org-graph-test/capture-call
                        'vulpea-find #'org-graph/find-or-create))
              (args (cdr capture)))
         (expect (car capture) :to-be-truthy)
@@ -61,7 +50,7 @@ completion UI or DB access occurs; ARGS is the argument list of the
         (expect (plist-get args :require-match) :to-be nil)))
 
     (it "passes no :filter-fn -- completion covers every indexed note"
-      (let ((args (cdr (org-graph-test--capture-call
+      (let ((args (cdr (org-graph-test/capture-call
                         'vulpea-find #'org-graph/find-or-create))))
         (expect (plist-member args :filter-fn) :to-be nil))))
 
@@ -71,7 +60,7 @@ completion UI or DB access occurs; ARGS is the argument list of the
       (expect (commandp #'org-graph/insert-link) :to-be-truthy))
 
     (it "delegates to vulpea-insert with no arguments"
-      (let ((capture (org-graph-test--capture-call
+      (let ((capture (org-graph-test/capture-call
                       'vulpea-insert #'org-graph/insert-link)))
         (expect (car capture) :to-be-truthy)
         (expect (cdr capture) :to-be nil)))))
