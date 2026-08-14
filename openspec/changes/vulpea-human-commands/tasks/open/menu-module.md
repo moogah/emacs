@@ -2,7 +2,8 @@
 name: menu-module
 description: New menu module — edge-at-point commands, org-graph-menu transient, SPC v evil binding
 change: vulpea-human-commands
-status: blocked
+status: done
+merge_commit: b17ea7c7
 relations:
   - blocked-by:boot-sync-deferral
   - enables:runbook-and-verify

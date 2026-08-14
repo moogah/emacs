@@ -58,10 +58,6 @@
   (require 'org-graph-discovery (expand-file-name "discovery.el" module-dir))
   (require 'org-graph-menu (expand-file-name "menu.el" module-dir)))
 
-;; Owned by the loader defcustom; declared special so a lean process
-;; falls back cleanly (the schemas module guards with boundp).
-(defvar org-graph-note-types)
-
 (defconst org-graph-menu-spec--module-dir
   (expand-file-name ".."
                     (file-name-directory (or load-file-name buffer-file-name)))

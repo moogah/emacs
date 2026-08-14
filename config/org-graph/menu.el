@@ -7,7 +7,7 @@
 (declare-function org-graph-query/incoming "org-graph-query" (to-id &optional rel-type))
 (declare-function org-graph/validate-note-type "org-graph-schemas" (note))
 (declare-function org-graph/validate-all-of-type "org-graph-schemas" (type))
-(defvar org-graph-note-types)
+(declare-function org-graph-schemas--note-types "org-graph-schemas" ())
 
 (defun org-graph-menu--note-id-at-point (&optional noerror)
   "Return the :ID: governing point, or signal `user-error'.
@@ -38,8 +38,10 @@ far-end id as fallback."
       (let* ((far-id (plist-get edge far-key))
              (note (plist-get edge :note))
              (desc (or (and note (vulpea-note-title note)) far-id)))
-        (insert (format "- %s :: [[id:%s][%s]]\n"
-                        (plist-get edge :rel) far-id desc))))))
+        (insert (format "- %s :: %s\n"
+                        (plist-get edge :rel)
+                        (org-link-make-string (concat "id:" far-id)
+                                              desc)))))))
 
 (defun org-graph-menu--render-edges (subject-id sections)
   "Render SECTIONS of typed edges for SUBJECT-ID and display the buffer.
@@ -105,8 +107,8 @@ each — their union is exactly `org-graph-query/connected')."
   "Validate the note at point; with no note at point, validate a whole type.
 Thin interactive front door over the schemas module: point inside an
 ID-bearing note validates that note via `org-graph/validate-note-type';
-otherwise prompt for a type from `org-graph-note-types' and run
-`org-graph/validate-all-of-type'.  No validation logic lives here."
+otherwise prompt for a type from `org-graph-schemas--note-types' and
+run `org-graph/validate-all-of-type'.  No validation logic lives here."
   (interactive)
   (let ((id (org-graph-menu--note-id-at-point 'noerror)))
     (if id
@@ -118,7 +120,7 @@ otherwise prompt for a type from `org-graph-note-types' and run
            (org-graph/validate-note-type note)))
       (let ((type (intern (completing-read
                            "Validate all notes of type: "
-                           (mapcar #'symbol-name org-graph-note-types)
+                           (mapcar #'symbol-name (org-graph-schemas--note-types))
                            nil t))))
         (org-graph-menu--report-violations
          (format "note type `%s'" type)
