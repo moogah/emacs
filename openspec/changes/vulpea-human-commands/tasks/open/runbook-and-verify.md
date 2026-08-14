@@ -2,7 +2,8 @@
 name: runbook-and-verify
 description: Update spike-eval runbook for changed boot/root expectations; full test run and fresh-boot verification
 change: vulpea-human-commands
-status: blocked
+status: needs-review
+merge_commit: f4cf2b86
 relations:
   - blocked-by:menu-module
 ---
