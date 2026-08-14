@@ -32,22 +32,32 @@ exercised and stress-tested here; every open question (=OQ1=..=OQ5= in
 * Boot model and the reload caveat (read before the Discovery checks)
 
 org-graph keeps cold module load *DB-free*: =(require 'org-graph)= loads
-all eight submodules in canonical order but touches no database
+all eleven submodules in canonical order (ending with =menu=) but
+touches no database
 (invariant: =register/invariant/org-graph-loader-ordered-sequence=).
-Two DB-touching operations are therefore *deferred* to
+Three DB-touching operations are therefore *deferred* to
 =emacs-startup-hook= — which is the post-init seam under =emacs -q
---load init.el= (NOT =after-init-hook=):
+--load init.el= (NOT =after-init-hook=) — and run in this order:
 
 1. Typed-edge extractor *registration* — =org-graph--register-extractor=
    wraps =org-graph-extractor-register=, which applies the =typed_edges=
    schema and opens the vulpea DB.
-2. The =org-id-locations= *seed* — =org-graph--seed-org-id-locations-deferred=
+2. *Sync configuration* — =org-graph--configure-sync-deferred= wraps
+   =org-graph/configure-sync=, which points
+   =vulpea-db-sync-directories= at =(org-graph/index-roots)=, enables
+   =vulpea-db-autosync-mode=, and triggers an async full scan.
+   (Added by the =vulpea-human-commands= change: autosync is now live
+   from startup, no manual step.)
+3. The =org-id-locations= *seed* — =org-graph--seed-org-id-locations-deferred=
    wraps =org-graph/seed-org-id-locations=, which queries the vulpea DB.
 
-These two are only *wiring-tested* by the automated suite (the suite
-asserts they are on the hook and drives them with the DB stubbed); their
-actual firing against a real DB at real launch is NOT covered by tests.
-That is exactly why this runbook verifies them by hand below.
+All three delegate to the shared resilient guard
+=org-graph--run-deferred-op= (failures land in =*Warnings*=, startup
+never aborts).  They are only *wiring-tested* by the automated suite
+(the suite asserts they are on the hook and drives them with the DB
+stubbed); their actual firing against a real DB at real launch is NOT
+covered by tests.  That is exactly why this runbook verifies them by
+hand below.
 
 - [x] *Caveat acknowledged:* re-running =M-x jf/reload-module RET
   org-graph RET= mid-session does NOT re-run the two deferred ops (they
@@ -56,6 +66,11 @@ That is exactly why this runbook verifies them by hand below.
   (=M-x org-graph--register-extractor=, =M-x
   org-graph--seed-org-id-locations-deferred=).  Do not mistake a
   mid-session reload that "loses" registration for a registration bug.
+  - /Annotation (vulpea-human-commands):/ checked when there were *two*
+    deferred ops; the caveat now applies to all *three* — the new sync
+    configuration op included.  A mid-session reload also does NOT
+    re-run =org-graph--configure-sync-deferred=; call it directly (or
+    =M-x org-graph/configure-sync=) or restart to re-test it.
 
 * Live-session firing of deferred work (RE-2, loader invariant)
 
@@ -70,6 +85,13 @@ against a *real* DB on a normal boot.
   eval =(vulpea-db-get-extractor 'org-graph-typed-edges)= → non-nil.
   Non-nil means =emacs-startup-hook= fired and the extractor +
   =typed_edges= schema landed against the real vulpea DB.
+- [ ] *Sync configuration fired — autosync live from boot (new,
+  vulpea-human-commands).* From a fresh boot, with no manual step, eval
+  =(bound-and-true-p vulpea-db-autosync-mode)= → =t=, and eval
+  =(equal vulpea-db-sync-directories (org-graph/index-roots))= → =t=.
+  This proves =org-graph--configure-sync-deferred= fired on
+  =emacs-startup-hook= and =org-graph/configure-sync= landed against the
+  real DB.
 - [ ] *org-id seed ran — cross-workspace =id:= links resolve.* From a
   fresh boot (no manual re-index, no opening the target files first),
   follow an =id:= link that points from one workspace / =~/org/roam/=
@@ -78,20 +100,27 @@ against a *real* DB on a normal boot.
   This proves =org-graph/seed-org-id-locations= populated the global
   =org-id-locations= from the vulpea DB at startup.
 - [ ] *Warnings are clean.* Check the =*Warnings*= buffer after boot for
-  =org-id-locations seed skipped= or =typed-edge extractor registration
-  skipped= warnings (both deferred ops report failures via
-  =display-warning=, which writes to =*Warnings*=, NOT =*Messages*=).
-  Their absence means neither deferred op hit its resilient error guard.
+  =org-id-locations seed skipped=, =sync configuration skipped=, or
+  =typed-edge extractor registration skipped= warnings (all three
+  deferred ops report failures via =display-warning= through
+  =org-graph--run-deferred-op=, which writes to =*Warnings*=, NOT
+  =*Messages*=).  Their absence means no deferred op hit its resilient
+  error guard.
 
 * Capability: Discovery (vulpea-only) — RE-1, RE-2, RE-2a
 
 vulpea is the single index, fed *explicit, bounded* roots from the
-workspace registry plus =~/org/roam/= — never a wholesale =~/work= walk.
+workspace registry plus the vault root =~/org/= — never a wholesale
+=~/work= walk.  (/Updated by vulpea-human-commands:/ the seed root
+widened from =~/org/roam/= to the whole vault =~/org/=
+(=org-graph-vault-root=); =roam/= is covered as a subdirectory.
+Boundedness is unchanged — =register/invariant/bounded-discovery-roots=.)
 
 - [ ] *Roots are explicit and bounded.* Eval =(org-graph/index-roots)=.
-  The returned list contains =~/org/roam/= (=org-graph-roam-root=) and
-  the =:home= of each *active* workspace (=org-graph--active-workspace-homes=),
-  and nothing else.
+  The returned list contains =~/org/= (=org-graph-vault-root= — NOT the
+  narrower =~/org/roam/=, which it subsumes) and the =:home= of each
+  *active* workspace plus its =sessions/= subdir
+  (=org-graph--active-workspace-homes=), and nothing else.
 - [ ] *=~/work= is NOT walked wholesale.* Confirm =(org-graph/index-roots)=
   and =vulpea-db-sync-directories= do NOT contain =~/work/= or any bare
   project-repo root you did not create as a workspace.  (RE-1/RE-2: we
@@ -124,6 +153,26 @@ workspace registry plus =~/org/roam/= — never a wholesale =~/work= walk.
   - Record under *Findings*: is "indexed-at-birth + manual re-index on
     demand" acceptable ergonomically, or does =:on-create= need to
     trigger a full autosync *restart* so later notes are watched live?
+  - /Annotation (vulpea-human-commands):/ checked under the old boot
+    model (no autosync at startup).  The sub-check (a) expectation now
+    *splits by when the root joined the index*:
+    - For *boot-time* roots (the vault root and any workspace home that
+      existed at startup) the expectation CHANGES: autosync is live from
+      startup (=org-graph--configure-sync-deferred=), so a note added
+      under a boot-time root during the session IS picked up
+      automatically — see the new check below.
+    - For roots added *mid-session* (a workspace created during the
+      session) the old limitation is UNCHANGED: they get only the
+      =:on-create= one-shot index; later notes under them still need a
+      re-index (sub-check (b) still applies as written).
+- [ ] *Boot-time roots are watched live (new, vulpea-human-commands).*
+  From a fresh boot, WITHOUT creating any workspace, add a new note file
+  with an =:ID:= under a root that was indexed at boot (e.g. directly
+  under =~/org/= or =~/org/roam/=), save it, and WITHOUT any manual
+  step query for it (=M-x org-graph/find-any=, or eval
+  =(vulpea-db-query (lambda (n) (string-match-p "<basename>"
+  (vulpea-note-path n))))=).  It appears — autosync's save/filenotify
+  pickup is live from startup for boot-time roots.
 - [ ] *Integrations menu "G".*  From INSIDE a workspace (the Integrations
   group =user-error=s outside one, and the =org-graph= entry will be
   absent — that is expected, not a failure), open the workspaces
@@ -191,6 +240,15 @@ relates-to)= → keys =:IMPLEMENTS:= / =:CONTRADICTS:= / =:SUPERSEDES:= /
   =~/org/roam/= (e.g. in a workspace home).  Re-index, then query its id
   with =org-graph-query/outgoing= → returns nothing.  Extraction is
   gated to roam notes (=org-graph-extractor--roam-note-p=).
+- [ ] *Vault-top-level notes get NO typed edges either (D1/OQ-A,
+  vulpea-human-commands).*  The vault root =~/org/= is now *indexed*,
+  but typed-edge extraction stays gated to =org-graph-roam-root=
+  (=register/invariant/typed-edge-extraction-scope=).  On a note at
+  =~/org/= top level (outside =roam/=), author an =EDGES= drawer edge,
+  let vulpea re-index, then eval =(org-graph-query/outgoing "<its-id>")=
+  → returns nothing (zero =typed_edges= rows).  This is expected, not a
+  bug: concept notes carrying edges belong under =roam/= for now
+  (widening is deferred to the org-roam retirement change, OQ-A).
 
 * Capability: Agent surface — RE-5, register/boundary/org-graph-agent-tools
 
@@ -217,7 +275,10 @@ tools (snake_case =:name=s): =org_graph_query=, =org_graph_typed_edges=,
   assistant to create a new note via its write tool.  Open the created
   file: it carries the =agent-draft= filetag (=org-graph-tools/write-node=
   always adds it).  Confirm it surfaces in =M-x
-  org-graph/find-agent-drafts=.
+  org-graph/find-agent-drafts=.  Also confirm the created file lands
+  under =~/org/roam/= (=org-graph-roam-root=) — the agent write target
+  did NOT widen with the vault root (vulpea-human-commands keeps agent
+  writes roam-scoped).
 - [ ] *No file corruption under rapid calls (coordinator lock).*  Drive
   several rapid agent writes (or eval several =org-graph-tools/write-node=
   calls in quick succession, and/or repeated writes to the same target).
@@ -227,10 +288,67 @@ tools (snake_case =:name=s): =org_graph_query=, =org_graph_typed_edges=,
   =org-graph-coordinator-timeout=, default 5.0s, then signals
   =org-graph-coordinator-lock-timeout=).
 
+* Capability: Human commands & menu — vulpea-human-commands
+
+The human-side interaction surface added by the =vulpea-human-commands=
+change: a Transient menu on =SPC v= aggregating find / author / edges /
+maintain, plus the org-roam-equivalent authoring commands.  These stand
+alone on vulpea — they neither read from nor write to org-roam's DB.
+
+- [ ] *=SPC v= opens the menu.*  In a buffer in evil normal state,
+  press =SPC v=.  The =org-graph-menu= transient opens showing four
+  groups — Find (per-type finders + any + agent drafts), Author
+  (find-or-create, insert link), Edges (at point) (outgoing, incoming,
+  connected), Maintain (re-index, validate note type, doctor).  Each
+  entry dispatches the same command as its =M-x= name (the menu adds
+  discoverability, not divergent behavior).
+- [ ] *Find-or-create creates in the vault root, immediately live.*
+  Run =M-x org-graph/find-or-create= (or menu =f=) and submit a title
+  matching no indexed note.  A new file is created at =~/org/= (the
+  vault root, =vulpea-default-notes-directory=) named
+  =<timestamp>-<slug>.org= with that =#+title:= and a file-level
+  =:ID:=, and its buffer is selected.  Immediately (no re-index, no
+  save hook, no manual sync): re-invoking the command lists the new
+  note among candidates, and =(org-id-find "<its-id>")= resolves to the
+  new file.  Selecting an *existing* note's title instead just visits
+  it — no note created.
+- [ ] *Insert-link, region as description.*  In an org buffer, run
+  =M-x org-graph/insert-link= (or menu =i=) and select an existing
+  note: an =[[id:<uuid>][<title>]]= link is inserted at point,
+  described by the note's title.  Then select a region of text and
+  invoke it again: the region is replaced by the link and the region
+  text becomes the link description.  Submitting an unmatched title
+  creates the note first (same synchronous guarantees as
+  find-or-create) and links to it.
+- [ ] *Edge queries at point render =*org-graph-edges*=.*  With point
+  inside an ID-bearing note that has typed edges, invoke menu =o=
+  (outgoing), =n= (incoming), and =c= (connected) — or =M-x
+  org-graph/edges-outgoing-at-point= etc.  Each pops the
+  =*org-graph-edges*= buffer (read-only, org-mode) listing the edges as
+  =- <rel> :: [[id:...][<title>]]= items under a heading per direction;
+  =connected= shows both an Outgoing and an Incoming section.
+- [ ] *Edge query with no note at point =user-error=s.*  In a buffer
+  with no enclosing =:ID:= (e.g. =*scratch*=), invoke an edge query
+  from the menu.  It signals a clear =user-error= ("No note with an
+  :ID: at point") — no silent failure, no empty-ID query.
+- [ ] *Absent-evil degradation (only if testable).*  If you ever run a
+  session without evil: org-graph loads without error and
+  =M-x org-graph-menu= still opens the transient (the =SPC v= binding
+  is simply not installed).
+
 * Capability: Coexistence with org-roam — D8
 
 org-roam runs unchanged throughout; independent DBs, shared on-disk
 format.
+
+/Annotation (vulpea-human-commands):/ this change *supersedes* the
+side-by-side framing above — vulpea is now the replacement for
+org-roam, and org-roam interop is an explicit *non-goal*.  Drop the
+expectation that the two indices track each other (the vulpea index is
+fed by the vault root and workspace homes; org-roam's DB is on its own
+schedule and may drift — that drift is NOT a finding).  What still
+binds while org-roam remains installed is only the first check below:
+we must not *break* org-roam's UX during the transition.
 
 - [ ] *org-roam UX unchanged.*  Use =org-roam-node-find=,
   =org-roam-node-insert=, the backlinks buffer, and dailies as you
@@ -248,9 +366,15 @@ Answer these from real usage during the window, not pre-emptively.
   seed (=org-graph/seed-org-id-locations=) feel instant, or does startup
   visibly stall?  Confirm it does NOT trigger a recursive directory walk
   (it reads from =(vulpea-db-query)=, not the filesystem).  Note whether
-  a cheaper/lazier variant is warranted.
+  a cheaper/lazier variant is warranted.  /(vulpea-human-commands:/ the
+  boot-time =org-graph--configure-sync-deferred= now also triggers an
+  async full scan of the widened vault root (~1100 files) — watch for a
+  visible startup stall from it under the same OQ1 heading; vulpea 2.4
+  sync is async with smart change detection, so the expectation is no
+  stall.)
 - [ ] *OQ2 — Right default for watched roots per machine?*  Note whether
-  the active workspace homes + =~/org/roam/= scope feels right on this
+  the active workspace homes + =~/org/= vault-root scope
+  (/vulpea-human-commands:/ widened from =~/org/roam/=) feels right on this
   machine (apploi-mac vs personal-mac have different =~/work= shapes).
   Record whether a machine-role override in =config/local/<role>.el= is
   needed.
@@ -296,6 +420,7 @@ behaved unexpectedly, keyed by the =RE-= / =OQ-= identifier.)
 ** Taxonomy (RE-3)
 ** Typed edges (RE-4, D2, D3)
 ** Agent surface (RE-5)
+** Human commands & menu (vulpea-human-commands)
 ** Coexistence (D8)
 ** vulpea 2.4 maturity (RE-6: parser-epoch, schema-rebuild, async sync, vulpea-doctor)
 ** Deferred-op live-session firing (loader invariant)
