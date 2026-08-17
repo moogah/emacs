@@ -90,7 +90,7 @@ against a *real* DB on a normal boot.
   eval =(vulpea-db-get-extractor 'org-graph-typed-edges)= → non-nil.
   Non-nil means =emacs-startup-hook= fired and the extractor +
   =typed_edges= schema landed against the real vulpea DB.
-- [ ] *Sync configuration fired — autosync live from boot (new,
+- [x] *Sync configuration fired — autosync live from boot (new,
   vulpea-human-commands).* From a fresh boot, with no manual step, eval
   =(bound-and-true-p vulpea-db-autosync-mode)= → =t=, and eval
   =(equal vulpea-db-sync-directories (org-graph/index-roots))= → =t=.
@@ -104,7 +104,7 @@ against a *real* DB on a normal boot.
   link, or eval =(org-id-find "<that-id>")=).  It resolves to the file.
   This proves =org-graph/seed-org-id-locations= populated the global
   =org-id-locations= from the vulpea DB at startup.
-- [ ] *Warnings are clean.* Check the =*Warnings*= buffer after boot for
+- [x] *Warnings are clean.* Check the =*Warnings*= buffer after boot for
   =org-id-locations seed skipped=, =sync configuration skipped=, or
   =typed-edge extractor registration skipped= warnings (all three
   deferred ops report failures via =display-warning= through
@@ -170,7 +170,7 @@ Boundedness is unchanged — =register/invariant/bounded-discovery-roots=.)
       session) the old limitation is UNCHANGED: they get only the
       =:on-create= one-shot index; later notes under them still need a
       re-index (sub-check (b) still applies as written).
-- [ ] *Boot-time roots are watched live (new, vulpea-human-commands).*
+- [x] *Boot-time roots are watched live (new, vulpea-human-commands).*
   From a fresh boot, WITHOUT creating any workspace, add a new note file
   with an =:ID:= under a root that was indexed at boot (e.g. directly
   under =~/org/= or =~/org/roam/=), save it, and WITHOUT any manual
@@ -300,7 +300,7 @@ change: a Transient menu on =SPC v= aggregating find / author / edges /
 maintain, plus the org-roam-equivalent authoring commands.  These stand
 alone on vulpea — they neither read from nor write to org-roam's DB.
 
-- [ ] *=SPC v= opens the menu.*  In a buffer in evil normal state,
+- [x] *=SPC v= opens the menu.*  In a buffer in evil normal state,
   press =SPC v=.  The =org-graph-menu= transient opens showing four
   groups — Find (per-type finders + any + agent drafts), Author
   (find-or-create, insert link), Edges (at point) (outgoing, incoming,
