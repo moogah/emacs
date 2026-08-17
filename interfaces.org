@@ -2071,6 +2071,156 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    discovered_by: architect
    #+end_src
 
+** typed-edge-tuple
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-typed-edge-tuple
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/typed-edge-tuple
+   tier: shape
+   status: confirmed
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): producers CONFIRMED
+     post-pivot (edges-drawer + parse-rel-links). Both replacement
+     producers shipped exactly as speculated — parse-drawer-edges and
+     parse-rel-links, signature (ELEMENT-TREE), from-id resolved
+     internally via the shared enclosing-node walk — and parse-typed-edges
+     is DELETED from extractor.el. The tuple shape itself is unchanged;
+     status stays confirmed. (The wrapper currently consumes the drawer
+     leg only; the rel-links union is extractor-union's remit — see
+     register/boundary/parser-extractor-db.) Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/typed-edge-tuple.md.
+
+     cycle-1786458912 plan (forward-mode): shape HOLDS across the
+     open-vocabulary + links-drawer pivots (design.md § Open-Vocabulary Typed
+     Edges OV-5, commit dab1da12; § Links-Drawer Edge Surface LD-5, commit
+     5fe66b39) — the positional triple and symbol rel-type are unchanged.
+     PRODUCERS swapped: the single confirmed producer
+     org-graph-extractor/parse-typed-edges is DELETED and replaced by two pure
+     scanners with the same signature (ELEMENT-TREE) and the same tuple
+     contract: parse-drawer-edges (edges-drawer task) + parse-rel-links
+     (parse-rel-links task). from-id is no longer "always NOTE-ID passed to
+     the parser": both scanners resolve it internally via the shared
+     enclosing-node walk (register/invariant/enclosing-node-attribution). The
+     extractor wrapper unions/dedups both streams (extractor-union task).
+     Shape stays confirmed; the new producer set is speculated until those
+     tasks land.
+   load_bearing: true
+   title: typed-edge tuple (FROM-ID REL-TYPE TO-ID)
+   purpose: |
+     The positional 3-list the pure scanners emit and the vulpea extractor
+     wrapper consumes before writing the typed_edges DB row. It is the
+     scanner->extractor->DB contract; the query API later reads the same column
+     triple back. A positional list (not a plist), so a field reorder is a
+     silent corruption, not an error.
+   required_keys:
+     - name: "0 / from-id"
+       type: string
+       description: |
+         source note ID — the nearest ID-bearing ancestor of the edge's
+         authoring site, resolved inside the scanner by the shared
+         enclosing-node walk (was: the NOTE-ID argument; scanners take only
+         ELEMENT-TREE since LD-5).
+     - name: "1 / rel-type"
+       type: symbol
+       description: relation symbol, e.g. implements (NOT a string, NOT the PROPERTIES key).
+     - name: "2 / to-id"
+       type: string
+       description: destination org id extracted from an [[id:...]] link.
+   optional_keys: []
+   producers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/parse-drawer-edges   # confirmed shipped (edges-drawer; replaces deleted parse-typed-edges)
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/parse-rel-links      # confirmed shipped (parse-rel-links)
+   consumers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/extract        # consumes the drawer leg today; unions/dedups both streams once extractor-union lands
+       reads_keys: [from-id, rel-type, to-id]
+   validator: |
+     (defun shape/validate-typed-edge (val)
+       (cond ((not (and (listp val) (= (length val) 3))) 'not-a-triple)
+             ((not (stringp (nth 0 val))) 'bad-from-id)
+             ((not (symbolp (nth 1 val))) 'bad-rel-type)
+             ((not (stringp (nth 2 val))) 'bad-to-id)))
+   test_corpus:
+     valid:
+       - ["n1", implements, "abc"]
+     invalid:
+       - ["n1", "implements", "abc"]   # rel-type must be a symbol, not a string
+   discovered_from: parse-typed-edges
+   discovered_by: architect
+   #+end_src
+
+** edge-results-buffer
+   :PROPERTIES:
+   :CUSTOM_ID: register-shape-edge-results-buffer
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/shape/edge-results-buffer
+   tier: shape
+   status: speculated
+   load_bearing: false
+   title: "*org-graph-edges* render buffer (read-only org, one list item per edge)"
+   purpose: |
+     How the menu's edge-query commands present typed-edge rows to a human
+     (design.md D8). All three commands render into ONE named buffer,
+     *org-graph-edges*: a read-only org-mode buffer (org-mode stays active so
+     id: links are followable — resolvable thanks to the startup org-id seed),
+     displayed via pop-to-buffer, one section per direction queried, one list
+     item per edge. Chosen over echo-area messages because multi-edge results
+     need navigation and org links give free follow-through.
+   required_keys:
+     - name: buffer-name
+       type: string
+       description: 'literally "*org-graph-edges*"; all three commands share it (each render replaces the previous contents)'
+     - name: line-format
+       type: string
+       description: |
+         one item per edge: "- <rel-type> :: [[id:<uuid>][<title>]]" — rel
+         printed as its raw symbol name; uuid is the FAR-end id (destination
+         for outgoing, source for incoming); title is the far-end note title.
+     - name: title-resolution
+       type: rule
+       description: |
+         titles come from the edge plist's :note slot, which query.el already
+         resolves via vulpea-db-get-by-id (query.el:26) — the renderer MUST NOT
+         re-query the DB per edge. When :note is nil (unresolvable id), fall
+         back to rendering the raw id string as the link description.
+     - name: buffer-state
+       type: rule
+       description: read-only (buffer-read-only t after render) + org-mode active; not special-mode (would kill org link following).
+   optional_keys: []
+   producers:
+     - file: config/org-graph/menu.el
+       function: org-graph/edges-outgoing-at-point | /edges-incoming-at-point | /edges-connected-at-point (speculated, menu-module task; ideally one shared render helper)
+   consumers:
+     - file: config/org-graph/test/menu-spec.el
+       function: render assertion from stubbed query rows (speculated)
+       reads_keys: [buffer-name, line-format, title-resolution]
+   validator: |
+     ;; per rendered line, in *org-graph-edges*:
+     (defun shape/validate-edge-result-line (line)
+       (if (string-match-p
+            "^- [^ ]+ :: \\[\\[id:[0-9a-fA-F-]+\\]\\[.+\\]\\]$" line)
+           nil 'bad-edge-line))
+   test_corpus:
+     valid:
+       - "- implements :: [[id:5e1c2a34-aaaa-bbbb-cccc-000000000001][Graph spike]]"
+       - "- relates-to :: [[id:5e1c2a34-aaaa-bbbb-cccc-000000000002][5e1c2a34-aaaa-bbbb-cccc-000000000002]]"   # unresolvable id: raw id as description
+     invalid:
+       - "- implements -> Graph spike"        # no id link; not followable
+       - "implements :: [[id:abc][t]]"        # not a list item
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/boundary/note-at-point-resolution
+     - register/shape/typed-edge-tuple
+   discovered_from: vulpea-human-commands (menu-module task)
+   discovered_by: architect
+   #+end_src
+
 * Vocabulary
 
   Entries describe enumerations / symbol sets / value sets that span a
@@ -3242,6 +3392,161 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    closed_set: false   # open for extension; unimplemented members reported, not rendered
 
    discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** relation-types
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-relation-types
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/relation-types
+   tier: vocabulary
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer + edge-type-registry; on-touch
+     arch-cycle-1786458912-ot-edgetype-1 resolved). The canonical helper
+     landed under the register's speculated name,
+     org-graph-extractor--normalize-rel (extractor.el) — the SOLE
+     translation site: both scanners call it, and edge-type.el
+     (require 'org-graph-extractor) calls it directly with NO fallback
+     chain (the fboundp-guarded local copy flagged by the on-touch finding
+     did not survive integrate; architecture.md's --tag->rel name is dead).
+     Rule pinned: the whitespace class is "[[:space:]_]+" — ANY whitespace
+     run (spaces, tabs) plus underscores collapses to a single hyphen —
+     and empty-after-trim input yields nil (no symbol, no tuple).
+     why_tests_missed: the whitespace-class detail was under-specified in
+     the entry ("[ _]+", "exact collapsing pinned at reconciliation");
+     specs pinned it at implementation. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/relation-types.md.
+
+     cycle-1786458912 plan (forward-mode): RE-STATED confirmed -> speculated.
+     Two pivots invalidated the confirmed contract: the closed set is GONE
+     (design.md § Open-Vocabulary Typed Edges OV-1, commit dab1da12), and the
+     REL_-prefix key routing that briefly replaced it is ALSO gone with the
+     properties surface itself (§ Links-Drawer Edge Surface LD-2/LD-3, commit
+     5fe66b39). The vocabulary is now OPEN: any author-coined symbol is a
+     valid relation the moment it appears on either surface. What remains
+     register-worthy is the shared NORMALIZATION RULE below — it, not
+     membership, is the contract. org-graph-relation-types survives only as a
+     non-authoritative completion seed (docstring re-write, edges-drawer
+     task); --rel-key / --key->rel are deleted with the properties parser.
+     prior_form: closed 4-member set (implements/contradicts/supersedes/
+     relates-to), symbol<->PROPERTIES-key mapping via --rel-key/--key->rel,
+     closed_set: true, confirmed cycle-1782551613.
+   load_bearing: true
+   title: typed-edge relation symbols (open vocabulary; normalization rule is the contract)
+   purpose: |
+     Relation symbols are an OPEN folksonomy (OV-1): no allowlist, no gate.
+     The register-worthy contract is the single normalization rule that turns
+     author input into the stored symbol, shared by BOTH authoring surfaces:
+     edge-drawer item tags (LD-2) and rel: link path type segments (OV-3).
+     Divergent normalization between the two surfaces would silently fork one
+     authored relation into two stored symbols — the open-vocabulary analogue
+     of the old missing-member misroute.
+   members: []   # open set — not enumerable; the normalization rule below replaces membership
+   normalization_rule: |
+     input (drawer item :tag text | rel-link <type> segment)
+       -> trim -> downcase -> each run of whitespace (spaces, tabs) and
+       underscores maps to a SINGLE hyphen -> intern.
+     e.g. "- follows up ::" -> follows-up ; "Implements" -> implements ;
+     "FOLLOWS_UP" -> follows-up. Empty after trim -> nil (no symbol, no
+     tuple). The stored rel-type is ALWAYS the interned symbol, never a
+     string (register/shape/typed-edge-tuple).
+   consumer_mapping:
+     - consumer: config/org-graph/extractor.el
+       consumer_field: edge-drawer description-list item :tag
+       accepts: any (open)
+       routing_function: org-graph-extractor--normalize-rel   # shipped, edges-drawer
+     - consumer: config/org-graph/extractor.el
+       consumer_field: "rel: link path <type> segment (before first colon)"
+       accepts: any (open)
+       routing_function: org-graph-extractor--normalize-rel (via --parse-rel-path)   # shipped, parse-rel-links
+     - consumer: config/org-graph/edge-type.el
+       consumer_field: "registry note title / :INVERSE: property (lookup keys must equal stored edge symbols)"
+       accepts: any (open)
+       routing_function: org-graph-extractor--normalize-rel called directly ((require 'org-graph-extractor); NO local fallback)   # shipped, edge-type-registry
+     - consumer: config/org-graph/tools.el
+       consumer_field: "agent-supplied rel_type narrow on org_graph_typed_edges (string or symbol)"
+       accepts: any (open)
+       routing_function: org-graph-extractor--normalize-rel via org-graph-tools--rel-symbol ((require 'org-graph-extractor); symbols re-normalized through symbol-name)   # shipped, inline-fix arch-cycle-1786458912-eoc-2
+     - consumer: config/org-graph/rel-link.el
+       consumer_field: ":complete type candidates (registry + observed + seed; free text coins new types)"
+       accepts: any (open)
+       routing_function: org-graph-relation-types demoted to non-authoritative seed   # speculated, rel-link-type task
+   canonical_mapping_function: |
+     ;; ONE normalization helper shared by both scanners AND the edge-type
+     ;; registry (which requires the extractor and calls it directly — no
+     ;; fallback); a second inline trim/downcase/replace chain anywhere
+     ;; else is a duplication bug. SHIPPED verbatim (extractor.el,
+     ;; edges-drawer task):
+     (defun org-graph-extractor--normalize-rel (raw)
+       (let ((trimmed (string-trim (or raw ""))))
+         (unless (string-empty-p trimmed)
+           (intern (replace-regexp-in-string
+                    "[[:space:]_]+" "-" (downcase trimmed))))))
+   validator: |
+     ;; open set: validity = already-normalized symbol, NOT membership
+     (defun vocabulary/validate-rel (sym)
+       (and (symbolp sym)
+            (let ((name (symbol-name sym)))
+              (string= name (replace-regexp-in-string
+                             "[[:space:]_]+" "-" (downcase (string-trim name)))))))
+   closed_set: false   # open folksonomy; the registry (register/boundary/edge-type-registry-lookup) only enriches
+   discovered_from: edges-drawer
+   discovered_by: architect
+   #+end_src
+
+** note-type-taxonomy
+   :PROPERTIES:
+   :CUSTOM_ID: register-vocabulary-note-type-taxonomy
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/vocabulary/note-type-taxonomy
+   tier: vocabulary
+   status: confirmed
+   status_note: |
+     cycle-1782551613 integrate: confirmed by note-type-schemas. Five members
+     implemented 1:1 as vulpea-schema-define with filetag-membership predicates;
+     agent-draft correctly excluded (tested). Refinement: the filetag is encoded
+     ONLY in the :predicate (selector); schema FIELDS read metadata via
+     vulpea-note-meta-get, so a filetag can never be a schema field. The earlier
+     "filetag is one validated field" phrasing was imprecise.
+   load_bearing: true
+   title: note-type taxonomy symbols
+   purpose: |
+     The fixed note-type set backing schema-aware finders (RE-3). The defcustom
+     org-graph-note-types already exists (confirmed); the per-type vulpea-schema
+     predicates and finders do not yet (note-type-schemas + finders tasks), so the
+     entry is speculated. NOTE: agent-draft is NOT a member here -- it is a
+     cross-cutting filetag applied by the write tool, not a taxonomy type; conflating
+     the two would break both the finders and the draft-review finder.
+   members:
+     - value: log
+       description: daily/work logs.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: debug
+       description: troubleshooting sessions.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: topic
+       description: durable concept notes (the typed-graph's natural home).
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: reference
+       description: annotated external content.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+     - value: project
+       description: project-local notes.
+       producer: { file: config/org-graph/org-graph.el, function: org-graph-note-types }
+   consumer_mapping:
+     - consumer: config/org-graph/schemas.el        # speculated, note-type-schemas task
+       consumer_field: vulpea-schema-define :predicate (filetag membership)
+       accepts: [log, debug, topic, reference, project]
+       routing_function: per-type :predicate lambda
+   closed_set: true
+   discovered_from: note-type-schemas
    discovered_by: architect
    #+end_src
 
@@ -5451,6 +5756,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: reconciled
    status_note: |
+     cycle-1782566912 integrate (org-graph-spike): RECONCILED (doc-completeness).
+     The org-graph workspace-integration consumer (task =workspace-integration=,
+     merge 6c5fa7ce) is the THIRD real client and the first to exercise =:menu=
+     with a handler that needs the payload. Author-blind review (finding 2,
+     spec-signal) caught that this entry documented =:menu= as a bare
+     =(KEY . COMMAND)= but did NOT state that COMMAND is INVOKED WITH the anchor
+     payload (arity 1) by =workspace--menu-invoke-integration= — a bare no-arg
+     command would error. The =:menu= surface description below is corrected to
+     pin the arity. why_tests_missed: the calling convention lived only in the
+     transient module (=workspaces-transient.org=,
+     =workspace--menu-invoke-integration=); nothing in the boundary entry or a
+     spec asserted the COMMAND signature, so the gap surfaced only when a
+     consumer's menu handler actually consulted the payload. The org-graph
+     handler ignores the payload (=org-graph/configure-sync= re-reads the live
+     registry) but correctly accepts =(_payload)=. Reconciliation note:
+     =.orchestrator/cycles/cycle-1782566912/reconciliations/workspace-integration-registry.md=.
+
      cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
      RECONCILED — the registration contract grew from TWO surfaces to
      THREE. Tasks =registry-on-purge-surface= and =purge-teardown-dispatch=
@@ -5497,8 +5819,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         registry =workspace--integrations= is an ORDERED ALIST
         =((ID . PLIST) ...)= — dispatch order and menu order follow
         registration order (NOT a hash table). THREE surfaces:
-        =:on-create= (non-interactive, at birth), =:menu= ((KEY . COMMAND),
-        interactive, on-demand), =:on-purge= (non-interactive, at teardown).
+        =:on-create= (non-interactive, at birth), =:menu= ((KEY . COMMAND);
+        COMMAND is INVOKED WITH the current-workspace anchor payload (arity 1)
+        by =workspace--menu-invoke-integration=, so a menu handler must accept a
+        payload arg even if it ignores it; interactive, on-demand), =:on-purge=
+        (non-interactive, at teardown).
      2. =PUSH, NOT CONSULT=: workspaces hands each handler an anchor
         payload (=register/shape/workspace-integration-anchor-payload=);
         handlers never reach for "the current workspace". This keeps the
@@ -5596,6 +5921,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - git-worktrees-module-scaffold  # cycle-7: second consumer
      - birth-transient-offer          # cycle-7
      - verify-change                  # cycle-7
+     - workspace-integration          # cycle-1782566912: THIRD consumer (org-graph), :on-create + :menu
    discovered_from: workspace-integration-menu
    discovered_by: architect
    #+end_src
@@ -6330,6 +6656,753 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      failing-set == baseline.
 
    discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** parser-extractor-db
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-parser-extractor-db
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/parser-extractor-db
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer; parse-rel-links landed the second scanner). Stage 1
+     shipped as the TWO pure scanners —
+     org-graph-extractor/parse-drawer-edges + /parse-rel-links, both
+     signature (ELEMENT-TREE), attribution internal via the shared
+     enclosing-node walk. Stage 2's SPECULATED note-granularity filter is
+     IMPLEMENTED — pinned EARLY by edges-drawer, not extractor-union:
+     org-graph-extractor/extract seq-filters tuples to from-id = the note
+     being processed (extractor-spec multi-note cases prove it; without it
+     the cycle-1782551613 whole-file duplication divergence recurs under
+     vulpea's per-note :extract-fn invocation). Amendment to stage 4's
+     "registration untouched" note: the extractor :version was bumped
+     1 -> 2 for the surface swap (parser-epoch cache invalidation,
+     spec-asserted). STILL PENDING (extractor-union): the union/dedup of
+     the rel-links leg — the wrapper currently runs the DRAWER leg only;
+     parse-rel-links is shipped but not yet wired into extract.
+     why_tests_missed: the multi-note fixture requirement surfaced only
+     when the whole-file scanner met vulpea's per-note invocation.
+     Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/parser-extractor-db.md.
+
+     cycle-1786458912 plan (forward-mode): RE-STATED reconciled -> speculated.
+     Two design pivots since the cycle-1782561220 reconciliation: open
+     vocabulary (design.md § Open-Vocabulary Typed Edges OV-5, commit
+     dab1da12) and the links-drawer surface (§ Links-Drawer Edge Surface
+     LD-1..LD-5, commit 5fe66b39). The single parse stage
+     (parse-typed-edges over the note's PROPERTIES drawer) is replaced by TWO
+     pure scanners over the same tree — parse-drawer-edges (edge-drawer
+     items) + parse-rel-links (inline rel: links) — whose rows the wrapper
+     UNIONS (set semantics, dedup identical tuples). The per-note
+     PROPERTIES-ownership machinery (--note-property-drawer /
+     --edges-from-note) is DELETED, not ported: attribution moves INSIDE the
+     scanners via the shared enclosing-node walk (LD-4,
+     register/invariant/enclosing-node-attribution). The roam-root scope gate
+     and the DB write are unchanged. Tasks: edges-drawer, parse-rel-links,
+     extractor-union.
+     prior_form: parse (parse-typed-edges, NOTE-ID argument) -> scope-gate
+     (roam root + per-note :ID:-matched drawer scoping) -> db-insert; all
+     stages CONFIRMED note-granular cycle-1782561220. Full prior history:
+     .orchestrator/cycles/cycle-1782561220/reconciliations/parser-extractor-db.md.
+   load_bearing: true
+   title: typed-edge pipeline (two scanners -> union -> scope-gate -> DB insert)
+   purpose: |
+     How a note's authored edges (edge-drawer items + inline rel: links)
+     become typed_edges rows. Staged so both pure scanners stay vulpea-free
+     and unit-testable (D4/OV-5) while the union, the scope gate, and the DB
+     write live in the vulpea wrapper. The scope gate is a deliberate hard
+     exclusion, not an optimisation.
+   stages:
+     - n: 1
+       name: scan
+       input: org-element AST of the note's file
+       output: two register/shape/typed-edge-tuple lists
+       can_fail_with: []
+       notes: |
+         Pure functions org-graph-extractor/parse-drawer-edges +
+         /parse-rel-links, same signature (ELEMENT-TREE) and same tuple
+         contract. NEVER signal on malformed or empty input. Attribution is
+         internal: each tuple's from-id comes from the shared enclosing-node
+         walk (register/invariant/enclosing-node-attribution); there is no
+         NOTE-ID argument. SHIPPED (edges-drawer / parse-rel-links).
+     - n: 2
+       name: union
+       input: two tuple lists
+       output: one deduplicated tuple list
+       can_fail_with: []
+       notes: |
+         The wrapper (org-graph-extractor/extract) unions both streams; an
+         identical (from rel to) asserted on both surfaces yields ONE row
+         (set semantics, not multiset). IMPLEMENTED note-granularity
+         filter (pinned early by edges-drawer): because the scanners
+         attribute over the WHOLE file tree, the per-note wrapper keeps
+         only tuples whose from-id equals the note being processed
+         (seq-filter in org-graph-extractor/extract; extractor-spec
+         multi-note cases) — otherwise the cycle-1782551613 whole-file
+         duplication divergence recurs under vulpea's per-note extraction.
+         PENDING (extractor-union): wiring the parse-rel-links leg into
+         the wrapper and the union/dedup of the two streams — the wrapper
+         currently runs the drawer leg only.
+     - n: 3
+       name: scope-gate
+       input: note path + tuple list
+       output: tuples (roam-path) | nothing (non-roam-path)
+       can_fail_with: []
+       short_circuit_policy: deliberate
+       notes: |
+         Unchanged: rows are emitted only when the note path is under
+         org-graph-roam-root (register/invariant/typed-edge-extraction-scope).
+         Whether the gate runs before or after stage 1 is implementation
+         freedom (short-circuiting before the scan is cheaper); the contract
+         is that NO tuple from a non-roam note reaches stage 4. Bypassing the
+         gate re-introduces the D2 dilution/inotify cost.
+     - n: 4
+       name: db-insert
+       input: register/shape/typed-edge-tuple list
+       output: typed_edges rows (from-id, rel-type, to-id), FK notes(id) :on-delete :cascade
+       can_fail_with: [emacsql-error]
+       notes: |
+         emacsql insert into the vulpea-registered typed_edges table;
+         rel-type stored as a symbol; priority-50 registration and the
+         emacs-startup-hook DB-free-load deferral
+         (register/invariant/org-graph-loader-ordered-sequence) untouched
+         EXCEPT the extractor :version, bumped 1 -> 2 for the surface swap
+         (parser-epoch cache invalidation; spec-asserted).
+         The READ side (register/boundary/typed-edge-query-api) reads this
+         table via raw (emacsql (vulpea-db) ...), NOT vulpea-db-query.
+   cross_stage_invariants:
+     - register/invariant/typed-edge-extraction-scope
+     - register/invariant/enclosing-node-attribution
+     - register/invariant/edge-drawer-discriminator
+   producers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/extract
+       enters_at_stage: 1
+   consumers:
+     - file: config/org-graph/extractor.el
+       function: typed_edges table (read via register/boundary/typed-edge-query-api)
+       reads_output_of_stage: 4
+   discovered_from: extractor-union
+   discovered_by: architect
+   #+end_src
+
+** typed-edge-query-api
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-typed-edge-query-api
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/typed-edge-query-api
+   tier: boundary
+   status: confirmed
+   status_note: |
+     cycle-1782561220 integrate: CONFIRMED by typed-edge-query. The contract held
+     exactly — three functions, edge plists (:from string, :rel SYMBOL, :to string,
+     :note resolved far-end), rel-type matched on the symbol, no auto-symmetry. ONE
+     prose correction (implementor push-back + author-blind reviewer spec-signal,
+     independently): the plan-time wording "thin layer over vulpea-db-query" was
+     factually wrong. vulpea-db-query loads and elisp-filters the `notes` table ONLY;
+     typed_edges is org-graph's own side table, so the genuine read boundary is raw
+     (emacsql (vulpea-db) [:select ... :from typed_edges ...]) — the same connection
+     the extractor writes through. Corrected below. Confirmed: the behavioural
+     contract matched; only the mechanism description was fixed.
+
+     cycle-1786458912 plan (forward-mode): confirmed contract UNCHANGED; the
+     query-inverse-symmetric task ADDS read-time enrichment on top (design.md
+     § Open-Vocabulary Typed Edges OV-7, commit dab1da12; unaffected by the
+     links-drawer pivot 5fe66b39 — the query layer is surface-agnostic by
+     design). Speculated additions: an edge-label resolver
+     (org-graph-query/edge-label EDGE PERSPECTIVE) renders a registry
+     :INVERSE: from the far side, and :SYMMETRIC: t types surface
+     bidirectionally in connected — all derived at read time from
+     org-graph/edge-types (register/boundary/edge-type-registry-lookup).
+     Stored rows, the three confirmed functions' signatures, and directional
+     storage are untouched
+     (register/invariant/no-materialized-inverse-rows). Unregistered or
+     inverse-less types render their raw symbol.
+   load_bearing: true
+   title: typed_edges read surface (outgoing / incoming / connected)
+   purpose: |
+     How a caller (gptel tool, finder, user) reads typed edges back out of the
+     typed_edges table. Directional at STORAGE and not auto-symmetrized there
+     (design.md Non-Goals as narrowed by OV-7): "incoming" is a real query
+     against to-id, not a mirror of outgoing; registry-declared inverse labels
+     and symmetric surfacing are a read-time overlay only. A thin,
+     mockable layer over raw (emacsql (vulpea-db) ...) against typed_edges (NOT
+     vulpea-db-query, which only reads the notes table), so the gptel-tools layer
+     (next cycle) gets resolved notes, not bare ids. :note resolves the FAR end of
+     each edge (destination for outgoing, source for incoming) and is always present
+     (may be nil) for a stable consumer shape.
+   functions:
+     - name: org-graph-query/outgoing
+       signature: "(from-id &optional rel-type) -> list of edge plists"
+       notes: edges where from-id matches; optional rel-type narrows on the SYMBOL.
+     - name: org-graph-query/incoming
+       signature: "(to-id &optional rel-type) -> list of edge plists"
+       notes: edges where to-id matches; how incoming relations resolve (no symmetry).
+     - name: org-graph-query/connected
+       signature: "(note-id) -> list of edge plists"
+       notes: |
+         union of outgoing and incoming for note-id. SPECULATED
+         (query-inverse-symmetric): surfaces :SYMMETRIC: t types in both
+         directions without an extra stored row.
+     - name: org-graph-query/edge-label
+       signature: "(edge perspective) -> string"   # speculated, query-inverse-symmetric task
+       notes: |
+         registry-driven display labelling: a stored implements edge renders
+         as implemented-by from the target's perspective when the registry
+         declares the inverse; unregistered/inverse-less types render the raw
+         symbol. Display helper only — rows and the three read functions'
+         outputs are unchanged.
+   output_shape: |
+     Each edge is a plist with :from (string id), :rel (symbol), :to (string id), and
+     where useful the resolved target vulpea-note (via vulpea-db-get-by-id) so callers
+     present titles, not ids. rel-type filtering matches the SYMBOL, never a string
+     (emacsql prin1/read round-trips symbols) — see register/shape/typed-edge-tuple.
+   producers:
+     - file: config/org-graph/query.el
+       function: org-graph-query/outgoing | /incoming | /connected
+   consumers:
+     - file: config/org-graph/tools.el
+       function: org-graph-tools--query-edges -> org_graph_query_edges gptel tool (shipped; connected keeps its live caller at tools.el:89)
+     - file: config/org-graph/menu.el
+       function: |
+         org-graph/edges-outgoing-at-point | /edges-incoming-at-point call the
+         directional pair; org-graph/edges-connected-at-point (shipped,
+         vulpea-human-commands) deliberately composes outgoing+incoming
+         instead of calling connected — the renderer needs per-direction
+         far-end attribution a flat union cannot supply for a self-edge.
+         COUPLING NOTE (arch-cycle-1786636086-eoc-1): read-time enrichment
+         added to connected (query-inverse-symmetric) must be mirrored in the
+         menu view or connected must grow direction-attributed output; see
+         .tasks/route-menu-connected-through-canonical-query.md.
+   related_entries:
+     - register/shape/typed-edge-tuple
+     - register/vocabulary/relation-types
+     - register/boundary/parser-extractor-db
+     - register/boundary/edge-type-registry-lookup
+     - register/invariant/no-materialized-inverse-rows
+   discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
+** rel-link-path-syntax
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-rel-link-path-syntax
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/rel-link-path-syntax
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (parse-rel-links; on-touch arch-cycle-1786458912-ot-rellinks-1,
+     entry-side drift). The split-on-first-colon contract held EXACTLY:
+     target-id taken VERBATIM (may itself contain colons); missing
+     separator / empty type / empty target -> skip, never signal
+     (org-graph-extractor--parse-rel-path). ADDED stage 0 (register):
+     org-element only assigns the matching :type/:path when the link type
+     is registered in org-link-parameters at AST-parse time — an
+     unregistered [[rel:...]] parses as a FUZZY link (verified Org 9.7)
+     and is silently invisible to the scanner (zero rows, no signal), so
+     every extraction/reindex path depends on rel-link-type's registration
+     side effect running first. CORRECTED defcustom reference:
+     org-graph-edge-link-type is NOT yet declared anywhere — it will be
+     DECLARED IN THE LOADER org-graph.org (parallel to
+     org-graph-edge-drawer) by the rel-link-type task; until then the
+     scanner reads it through the fail-closed helper
+     org-graph-extractor--edge-link-type (bare defvar; unbound/nil/empty
+     -> the scanner emits nothing). why_tests_missed: the fuzzy-parse
+     behavior only surfaces against real org parsing; the spec fixture
+     registers the type itself (org-graph-rel-test/with-link-type),
+     pinning the precondition. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/rel-link-path-syntax.md.
+   load_bearing: true
+   title: "rel: link path syntax (<link-type>:<type>:<target-id>, split on first colon)"
+   purpose: |
+     The string contract between the interactive rel-link RUNTIME
+     (rel-link-type task: :complete constructs paths, :follow parses them to
+     jump) and the pure SCANNER (parse-rel-links task: consumes the same
+     paths during extraction). Two independent parsers of one string format
+     in two modules — divergence is silent because the scanner's
+     malformed-input policy is skip-without-signal, so a runtime-emitted path
+     the scanner cannot parse simply produces no edge. The link-type name
+     comes from org-graph-edge-link-type (default "rel"; the defcustom will
+     be DECLARED IN THE LOADER org-graph.org by the rel-link-type task — the
+     parallel knob to org-graph-edge-drawer, OV-3/LD-1; until it lands the
+     scanner reads the variable via the fail-closed helper
+     org-graph-extractor--edge-link-type, unbound/empty -> scanner emits
+     nothing). Design provenance: design.md § Open-Vocabulary Typed Edges
+     OV-3/OV-Q1 (commit dab1da12), contract references updated by the
+     links-drawer pivot (commit 5fe66b39).
+   stages:
+     - n: 0
+       name: register
+       input: org-graph-edge-link-type name, at module load
+       output: "org-link-parameters entry (org assigns :type/:path at AST-parse time)"
+       can_fail_with: []
+       notes: |
+         PRECONDITION for both later stages: the link type must be
+         registered in org-link-parameters BEFORE a file is parsed. An
+         unregistered [[rel:...]] parses as a FUZZY link carrying the whole
+         "rel:..." string and is INVISIBLE to the scanner — silent zero
+         rows, no signal (verified Org 9.7). Producer: the rel-link-type
+         task's org-link-set-parameters call at module load; every
+         extraction/reindex path therefore has a load-order dependency on
+         that registration (extractor-union must wire the scanner in
+         behind it). SPECULATED (rel-link-type task) — the consumer side
+         shipped first, fail-closed.
+     - n: 1
+       name: construct
+       input: relation type (author text) + target node id
+       output: "\"<link-type>:<type>:<target-id>\" path string"
+       can_fail_with: []
+       notes: |
+         :complete (rel-link.el) is the canonical producer of well-formed
+         paths. The <type> segment is authored text; normalization to the
+         stored symbol happens on the consumer side
+         (register/vocabulary/relation-types).
+     - n: 2
+       name: parse
+       input: "link path after org strips \"<link-type>:\", i.e. \"<type>:<target-id>\""
+       output: "(rel-type-symbol . to-id) | skip"
+       can_fail_with: []
+       notes: |
+         SPLIT ON FIRST COLON: everything before the first ":" is the type
+         segment (normalized + interned per the vocabulary rule); everything
+         after it is the target id VERBATIM (a target id may itself contain
+         colons in principle). Missing separator, empty type, or empty target
+         -> skip gracefully, no signal, no row. Two consumers must implement
+         the identical split: :follow in rel-link.el (jump via org-id) and
+         org-graph-extractor/parse-rel-links in extractor.el (tuple emission).
+   cross_stage_invariants:
+     - register/invariant/enclosing-node-attribution
+   producers:
+     - file: config/org-graph/rel-link.el
+       function: ":complete handler"        # speculated, rel-link-type task
+       enters_at_stage: 1
+   consumers:
+     - file: config/org-graph/extractor.el
+       function: org-graph-extractor/parse-rel-links    # shipped (parse-rel-links); reads the type name via fail-closed org-graph-extractor--edge-link-type
+       reads_output_of_stage: 2
+     - file: config/org-graph/rel-link.el
+       function: ":follow handler"          # speculated, rel-link-type task
+       reads_output_of_stage: 2
+   discovered_from: parse-rel-links
+   discovered_by: architect
+   #+end_src
+
+** edge-type-registry-lookup
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-edge-type-registry-lookup
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/edge-type-registry-lookup
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edge-type-registry; on-touch arch-cycle-1786458912-ot-edgetype-2,
+     informational). The behavioral contract HELD: enrich-only, graceful
+     absence (empty lookup / nil consult are normal results), filetag
+     selector (org-graph-edge-type-note-p on the :edge-type: filetag),
+     four seeds with inverse/symmetric metadata. Mechanism deltas pinned:
+     (1) vulpea 2.4 has no reindex hook, so the session cache is keyed on
+     the vulpea DB FILE's mtime (a reindex rewrites the file -> new key ->
+     repopulate) plus an explicit org-graph-edge-type-invalidate-cache
+     command; (2) the stage-2 consult op got a named accessor,
+     org-graph/edge-type (rel) -> plist | nil, which returns a FRESH COPY
+     of the metadata plist; (3) the stage-1 table from
+     org-graph/edge-types IS the shared session cache, documented
+     READ-ONLY — consumers must not puthash/plist-put into it; (4) seeds
+     ship as data (org-graph-edge-type-seed-definitions) plus the
+     idempotent installer org-graph-edge-type-install-seeds (user-side
+     M-x step, skips existing files), NOT automatic vault writes.
+     why_tests_missed: n/a for behavior; the mtime-key mechanism gained
+     its own spec after review. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/edge-type-registry-lookup.md.
+   load_bearing: false
+   title: edge-type registry lookup (org-graph/edge-types, enrich-only)
+   purpose: |
+     The folksonomy->taxonomy enrichment surface (design.md § Open-Vocabulary
+     Typed Edges OV-6, commit dab1da12). Registry notes are ordinary vault
+     notes tagged :edge-type: with an :ID:; org-graph/edge-types reads them
+     into a lookup KEYED BY RELATION SYMBOL whose values carry label /
+     inverse / symmetric / description. Consumers ENRICH ONLY: completion
+     seeding (rel-link :complete) and read-time inverse/symmetric rendering
+     (query layer). The load-bearing half of the contract is graceful
+     absence: an UNREGISTERED type is fully functional everywhere — missing
+     entry -> nil -> render the raw symbol — and NO extraction path consults
+     the registry. (load_bearing: false because violation degrades visibly to
+     raw symbols rather than corrupting silently.)
+   stages:
+     - n: 1
+       name: load
+       input: ":edge-type:-tagged vault notes (filetag-membership predicate, schemas-module pattern)"
+       output: lookup keyed by relation symbol
+       can_fail_with: []
+       notes: |
+         Value per type: label (LABEL property, else title), inverse
+         (:INVERSE: -> symbol or nil), symmetric (:SYMMETRIC: -> boolean),
+         description (free text). Cached per session, keyed on the vulpea
+         DB file's mtime (vulpea 2.4 has no reindex hook; the reindex path
+         rewrites the file) + explicit
+         org-graph-edge-type-invalidate-cache command. The returned table
+         IS the shared session cache — READ-ONLY by contract (docstring-
+         pinned); consumers copy before decorating. No registry notes ->
+         EMPTY lookup, never an error. Four seed notes ship as data +
+         idempotent installer org-graph-edge-type-install-seeds (user-side
+         M-x step; skips existing files, never clobbers user edits):
+         implements :INVERSE: implemented-by; contradicts :SYMMETRIC: t;
+         supersedes :INVERSE: superseded-by; relates-to :SYMMETRIC: t —
+         replacing the deleted hardcoded closed list.
+     - n: 2
+       name: consult
+       input: relation symbol
+       output: metadata (plist per stage-1 value) | nil
+       can_fail_with: []
+       short_circuit_policy: none
+       notes: |
+         Named accessor org-graph/edge-type (rel) -> plist | nil; the
+         returned plist is a FRESH COPY, safe for callers to modify. nil
+         is a NORMAL result, not an error; every consumer must degrade to
+         the raw symbol (query labels) or to observed+seed candidates
+         (completion). No consumer may gate extraction or storage on registry
+         membership.
+   producers:
+     - file: config/org-graph/edge-type.el
+       function: org-graph/edge-types       # shipped (edge-type-registry); returns the shared READ-ONLY cache table
+       enters_at_stage: 1
+     - file: config/org-graph/edge-type.el
+       function: org-graph/edge-type        # shipped; (rel) -> fresh-copy plist | nil
+       enters_at_stage: 2
+   consumers:
+     - file: config/org-graph/rel-link.el
+       function: ":complete candidate seeding"          # speculated, rel-link-type task
+       reads_output_of_stage: 2
+     - file: config/org-graph/query.el
+       function: edge-label / symmetric-aware reads     # speculated, query-inverse-symmetric task
+       reads_output_of_stage: 2
+   related_entries:
+     - register/vocabulary/relation-types
+     - register/invariant/no-materialized-inverse-rows
+     - register/boundary/typed-edge-query-api
+   discovered_from: edge-type-registry
+   discovered_by: architect
+   #+end_src
+
+** org-graph-agent-tools
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-org-graph-agent-tools
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/org-graph-agent-tools
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-1782564058 plan: forward-mode SPECULATION for the gptel-tools task.
+     cycle-1782564058 integrate: RECONCILED (speculated -> reconciled) by gptel-tools.
+     The behavioural contract matched the speculation: org-graph/agent-tools returns
+     the constructed gptel-tool OBJECTS (the workspace-assistant :tools slot takes
+     objects); org-graph-tools/write-node is (title &optional directory tags body)
+     -> (:id :path); reads layer on query.el; the write wraps the unconditional
+     coordinator lock and stamps :agent-draft:. Reconciled (not plain confirmed)
+     because the tool NAMING diverged from the plan-time wording: the LLM-facing
+     gptel :name strings are snake_case (org_graph_query / org_graph_typed_edges /
+     org_graph_write_node, per gptel-make-tool's documented convention and the
+     existing filesystem tools), while the backing elisp functions are kebab
+     (org-graph-tools/query | /typed-edges | /write-node). Two additional reconciled
+     facts: (1) registration is gated on (fboundp 'gptel-make-tool), so
+     org-graph/agent-tools returns nil in a gptel-less process until
+     org-graph-tools-register runs; (2) write-node OWNS its filename
+     (<timestamp>-<slug>.org) so the coordinator can lock the path BEFORE the write
+     — it does not defer to vulpea-create-default-template. Reconciliation note:
+     .orchestrator/cycles/cycle-1782564058/reconciliations/org-graph-agent-tools.md.
+     On-touch architect (arch-cycle-1782564058-ot-clean) and author-blind review
+     both clean. why_tests_missed: the plan-time entry used kebab names as a single
+     namespace; nothing asserted the gptel :name convention, so the snake_case/kebab
+     split only surfaced at implementation.
+   load_bearing: true
+   title: org-graph agent-tool surface (three gptel tools + reusable accessor)
+   purpose: |
+     The agent-facing read/write surface over the typed graph. Exposed BOTH into the
+     global gptel tool registry AND as a reusable list via org-graph/agent-tools, so
+     workspace-integration can populate the workspace-assistant preset :tools slot
+     (RE-5) without re-deriving the tools. Read tools wrap the confirmed query/finder
+     boundaries; the write tool routes every write through the coordinator lock and
+     stamps agent provenance.
+   functions:
+     - name: org-graph/agent-tools
+       signature: "() -> list of constructed gptel-tool OBJECTS"
+       notes: |
+         RECONCILED: the reusable accessor workspace-integration hands to the
+         workspace-assistant preset :tools slot. Returns the constructed gptel-tool
+         OBJECTS (the slot takes objects; gptel-make-tool also registers them
+         globally as a side effect). Returns nil until org-graph-tools-register has
+         run, and registration is gated on (fboundp 'gptel-make-tool) — so nil in a
+         gptel-less process (e.g. a bare unit test).
+     - name: 'gptel :name org_graph_query  (fn org-graph-tools/query)'
+       signature: "structured note query -> list of note plists (:id :title :tags :path)"
+       notes: |
+         RECONCILED naming: LLM-facing gptel :name is snake_case org_graph_query;
+         backing elisp fn is org-graph-tools/query. Wraps vulpea-db-query / finders;
+         reads the notes table only (NOT the typed_edges side table).
+     - name: 'gptel :name org_graph_typed_edges  (fn org-graph-tools/typed-edges)'
+       signature: "(note-id &optional direction rel-type) -> resolved edges"
+       notes: |
+         RECONCILED naming (snake_case :name / kebab fn). Wraps
+         org-graph-query/{outgoing,incoming,connected}
+         (register/boundary/typed-edge-query-api, CONFIRMED). Returns from/rel/to
+         with resolved far-end titles, not bare ids.
+     - name: 'gptel :name org_graph_write_node  (fn org-graph-tools/write-node)'
+       signature: "(title &optional directory tags body) -> (:id new-id :path path)"
+       notes: |
+         RECONCILED naming (snake_case :name / kebab fn). Wraps the write in
+         org-graph-coordinator/with-file-lock
+         (register/invariant/coordinator-lock-contract, CONFIRMED, unconditional) and
+         stamps an :agent-draft: filetag on agent-created notes. OWNS its filename
+         (<timestamp>-<slug>.org under directory) so the coordinator can lock the
+         path BEFORE the write; does NOT defer to vulpea-create-default-template. The
+         write-tool description states the roam-only typed-edge boundary (D2/RE-4).
+   boundary_constraints: |
+     Typed-edge extraction runs ONLY on ~/org/roam/ notes
+     (register/invariant/typed-edge-extraction-scope, CONFIRMED), so a write to a
+     project-local note will not produce typed edges — the tool descriptions must say
+     so to keep agent prompts honest (D2/RE-4). Side tables (typed_edges) are read via
+     raw (emacsql (vulpea-db) ...), NOT vulpea-db-query (meta-discovery
+     cycle-1782561220: vulpea-side-table-read-boundary).
+   producers:
+     - file: config/org-graph/tools.el
+       function: org-graph/agent-tools + the three gptel-make-tool registrations (speculated)
+   consumers:
+     - file: config/org-graph/workspace-integration.el
+       function: populates workspace-assistant preset :tools slot (speculated, workspace-integration task)
+     - file: config/org-graph/test/module-load-spec.el
+       function: asserts the three tools present in the gptel registry (speculated, module-load-smoke task)
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/invariant/coordinator-lock-contract
+     - register/invariant/typed-edge-extraction-scope
+     - register/shape/typed-edge-tuple
+   discovered_from: typed-edge-query
+   discovered_by: architect
+   #+end_src
+
+** vault-root-vs-roam-root
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-vault-root-vs-roam-root
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/vault-root-vs-roam-root
+   tier: boundary
+   status: speculated
+   load_bearing: true
+   title: two roots, disjoint consumer sets — vault root widens discovery; roam root keeps gating extraction and writes
+   purpose: |
+     vulpea-human-commands D1 splits the vault anchor into TWO defcustoms with
+     deliberately disjoint consumer sets. org-graph-vault-root (NEW, default
+     ~/org/, defined in the loader org-graph.org next to org-graph-roam-root)
+     anchors DISCOVERY and PLACEMENT: it seeds org-graph/index-roots and
+     derives vulpea-default-notes-directory. org-graph-roam-root (default
+     ~/org/roam/, unchanged) keeps anchoring the CURATION boundary: typed-edge
+     extraction gating, edge-type seed installation, and the agent write
+     target. Exactly ONE consumer repoints in this change —
+     discovery.el's org-graph/index-roots seed. Every other
+     org-graph-roam-root consumer stays put; repointing them (or repointing
+     the roam-root defcustom itself to ~/org/) would silently widen typed-edge
+     extraction to the whole vault and move agent drafts — spec-visible
+     changes the change did not propose (the spike spec's Typed Semantic
+     Edges requirement literally excludes notes outside ~/org/roam/ from
+     typed_edges; deferred to org-roam retirement, design.md OQ-A).
+   variables:
+     - name: org-graph-vault-root
+       default: "~/org/"
+       defined_in: config/org-graph/org-graph.org (loader defcustom; speculated, vault-root-discovery task)
+       consumers_exhaustive:   # grep 2026-08-13, whole config/ tree
+         - file: config/org-graph/discovery.el
+           function: org-graph/index-roots
+           note: seed of the bounded root set (REPOINTED from org-graph-roam-root; boundp-guarded, "~/org/" fallback literal)
+         - file: config/org-graph/discovery.el
+           function: "placement setq (vulpea-default-notes-directory derivation)"
+           note: replaces the current hardcoded (expand-file-name "~/org") literal at discovery.el:19
+         - file: config/org-graph/test/discovery-spec.el
+           function: root + placement assertions (repointed)
+         - file: config/org-graph/test/module-load-spec.el
+           function: loader-defcustom default assertion (new, alongside the org-graph-roam-root one at :99-101)
+     - name: org-graph-roam-root
+       default: "~/org/roam/"
+       defined_in: config/org-graph/org-graph.el:10 (shipped, UNCHANGED)
+       consumers_exhaustive:   # grep 2026-08-13, whole config/ tree; NONE of these repoint
+         - file: config/org-graph/extractor.el
+           function: org-graph-extractor--roam-note-p (lines 166-181)
+           note: typed-edge extraction scope gate (register/invariant/typed-edge-extraction-scope, CONFIRMED)
+         - file: config/org-graph/edge-type.el
+           function: org-graph-edge-type-install-seeds (lines 163-178)
+           note: default DIRECTORY for seed edge-type registry notes
+         - file: config/org-graph/tools.el
+           function: org-graph-tools--roam-root (lines 14-20) -> org-graph-tools/write-node default directory
+           note: >
+             the agent write target. MISSED TWICE in the prior cycle's
+             consumer enumerations (meta-discovery: untouched-neighbor drift)
+             — listed here explicitly so no task "cleans it up" in passing.
+         - file: config/org-graph/discovery.el
+           function: org-graph/index-roots (lines 41-53)
+           note: CURRENT consumer; the ONE that repoints to org-graph-vault-root in vault-root-discovery
+         - file: config/org-graph/test/{discovery,extractor,edge-type,module-load}-spec.el
+           function: defvar shims + default assertions (extractor/edge-type specs keep binding it; discovery-spec repoints)
+         - file: config/org-graph/docs/spike-eval.org
+           function: Discovery checklist line 92 (runbook-and-verify updates the expectation text)
+   boundary_constraints: |
+     After this change: a note at the vault top level (e.g. ~/org/inbox.org)
+     IS indexed/findable/linkable but contributes NO typed edges and is NOT
+     where agents write drafts. This asymmetry is deliberate and
+     runbook-verified (runbook-and-verify step 4 asserts an EDGES drawer on a
+     vault-top-level note yields zero typed_edges rows). Any task that makes
+     extractor.el, edge-type.el, or tools.el read org-graph-vault-root is
+     drift against this entry.
+   producers:
+     - file: config/org-graph/org-graph.org
+       function: the two defcustoms (vault-root speculated; roam-root shipped)
+   consumers:
+     - file: config/org-graph/discovery.el
+       function: org-graph/index-roots + placement setq (see consumers_exhaustive above)
+   related_entries:
+     - register/invariant/bounded-discovery-roots
+     - register/invariant/typed-edge-extraction-scope
+     - register/boundary/org-graph-agent-tools
+     - register/invariant/note-filename-template-dash
+   discovered_from: vulpea-human-commands (vault-root-discovery task)
+   discovered_by: architect
+   #+end_src
+
+** authoring-commands-delegation
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-authoring-commands-delegation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/authoring-commands-delegation
+   tier: boundary
+   status: speculated
+   load_bearing: false
+   title: authoring commands are thin wrappers over vulpea built-ins — no custom completion or creation logic
+   purpose: |
+     The human-side authoring surface (org-graph-note-commands spec) delegates
+     WHOLESALE to installed vulpea 2.4 built-ins (design.md D3). The wrappers
+     exist to give the surface stable org-graph names (menu targets, future
+     filtering hooks, tests) — behavior is vulpea's. Every spec guarantee
+     (create-on-miss, synchronous birth-index: file written + :ID: assigned +
+     org-id-add-location + vulpea-db-update-file before return,
+     region-as-link-description inside an atomic-change-group) is vulpea-create /
+     vulpea-insert behavior, verified against the installed source. The
+     contract's teeth: any bespoke completing-read, creation, or link-insertion
+     plumbing added inside these wrappers is drift (duplication of vulpea
+     internals with divergent guarantees) — filtering/type-selection wants go
+     through vulpea's own extension points or a spec change (design.md OQ-B).
+   functions:
+     - name: org-graph/find-or-create
+       signature: "() interactive -> (vulpea-find :require-match nil)"
+       notes: |
+         Completes over EVERY indexed note (no filter arg — unlike the
+         type-scoped finders in finders.el, which pass :require-match t).
+         Miss routes through vulpea-find-default-create-fn -> vulpea-create.
+     - name: org-graph/insert-link
+       signature: "() interactive -> (vulpea-insert)"
+       notes: |
+         vulpea-insert-default-create-fn stays nil (the default). Active
+         region becomes the link description and is replaced by the
+         [[id:...]] link; miss creates via vulpea-create first.
+   producers:
+     - file: config/org-graph/authoring.el
+       function: both wrappers (speculated, authoring-module task; module provides org-graph-authoring)
+   consumers:
+     - file: config/org-graph/menu.el
+       function: org-graph-menu Author group entries "f"/"i" (speculated, menu-module task; dispatches the SAME commands as M-x)
+     - file: config/org-graph/test/authoring-spec.el
+       function: cl-letf spies asserting delegation args (speculated)
+   related_entries:
+     - register/invariant/bounded-discovery-roots
+     - register/invariant/note-filename-template-dash
+     - register/invariant/org-graph-loader-ordered-sequence
+   discovered_from: vulpea-human-commands (authoring-module task)
+   discovered_by: architect
+   #+end_src
+
+** note-at-point-resolution
+   :PROPERTIES:
+   :CUSTOM_ID: register-boundary-note-at-point-resolution
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/boundary/note-at-point-resolution
+   tier: boundary
+   status: reconciled
+   status_note: |
+     cycle-1786636086 integrate: SPECULATED -> RECONCILED (menu-module).
+     Implementor discovery disc-menu-module-1 and the author-blind reviewer
+     (Finding 3, spec-signal) independently converged: the entry's three
+     constraints (signal-on-nil, validate front door may prompt instead, no
+     second inlined org-entry-get) are only jointly satisfiable if the ONE
+     shared resolver can be asked not to signal. Signature widened to
+     "(&optional noerror)"; nil is returned ONLY under noerror, and the sole
+     noerror caller is the validate front door. The never-query-nil teeth are
+     unchanged and execution-tested. Reconciliation note:
+     .orchestrator/cycles/cycle-1786636086/reconciliations/note-at-point-resolution.md.
+   load_bearing: false
+   title: one shared note-at-point ID resolver; nil is a user-error, never a silent empty query
+   purpose: |
+     How the menu's context commands (edge queries; the validate entry) find
+     their subject note (design.md D7). ONE helper,
+     org-graph-menu--note-id-at-point, resolves via
+     (org-entry-get nil "ID" t) — the INHERITED lookup vulpea itself uses in
+     vulpea-find-backlink: enclosing ID-bearing heading first, then the
+     file-level :ID:. When nothing at point carries an :ID: it signals
+     (user-error "No note with an :ID: at point") — commands MUST NOT query
+     with a nil/empty id (a nil id against typed_edges returns an empty
+     result that is indistinguishable from "no edges", masking the user's
+     real situation). The single deliberate exception: a caller that will NOT
+     query but instead falls through to another interaction (the validate
+     front door's prompt-for-type path) may pass NOERROR to receive nil
+     instead of the signal — it must never pass that nil onward as a query
+     id. Every menu context command calls this helper; a second inlined
+     org-entry-get (especially one missing the INHERIT flag, which would
+     silently skip file-level IDs) is a duplication bug. Kin to the
+     extractor-side register/invariant/enclosing-node-attribution, but this
+     resolver is buffer/point-based (org-entry-get), not org-element-lineage
+     based — the two serve different layers and do NOT share code.
+   functions:
+     - name: org-graph-menu--note-id-at-point
+       signature: "(&optional noerror) -> id string | nil (only when noerror) | signals user-error"
+       notes: |
+         inherited property lookup; no DB access; pure buffer-state read.
+         nil return exists only for the noerror mode; the three edge-query
+         commands call argument-less and keep the signal-on-nil guarantee
+         (menu-spec asserts the query is never reached with a nil id). Sole
+         noerror caller: org-graph/validate-note-at-point-or-prompt.
+   producers:
+     - file: config/org-graph/menu.el
+       function: org-graph-menu--note-id-at-point (speculated, menu-module task)
+   consumers:
+     - file: config/org-graph/menu.el
+       function: org-graph/edges-outgoing-at-point | /edges-incoming-at-point | /edges-connected-at-point (speculated)
+     - file: config/org-graph/menu.el
+       function: the Maintain "validate note type" entry, when it resolves the note at hand (speculated; may prompt instead when point has no note)
+     - file: config/org-graph/test/menu-spec.el
+       function: heading / file-level / none->user-error cases in temp org buffers (speculated)
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/shape/edge-results-buffer
+     - register/invariant/enclosing-node-attribution
+   discovered_from: vulpea-human-commands (menu-module task)
    discovered_by: architect
    #+end_src
 
@@ -9286,6 +10359,792 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/invariant/static-prerender-dynamic-compose
 
    discovered_from: gptel-fragment-presets
+   discovered_by: architect
+   #+end_src
+
+** coordinator-lock-contract
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-coordinator-lock-contract
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/coordinator-lock-contract
+   tier: invariant
+   status: confirmed
+   load_bearing: true
+   title: per-file write lock -- distinct paths independent, errors release, acquisition atomic
+   statement: |
+     org-graph-coordinator/with-file-lock takes an exclusive lock keyed on the
+     canonicalised (expand-file-name + file-truename) path. BODY always releases the
+     lock via unwind-protect, including on error or non-local exit. Locks on distinct
+     canonical paths are fully independent. Acquisition is atomic: no
+     accept-process-output yield occurs between the gethash free-check and the puthash
+     claim. A busy path busy-waits up to org-graph-coordinator-timeout seconds, then
+     signals org-graph-coordinator-lock-timeout with the key as data.
+   why_it_matters: |
+     This is the corruption guard for concurrent gptel-tool writes (spec: "no
+     truncation, no interleaved bytes"); the repo has a documented history of gptel
+     session-drawer corruption from overlapping writes, which this lock exists to
+     prevent for graph writes.
+   enforcement_mechanism:
+     kind: test
+     location: config/org-graph/test/coordinator-spec.el
+     notes: |
+       atomic-check-and-set is enforced by structural-audit (architect on-touch when
+       --acquire changes), not by test -- single-threaded elisp gives no interleaving
+       to exercise (see finding arch-cycle-1782551613-05).
+   related_entries:
+     - register/shape/typed-edge-tuple
+   discovered_from: coordinator-lock
+   discovered_by: architect
+   #+end_src
+
+** lexical-binding-line-1
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-lexical-binding-line-1
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/lexical-binding-line-1
+   tier: invariant
+   status: confirmed
+   load_bearing: true
+   title: every tangled .el begins with the lexical-binding mode line on line 1
+   statement: |
+     Every org-graph .org file's first emacs-lisp babel block uses :comments no, so
+     the tangled .el's line 1 is ";;; <name>.el --- ... -*- lexical-binding: t; -*-"
+     with no org structure comment ahead of it. Emacs only honours lexical-binding
+     when the mode line is on line 1.
+   why_it_matters: |
+     Repo incident (MEMORY.md, fixed 2026-03-11): a structure comment ahead of the
+     mode line silently loads the file with dynamic binding, breaking closures
+     ("Symbol's value as variable is void: wrapper-callback"). The org-graph
+     coordinator macro and future gptel-tool callbacks rely on closures.
+   enforcement_mechanism:
+     kind: test
+     location: config/core/test/test-lexical-binding-headers.el
+     notes: |
+       Repo-wide header test; verified org-graph.org:28, extractor.org:31,
+       coordinator.org:20 all carry :comments no.
+   related_entries: []
+   discovered_from: scaffold-module
+   discovered_by: architect
+   #+end_src
+
+** typed-edge-extraction-scope
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-typed-edge-extraction-scope
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/typed-edge-extraction-scope
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-1782551613 integrate: confirmed by vulpea-extractor-plugin. Roam-root
+     scope gate implemented in org-graph-extractor--roam-note-p + enforced in
+     extract; tested (roam->tuples, non-roam->none, subdir->in, empty/unset->fail
+     closed). Closes foundation finding arch-cycle-1782551613-04.
+   load_bearing: true
+   title: typed-edge extraction runs only under the roam root
+   statement: |
+     The vulpea extractor wrapper emits typed_edges rows only for notes whose path is
+     under org-graph-roam-root (default ~/org/roam/). Notes under workspace :home or
+     sessions/ are indexed for discovery and navigation but contribute zero typed
+     edges. The pure parser is path-agnostic; the scope decision lives in
+     org-graph-extractor/extract.
+   why_it_matters: |
+     D2/RE-4: typed edges are a curation discipline on durable concept notes;
+     extracting from transient project/session notes dilutes the graph and balloons
+     write/inotify load. The spec marks this a "hard boundary for the spike."
+   enforcement_mechanism:
+     kind: runtime-check
+     location: config/org-graph/extractor.el:org-graph-extractor/extract
+     notes: cheap path-prefix test inside extract; currently a gap (finding arch-cycle-1782551613-04).
+   related_entries:
+     - register/shape/typed-edge-tuple
+     - register/boundary/parser-extractor-db
+   discovered_from: vulpea-extractor-plugin
+   discovered_by: architect
+   #+end_src
+
+** enclosing-node-attribution
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-enclosing-node-attribution
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/enclosing-node-attribution
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer + parse-rel-links). Held EXACTLY: the speculated name
+     shipped verbatim (org-graph-extractor--enclosing-note-id), BOTH
+     scanners call it, grep org-element-lineage in extractor.el resolves to
+     the one helper, and all four attribution cases pass in BOTH spec files
+     (parse-drawer-edges-spec.el, parse-rel-links-spec.el). Mechanism
+     pinned: the walk reads org-element's CACHED :ID element properties on
+     `headline' lineage nodes and on the root `org-data' (which carries the
+     file-level PROPERTIES drawer's :ID) — no manual drawer digging;
+     requires Org >= 9.6 (verified by batch probe on the bundled Org).
+     why_tests_missed: n/a — speculation matched; the mechanism detail was
+     added. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/enclosing-node-attribution.md.
+   load_bearing: true
+   title: one shared enclosing-node walk attributes every typed edge; drop, never mis-attribute
+   statement: |
+     Both pure scanners (parse-drawer-edges, parse-rel-links) resolve from-id
+     through ONE shared helper, org-graph-extractor--enclosing-note-id
+     (shipped): the nearest ancestor carrying an :ID:, resolved via
+     org-element-lineage over `headline' nodes and the root `org-data' —
+     reading org-element's cached :ID element properties (Org >= 9.6; the
+     org-data node carries the file-level PROPERTIES drawer's :ID) — the
+     enclosing headline chain, else the file-level node. An edge source
+     (drawer item link or
+     rel: link) with NO ID-bearing ancestor contributes NOTHING — dropped,
+     never attributed to a neighbouring node or defaulted to a node it does
+     not belong to. Neither scanner carries its own lineage walk; a second
+     copy of the walk is a duplication bug. (LD-4, commit 5fe66b39, dissolved
+     the drawer/inline attribution split of OV-4, commit dab1da12, and
+     deleted the PROPERTIES-ownership machinery rather than porting it.)
+   why_it_matters: |
+     Mis-attribution corrupts the graph SILENTLY — rows insert fine, queries
+     return plausible results, and only cross-note inspection reveals the
+     wrong from-id. This project already paid: cycle-1782551613's
+     parser-extractor-db DIVERGENCE credited every ID-bearing note in a file
+     with every edge (whole-file AST scan), caught only after multi-note
+     fixtures were built. LD-4 makes the walk the single attribution model
+     for BOTH surfaces; two diverging copies would fork attribution semantics
+     per surface, which no per-scanner test would notice.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/parse-rel-links-spec.el and
+       parse-drawer-edges-spec.el attribution cases: file-top -> file node
+       id; ID-bearing subheading -> its own id; ID-less heading nested inside
+       an ID-bearing ancestor -> walks up; no ID-bearing ancestor at all ->
+       dropped. Structural audit: grep org-element-lineage in
+       config/org-graph/extractor.el resolves to exactly ONE helper, called
+       by both scanners.
+     notes: |
+       Both specs must drive the SAME helper; the shared-helper (not
+       copied-walk) half of the invariant is grep-auditable, the
+       drop-never-mis-attribute half is test-enforced.
+   related_entries:
+     - register/shape/typed-edge-tuple
+     - register/boundary/parser-extractor-db
+     - register/boundary/rel-link-path-syntax
+   discovered_from: edges-drawer
+   discovered_by: architect
+   #+end_src
+
+** edge-drawer-discriminator
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-edge-drawer-discriminator
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/edge-drawer-discriminator
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-1786458912 integrate (org-graph-spike): SPECULATED -> RECONCILED
+     (edges-drawer; on-touch arch-cycle-1786458912-ot-edgesdrawer-1). The
+     discriminator held as specified: drawer name read from the defcustom
+     at scan time, case-insensitive match, nothing else is ever an edge
+     (discriminator cases spec-pinned in parse-drawer-edges-spec.el). LD-6
+     mechanism EXTENDED beyond the speculation: the defcustom's customize
+     :set lambda now follows a RENAME into org-export-with-drawers when
+     the list still holds the loader-managed shape
+     ((not "LOGBOOK" <old-name>)), swapping in the new name; a `setq'
+     rename bypasses this and is documented in the docstring (re-evaluate
+     the exclusion or restart). Both behaviors are spec-pinned in
+     module-load-spec.el (no longer runbook-only). why_tests_missed:
+     rename-after-ox-load was a config-time edge no mandated case covered;
+     the architect on-touch audit caught it. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/edge-drawer-discriminator.md.
+   load_bearing: true
+   title: the configured drawer name is the ONLY structured-edge discriminator
+   statement: |
+     Content is a structured typed edge iff it is a description-list item
+     inside the drawer named by org-graph-edge-drawer (string defcustom,
+     default "EDGES"; matched case-insensitively per org drawer semantics).
+     Nothing else is: ordinary PROPERTIES entries — including ones whose
+     value holds an id: link (:SOURCE:, :ROAM_REFS:) — are NEVER edges;
+     ordinary body [[id:...]] links are NEVER edges; identical
+     description-list items in a differently-named drawer are NEVER edges.
+     The drawer name is read from the defcustom at scan time (no hardcoded
+     literal outside the defcustom default), and the loader excludes the
+     configured drawer from export when org-export-with-drawers still has its
+     default shape (LD-6; a user who customized that variable owns the
+     outcome). A customize rename follows into the exclusion: the
+     defcustom's :set swaps the new name into org-export-with-drawers while
+     the list holds the loader-managed shape ((not "LOGBOOK" <old-name>));
+     a `setq' rename bypasses the :set and the docstring says so.
+   why_it_matters: |
+     A leaky discriminator pollutes the graph silently in both directions:
+     admitting :SOURCE:-style properties or body links manufactures edges the
+     author never asserted; missing the case-insensitive match or the
+     defcustom indirection drops edges the author did assert. The REL_-prefix
+     discriminator this replaces (OV-2, commit dab1da12) was itself replaced
+     because a key-naming rule conflates "is an edge" with "which relation"
+     (design.md LD-3, commit 5fe66b39); the container rule only stays clean
+     if it is the ONLY rule — no secondary heuristic ever re-admits
+     properties or body links.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/parse-drawer-edges-spec.el discriminator cases:
+       :SOURCE: property holding an id: link -> no rows; bare body id: link
+       -> no rows; identical items in a differently-named drawer -> no rows;
+       rebound org-graph-edge-drawer -> discriminator follows the new name.
+       Grep audit: the "EDGES" literal appears only in the defcustom default
+       in config/org-graph/org-graph.el, never in extractor.el.
+     notes: |
+       The LD-6 export-exclusion clause is loader behaviour, spec-pinned in
+       config/org-graph/test/module-load-spec.el ("edge-drawer export
+       exclusion follows customize renames" cases: loader-managed shape
+       follows the rename; a user-customized list is left alone), with the
+       spike-eval runbook (spike-eval-doc-update) as the secondary
+       live-boot check.
+   related_entries:
+     - register/boundary/parser-extractor-db
+     - register/vocabulary/relation-types
+   discovered_from: edges-drawer
+   discovered_by: architect
+   #+end_src
+
+** no-materialized-inverse-rows
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-no-materialized-inverse-rows
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/no-materialized-inverse-rows
+   tier: invariant
+   status: speculated
+   load_bearing: true
+   title: typed_edges stays canonical and directional; inverse/symmetry derived at read time only
+   statement: |
+     The system SHALL NOT write inverse or mirrored rows to typed_edges.
+     Every stored row is the single canonical, directional assertion the
+     author made. Registry-declared :INVERSE: labels and :SYMMETRIC: t
+     behaviour are derived at query/display time (the edge-label resolver and
+     symmetric-aware reads in query.el, fed by org-graph/edge-types) — a
+     read/render overlay that leaves rows, the typed_edges schema, and the
+     write path untouched. The extractor wrapper remains the only writer of
+     typed_edges.
+   why_it_matters: |
+     Materialized inverses double-write: the pair drifts the first time one
+     side is re-extracted, deleted, or re-typed without the other, and
+     afterwards no query can tell the canonical row from the derived one.
+     Design provenance: OV-7 (commit dab1da12) narrows the original
+     "auto-derived symmetry" Non-Goal and RE-4 to its storage half —
+     read-time enrichment is allowed, stored mirroring never; unaffected by
+     the links-drawer pivot (commit 5fe66b39; query layer is
+     surface-agnostic).
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/typed-edges-spec.el (query-inverse-symmetric
+       task): inverse and symmetric cases run against SINGLE stored rows with
+       the DB select stubbed, asserting labels/bidirectionality are derived,
+       not stored. Grep audit: no insert into typed_edges anywhere in
+       config/org-graph/query.el or edge-type.el; the extractor wrapper
+       (register/boundary/parser-extractor-db stage db-insert) is the sole
+       writer.
+     notes: ""
+   related_entries:
+     - register/boundary/typed-edge-query-api
+     - register/boundary/edge-type-registry-lookup
+     - register/boundary/parser-extractor-db
+   discovered_from: query-inverse-symmetric
+   discovered_by: architect
+   #+end_src
+
+** bounded-discovery-roots
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-bounded-discovery-roots
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/bounded-discovery-roots
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1786636086 plan (forward-mode): CONFIRMED -> SPECULATED (re-stated)
+     for vulpea-human-commands (vault-root-discovery task). The vault anchor of
+     the bounded set WIDENS: org-graph/index-roots seeds from the NEW loader
+     defcustom org-graph-vault-root (default ~/org/, the whole vault including
+     its roam/ subdirectory) instead of org-graph-roam-root (~/org/roam/).
+     Bounded-ness itself is unchanged — still exactly ONE explicit vault root
+     plus registry workspace homes (+ sessions/), still no ~/work walk, still
+     no directory-tree discovery. Rationale: notes created via the default
+     placement (vulpea-default-notes-directory = vault root) were indexed at
+     birth but silently DROPPED on any full re-scan/DB rebuild because re-scans
+     only walk vulpea-db-sync-directories; aligning index root with placement
+     root closes the trap (survey: 1106 org files under ~/org/, 1099 already
+     under roam/; vulpea skips ID-less files). org-graph-roam-root is NOT
+     repointed — it keeps its ~/org/roam/ default and its extraction/scan/
+     write-target consumers (register/boundary/vault-root-vs-roam-root).
+     discovery-spec.el root assertions repoint from ~/org/roam/ to the vault
+     root. Prior confirmed statement (cycle-1782551613) seeded from
+     org-graph-roam-root; superseded wording preserved below.
+
+     cycle-1782551613 integrate: confirmed by registry-discovery. index-roots =
+     roam-root + registry workspace homes (+ sessions/) only; negative no-walk
+     assertion (spies on directory-files-recursively AND directory-files) in the
+     discovery spec; seed calls org-id-add-location once per DB note.
+   load_bearing: true
+   title: discovery indexes explicit bounded roots; the wider work tree is never walked
+   statement: |
+     vulpea's sync roots are exactly org-graph-vault-root (default ~/org/, the
+     whole durable vault including its roam/ subdirectory — NOT ~/org/roam/
+     alone, and never a separate second entry for roam/) plus, when
+     org-graph-watch-workspace-homes is non-nil, each active workspace :home (and
+     sessions/) obtained from the workspaces registry. org-graph SHALL NOT
+     directory-files-recursively or otherwise walk ~/work wholesale to discover
+     notes. id: links resolve across sessions because org-id-locations is seeded from
+     the vulpea DB at startup (deferred op). ID-bearing notes anywhere under the
+     vault root are indexed, so default-placed new notes share one index and one
+     re-scan boundary with the pre-existing roam/ corpus.
+   prior_statement: |
+     vulpea's sync roots are exactly org-graph-roam-root plus, when
+     org-graph-watch-workspace-homes is non-nil, each active workspace :home (and
+     sessions/) obtained from the workspaces registry. (Rest unchanged.)
+   why_it_matters: |
+     RE-1/RE-2: a blind ~/work recursive scan/watch is the original inotify-fsevents
+     blow-up risk org-node was going to incur; the registry gives a handful of homes
+     the user actually created. Replacing wholesale discovery with explicit roots is
+     the load-bearing decision that let org-node be dropped.
+   enforcement_mechanism:
+     kind: test
+     location: config/org-graph/test (discovery spec)
+     notes: |
+       spec asserts roots = roam-root + mocked workspace homes only, seeding calls
+       org-id-add-location once per DB note, and a negative: no
+       directory-files-recursively over ~/work.
+   related_entries: []
+   discovered_from: registry-discovery
+   discovered_by: architect
+   #+end_src
+
+** indexable-requires-id
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-indexable-requires-id
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/indexable-requires-id
+   tier: invariant
+   status: reconciled
+   status_note: |
+     cycle-1782551613 integrate: RECONCILED by auto-id-scaffold. Core invariant
+     (additive + idempotent; existing :ID: untouched) held and is test-enforced.
+     Refinement: "additive" is at the org-element level (never removes user
+     content), NOT byte-prefix-stable for home.org -- a file-level :ID: drawer must
+     precede #+TITLE:, which is safe only because the title reader is start-of-line
+     anchored. why_tests_missed: one over-specified scaffold assertion pinned
+     #+TITLE: at start-of-FILE; no test distinguished start-of-file from
+     start-of-line, so the drawer-before-title reordering broke it (retargeted to
+     the reader's real ^#+TITLE: contract). prior: 'existing specs stay green (IDs
+     additive)'. new: as refined above.
+   load_bearing: false
+   title: workspace home.org and session files get a stable :ID: at birth, additively
+   statement: |
+     Because vulpea only indexes notes carrying an :ID:, workspace home.org and gptel
+     session files receive an org id at creation (org-id-get-create). ID assignment is
+     additive and idempotent: a file that already has an :ID: is left unchanged, so
+     re-running scaffold or re-saving a session never churns IDs.
+   why_it_matters: |
+     RE-2a: without an :ID:, workspace homes and sessions are invisible to the index
+     and cannot be id: link targets. This is the single place org-graph reaches into
+     the workspaces / gptel-sessions code; keeping it additive guarantees a workspace
+     with org-graph absent behaves identically.
+   enforcement_mechanism:
+     kind: test
+     location: config/workspaces/test and config/gptel/sessions/test
+     notes: |
+       existing scaffold/session specs stay green (IDs additive); a new assertion that
+       a re-run leaves an existing :ID: unchanged.
+   related_entries: []
+   discovered_from: auto-id-scaffold
+   discovered_by: architect
+   #+end_src
+
+** vulpea-db-isolation
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-vulpea-db-isolation
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/vulpea-db-isolation
+   tier: invariant
+   status: confirmed
+   status_note: |
+     cycle-1782561220 integrate: CONFIRMED by set-vulpea-db-path-per-d8 (author-blind
+     reviewer clean). Held exactly: vulpea-db-location now resolves to
+     runtime/state/vulpea/notes.db via (expand-file-name "state/vulpea/notes.db"
+     user-emacs-directory) — user-emacs-directory is the worktree runtime/ dir per
+     early-init.el, so the path is worktree-isolated; the default runtime/vulpea.db is
+     confirmed absent after a real run. Enforced by db-location-spec.el (asserts under
+     runtime/state/, basename notes.db, parent vulpea/, != default) + a make-directory
+     load-time side-effect. Now load-bearing. REFINEMENT (drops the plan-time
+     parenthetical): the home MUST be the loader's vulpea :config, not configure-sync —
+     discovery.el's load-time org-id seed calls vulpea-db-query AT MODULE LOAD, which
+     would open the DB at the default path before configure-sync ever runs.
+   load_bearing: true
+   title: the org-graph vulpea DB lives under runtime/state/vulpea/, isolated from org-roam
+   statement: |
+     vulpea-db-location resolves to runtime/state/vulpea/notes.db (under the worktree
+     runtime dir, via user-emacs-directory), NOT vulpea's default runtime/vulpea.db and
+     NOT any org-roam DB path. Wiping or rebuilding the org-graph index never touches
+     org-roam's DB or org-id's locations cache. The path is set in the org-graph
+     loader's vulpea :config — which runs eagerly before any submodule loads, so it is
+     fixed before discovery.el's load-time org-id seed opens the DB. (configure-sync
+     would be too late.)
+   why_it_matters: |
+     D8: resilience through independent DBs sharing only the on-disk org format. If the
+     spike is abandoned, deleting config/org-graph/ + runtime/state/vulpea/ is the whole
+     rollback; org-roam is untouched throughout. A shared or default path silently
+     couples the two indices and defeats the spike's clean-rollback property.
+   enforcement_mechanism:
+     kind: test
+     location: config/org-graph/test (loader / db-path spec) + load-time setq
+     notes: |
+       spec (or load-time assertion) that vulpea-db-location resolves under
+       runtime/state/; manual check that no stray DB lands at runtime/vulpea.db.
+   related_entries:
+     - register/invariant/bounded-discovery-roots
+   discovered_from: registry-discovery
+   discovered_by: architect
+   #+end_src
+
+** org-graph-loader-ordered-sequence
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-org-graph-loader-ordered-sequence
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/org-graph-loader-ordered-sequence
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1786636086 plan (forward-mode): RECONCILED -> SPECULATED (re-stated)
+     for vulpea-human-commands (authoring-module, boot-sync-deferral,
+     menu-module tasks). Two amendments:
+
+     (1) MODULE COUNT: the canonical order grows NINE -> ELEVEN. authoring
+     inserts between finders and edge-type (it completes over what finders
+     see; hard (require 'vulpea) like finders.el); menu appends LAST, after
+     workspace-integration (it references commands from finders, authoring,
+     query, discovery, and hard-requires transient, which init.org loads
+     well before org-graph). COUNT-DRIFT WARNING for implementors: the live
+     loader has NINE modules today (org-graph.el:100-108: schemas, extractor,
+     coordinator, query, finders, edge-type, tools, discovery,
+     workspace-integration), but design.md D4 says "eight to ten" and the
+     task files say "grows to nine"/"grows to ten" while correctly listing
+     TEN/ELEVEN names — trust the NAME LISTS and this entry, not the stale
+     counts. module-load-spec.el's cold-load guard updates to the
+     eleven-module order in two steps (ten after authoring-module, eleven
+     after menu-module).
+
+     (2) DEFERRED OPS: the emacs-startup-hook deferral set grows TWO ->
+     THREE. org-graph--configure-sync-deferred (wrapping
+     org-graph/configure-sync via the shared org-graph--run-deferred-op
+     guard, warning tag "sync configuration skipped") joins, with runtime
+     hook order: extractor registration -> configure-sync -> org-id seed
+     (sync config before the seed so a first-ever boot seeds from a DB that
+     is at least being populated). MECHANISM: add-hook without APPEND pushes
+     to the FRONT, so runtime order is the reverse of add-hook file order —
+     the new add-hook line must sit BETWEEN the existing two (seed add at
+     org-graph.el:133, extractor add at :144). Cold (require 'org-graph)
+     stays DB-free: authoring and menu touch no DB at load, and only the
+     HOOK REGISTRATION for configure-sync happens at load —
+     org-graph/configure-sync itself (sets vulpea-db-sync-directories,
+     enables vulpea-db-autosync-mode, triggers an async full scan) runs at
+     hook time only. Known limits carried forward unchanged: mid-session
+     jf/reload-module does not re-fire startup-hook ops; roots added
+     mid-session get only the :on-create one-shot.
+
+     cycle-1786458912 integrate (org-graph-spike): HELD UNDER REFACTOR
+     (org-graph-loader-cleanup); stays RECONCILED, no status change. The
+     invariant is preserved exactly — one contiguous by-path ordered
+     "* Submodules" block, every DB-free registration at require, both
+     DB-touching ops on emacs-startup-hook with unchanged resilience
+     semantics. Refinements: deferral ownership is consolidated in the
+     LOADER — both named wrappers (org-graph--register-extractor,
+     org-graph--seed-org-id-locations-deferred) delegate to the shared
+     helper org-graph--run-deferred-op and are add-hooked from
+     org-graph.el (symmetric loader ownership; the seed no longer
+     self-defers inside discovery.el); the cold-load guard
+     (module-load-spec.el) now asserts BOTH wirings by name; and the
+     resilience semantics (failing op -> display-warning, never signals)
+     are execution-tested rather than prose-only. Reconciliation note:
+     .orchestrator/cycles/cycle-1786458912/reconciliations/org-graph-loader-ordered-sequence.md.
+
+     cycle-1782573574 integrate (org-graph-spike): DIVERGENT -> RECONCILED
+     (re-stated) by wire-into-init (merge 50af89ae). The loader was consolidated
+     into ONE ordered "* Submodules" sequence loading all eight submodules BY
+     PATH in canonical order (schemas -> extractor -> coordinator -> query ->
+     finders -> tools -> discovery -> workspace-integration); extractor.el +
+     coordinator.el added, discovery.el un-commented, scattered loads removed.
+     module-load-spec.el converted into the REAL cold-load guard: it requires
+     org-graph ALONE and asserts every registration fired from the loader path
+     (would fail on any omitted/mis-ordered registration). A real isolated boot
+     confirmed load-after-gptel+workspaces with live registration.
+     RE-STATEMENT (the prior_shape said a cold require fires ALL registrations):
+     one registration genuinely opens the DB (the typed-edge extractor, which
+     applies its typed_edges schema via vulpea-db--apply-plugin-schema) and the
+     discovery org-id seed is a vulpea-db-query. To preserve the co-equal,
+     user-resolved DB-FREE-LOAD contract (ask-cycle-1782570180-1:
+     defer-to-post-init-hook), BOTH are deferred to emacs-startup-hook; so a cold
+     require fires every DB-FREE registration at load, and the two DB-touching
+     ops fire post-init. emacs-startup-hook (NOT after-init-hook) is the
+     load-bearing seam under this config's "emacs -q --load init.el" launch
+     (after-init-hook fires before the --load actions, so a module-added
+     after-init-hook never runs here). why_tests_missed: the prior speculation
+     never modelled that some registrations must open the DB; the DB-free-load
+     contract and the deferral seam only crystallised when the loader was
+     actually consolidated and booted. Reviewer (a466a06972617f3e1) confirmed the
+     carve-out does NOT weaken the invariant: extractor.el still loads by path in
+     canonical position; only the registration CALL defers. Reconciliation note:
+     .orchestrator/cycles/cycle-1782573574/reconciliations/org-graph-loader-ordered-sequence.md.
+
+     cycle-1782570180 integrate (org-graph-spike): SPECULATED -> DIVERGENT.
+     Probed by module-load-smoke (the cold-load gate). Implementor push-back
+     (disc-module-load-smoke-1), architect on-touch (arch-cycle-1782570180-ot-1,
+     verified by direct inspection of org-graph.el), and author-blind reviewer
+     Finding 1 (spec-signal, reached cold) all confirm: the live loader
+     config/org-graph/org-graph.el does NOT realize the canonical sequence. It
+     loads query/tools/workspace-integration BEFORE schemas, OMITS extractor.el
+     and coordinator.el, and has discovery.el COMMENTED OUT -- so a cold
+     (require 'org-graph) does not fire every registration (typed-edge extractor
+     never registers; discovery fns undefined). The statement below remains the
+     correct TARGET; the CODE diverges and the gap is UNRESOLVED this cycle.
+     RESOLUTION SITE = wire-into-init: add extractor + coordinator, wire
+     discovery (decide load-time vs deferred for the seed DB query), reorder to
+     canonical, and -- per reviewer Finding 1 -- switch module-load-spec.el to a
+     real (require 'org-graph)-alone cold-load guard. Only then does this move
+     divergent -> reconciled. why_tests_missed + full plan:
+     .orchestrator/cycles/cycle-1782570180/reconciliations/org-graph-loader-ordered-sequence.md.
+     Divergent entries block their citing tasks until resolved: wire-into-init
+     resolves it; spike-eval-checklist (blocked-by wire-into-init) sees the
+     reconciled entry by the time it runs.
+
+     cycle-1782566912 plan (forward-mode): SPECULATED. Crystallises a
+     meta-discovery flagged across THREE consecutive cycles
+     (cycle-1782551613, -1782561220, -1782564058; handshake
+     meta_discoveries kind=invariant-gap-class scope="org-graph.org loader")
+     and confirmed by direct inspection this cycle: config/org-graph/org-graph.org
+     load-wires its submodules in SCATTERED, only-partially-ordered sections —
+     query in "* Query", tools in "* gptel tools", schemas+finders in
+     "* Submodules", with extractor, coordinator, and discovery NOT load-wired
+     at all (discovery.el is commented out). A schemas->finders inline-fix
+     (3fb895f2) already shipped as a merge regression because finders.el's
+     (require 'org-graph-schemas) had no preceding schemas load and basename
+     schemas.el != feature org-graph-schemas, so require could not auto-load it.
+     This entry exists to be PROBED by module-load-smoke (asserts clean
+     standalone load with all registrations fired) and ENFORCED by wire-into-init
+     (consolidates the scattered loads into one ordered sequence). Expect
+     reconciliation when those two tasks land.
+   load_bearing: true
+   title: org-graph submodules load in one consolidated dependency-correct sequence
+   statement: |
+     config/org-graph/org-graph.org load-wires every org-graph submodule via
+     jf/load-module BY PATH, in ONE consolidated "* Submodules" sequence, in
+     dependency-correct order (ELEVEN modules, re-stated cycle-1786636086):
+       schemas -> extractor -> coordinator -> query -> finders -> authoring
+       -> edge-type -> tools -> discovery -> workspace-integration -> menu
+     workspace-integration loads AFTER tools (it populates the
+     workspace-assistant :tools slot from org-graph/agent-tools, which only
+     exists once tools.el has loaded). edge-type loads AFTER extractor (it
+     requires feature org-graph-extractor for the canonical rel-normalization
+     helper) and BEFORE tools (added cycle-1786458912, edge-type-registry).
+     authoring loads AFTER finders (added vulpea-human-commands); menu loads
+     LAST — it references commands defined by finders, authoring, query, and
+     discovery. No submodule is loaded from a scattered
+     standalone section, and no submodule that another requires is loaded after
+     its requirer. Because file basenames do NOT match their provided features
+     (schemas.el provides org-graph-schemas; finders.el provides org-graph-finders;
+     tools.el provides org-graph-tools; edge-type.el provides
+     org-graph-edge-type; authoring.el provides org-graph-authoring; etc.),
+     require CANNOT auto-resolve the
+     order — load order is load-bearing and MUST be explicit in the loader.
+
+     REGISTRATION TIMING (re-stated cycle-1782573574; extended
+     cycle-1786636086): a cold (require 'org-graph)
+     fires every DB-FREE registration at load (schemas register at load; gptel
+     tools register at load when gptel is present; workspace-integration attaches
+     via with-eval-after-load; menu defines its transient prefix and wraps its
+     SPC v install in with-eval-after-load 'evil). The submodule LOADS are all
+     eager and by-path (the
+     ordered sequence above), but the three operations that touch the vulpea DB —
+     the typed-edge extractor REGISTRATION (applies the typed_edges schema), SYNC
+     CONFIGURATION (org-graph/configure-sync: sets vulpea-db-sync-directories,
+     enables vulpea-db-autosync-mode, triggers an async full scan), and the
+     discovery org-id-locations SEED — are DEFERRED to emacs-startup-hook so module
+     load stays DB-free (co-equal contract; user-resolved ask-cycle-1782570180-1).
+     Runtime hook order is extractor registration -> configure-sync -> org-id
+     seed. emacs-startup-hook, NOT after-init-hook, is the load-bearing post-init
+     seam under "emacs -q --load init.el". So: every submodule loads by path in
+     canonical order at require; every DB-free registration fires at require; the
+     three DB-touching ops fire post-init, in order. All deferrals delegate to the
+     shared loader helper org-graph--run-deferred-op (failures display-warning,
+     never abort startup) and are add-hooked from org-graph.el
+     (org-graph-loader-cleanup). The cold-load guard
+     (module-load-spec.el) verifies the by-path loads + DB-free registrations from
+     a bare require, AND that ALL THREE DB-touching deferrals
+     (org-graph--register-extractor, org-graph--configure-sync-deferred,
+     org-graph--seed-org-id-locations-deferred)
+     are wired onto emacs-startup-hook in that runtime order (then drives the
+     wired fns with the DB boundary stubbed).
+   why_it_matters: |
+     The basename!=feature trap means a missing or misordered jf/load-module
+     line does not error at tangle time and does not always error at load time
+     (a require may silently find the feature already provided by an earlier
+     accidental load, or fail only on a cold standalone boot). The schemas->finders
+     gap already shipped as a real merge regression (inline-fix 3fb895f2). As the
+     submodule count grew cycle-over-cycle (tools.el added last cycle), the loader
+     accreted per-task placeholder sections instead of one ordered sequence — the
+     exact accretion the architect drift-hotspot "gptel-load-order" warns about for
+     this project. Pinning the canonical order is the precondition for wiring
+     org-graph into jf/enabled-modules (wire-into-init) at all: a wrong order makes
+     the integration/tool registrations silently no-op in a live boot.
+   enforcement_mechanism:
+     kind: test + loader-structure
+     location: |
+       config/org-graph/test/module-load-spec.el (module-load-smoke) drives the
+       consolidated loader path and asserts every registration fired (defcustoms,
+       schemas, extractor, gptel tools, workspace integration) on a cold standalone
+       load with org-roam intact. config/org-graph/org-graph.org "* Submodules"
+       section is the single structural enforcement site; wire-into-init removes the
+       scattered sections and lands the ordered sequence. Grep audit:
+       grep -nE "jf/load-module.*org-graph" config/org-graph/org-graph.el shows one
+       contiguous ordered block, not loads interleaved with other sections.
+     notes: |
+       Architect on-touch drift-hotspot "gptel-load-order" / "literate-vs-tangled"
+       is the secondary layer; the smoke spec's cold-standalone-load assertion is
+       primary because it exercises the real failure mode (a require that cannot
+       auto-resolve a non-matching basename).
+   related_entries:
+     - register/invariant/vulpea-db-isolation
+     - register/invariant/lexical-binding-line-1
+     - register/boundary/org-graph-agent-tools
+   discovered_from: gptel-tools
+   discovered_by: architect
+   #+end_src
+
+** note-filename-template-dash
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-note-filename-template-dash
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/note-filename-template-dash
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: new-note filenames use the dash separator (<timestamp>-<slug>.org) on BOTH creation paths
+   statement: |
+     Every org-graph note-creation path names its file
+     <timestamp>-<slug>.org with a DASH between timestamp and slug. The
+     human path gets this by setting vulpea-create-default-template's
+     :file-name to "${timestamp}-${slug}.org" in discovery.org's placement
+     section (vulpea's own default uses an underscore separator:
+     "${timestamp}_${slug}.org"); the agent path (tools.el
+     org-graph-tools/write-node) already hardcodes the dash form —
+     (format "%s-%s.org" (format-time-string "%Y%m%d%H%M%S") slug),
+     tools.el:121-124 — and deliberately does NOT read
+     vulpea-create-default-template (it owns its filename so the
+     coordinator can lock the path BEFORE the write; reconciled fact on
+     register/boundary/org-graph-agent-tools). Both are set with plain
+     setq / literal format: safe because the template variable is vulpea's
+     own defcustom and defcustom never clobbers an existing binding
+     (load-order-independent).
+   why_it_matters: |
+     The existing corpus follows the dash convention
+     (e.g. 20260813104944-vulpea_org_graph_spike.org, org-roam's style);
+     leaving vulpea's underscore default would fork the filename style the
+     first time a human creates a note through find-or-create, splitting
+     the corpus into two conventions for no reason. And because TWO
+     producers carry the convention independently (the template setq and
+     write-node's format string), a future "cleanup" of either one alone
+     silently forks agent-created from human-created filenames — the
+     cross-producer agreement is exactly what no per-site test would
+     notice. Slug-INTERNAL style is explicitly NOT pinned here: vulpea's
+     ${slug} uses underscores within the slug, tools.el's slug helper uses
+     dashes; only the separator between timestamp and slug is the shared
+     convention.
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/discovery-spec.el (vault-root-discovery task):
+       asserts vulpea-create-default-template carries :file-name
+       "${timestamp}-${slug}.org". Grep audit for the agent side:
+       grep -n '%s-%s.org' config/org-graph/tools.el.
+     notes: |
+       The soft-dependency block in discovery.org gains
+       (defvar vulpea-create-default-template) alongside the existing
+       declarations.
+   related_entries:
+     - register/boundary/vault-root-vs-roam-root
+     - register/boundary/authoring-commands-delegation
+     - register/boundary/org-graph-agent-tools
+   discovered_from: vulpea-human-commands (vault-root-discovery task)
+   discovered_by: architect
+   #+end_src
+
+** spc-v-binding-evil-guarded
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-spc-v-binding-evil-guarded
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/spc-v-binding-evil-guarded
+   tier: invariant
+   status: speculated
+   load_bearing: false
+   title: SPC v is installed by the menu module, guarded on evil; evil.org stays untouched
+   statement: |
+     The org-graph menu's SPC v binding is installed by menu.el itself, via
+     (with-eval-after-load 'evil
+       (evil-define-key 'normal 'global (kbd "<SPC> v") #'org-graph-menu))
+     — config/core/evil.org is NOT modified by this change. Loading
+     org-graph in a session without evil completes without error and
+     leaves org-graph-menu reachable via M-x (the with-eval-after-load
+     form is inert until evil loads). SPC v is verified unbound in
+     config/core/evil.el as of 2026-08-13 (the only "v" binding is inside
+     my-window-command-map, i.e. SPC w v — no conflict).
+   why_it_matters: |
+     Keeps org-graph self-contained while it is still a spike: rollback is
+     "remove authoring/menu from the loader and revert two org files"
+     (design.md Migration Plan) — a binding landed centrally in evil.org
+     would survive the rollback as a dangling reference to a deleted
+     command. The graceful-degradation half is a spec requirement
+     (org-graph-menu spec, "Absent evil degrades gracefully"): an unguarded
+     evil-define-key at load would hard-error any evil-less boot (batch
+     tests included). Revisit central placement if the module graduates
+     (design.md D6 alternative).
+   enforcement_mechanism:
+     kind: test
+     location: |
+       config/org-graph/test/menu-spec.el (menu-module task): binding
+       installed when evil present; evil-absent load is clean and
+       org-graph-menu is commandp. Grep audit:
+       grep -n "SPC" config/core/evil.el shows no "v" addition;
+       grep -n "with-eval-after-load 'evil" config/org-graph/menu.el shows
+       the guard.
+     notes: |
+       Load-order note: transient must load before the menu module —
+       satisfied structurally because init.org loads "transient" early in
+       jf/enabled-modules and menu.el loads last inside org-graph
+       (register/invariant/org-graph-loader-ordered-sequence).
+   related_entries:
+     - register/invariant/org-graph-loader-ordered-sequence
+     - register/boundary/note-at-point-resolution
+   discovered_from: vulpea-human-commands (menu-module task)
    discovered_by: architect
    #+end_src
 

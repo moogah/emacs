@@ -1,6 +1,7 @@
 ;;; scaffold.el --- Workspaces directory scaffolder -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'org-id)
 (require 'workspace-data-model)
 
 (defun workspace--scaffold-git (home &rest args)
@@ -18,18 +19,40 @@ Signal `user-error' with stderr on non-zero exit."
                         (string-trim (buffer-string)))))
       (kill-buffer out-buf))))
 
+(defun workspace--scaffold-home-org-content (home name)
+  "Return the `home.org' skeleton string for HOME, carrying a file-level `:ID:'.
+
+NAME is used for the `#+TITLE:'.  HOME's `home.org' path is supplied to
+`org-id-add-location' via `org-id-overriding-file-name' so the id can be
+stamped without visiting the file.  The `:ID:' drawer precedes `#+TITLE:'
+because a file-level property drawer must be the document's first element
+(RE-2a / `register/invariant/indexable-requires-id')."
+  (let ((org-id-overriding-file-name (workspace-home-org-path home)))
+    (with-temp-buffer
+      (insert (format "#+TITLE: %s\n\n" name))
+      (insert "* Description\n\n")
+      (insert "* Notes\n")
+      (delay-mode-hooks (org-mode))
+      (goto-char (point-min))
+      (org-id-get-create)
+      (buffer-string))))
+
 (defun workspace--scaffold-write-home-org (home name)
   "Write the initial `home.org' skeleton into HOME, using NAME for #+TITLE:.
 Does nothing if `home.org' already exists.
+
+The skeleton carries a stable file-level org `:ID:' so the workspace
+home is an indexable `vulpea' node (RE-2a;
+`register/invariant/indexable-requires-id').  The whole skeleton —
+`:ID:' drawer included — is composed in a throwaway buffer and written
+in a single `with-temp-file', preserving the single-write contract.
 
 This function is the SOLE writer of `home.org' in the workspaces
 package — see `register/invariant/home-org-user-authored-after-creation'."
   (let ((path (workspace-home-org-path home)))
     (unless (file-exists-p path)
       (with-temp-file path
-        (insert (format "#+TITLE: %s\n\n" name))
-        (insert "* Description\n\n")
-        (insert "* Notes\n")))))
+        (insert (workspace--scaffold-home-org-content home name))))))
 
 (cl-defun workspace-scaffold (home name &key init-and-commit?)
   "Scaffold a workspace directory at HOME with display NAME.

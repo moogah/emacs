@@ -1,0 +1,457 @@
+#+title: Org Graph — Typed-Edge Extractor
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle extractor.el
+#+auto_tangle: y
+
+Typed semantic edges for org-graph.  Authors declare relations as
+description-list items in a dedicated *edge drawer* (name configured by
+the loader's =org-graph-edge-drawer= defcustom, default =EDGES=):
+
+#+begin_example
+* Some heading
+:PROPERTIES:
+:ID:       <uuid>
+:END:
+:EDGES:
+- implements :: [[id:abc][Target note]]
+- relates-to :: [[id:def]] [[id:ghi]]
+:END:
+#+end_example
+
+The drawer *name* is the one and only edge discriminator (design LD-3):
+content is a typed edge iff it is a description-list item inside the
+configured drawer, matched case-insensitively.  Ordinary PROPERTIES
+entries — even ones whose value holds an =id:= link — and ordinary body
+links are never edges.  The relation vocabulary is *open* (OV-1/LD-2):
+the item tag, normalized, is the relation symbol; no allowlist gates it.
+
+Links inside a named drawer are first-class =org-element= link objects
+(unlike links inside PROPERTIES values, which are raw strings to the
+AST), so follow/completion/backlink UX comes free and the scanner reads
+structure instead of re-parsing strings.
+
+A second, *inline* surface asserts an edge in prose, where the claim is
+actually made (OV-3): a typed link whose link-type name comes from the
+=org-graph-edge-link-type= defcustom (default =rel=) and whose path is
+=<type>:<target-id>=, e.g. =[[rel:falsifies:<uuid>][the earlier claim]]=.
+Both surfaces feed the same =(from-id rel-type to-id)= tuple stream,
+share one relation-normalization rule and one enclosing-node
+attribution walk, and are unioned by the extractor wrapper.
+
+The scanner is deliberately separable from vulpea's plugin runtime (D4):
+it is a pure function over an =org-element= AST, unit-tested with
+synthetic trees, so parsing behaviour can change independently of the
+storage backend.  vulpea's native link =:type= is link-*kind*
+(id/file/https), not semantic relation-*kind* (RE-4), so semantic edges
+must be parsed by us.
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; extractor.el --- org-graph typed-edge extractor -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+(require 'seq)
+(require 'org-element)
+#+end_src
+
+* Edge-drawer name resolution
+
+The drawer name is owned by the loader's =org-graph-edge-drawer=
+defcustom; this file never hardcodes it.  The bare =defvar= below only
+marks the symbol special so this file loads (and the scanner is
+testable) when required standalone.  When the variable is unbound or not
+a usable string the scanner fails closed and emits nothing.
+
+#+begin_src emacs-lisp
+(defvar org-graph-edge-drawer)          ; defined by the loader's defcustom
+
+(defun org-graph-extractor--edge-drawer-name ()
+  "Return the configured edge-drawer name, or nil when unavailable.
+`org-graph-edge-drawer' is owned by the loader's defcustom.  When this
+file is loaded standalone and the variable is unbound, nil, or empty,
+return nil so the scanner fails closed (no drawer ever matches) rather
+than guessing a name."
+  (and (boundp 'org-graph-edge-drawer)
+       (stringp org-graph-edge-drawer)
+       (not (string-empty-p org-graph-edge-drawer))
+       org-graph-edge-drawer))
+#+end_src
+
+* Edge link-type resolution
+
+The inline surface's link-type name is the =org-graph-edge-link-type=
+defcustom, declared in the loader =org-graph.org= exactly like its
+parallel knob =org-graph-edge-drawer= (OV-3/LD-1,
+=register/boundary/rel-link-path-syntax=); the rel-link runtime
+registers the link type under it, and this file never hardcodes it.
+The bare =defvar= below only marks the symbol special so this file
+loads standalone.  When the variable is unbound or not a usable string
+the rel-link scanner fails closed and emits nothing.
+
+#+begin_src emacs-lisp
+(defvar org-graph-edge-link-type)       ; defcustom declared in the loader (org-graph.org)
+
+(defun org-graph-extractor--edge-link-type ()
+  "Return the configured rel-link type name, or nil when unavailable.
+`org-graph-edge-link-type' is a defcustom declared in the loader
+\(org-graph.org), the parallel knob to `org-graph-edge-drawer'.  When
+this file is loaded standalone and the variable is unbound, nil, or
+empty, return nil so the rel-link scanner fails closed \(no link ever
+matches) rather than guessing a name."
+  (and (boundp 'org-graph-edge-link-type)
+       (stringp org-graph-edge-link-type)
+       (not (string-empty-p org-graph-edge-link-type))
+       org-graph-edge-link-type))
+#+end_src
+
+* Relation normalization
+
+The relation vocabulary is open, so the register-worthy contract is the
+single normalization rule that turns author input into the stored
+symbol (=register/vocabulary/relation-types=).  This helper is shared by
+every authoring surface's scanner — a second inline
+trim/downcase/replace chain anywhere else is a duplication bug.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor--normalize-rel (raw)
+  "Return the canonical relation symbol for RAW relation text, or nil.
+Normalization contract (register/vocabulary/relation-types): trim,
+downcase, map each run of whitespace and underscores to a single
+hyphen, intern.  E.g. \"follows up\" -> `follows-up', \"FOLLOWS_UP\" ->
+`follows-up', \"Implements\" -> `implements'.  Returns nil for a nil
+RAW or text that is empty after trimming."
+  (let ((trimmed (string-trim (or raw ""))))
+    (unless (string-empty-p trimmed)
+      (intern (replace-regexp-in-string
+               "[[:space:]_]+" "-" (downcase trimmed))))))
+#+end_src
+
+* Enclosing-node attribution
+
+One shared ancestor walk attributes every typed edge, whatever surface
+it was authored on (=register/invariant/enclosing-node-attribution=,
+LD-4): =from-id= is the nearest ancestor carrying an =:ID:= — the
+enclosing headline chain, else the file-level node.  An edge site with
+no ID-bearing ancestor contributes *nothing*: drop, never mis-attribute.
+
+=org-element= already surfaces each node's own PROPERTIES-drawer
+entries as element properties (upcased; =:ID= on =headline= elements
+and, since Org 9.6, on the root =org-data= for the file-level drawer),
+so the walk reads =:ID= structurally instead of digging into drawers.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor--enclosing-note-id (element)
+  "Return the note id ELEMENT's edges attribute to, or nil.
+Walks ELEMENT's ancestors via `org-element-lineage' for the nearest
+`headline' carrying its own `:ID:' property, falling back to the
+file-level node (the root `org-data', which carries the file's
+top-level PROPERTIES drawer).  Returns nil when no ancestor carries an
+id; the caller MUST then drop the edge — an edge with no ID-bearing
+ancestor is never attributed to a neighbouring node."
+  (let ((node (org-element-lineage element '(headline org-data)))
+        id)
+    (while (and node (not id))
+      (setq id (org-element-property :ID node))
+      (unless id
+        (setq node (org-element-lineage node '(headline org-data)))))
+    id))
+#+end_src
+
+* Pure drawer scanner
+
+=parse-drawer-edges= maps over the =drawer= elements whose name equals
+the configured edge-drawer name (case-insensitively, per org drawer
+semantics) and walks each drawer's description-list items.  The item
+tag, normalized, is the relation; each =id:= link object in the item
+yields one tuple.  Non-item drawer content, items without a tag, and
+non-=id:= links are skipped; malformed input never signals.
+
+Nested sub-items are not typed edges: both maps stop at =item=
+boundaries, so an item's edges come from its own content only.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor--item-relation (item)
+  "Return ITEM's relation symbol, or nil for an untagged item.
+ITEM is a plain-list `item' element.  A description-list item's tag
+carries the relation (LD-2); the tag is a parsed secondary string, so
+it is interpreted back to plain text and normalized via
+`org-graph-extractor--normalize-rel'.  Items with no tag (plain list
+items, or `- :: ...' items org parses as untagged) yield nil."
+  (let ((tag (org-element-property :tag item)))
+    (when tag
+      (org-graph-extractor--normalize-rel
+       (substring-no-properties (org-element-interpret-data tag))))))
+
+(defun org-graph-extractor/parse-drawer-edges (element-tree)
+  "Parse typed edges from the edge drawer(s) in ELEMENT-TREE.
+
+ELEMENT-TREE is an `org-element' AST (as from `org-element-parse-buffer').
+Scans every `drawer' whose name equals `org-graph-edge-drawer'
+\(case-insensitively); within each, every description-list item's tag is
+normalized to the relation symbol and each `id:' link in the item yields
+one (FROM-ID REL-TYPE TO-ID) tuple.  FROM-ID is resolved per drawer by
+`org-graph-extractor--enclosing-note-id' — the nearest ID-bearing
+ancestor; a drawer with none contributes nothing.
+
+The relation vocabulary is OPEN: any author-coined tag is a valid
+relation; nothing gates membership.  Ordinary PROPERTIES entries and
+body links are never edges (the drawer name is the only discriminator).
+
+This is a pure function — no file I/O, no vulpea, no DB.  Non-item
+drawer content, untagged items, and non-`id:' links are skipped; the
+function never signals on malformed input."
+  (let ((drawer-name (org-graph-extractor--edge-drawer-name))
+        edges)
+    (when drawer-name
+      (org-element-map element-tree 'drawer
+        (lambda (drawer)
+          (when (string-equal
+                 (downcase (or (org-element-property :drawer-name drawer) ""))
+                 (downcase drawer-name))
+            (let ((from-id (org-graph-extractor--enclosing-note-id drawer)))
+              (when from-id
+                (org-element-map drawer 'item
+                  (lambda (item)
+                    (let ((rel (org-graph-extractor--item-relation item)))
+                      (when rel
+                        (org-element-map (org-element-contents item) 'link
+                          (lambda (link)
+                            (when (equal (org-element-property :type link) "id")
+                              (push (list from-id rel
+                                          (org-element-property :path link))
+                                    edges)))
+                          nil nil 'item))))
+                  nil nil 'item)))))))
+    (nreverse edges)))
+#+end_src
+
+* Pure rel-link scanner
+
+=parse-rel-links= maps over the =link= elements whose =:type= equals
+the configured edge link-type name and splits each path
+=<type>:<target-id>= on the *first* colon
+(=register/boundary/rel-link-path-syntax=): the segment before it is
+the relation (normalized by the same shared helper as drawer item
+tags), everything after it is the target id *verbatim* — a target id
+may itself contain colons.  Attribution runs through the same shared
+enclosing-node walk as the drawer scanner.
+
+One parse-time caveat: org-element only assigns a link's =:type= when
+that link type is *registered* (present in =org-link-parameters=) at
+the moment the AST is built — an unregistered =[[rel:...]]= parses as a
+=fuzzy= link carrying the whole =rel:...= string as its path, which
+this scanner deliberately ignores.  Registration is the rel-link
+runtime's job (=rel-link-type= task); the scanner reads only the
+structural =:type=/=:path= split org produces after it.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor--parse-rel-path (path)
+  "Split rel-link PATH \"<type>:<target-id>\" into (REL-TYPE . TO-ID), or nil.
+Splits on the FIRST colon (register/boundary/rel-link-path-syntax):
+the segment before it is normalized and interned via
+`org-graph-extractor--normalize-rel'; everything after it is TO-ID
+VERBATIM — a target id may itself contain colons.  Returns nil (skip,
+no signal) for a non-string PATH, a missing separator, a type segment
+that normalizes to nothing, or an empty target."
+  (when (stringp path)
+    (let ((sep (string-search ":" path)))
+      (when sep
+        (let ((rel (org-graph-extractor--normalize-rel (substring path 0 sep)))
+              (to-id (substring path (1+ sep))))
+          (when (and rel (not (string-empty-p to-id)))
+            (cons rel to-id)))))))
+
+(defun org-graph-extractor/parse-rel-links (element-tree)
+  "Parse typed edges from inline rel-links in ELEMENT-TREE.
+
+ELEMENT-TREE is an `org-element' AST (as from `org-element-parse-buffer').
+Scans every `link' whose `:type' equals `org-graph-edge-link-type' and
+splits its path `<type>:<target-id>' on the first colon into the
+relation symbol (normalized like a drawer item tag) and the target id;
+each well-formed link yields one (FROM-ID REL-TYPE TO-ID) tuple.
+FROM-ID is resolved per link by `org-graph-extractor--enclosing-note-id'
+— the nearest ID-bearing ancestor; a link with none contributes nothing
+\(drop, never mis-attribute).
+
+The relation vocabulary is OPEN: any author-coined type segment is a
+valid relation; nothing gates membership.  Ordinary `id:' links are
+never edges (the link type is the only discriminator).
+
+This is a pure function — no file I/O, no vulpea, no DB.  Links whose
+type is not registered at AST-parse time carry a different `:type' and
+are invisible here; malformed paths (missing separator, empty type or
+target) are skipped; the function never signals on malformed input."
+  (let ((link-type (org-graph-extractor--edge-link-type))
+        edges)
+    (when link-type
+      (org-element-map element-tree 'link
+        (lambda (link)
+          (when (equal (org-element-property :type link) link-type)
+            (let* ((parsed (org-graph-extractor--parse-rel-path
+                            (org-element-property :path link)))
+                   (from-id (and parsed
+                                 (org-graph-extractor--enclosing-note-id link))))
+              (when from-id
+                (push (list from-id (car parsed) (cdr parsed)) edges)))))))
+    (nreverse edges)))
+#+end_src
+
+* Scope gate
+:PROPERTIES:
+:CUSTOM_ID: scope-gate
+:END:
+
+Typed-edge extraction runs *only* over the durable concept vault
+(=org-graph-roam-root=, default =~/org/roam/=).  Notes under workspace
+=:home= directories or =sessions/= are indexed by vulpea for discovery
+and navigation but contribute *zero* typed edges — see
+=register/invariant/typed-edge-extraction-scope= and design D2/RE-4.
+This is a deliberate hard exclusion (a curation discipline on durable
+notes, and a bound on write/inotify load), not an optimisation.
+
+The pure scanner is path-agnostic; the scope decision lives here, in the
+vulpea wrapper.  =org-graph-roam-root= is owned by the loader's
+defcustom; the bare =defvar= below only marks it special so this file
+loads (and the gate is testable) when required standalone.  When the
+variable is unbound the gate is conservative and emits nothing.
+
+#+begin_src emacs-lisp
+(defvar org-graph-roam-root)            ; defined by the loader's defcustom
+
+(defun org-graph-extractor--roam-note-p (path)
+  "Return non-nil when typed-edge extraction is in scope for PATH.
+PATH is in scope only when it lives under `org-graph-roam-root'.  A
+non-string PATH or an unbound/nil/empty `org-graph-roam-root' yields nil,
+so the extractor fails closed (no edges) rather than indexing
+out-of-scope notes.  The empty-string guard matters: an empty root would
+otherwise `expand-file-name' to `default-directory' and silently scope
+extraction to the current working directory."
+  (and (stringp path)
+       (boundp 'org-graph-roam-root)
+       (stringp org-graph-roam-root)
+       (not (string-empty-p (string-trim org-graph-roam-root)))
+       (string-prefix-p
+        (file-name-as-directory (expand-file-name org-graph-roam-root))
+        (expand-file-name path))))
+#+end_src
+
+* Vulpea extractor wrapper
+:PROPERTIES:
+:CUSTOM_ID: extractor-wrapper
+:END:
+
+=org-graph-extractor/extract= is the vulpea =:extract-fn=.  vulpea calls
+it as =(ctx note-data)= *after* inserting the note row, so the
+=typed_edges= foreign key onto =notes(id)= is satisfiable.  It pulls the
+file AST and path from the parse context, runs the pure drawer scanner,
+and — when the note is in scope — inserts the resulting
+=(from-id rel-type to-id)= tuples into =typed_edges=.  Per the extractor
+contract it returns NOTE-DATA unchanged (it writes a side table; it does
+not enrich the note plist).
+
+*Storage decision (string-vs-symbol).*  The in-memory tuple's =rel-type=
+is a *symbol* (=register/shape/typed-edge-tuple=), and that symbol is
+stored verbatim in the =rel-type= column.  emacsql serialises a scalar
+with =prin1-to-string= and reads it back with =read=, so a symbol
+round-trips to a symbol (a string would round-trip to a string, a
+distinct value).  Storing the symbol keeps the scanner→extractor→DB→query
+contract on one representation; the typed-edge-query task matches on the
+symbol.  =from-id= / =to-id= stay strings (org ids).
+
+*Parser-epoch discipline.*  vulpea caches per-file extraction keyed by
+content hash; it only re-runs extractors for a file whose content
+changed.  If the scanner's *output for the same input* changes (a
+normalization change, different tuple shape, a scope-rule change), bump
+the extractor =:version= so vulpea invalidates the file cache and
+re-extracts every note — otherwise unchanged files keep their stale
+=typed_edges= rows.  The properties→drawer surface swap was exactly such
+a change: =:version= is 2.
+
+*Note-granular scoping (per-note attribution).*  vulpea invokes the
+=:extract-fn= *once per ID-bearing note* — the file-level node *and*
+every ID'd heading (=vulpea-db-index-heading-level= defaults to =t=).
+The pure scanner walks the *whole-file* AST and attributes each tuple
+internally via the shared enclosing-node walk, so a multi-note file
+yields correctly-attributed tuples for *several* notes in one scan.
+Inserting that whole stream once per note would duplicate every row N×
+(cycle-1782551613 reviewer finding =arch/review-vulpea-extractor-plugin-1=),
+so the wrapper keeps only the tuples whose =from-id= equals the note
+vulpea is currently processing.  Each note is therefore credited with
+exactly its own edges: an ID'd heading concept-note MAY carry its own
+edge drawer (user model decision NOTE-GRANULAR, cycle-1782551613 ask),
+and a note with no drawer of its own contributes nothing.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor/extract (ctx note-data)
+  "Vulpea extractor: write the note's typed edges into `typed_edges'.
+
+CTX is a `vulpea-parse-ctx' (provides the file AST and path); NOTE-DATA
+is the note plist vulpea is building.  Runs the pure drawer scanner over
+the whole-file AST and keeps only the tuples the shared enclosing-node
+walk attributed to THIS note (from-id = the note's id), so a multi-note
+file never duplicates rows across its notes.  Emits only for a note
+under `org-graph-roam-root' (scope gate).  Inserts
+\(from-id rel-type to-id) rows, rel-type stored as a symbol.  Returns
+NOTE-DATA unchanged, per the extractor contract."
+  (let ((note-id (plist-get note-data :id))
+        (path (vulpea-parse-ctx-path ctx)))
+    (when (and note-id
+               (org-graph-extractor--roam-note-p path))
+      (let ((edges (seq-filter
+                    (lambda (edge) (equal (nth 0 edge) note-id))
+                    (org-graph-extractor/parse-drawer-edges
+                     (vulpea-parse-ctx-ast ctx)))))
+        (when edges
+          (emacsql (vulpea-db)
+                   [:insert :into typed_edges :values $v1]
+                   (mapcar (lambda (edge)
+                             (vector (nth 0 edge)    ; from-id  (string)
+                                     (nth 1 edge)    ; rel-type (symbol)
+                                     (nth 2 edge)))  ; to-id    (string)
+                           edges))))))
+  note-data)
+#+end_src
+
+* Extractor registration
+:PROPERTIES:
+:CUSTOM_ID: extractor-registration
+:END:
+
+Registering the extractor applies the =typed_edges= schema (which opens
+the DB) and adds the extractor to vulpea's pipeline, so it is *load
+wiring*, not a load-time side effect of requiring this file.  It is
+exposed as a function the loader calls once vulpea is available
+(wire-into-init); calling it on bare =require= would touch the DB and
+break standalone unit tests.  =vulpea-db-register-extractor= is
+idempotent (it replaces any prior registration of the same name), so
+re-running it is safe.
+
+Priority 50 runs after vulpea's core extractors (0–9).  The
+=:on-delete :cascade= foreign key onto =notes(id)= means deleting a note
+(or vulpea's per-file delete-then-reinsert on re-sync) drops its edges.
+Version 2 marks the properties→drawer surface swap (parser-epoch
+discipline above), so vulpea re-extracts files cached under version 1.
+
+#+begin_src emacs-lisp
+(defun org-graph-extractor-register ()
+  "Register the org-graph typed-edge extractor with vulpea.
+Applies the `typed_edges' schema and installs `org-graph-extractor/extract'
+at priority 50.  Idempotent; intended to be called by the loader."
+  (vulpea-db-register-extractor
+   (make-vulpea-extractor
+    :name 'org-graph-typed-edges
+    :version 2
+    :priority 50
+    :schema '((typed_edges
+               [(from-id :not-null) (rel-type :not-null) (to-id :not-null)]
+               (:foreign-key [from-id] :references notes [id] :on-delete :cascade)))
+    :extract-fn #'org-graph-extractor/extract)))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-extractor)
+;;; extractor.el ends here
+#+end_src
