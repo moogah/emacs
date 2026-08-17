@@ -6,6 +6,7 @@ status: ready
 relations:
   - "blocked-by:implement-frame-state-serializer"
   - "blocked-by:implement-control-helpers"
+  - "blocked-by:implement-agent-api-manifest"
 ---
 
 ## Files to modify
@@ -19,6 +20,10 @@ relations:
    - eval round-trip: `emacsclient -s <name> --eval '(+ 1 2)'` → `3`.
    - observation: `emacsclient -s <name> --eval '(jf/frame-state)'` → JSON the spec
      parses and asserts on (current buffer present, etc.).
+   - discoverability: `emacsclient -s <name> --eval '(jf/agent-api)'` → JSON the spec
+     parses; assert it lists known operations (e.g. `frame-state`, `apropos`) and that
+     `agent-api` appears in its own listing — proving the manifest round-trips over the
+     real control channel, not just in-process.
    - dispose: `emacsclient -s <name> --eval '(kill-emacs)'`; assert the socket is gone
      and a follow-up call fails.
 2. Guard the suite: detect `emacsclient` and a daemon-capable `emacs`; if absent,
@@ -38,8 +43,9 @@ guarded because real daemons are slower/flakier.
 ## Verification
 - With a daemon-capable Emacs available, the smoke passes start→eval→frame-state→dispose.
 - With none available, the suite skips cleanly and the overall run is green.
-- Asserts cite `specs/isolated-emacs-targets/spec.md` and
-  `specs/frame-state-observation/spec.md`.
+- Asserts cite `specs/isolated-emacs-targets/spec.md`,
+  `specs/frame-state-observation/spec.md`, and
+  `specs/control-surface-discoverability/spec.md § Self-Describing API Manifest`.
 
 ## Context
 - design.md § Decisions 'D7. Testing approach'
