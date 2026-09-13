@@ -83,6 +83,27 @@
   :config
   (gptel-org-heading-adjust-mode-enable))
 
+(declare-function gptel-org-utils-new-topic "gptel-org-utils" (topic))
+
+(defun jf/gptel-org-new-topic-with-id (topic)
+  "Insert a new gptel topic heading TOPIC and stamp an org `:ID:' on it.
+
+Calls `gptel-org-utils-new-topic' (a new top-level heading carrying
+`GPTEL_TOPIC' plus its \"Next Question\" subheading), then moves to
+that topic heading and calls `org-id-get-create'.  Point is left where
+`gptel-org-utils-new-topic' leaves it -- in the Next Question body,
+ready to type.  Returns the topic heading's ID.
+
+Only the ID is added; nothing else about the topic layout changes.
+Works in any `org-mode'-derived buffer, `gptel-chat-mode' included."
+  (interactive "sTopic: ")
+  (require 'gptel-org-utils)
+  (gptel-org-utils-new-topic topic)
+  (save-excursion
+    (org-back-to-heading t)
+    (while (org-up-heading-safe))
+    (org-id-get-create)))
+
 ;; Load skills system (core, org-roam integration, transient UI)
 (jf/load-module (expand-file-name "config/gptel/skills/skills-core.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/gptel/skills/skills-roam.el" jf/emacs-dir))

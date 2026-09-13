@@ -108,8 +108,161 @@ See sibling tasks in this change; do not fold in cycle-2 work (gptel-branch-iden
 
 ## Observations
 
-(empty — implementor appends during execution)
+- Registry-entry timing (plan note 1) confirmed empirically: inside the
+  hook the session file, its `:ID:`, and (when the preset has one) the
+  sibling system-prompt file exist on disk, while `get-file-buffer`
+  and the registry lookup are both nil. The hook runs at the end of the
+  core, before the caller's `find-file`; design D5's "after ... the
+  registry entry exist[s]" and the delta spec's "registered normally"
+  are met only via the guard never blocking the core's return. Both
+  texts still say "after the registry entry"; see disc-1.
+- PersistentAgent (plan note 2) was NOT routed through the body
+  builder. Reasons: `persistent-agent.org` is edited by sibling task
+  gptel-hidden-agents this cycle (merge risk); the filetag exists so an
+  index can *recognise* session files, and agent transcripts live under
+  the hidden agents directory precisely so an index skips them — tagging
+  them `gptel_session` would work against that; the register already
+  records that the hook does not fire for agents. Recorded as a second
+  producer variant (disc-2). If a later cycle wants agent titles, split
+  the keyword half of `jf/gptel--initial-session-body` into a shared
+  helper both composers call.
+- Body-builder signature (plan note 3): `jf/gptel--initial-session-body`
+  now takes a required `session-id`; the core is its only caller. The
+  keywords are emitted at that one site.
+- Topic-command spec lives at `config/gptel/test/org-topic-with-id-spec.el`,
+  not under `sessions/test/commands/` as the file list suggests: the
+  command is defined in `gptel.org` (loaded by `init.el` in the test
+  Emacs), and that directory already holds the other gptel.org-level
+  specs. Run it with `./bin/run-tests.sh -d config/gptel/test` (49
+  specs, 0 failed). The scoped sessions run does not include it.
+- Spec-authoring hazard worth keeping: the guard under test swallows
+  every `error`, and a failing buttercup `expect` IS an error. Hook
+  functions in the new spec therefore only record what they observe and
+  every assertion runs after the core returns. An `expect` placed inside
+  a hook function would be logged and silently pass.
+- Latent (pre-existing, chat subsystem, out of scope): in the batch test
+  Emacs, the first real `save-buffer` of a freshly created session
+  rewrote the drawer WITHOUT `:GPTEL_PRESET: executor` (and without the
+  scope keys) — `gptel-chat--write-config-drawer` deletes the key when
+  `gptel--preset` is nil at save time, and the chat-mode preset
+  application did not set it in that environment. Upstream
+  `gptel--apply-preset` sets `gptel--preset`, so interactively it is
+  probably fine, but worth a look from whoever next touches
+  `chat/menu.org`. The keywords were unaffected either way; the
+  save-path spec asserts on the identity keys instead.
+- The delta-spec scenario "User-edited title survives saves" says "sends
+  a turn" between the saves; the send path needs a backend, so the spec
+  substitutes a body edit inside the user block between two real
+  `save-buffer` calls (the drawer writer runs both times).
+- Stale prose left in place on purpose: "Create Persistent Session →
+  Workflow" item 5 in `commands.org` still says the drawer is "followed
+  directly by an empty #+begin_user block". That section is being edited
+  by gptel-single-root this cycle; a one-line prose fix after merge.
+  Similarly `gptel.org` still `jf/load-module`s
+  `config/gptel/sessions/workspace-integration.el`, which
+  gptel-single-root deletes — the sibling should drop that load line.
+- `mode-activation-spec.el` (chat) did not gain the "keywords + EDGES
+  drawer present" positive case the invariant's status note asks for
+  (chat tests are outside this task's file list). The equivalent
+  signature cases live in `session-keywords-and-hooks-spec.el` ("the
+  signature stays anchored..."), and the end-to-end open of a
+  keyword-bearing file into `gptel-chat-mode` is exercised by the
+  save-path scenario there.
+- `jf/gptel--run-lifecycle-hook` is generic (takes the hook symbol) so
+  cycle-2 gptel-branch-identity can reuse it for the branch hook.
+  `branching.el` loads before `commands.el`; the call resolves at
+  runtime, but `branching.org` should `declare-function` it.
+- Scoped runs: sessions 160 → 176 specs, 0 failed; `config/gptel/test`
+  44 → 49 specs, 0 failed. Both `.org` files tangle and pass
+  `check-parens`.
 
 ## Discoveries
 
-(empty — implementor appends structured discoveries; see task-body template)
+- discovery_id: disc-gptel-session-keywords-and-hooks-1
+  class: spec-signal
+  description: |
+    Design D5 ("runs ... after the sibling file and the registry entry
+    exist") and the delta spec's "registered normally" wording describe
+    an ordering the core cannot provide: `jf/gptel--register-session`
+    runs from the chat-mode binder at the caller's find-file, after the
+    core returns. Verified inside the hook on the real creation path:
+    session.org exists with :ID: and identity keys, the sibling
+    system-prompt file exists, `get-file-buffer` is nil, the registry
+    lookup is nil. Landed order = register stages 1-6 then 7 (caller).
+  affected_register_entry: register/boundary/session-lifecycle-hooks
+  recommendation: |
+    Keep the entry's status_note CORRECTION as the authoritative order
+    (hook before display and before registration). Reword design D5
+    "Hooks" bullet and the delta spec requirement to "after the session
+    file, its org :ID:, and any sibling file exist on disk, and before
+    the buffer is displayed or registered".
+
+- discovery_id: disc-gptel-session-keywords-and-hooks-2
+  class: shape-fragmentation
+  description: |
+    session-file-head now has two deliberate producer variants: the
+    core (regions 1, 3-6 — drawer, title, filetags, blank, empty user
+    block) and PersistentAgent (regions 1 + populated 6, no keywords,
+    no hook). Not unified this cycle: persistent-agent.org is owned by
+    sibling task gptel-hidden-agents, and the `gptel_session` filetag
+    exists for index recognition while agent transcripts are placed
+    under a hidden directory specifically to be skipped by an index.
+  affected_register_entry: register/shape/session-file-head
+  recommendation: |
+    Record the agent variant in `producers` as intentional (regions 1 +
+    6 only; no title/filetags; hook not fired) rather than as drift. If
+    agent titles are ever wanted, extract the keyword half of
+    `jf/gptel--initial-session-body` into a shared
+    `jf/gptel--session-head-keywords (session-id)` both composers call,
+    and decide then whether agents get the filetag.
+
+- discovery_id: disc-gptel-session-keywords-and-hooks-3
+  class: interface-drift
+  description: |
+    `jf/gptel--initial-session-body` now takes a required SESSION-ID and
+    returns regions 3-6; the entry's producers text still says "takes
+    no argument and emits only region 6". Sole caller is the core.
+  affected_register_entry: register/shape/session-file-head
+  recommendation: |
+    Update producers: `jf/gptel--initial-session-body (session-id)` →
+    "#+title: <id>\n#+filetags: :gptel_session:\n\n#+begin_user\n\n#+end_user\n";
+    the core concatenates drawer-text + that string with no separator.
+
+- discovery_id: disc-gptel-session-keywords-and-hooks-4
+  class: deviation
+  description: |
+    Payload built once at the end of the core with the required keys
+    plus optional `:branch-dir` (already in the return plist). To make
+    "absolute path" structural rather than validated, the core now
+    canonicalizes SESSION-DIR once at entry via `expand-file-name`
+    (same pattern as PROJECT-ROOT); the return plist's `:session-dir`
+    is therefore canonical too. No-op for every existing caller (all
+    pass `expand-file-name` output) and for every existing spec. No
+    `:sibling-file` key was added: nothing consumes it, and
+    `:session-file` + the drawer's `GPTEL_SYSTEM_PROMPT_FILE` locate it.
+  affected_register_entry: register/shape/session-created-hook-payload
+  recommendation: |
+    Move `:branch-dir` from optional to "always present". Note the
+    entry-canonicalization of SESSION-DIR under producers so the
+    validator's `file-name-absolute-p` checks are known to hold by
+    construction. Keep `:preset`/sibling path as future/not built.
+
+- discovery_id: disc-gptel-session-keywords-and-hooks-5
+  class: deviation
+  description: |
+    The guard is a single generic runner,
+    `jf/gptel--run-lifecycle-hook (hook payload)`, rather than an inline
+    `run-hook-wrapped` form per site. It logs
+    "<hook-symbol>: function <fn> failed: <msg>" at level `error` via
+    `jf/gptel--log`, not the entry's literal
+    "session-created hook %S failed: %s" / "branch-created hook %S
+    failed" strings. Semantics are as specified: per-function
+    `condition-case`, wrapper always returns nil, every function runs,
+    runner returns nil.
+  affected_register_entry: register/boundary/session-lifecycle-hooks
+  recommendation: |
+    Update stage 6 and B4 notes to name `jf/gptel--run-lifecycle-hook`
+    and its message format. Cycle-2 gptel-branch-identity should call
+    `(jf/gptel--run-lifecycle-hook 'jf/gptel-branch-created-hook payload)`
+    as the last step of `jf/gptel--create-branch-session` (with a
+    `declare-function`, since branching.el loads before commands.el).
