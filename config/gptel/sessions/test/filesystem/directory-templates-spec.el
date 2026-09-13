@@ -16,7 +16,7 @@
 ;; - `jf/gptel-session--context-file' constant equals "session.org".
 ;; - `jf/gptel--context-file-path' builds `.../session.org' paths.
 ;; - Branch layout: `<session>/branches/<branch>/session.org'.
-;; - Agent layout: `<session>/branches/<branch>/agents/<agent>/session.org'.
+;; - Agent layout: `<session>/branches/<branch>/.agents/<agent>/session.org'.
 ;; - `jf/gptel--valid-branch-directory-p' accepts `session.org' and
 ;;   rejects a directory whose only conversation file is `session.md'.
 
@@ -82,9 +82,9 @@
         (expect ctx-path :to-match
                 "/branches/20260420120000-experiment/session\\.org\\'"))))
 
-  (describe "Agent template: agents/<agent-name>/session.org"
+  (describe "Agent template: .agents/<agent-name>/session.org"
 
-    (it "places agent conversation files at agents/<agent>/session.org"
+    (it "places agent conversation files at .agents/<agent>/session.org"
       (let* ((tempdir (jf-gptel-sessions-test--make-tempdir))
              (jf/gptel-sessions-directory tempdir)
              (session-dir (jf/gptel--create-session-directory "demo-20260420000000"))
@@ -93,7 +93,7 @@
                          branch-dir "researcher" "explore-api"))
              (ctx-path (jf/gptel--context-file-path agent-dir)))
         (expect (file-directory-p agent-dir) :to-be-truthy)
-        (expect ctx-path :to-match "/agents/.*/session\\.org\\'"))))
+        (expect ctx-path :to-match "/\\.agents/[^/]+/session\\.org\\'"))))
 
   (describe "jf/gptel--valid-branch-directory-p"
 

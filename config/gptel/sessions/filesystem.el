@@ -204,7 +204,11 @@ Does not check if file exists."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--system-prompts-file))
 
 (defun jf/gptel--agents-dir-path (branch-dir)
-  "Get path to agents directory in BRANCH-DIR."
+  "Get path to the hidden agents directory (`.agents') in BRANCH-DIR.
+The sole composer of the agents-directory name: reads
+`jf/gptel-session--agents-dir' and nothing else spells it.  Reach the
+directory through this function plus `file-directory-p'; never discover
+it by listing BRANCH-DIR, whose enumerators skip hidden entries."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--agents-dir))
 
 (defun jf/gptel--list-session-directories ()
@@ -299,8 +303,11 @@ Returns the absolute path to the created agent directory."
     agent-dir))
 
 (defun jf/gptel--list-agent-directories (parent-branch-dir)
-  "List all agent directories under PARENT-BRANCH-DIR.
-Returns list of absolute paths."
+  "List all agent directories under PARENT-BRANCH-DIR's `.agents/'.
+Returns list of absolute paths.  The hidden-entry filter applies to the
+CHILDREN of the agents directory (so `.' / `..' and dot-entries are
+never returned); the agents directory itself is located through
+`jf/gptel--agents-dir-path', not by listing PARENT-BRANCH-DIR."
   (let ((agents-dir (jf/gptel--agents-dir-path parent-branch-dir)))
     (when (file-directory-p agents-dir)
       (seq-filter

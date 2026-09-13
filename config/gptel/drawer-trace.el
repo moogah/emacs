@@ -10,6 +10,7 @@
 ;;; Code:
 
 (require 'org)
+(require 'gptel-session-constants)      ; jf/gptel-session--agents-dir
 
 (defvar jf/gptel-drawer-trace-file
   (expand-file-name "~/.gptel-drawer-trace.log")
@@ -31,7 +32,9 @@ full coverage to see inserts that land at point-max.")
   "Non-nil when the current buffer is a gptel session .org file."
   (and buffer-file-name
        (string-match-p
-        "/\\(?:branches\\|agents\\)/[^/]+/session\\.org\\'"
+        (concat "/\\(?:branches\\|"
+                (regexp-quote jf/gptel-session--agents-dir)
+                "\\)/[^/]+/session\\.org\\'")
         buffer-file-name)))
 
 (defun jf/gptel-drawer--append (text)

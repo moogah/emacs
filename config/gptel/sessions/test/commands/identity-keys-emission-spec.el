@@ -150,7 +150,7 @@
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))

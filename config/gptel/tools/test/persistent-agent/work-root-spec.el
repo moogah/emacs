@@ -65,8 +65,8 @@
 
 ;; Helper: the single agent directory created under the mock parent branch.
 (defun jf/persistent-agent-test--sole-agent-dir (branch-dir)
-  "Return the absolute path of the sole agent dir under BRANCH-DIR's agents/."
-  (let* ((agents-dir (expand-file-name "agents" branch-dir))
+  "Return the absolute path of the sole agent dir under BRANCH-DIR's .agents/."
+  (let* ((agents-dir (expand-file-name ".agents" branch-dir))
          (agent-name (car (cl-remove-if
                            (lambda (n) (member n '("." "..")))
                            (directory-files agents-dir)))))

@@ -69,6 +69,16 @@ patterns, shell commands) that can be referenced by presets."
 
 Standard file names used within session directories.
 
+The agents directory is the one /hidden/ name in the tree
+(=.agents/=). Branch creation byte-copies agent directories wholesale,
+so copied agent transcripts still carry the parent's org IDs; a hidden
+name keeps them out of any indexer that skips dot-directories, without
+this package naming an indexer. The name is spelled exactly ONCE — in
+=jf/gptel-session--agents-dir= below — and every path that reaches it
+is composed through =jf/gptel--agents-dir-path= (filesystem.org).
+There is no compatibility shim for the former =agents/= name: the
+migration command renames existing directories.
+
 #+begin_src emacs-lisp
 (defconst jf/gptel-session--context-file "session.org"
   "File name for main conversation context.
@@ -82,8 +92,13 @@ Uses org-mode format for better structure and linking.")
   "File name for system prompt change log.
 Uses org-mode format for better structure.")
 
-(defconst jf/gptel-session--agents-dir "agents"
-  "Directory name for agent sessions within parent session.")
+(defconst jf/gptel-session--agents-dir ".agents"
+  "Directory name for agent sessions within a parent branch directory.
+Hidden (dot-prefixed) so an indexer that skips hidden directories
+excludes agent transcripts, which are byte copies carrying the parent's
+org IDs.  This constant is the only place the name is spelled; compose
+paths through `jf/gptel--agents-dir-path', never from a literal.  No
+compatibility shim exists for the former \"agents\" name.")
 
 #+end_src
 

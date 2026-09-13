@@ -153,7 +153,7 @@ Verify jf/gptel--agents-dir-path returns correct path for agent
 subdirectories within a branch."
   (let ((branch-dir "/tmp/test-session/branches/main"))
     (should (string= (jf/gptel--agents-dir-path branch-dir)
-                     "/tmp/test-session/branches/main/agents"))))
+                     "/tmp/test-session/branches/main/.agents"))))
 
 (provide 'filesystem-test)
 ;;; filesystem-test.el ends here

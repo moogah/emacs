@@ -214,15 +214,22 @@ Returns t on success."
 
 Copy agent subdirectories from the parent branch to the new branch.
 Unchanged across the chat-mode migration — agent directories live
-under =<branch>/agents/= and are opaque to the branch-point logic.
+under the hidden =<branch>/.agents/= and are opaque to the branch-point
+logic. Both the parent and child sides compose the path through
+=jf/gptel--agents-dir-path=; the copy is a wholesale byte copy and
+deliberately does NOT rewrite org IDs inside the copied agent
+transcripts — the hidden directory name is what keeps those duplicate
+IDs away from any indexer that skips dot-directories.
 
 ** Copy Branch Agents
 
 #+begin_src emacs-lisp
 (defun jf/gptel--copy-branch-agents (parent-branch-dir branch-dir)
-  "Copy agent subdirectories from PARENT-BRANCH-DIR/agents to BRANCH-DIR/agents.
-For MVP, copies ALL agent directories.
-Future enhancement: Only copy agents invoked before branch point."
+  "Copy agent subdirectories from PARENT-BRANCH-DIR's `.agents/' to BRANCH-DIR's.
+Both sides are composed via `jf/gptel--agents-dir-path'.  For MVP,
+copies ALL agent directories verbatim (org IDs inside are not
+rewritten).  Future enhancement: Only copy agents invoked before
+branch point."
   (let ((parent-agents-dir (jf/gptel--agents-dir-path parent-branch-dir))
         (branch-agents-dir (jf/gptel--agents-dir-path branch-dir)))
     (when (file-directory-p parent-agents-dir)

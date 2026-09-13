@@ -113,9 +113,11 @@ Returns t on success."
     t))
 
 (defun jf/gptel--copy-branch-agents (parent-branch-dir branch-dir)
-  "Copy agent subdirectories from PARENT-BRANCH-DIR/agents to BRANCH-DIR/agents.
-For MVP, copies ALL agent directories.
-Future enhancement: Only copy agents invoked before branch point."
+  "Copy agent subdirectories from PARENT-BRANCH-DIR's `.agents/' to BRANCH-DIR's.
+Both sides are composed via `jf/gptel--agents-dir-path'.  For MVP,
+copies ALL agent directories verbatim (org IDs inside are not
+rewritten).  Future enhancement: Only copy agents invoked before
+branch point."
   (let ((parent-agents-dir (jf/gptel--agents-dir-path parent-branch-dir))
         (branch-agents-dir (jf/gptel--agents-dir-path branch-dir)))
     (when (file-directory-p parent-agents-dir)
