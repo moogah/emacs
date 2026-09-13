@@ -47,14 +47,21 @@ Signals `user-error' naming FILE when no such node exists."
 (defun org-graph-authoring--after-property-drawer (node-pos node-id file)
   "Return the position of the line after the property drawer at NODE-POS.
 NODE-POS is a heading position or `point-min'.  Signals `user-error'
-\(naming NODE-ID and FILE) when the node has no :PROPERTIES: drawer.
-When the drawer's :END: is the last line of the buffer and lacks a
-trailing newline, the returned position is `point-max' at that line's
-end; the caller inserts a newline first."
+\(naming NODE-ID and FILE) when the node has no :PROPERTIES: drawer,
+or when that drawer carries no non-empty :ID: -- an edge must hang off
+an ID-bearing node or the extractor can never attribute it.  A heading
+found by NODE-ID has an :ID: by construction; the check matters for the
+file-level node.  When the drawer's :END: is the last line of the
+buffer and lacks a trailing newline, the returned position is
+`point-max' at that line's end; the caller inserts a newline first."
   (let ((block (org-get-property-block node-pos)))
     (unless block
       (user-error "org-graph/write-edge: node %s in %s has no property drawer"
                   (or node-id "(file-level)") file))
+    (let ((id (org-entry-get node-pos "ID")))
+      (unless (and id (not (string-empty-p (string-trim id))))
+        (user-error "org-graph/write-edge: node %s in %s has no :ID: property"
+                    (or node-id "(file-level)") file)))
     (save-excursion
       (goto-char (cdr block))
       (forward-line 1)
@@ -148,8 +155,9 @@ text.
 
 Signals `user-error' (before taking the lock) for an empty TYPE or
 TARGET or an unconfigured drawer name, and (under the lock, which is
-released) when NODE-ID is not in FILE or the node has no property
-drawer."
+released, with nothing written) when NODE-ID is not in FILE, the node
+has no property drawer, or that drawer carries no :ID: -- an edge needs
+an ID-bearing node."
   (let* ((file (expand-file-name file))
          (rel (org-graph-authoring--rel-symbol type))
          (drawer-name (org-graph-extractor--edge-drawer-name)))

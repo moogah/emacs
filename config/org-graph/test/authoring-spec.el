@@ -63,11 +63,14 @@
   (require 'org-graph-authoring (expand-file-name "authoring.el" module-dir)))
 
 ;; Owned by the loader's defcustoms (not loaded standalone); declared
-;; special so the specs can `let'-bind them.  `org-graph-edge-drawer' is
-;; declared by helpers-spec.
+;; special HERE so this file's `let' bindings of them are dynamic.  A
+;; value-less `defvar' only marks the symbol special for the rest of the
+;; file it appears in, so helpers-spec's own declarations do not carry
+;; over -- each spec file must declare what it binds.
 (defvar org-graph-roam-root)
 (defvar org-graph-vault-root)
 (defvar org-graph-note-types)
+(defvar org-graph-edge-drawer)
 
 ;;; Thin vulpea wrappers ---------------------------------------------------
 
@@ -371,6 +374,16 @@
         (expect (org-graph/write-edge file "part-of" "P")
                 :to-throw 'user-error))
       (expect (org-graph-authoring-test--read file) :to-equal "#+title: T\n\nbody\n"))
+
+    (it "signals user-error when the file-level property drawer has no :ID: and leaves the file byte-identical"
+      (let ((content ":PROPERTIES:\n:CATEGORY: x\n:END:\n#+title: T\n\nbody\n"))
+        (setq file (org-graph-authoring-test--write "no-id.org" content))
+        (let ((before (org-graph-authoring-test--bytes file)))
+          (org-graph-authoring-test--with-edges
+            (expect (org-graph/write-edge file "part-of" "P")
+                    :to-throw 'user-error))
+          (expect (org-graph-authoring-test--bytes file) :to-equal before)
+          (expect 'vulpea-db-update-file :not :to-have-been-called))))
 
     (it "signals user-error for an empty relation type before taking the lock"
       (org-graph-authoring-test--with-edges
