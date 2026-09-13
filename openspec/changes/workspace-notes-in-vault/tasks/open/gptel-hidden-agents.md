@@ -2,7 +2,9 @@
 name: gptel-hidden-agents
 description: Rename the sub-agent directory from agents/ to .agents/ across path helpers, enumerators, and PersistentAgent creation.
 change: workspace-notes-in-vault
-status: needs_review
+status: done
+reviewed_at: 2026-09-13T23:40:00Z
+findings_path: .orchestrator/cycles/cycle-1789334430/reviews/gptel-hidden-agents.md
 merge_commit: 0dd6e442
 merged_at: 2026-09-13T23:05:00Z
 task_class: refactor

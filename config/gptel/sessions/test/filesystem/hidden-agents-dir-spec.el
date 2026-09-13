@@ -29,6 +29,7 @@
 ;;; Code:
 
 (require 'buttercup)
+(require 'cl-lib)
 (require 'gptel-session-constants)
 (require 'gptel-session-filesystem)
 (require 'gptel-session-branching)
