@@ -3,9 +3,18 @@ name: ws-node-id-and-payload
 description: Add the opaque :node-id slot to the workspace record, payload, and persistence; delete the sessions-dir helpers and payload key.
 change: workspace-notes-in-vault
 status: ready
+task_class: contract
+on_critical_path: true
+cycle: cycle-1789334430
 relations:
   - enables:ws-scaffold-and-anchor
   - enables:int-workspaces-org-graph
+cites_register_entries:
+  - register/shape/workspace-plist-v3
+  - register/shape/workspace-integration-anchor-payload
+  - register/invariant/registry-name-equals-basename
+created_at: 2026-09-13T00:00:00Z
+planned_at: 2026-09-13T21:20:30Z
 ---
 
 ## Files to modify
@@ -70,8 +79,34 @@ mirror how `workspace-new`'s home stamp triggers the flush.
 - `./bin/run-tests.sh -d config/workspaces` — green.
 - `grep -n 'sessions-dir' config/workspaces/data-model.el config/workspaces/workspaces.el config/workspaces/integrations.el` → no matches.
 - `grep -n 'node-id' config/workspaces/integrations.el config/workspaces/persistence.el` → payload key and whitelist entry present.
+- Whole-tree grep (lineage meta-discovery 1): `grep -rn 'sessions-dir' config/ init.org --include='*.org'` → only matches outside `config/workspaces/` that a later task owns (list them in Observations).
 
 ## Context
 design.md § D2 'node-id is identity; the registry name stays the key'
 specs/workspaces/spec.md § 'Workspace node identity', 'Per-machine persistence and restoration'
 specs/workspace-integrations/spec.md § 'Anchor payload contract (push, not consult)'
+
+## Cited register entries
+
+Register entries are reference material to pressure-test, not authority to defer to. Speculated entries carry explicit licence to push back via Observations / Discoveries.
+
+- `register/shape/workspace-plist-v3` — RE-STATED to speculated this cycle. Pressure-test: is `:node-id` really just an optional key with no v4 bump, and does a plist lacking it load with nil and *no* notice through every restore path (startup hydrate, re-anchor, broken-tag)? If the serializer whitelist or the deserializer forces a notice, push back.
+- `register/shape/workspace-integration-anchor-payload` — RE-STATED. Pressure-test the ordering claim: a `:node-id` set by an earlier `:on-create` handler must be visible to later handlers in the same dispatch. If the payload is built once before the loop, the entry is wrong — say so in Discoveries rather than silently rebuilding it per handler.
+- `register/invariant/registry-name-equals-basename` — Confirmed invariant; must still hold. `:node-id` does not rekey anything.
+
+## Out-of-scope
+
+See sibling tasks in this change; do not fold in cycle-2 work (ws-scaffold-and-anchor, ws-inversion-points).
+
+## Plan-phase notes (architect forward-mode, cycle-1789334430)
+
+- Task-ordering hazard: `config/workspaces/scaffold.org` stage 4 (create `sessions/`) still calls `workspace--sessions-dir` until cycle-2 task `ws-scaffold-and-anchor` deletes that stage. Do NOT reach into scaffold.org to delete the stage here. Inline the one-line path computation `(expand-file-name "sessions" home)` at that call site (the stage dies next cycle) so the helper can be deleted now and the scaffold suite stays green. Record it in Observations so the cycle-2 task knows the inlined line is theirs to remove.
+- Whole-tree grep for `sessions-dir` will also hit `config/org-graph/discovery.org` (soft-dependency `declare-function workspace--sessions-dir`) — that line is owned by `og-vault-only-discovery`, which runs in this same batch; list it in Observations, do not edit it.
+
+## Observations
+
+(empty — implementor appends during execution)
+
+## Discoveries
+
+(empty — implementor appends structured discoveries; see task-body template)

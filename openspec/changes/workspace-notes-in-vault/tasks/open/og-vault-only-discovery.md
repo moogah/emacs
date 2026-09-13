@@ -3,8 +3,17 @@ name: og-vault-only-discovery
 description: Index the vault root only; delete workspace-home discovery, its toggle, and org-graph's workspace-integration module and loader slot.
 change: workspace-notes-in-vault
 status: ready
+task_class: module-load
+on_critical_path: true
+cycle: cycle-1789334430
 relations:
   - enables:int-scaffold-and-lint
+cites_register_entries:
+  - register/invariant/bounded-discovery-roots
+  - register/invariant/org-graph-loader-ordered-sequence
+  - register/invariant/packages-independent-no-cross-naming
+created_at: 2026-09-13T00:00:00Z
+planned_at: 2026-09-13T21:20:30Z
 ---
 
 ## Files to modify
@@ -58,7 +67,29 @@ Pure deletion plus one simplified function. Keep the `boundp` guard shape
 - `./bin/run-tests.sh -d config/org-graph` — green.
 - `grep -n 'workspace' config/org-graph/discovery.el config/org-graph/org-graph.el` → no matches.
 - `ls config/org-graph/workspace-integration.*` → no such file.
+- Whole-tree grep: `grep -rn 'watch-workspace-homes\|active-workspace-homes\|org-graph-workspace' config/ init.org --include='*.org' --include='*.el'` → no matches.
+- `grep -rn 'workspace' config/org-graph/*.el` → no matches (whole directory; `tools.el` was the neighbour missed twice in the spike lineage).
 
 ## Context
 design.md § D6 (Discovery bullet)
 specs/org-graph/spec.md § 'Vault Discovery', REMOVED 'Workspace-Substrate Discovery', REMOVED 'Workspace Integration'
+
+## Cited register entries
+
+Register entries are reference material to pressure-test, not authority to defer to. Speculated entries carry explicit licence to push back via Observations / Discoveries.
+
+- `register/invariant/bounded-discovery-roots` — RE-STATED to exactly one root. Pressure-test the `boundp` fallback: with `org-graph-vault-root` unbound the entry expects `~/org/`; confirm and pin in the spec.
+- `register/invariant/org-graph-loader-ordered-sequence` — RE-STATED to ten modules. `module-load-spec.el` must assert the new order; note in Discoveries whether the three deferred emacs-startup-hook ops are unchanged by the slot removal.
+- `register/invariant/packages-independent-no-cross-naming` — NEW, speculated. Your grep of tangled `config/org-graph/*.el` for `workspace-` is the interim enforcement; the spike's lineage recorded `tools.el` as a neighbour missed twice — grep the whole directory, not the two files you edit.
+
+## Out-of-scope
+
+See sibling tasks in this change; do not fold in cycle-2 work (og-extraction-root-and-agent-dir, int-scaffold-and-lint).
+
+## Observations
+
+(empty — implementor appends during execution)
+
+## Discoveries
+
+(empty — implementor appends structured discoveries; see task-body template)

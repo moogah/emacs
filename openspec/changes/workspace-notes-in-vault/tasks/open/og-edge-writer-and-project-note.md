@@ -3,9 +3,22 @@ name: og-edge-writer-and-project-note
 description: Add org-graph/write-edge (append an EDGES item under the coordinator lock) and org-graph/create-project-note.
 change: workspace-notes-in-vault
 status: ready
+task_class: feature
+on_critical_path: true
+cycle: cycle-1789334430
 relations:
   - enables:int-workspaces-org-graph
   - enables:int-gptel-org-graph
+cites_register_entries:
+  - register/boundary/edge-writer-api
+  - register/boundary/project-note-creation
+  - register/invariant/edge-drawer-immediately-after-property-drawer
+  - register/invariant/write-edge-idempotent
+  - register/invariant/coordinator-lock-contract
+  - register/vocabulary/relation-types
+  - register/invariant/edge-drawer-discriminator
+created_at: 2026-09-13T00:00:00Z
+planned_at: 2026-09-13T21:20:30Z
 ---
 
 ## Files to modify
@@ -69,7 +82,38 @@ accepts.
 - `./bin/tangle-org.sh config/org-graph/authoring.org` validates.
 - `./bin/run-tests.sh -d config/org-graph` — green.
 - `grep -n 'defun org-graph/write-edge\|defun org-graph/create-project-note' config/org-graph/authoring.el` → both defined.
+- Round-trip scenario (un-stubbed): `org-graph/write-edge` on a temp file, then run the real extractor over it and expect exactly one edge row with the normalised type.
+- Read `runtime/straight/repos/vulpea/` for `vulpea-create` / `vulpea-db-update-file` signatures before writing the project-note template; quote them in your report.
 
 ## Context
 design.md § D6 (Edge-writer API, Project-note API bullets), § D7
 specs/org-graph/spec.md § 'Edge-writer API', 'Project note creation API'
+
+## Cited register entries
+
+Register entries are reference material to pressure-test, not authority to defer to. Speculated entries carry explicit licence to push back via Observations / Discoveries.
+
+- `register/boundary/edge-writer-api` — NEW, speculated. Eight stages; pressure-test stage 3 (heading lookup restricted to this file) and stage 4 (drawer directly after the property drawer, case-insensitive name from `org-graph-extractor--edge-drawer-name`).
+- `register/boundary/project-note-creation` — NEW, speculated. The `status: active` form must satisfy the `project` schema predicate in `schemas.org` — check how it reads the field and record which form you emitted.
+- `register/invariant/edge-drawer-immediately-after-property-drawer` — NEW, speculated. For the file-level node the drawer lands BEFORE `#+title:`; the byte-identity spec is the enforcement.
+- `register/invariant/write-edge-idempotent` — NEW, speculated. Same (node, normalised type, target) twice → one item, file byte-identical.
+- `register/invariant/coordinator-lock-contract` — Confirmed; the writer must run inside `org-graph-coordinator/with-file-lock` — spy on it.
+- `register/vocabulary/relation-types` — Reconciled; the normalisation rule is the contract. Route TYPE through `org-graph-extractor--normalize-rel` — a second inlined normaliser is a duplication finding.
+- `register/invariant/edge-drawer-discriminator` — Confirmed; the writer must emit exactly what the extractor's drawer parser accepts. Add a round-trip spec: write an edge, run the extractor on the file, expect one edge row.
+
+## Out-of-scope
+
+See sibling tasks in this change; do not fold in cycle-2 work (og-connected-dblock, int-workspaces-org-graph, int-gptel-org-graph).
+
+## Plan-phase notes (architect forward-mode, cycle-1789334430)
+
+- `status: active` is a vulpea META item (`- status :: active` in the note body) because the `project` schema predicate in `schemas.org` reads `vulpea-note-meta-get`; it is not a property-drawer entry as D6's wording suggests. Emit it as META and say so in your report.
+- `org-graph/write-edge`'s heading lookup is pinned by the register entry as an in-file `:ID:` scan (not `org-id-find`), so an unindexed file still works. If you disagree, push back in Discoveries.
+
+## Observations
+
+(empty — implementor appends during execution)
+
+## Discoveries
+
+(empty — implementor appends structured discoveries; see task-body template)

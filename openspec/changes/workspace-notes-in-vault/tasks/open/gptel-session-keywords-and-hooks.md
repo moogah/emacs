@@ -3,9 +3,20 @@ name: gptel-session-keywords-and-hooks
 description: Emit #+title and #+filetags on new sessions, add jf/gptel-session-created-hook under an error guard, and add a pure-gptel "new topic with ID" command.
 change: workspace-notes-in-vault
 status: ready
+task_class: contract
+on_critical_path: true
+cycle: cycle-1789334430
 relations:
   - enables:gptel-branch-identity
   - enables:int-gptel-org-graph
+cites_register_entries:
+  - register/shape/session-created-hook-payload
+  - register/shape/branch-created-hook-payload
+  - register/boundary/session-lifecycle-hooks
+  - register/shape/session-file-head
+  - register/invariant/signature-anchored-to-point-min-drawer
+created_at: 2026-09-13T00:00:00Z
+planned_at: 2026-09-13T21:20:30Z
 ---
 
 ## Files to modify
@@ -68,7 +79,37 @@ function.
 - `./bin/tangle-org.sh config/gptel/sessions/commands.org` and `config/gptel/gptel.org` validate.
 - `./bin/run-tests.sh -d config/gptel/sessions` — green.
 - `grep -n 'gptel_session\|session-created-hook' config/gptel/sessions/commands.el` → keyword emission and hook run present.
+- One un-stubbed scenario: real `jf/gptel--create-session-core` in a temp root with a hook function that asserts `file-exists-p` on `:session-file` and reads the drawer `:ID:` — no stub on the creation path (stub-bounded regression pattern).
+- `grep -n 'branch-created-hook' config/gptel/sessions/*.el` → declaration only; no `run-hook` call (the runner lands in gptel-branch-identity, cycle 2 — record as inert).
 
 ## Context
 design.md § D5 (Hooks, Keywords bullets); § Open Questions OQ-A (approved for inclusion)
 specs/sessions-persistence/spec.md § 'Session lifecycle hooks', 'Session file title and filetag', 'Session creation'
+
+## Cited register entries
+
+Register entries are reference material to pressure-test, not authority to defer to. Speculated entries carry explicit licence to push back via Observations / Discoveries.
+
+- `register/shape/session-created-hook-payload` — NEW, speculated. Keys are the minimum; if creation has a value the integration layer will need (e.g. the sibling system-prompt path) add it and record it as a Discovery rather than a silent extension.
+- `register/shape/branch-created-hook-payload` — NEW, speculated; DECLARED this cycle, RUN in cycle 2 (gptel-branch-identity). The variable is inert until then — say so in its docstring and in a spec comment so a green run is not mistaken for coverage (green-on-empty lineage meta-discovery).
+- `register/boundary/session-lifecycle-hooks` — NEW, speculated. Pressure-test the ordering: hook runs after the file, sibling file and registry entry exist and BEFORE the buffer is displayed. Your spec must assert `file-exists-p` inside the hook against the real creation path — do not stub `jf/gptel--create-session-core` (stub-bounded regression pattern).
+- `register/shape/session-file-head` — NEW, speculated. Pins the head order drawer → (EDGES) → #+title → #+filetags → blank → first block. Verify the chat-mode save path and the magic-mode signature leave lines after `:END:` alone; if either rewrites them, that is a Discovery.
+- `register/invariant/signature-anchored-to-point-min-drawer` — Confirmed invariant; keywords after the drawer must not move it off point-min.
+
+## Out-of-scope
+
+See sibling tasks in this change; do not fold in cycle-2 work (gptel-branch-identity (runs the branch hook), int-gptel-org-graph).
+
+## Plan-phase notes (architect forward-mode, cycle-1789334430)
+
+- The registry entry is NOT created inside `jf/gptel--create-session-core`: `jf/gptel--register-session` runs from the chat-mode binder (commands.org ~:307) at `find-file` time, after the core returns. Step 3's "after ... the registry entry exists" is therefore unsatisfiable inside the core. Run the hook at the end of the core (file + sibling file exist, org ID stamped); the spec's "session is created, opened, and registered normally" holds because the guard never blocks the core's return. Record the ordering you land in Discoveries against `register/boundary/session-lifecycle-hooks`.
+- PersistentAgent composes its own `session.org` in `config/gptel/tools/persistent-agent.org` and bypasses the core, so agent sessions would get neither the keywords nor the hook. Decide explicitly: either route agent creation through the same body builder (preferred if cheap) or document agent sessions as a second producer variant of `register/shape/session-file-head` in Discoveries. Do not leave it implicit.
+- `jf/gptel--initial-session-body` currently takes no argument; emitting `#+title: <session-id>` needs the id passed in (or composition in the core). Either is fine; keep the keyword emission in one function.
+
+## Observations
+
+(empty — implementor appends during execution)
+
+## Discoveries
+
+(empty — implementor appends structured discoveries; see task-body template)

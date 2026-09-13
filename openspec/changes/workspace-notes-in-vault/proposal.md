@@ -1,3 +1,15 @@
+---
+status: speculated
+status_set_at: 2026-09-13T21:20:30Z
+status_set_by: architect
+status_note: |
+  Header added by opsx-orchestrate plan phase (cycle-1789334430), the
+  first orchestrated cycle of this change. The proposal reverses the
+  archived org-graph spike's "project co-location" pillar; it enters the
+  lifecycle as speculated and is promoted to confirmed by the PM digest
+  after two clean cycles with no goal-drift signal.
+---
+
 ## Why
 
 The org-graph spike bet on *co-location*: a workspace's notes (`home.org`,

@@ -3,7 +3,15 @@ name: og-parser-hardening
 description: Advise vulpea's parser to never evaluate file-local variables and contain per-file sync errors so indexing cannot enter the debugger.
 change: workspace-notes-in-vault
 status: ready
+task_class: bug
+on_critical_path: false
+cycle: cycle-1789334430
 relations: []
+cites_register_entries:
+  - register/invariant/index-parser-never-evaluates-file-locals
+  - register/invariant/index-sync-per-file-errors-contained
+created_at: 2026-09-13T00:00:00Z
+planned_at: 2026-09-13T21:20:30Z
 ---
 
 ## Files to modify
@@ -50,7 +58,28 @@ surface). Follow the `declare-function` soft-dependency block at the top of
 - `./bin/tangle-org.sh config/org-graph/discovery.org` validates.
 - `./bin/run-tests.sh -d config/org-graph` — green.
 - `grep -n 'enable-local-variables\|advice-add' config/org-graph/discovery.el` → both advices installed.
+- Read `runtime/straight/repos/vulpea/vulpea-db.el` (and the sync file) and quote the two advised function signatures in your report; if names differ from the task, record a Discovery against the cited invariant entries.
+- One un-stubbed scenario: a temp vault file with a `Local Variables` block containing `eval: (org-graph-test--must-not-run)`; run the real advised parse path; expect the function never called (stub-bounded regression pattern).
 
 ## Context
 design.md § D6 (Parser hardening bullet); § Risks (advice on vulpea internals)
 specs/org-graph/spec.md § 'Index parser hardening'
+
+## Cited register entries
+
+Register entries are reference material to pressure-test, not authority to defer to. Speculated entries carry explicit licence to push back via Observations / Discoveries.
+
+- `register/invariant/index-parser-never-evaluates-file-locals` — NEW, speculated. The entry names `vulpea-db--parse-with-temp-buffer` from the design; READ the checked-out vulpea source (`runtime/straight/repos/vulpea/`, cloned on first boot) and confirm the function name, that it re-runs `org-mode`, and that `enable-local-variables` is the binding that matters. If the seam differs, re-state via Discoveries.
+- `register/invariant/index-sync-per-file-errors-contained` — NEW, speculated. Same instruction for `vulpea-db-sync--update-file-if-changed`. Confirm it is the per-file unit of the sync queue so containment does not swallow a whole batch.
+
+## Out-of-scope
+
+See sibling tasks in this change; do not fold in cycle-2 work (og-vault-only-discovery (runs in parallel; do not edit its sections of discovery.org)).
+
+## Observations
+
+(empty — implementor appends during execution)
+
+## Discoveries
+
+(empty — implementor appends structured discoveries; see task-body template)
