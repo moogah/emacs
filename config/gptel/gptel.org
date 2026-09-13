@@ -24,11 +24,9 @@ scoped file access via a =:PROPERTIES:= drawer in =session.org=
 (default: deny-all for security), preset model/backend/tool
 configuration, and content-addressed activation on open.
 
-(An earlier integration auto-created sessions for each
-=activities.el= activity; that integration was removed when the
-=workspaces= package replaced =activities-extensions=. A workspace-
-scoped equivalent may land later — for now, sessions are created
-explicitly via the command above.)
+Sessions are created explicitly via the command above; every session
+lands under the single root =jf/gptel-sessions-directory=, which the
+registry and listing commands also walk.
 
 * Basic Configuration
 
@@ -327,13 +325,10 @@ Persistent gptel sessions provide file-backed, auto-saving conversation buffers 
 ** Usage
 
 Create a persistent gptel session with =M-x jf/gptel-persistent-session=.
-Sessions are stored in =~/.gptel/sessions/= by default.
+Sessions are stored under =jf/gptel-sessions-directory=
+(=~/.gptel/sessions/= by default), the module's single sessions root.
 
 See =config/gptel/sessions/commands.org= for complete documentation.
-
-(A previous integration auto-created sessions for each =activities.el=
-activity; that integration was removed when the =workspaces= package
-replaced =activities-extensions=.)
 
 ** Module Loading
 
@@ -363,13 +358,6 @@ Load session management modules in dependency order:
 
 ;; Load user-facing commands
 (jf/load-module (expand-file-name "config/gptel/sessions/commands.el" jf/emacs-dir))
-
-;; Load workspace integration (gptel-side consumer of the workspace
-;; integration registry; depends on `jf/gptel--create-session-core' /
-;; `jf/gptel--generate-session-id' from commands.el / filesystem.el).
-;; Registration is wrapped in `with-eval-after-load 'workspaces' so it
-;; is load-order-independent and inert when workspaces is absent.
-(jf/load-module (expand-file-name "config/gptel/sessions/workspace-integration.el" jf/emacs-dir))
 
 ;; Load PersistentAgent tool (requires session modules + commands to be loaded first;
 ;; depends on `jf/gptel--create-session-core' from sessions/commands.el)
