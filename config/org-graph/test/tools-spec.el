@@ -10,8 +10,8 @@
 ;; Behavioral tests for the agent-facing tool surface in tools.el:
 ;;
 ;; 1. The three gptel tools are constructed and surfaced as a reusable
-;;    list via `org-graph/agent-tools' (the accessor the
-;;    workspace-integration task hands to the workspace-assistant preset).
+;;    list via `org-graph/agent-tools' (the accessor a preset owner --
+;;    the integration layer, never org-graph -- hands to its preset).
 ;;    register/boundary/org-graph-agent-tools (crystallised by this task).
 ;;
 ;; 2. `org-graph-tools/write-node' routes its write through the per-file
@@ -64,7 +64,7 @@
                           "org_graph_typed_edges"
                           "org_graph_write_node"))))
 
-  (it "returns gptel-tool objects, not bare names (workspace preset :tools)"
+  (it "returns gptel-tool objects, not bare names (for a preset :tools slot)"
     (org-graph-tools-register)
     ;; The speculated register entry must expose objects so the preset's
     ;; :tools slot receives them directly.

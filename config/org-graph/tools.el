@@ -218,9 +218,10 @@ where :title is the far-end note's title."
 
 (defun org-graph/agent-tools ()
   "Return the list of org-graph `gptel-tool' objects for preset :tools slots.
-The reusable accessor the `workspace-integration' task hands to the
-`workspace-assistant' preset, rather than relying only on gptel's global
-registry.  Returns nil until `org-graph-tools-register' has run."
+The reusable accessor a preset owner (the integration layer, never
+org-graph itself) hands to its preset, rather than relying only on
+gptel's global registry.  Returns nil until `org-graph-tools-register'
+has run."
   org-graph-tools--registered)
 
 (when (fboundp 'gptel-make-tool)

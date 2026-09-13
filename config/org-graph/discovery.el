@@ -1,12 +1,7 @@
-;;; discovery.el --- org-graph registry-driven vulpea discovery -*- lexical-binding: t; -*-
+;;; discovery.el --- org-graph vault discovery for vulpea -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
 (require 'org-id)   ; built-in; the org-id-locations seed depends on it explicitly
-
-(defvar workspace--registry)
-(declare-function workspace--registered-names "workspace-tabs" ())
-(declare-function workspace--home "workspace-data-model" (ws))
-(declare-function workspace--sessions-dir "workspace-data-model" (home))
 
 (defvar vulpea-db-sync-directories)
 (defvar vulpea-default-notes-directory)
@@ -26,53 +21,28 @@
 (setq vulpea-create-default-template
       '(:file-name "${timestamp}-${slug}.org"))
 
-(defun org-graph--active-workspace-homes ()
-  "Return active workspace `:home' dirs and their `sessions/' subdirs.
-Reads the `workspaces' registry (`workspace--registry').  Each home is
-returned canonicalised (absolute, trailing slash) and followed by its
-`sessions/' subdirectory.  Returns nil when the `workspaces' feature is
-not loaded — workspaces is a soft dependency."
-  (when (featurep 'workspaces)
-    (let (dirs)
-      (dolist (name (workspace--registered-names))
-        (let* ((ws (gethash name workspace--registry))
-               (home (and ws (workspace--home ws))))
-          (when home
-            (push (file-name-as-directory (expand-file-name home)) dirs)
-            (push (file-name-as-directory (workspace--sessions-dir home))
-                  dirs))))
-      (nreverse dirs))))
-
 (defun org-graph/index-roots ()
   "Return the explicit list of directories vulpea SHALL index.
-This is `org-graph-vault-root' (canonicalised) plus, when
-`org-graph-watch-workspace-homes' is non-nil and the `workspaces'
-feature is loaded, each active workspace `:home' directory and its
-`sessions/' subdirectory from the workspaces registry.
-
-This is a bounded, explicit set: the vault root plus the active
-workspace homes.  org-graph deliberately NEVER walks a wider tree
-\(e.g. ~/work) to discover notes: the registry already enumerates the
-handful of homes the user created
+Exactly one entry: `org-graph-vault-root' (canonicalised: expanded,
+trailing slash), falling back to ~/org/ when the loader defcustom is
+unbound.  No other package is consulted and no wider tree is ever
+walked to discover notes; hidden subdirectories of the vault are
+excluded by vulpea itself
 \(`register/invariant/bounded-discovery-roots')."
-  (let ((roots (list (file-name-as-directory
-                      (expand-file-name
-                       (if (boundp 'org-graph-vault-root)
-                           org-graph-vault-root
-                         "~/org/"))))))
-    (when (and (boundp 'org-graph-watch-workspace-homes)
-               org-graph-watch-workspace-homes)
-      (setq roots (append roots (org-graph--active-workspace-homes))))
-    (delete-dups roots)))
+  (list (file-name-as-directory
+         (expand-file-name
+          (if (boundp 'org-graph-vault-root)
+              org-graph-vault-root
+            "~/org/")))))
 
 (defun org-graph/configure-sync ()
-  "Point vulpea at the bounded discovery roots and enable autosync.
+  "Point vulpea at the vault root and enable autosync.
 Sets `vulpea-db-sync-directories' to `org-graph/index-roots', enables
 `vulpea-db-autosync-mode', and triggers an initial (async) full scan.
 
 Idempotent: re-running overwrites the directory list, leaves autosync
 enabled, and re-scans with smart change detection.  Interactive so it
-can be invoked after the active workspace set changes."
+can be invoked on demand as a manual re-index."
   (interactive)
   (setq vulpea-db-sync-directories (org-graph/index-roots))
   (vulpea-db-autosync-mode 1)

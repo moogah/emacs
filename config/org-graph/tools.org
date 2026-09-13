@@ -29,9 +29,10 @@ Two contracts are load-bearing here:
   produces *no* typed edges.
 
 The tools are also exposed as a reusable list via =org-graph/agent-tools=
-(RE-5), so the =workspace-integration= task can drop them into the
-=workspace-assistant= preset's =:tools= slot instead of relying solely on
-gptel's global registry.
+(RE-5), so whoever owns a gptel preset (the integration layer under
+=config/integrations/=, never org-graph itself) can drop them into that
+preset's =:tools= slot instead of relying solely on gptel's global
+registry.
 
 * Lexical Binding
 
@@ -253,8 +254,8 @@ as strings.
 
 The constructed tool objects are captured into
 =org-graph-tools--registered= and surfaced by =org-graph/agent-tools= so
-the =workspace-assistant= preset can be handed the same objects gptel
-registered globally.
+a preset owner can be handed the same objects gptel registered
+globally.
 
 Registration is gated on =gptel-make-tool= being bound: the core
 functions are always defined, but the gptel objects are only built where
@@ -352,9 +353,10 @@ where :title is the far-end note's title."
 
 (defun org-graph/agent-tools ()
   "Return the list of org-graph `gptel-tool' objects for preset :tools slots.
-The reusable accessor the `workspace-integration' task hands to the
-`workspace-assistant' preset, rather than relying only on gptel's global
-registry.  Returns nil until `org-graph-tools-register' has run."
+The reusable accessor a preset owner (the integration layer, never
+org-graph itself) hands to its preset, rather than relying only on
+gptel's global registry.  Returns nil until `org-graph-tools-register'
+has run."
   org-graph-tools--registered)
 #+end_src
 

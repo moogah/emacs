@@ -18,7 +18,6 @@
 ;;     present in vulpea's extractor set),
 ;;   - the three snake_case gptel tools are in gptel's registry and
 ;;     `org-graph/agent-tools' returns the constructed tool objects,
-;;   - the workspace integration registers an :on-create + :menu seam,
 ;;   - the menu module defines the `org-graph-menu' transient prefix and
 ;;     its note-at-point commands (evil-guarded SPC v install),
 ;;   - org-roam coexists unchanged and the vulpea DB path is isolated
@@ -26,15 +25,19 @@
 ;;
 ;; This spec is the REAL cold-load guard for
 ;; `register/invariant/org-graph-loader-ordered-sequence' (canonical
-;; eleven-submodule order schemas -> extractor -> coordinator -> query ->
-;; finders -> authoring -> edge-type -> tools -> discovery ->
-;; workspace-integration, with menu LAST).  It loads org-graph via
-;; `(require 'org-graph)' ALONE -- it does
-;; NOT path-load the submodules itself -- and then asserts that every
-;; registration fired FROM THE LOADER PATH.  If the loader were still
-;; scattered (omitting extractor/coordinator/discovery, or mis-ordered),
-;; the require would not fire all registrations and these assertions would
-;; fail.  This is what makes the guard meaningful rather than a tautology.
+;; TEN-submodule order schemas -> extractor -> coordinator -> query ->
+;; finders -> authoring -> edge-type -> tools -> discovery, with menu
+;; LAST; the former workspace-integration slot is gone -- org-graph
+;; names no other package, `register/invariant/packages-independent-
+;; no-cross-naming').  It loads org-graph via `(require 'org-graph)'
+;; ALONE -- it does NOT path-load the submodules itself -- and then
+;; asserts that every registration fired FROM THE LOADER PATH.  If the
+;; loader were still scattered (omitting extractor/coordinator/discovery,
+;; or mis-ordered), the require would not fire all registrations and
+;; these assertions would fail.  This is what makes the guard meaningful
+;; rather than a tautology.  The order itself is asserted structurally
+;; (step 1) by reading the tangled loader's contiguous `jf/load-module'
+;; block.
 ;;
 ;; DB-free load contract: `(require 'org-graph)' must not open the vulpea
 ;; DB.  The three DB-touching ops (the typed-edge extractor, which
@@ -54,10 +57,8 @@
 ;;
 ;; Test process note: `make' runs specs via `EMACS_TEST_BATCH', which
 ;; loads `init.el'.  So `jf/load-module'/`jf/emacs-dir' are defined (the
-;; loader's by-path loads work) and workspaces/gptel/org-roam are already
-;; loaded -- which is why `workspace-integration's `with-eval-after-load
-;; 'workspaces' fires from the loader path into the REAL registry, and the
-;; gptel tools register at load.
+;; loader's by-path loads work) and gptel/org-roam are already loaded --
+;; which is why the gptel tools register at load.
 
 ;;; Code:
 
@@ -71,10 +72,14 @@
 ;; adds vulpea; the per-module specs add compat + gptel).  Under the
 ;; `make' test runner these are already loaded by `init.el', but adding
 ;; them keeps the spec robust if run in a leaner process.
+(defvar module-load-spec--loader-file nil
+  "Absolute path of the tangled loader, org-graph.el (for the order audit).")
+
 (let* ((test-dir (file-name-directory (or load-file-name buffer-file-name)))
        (module-dir (expand-file-name ".." test-dir))
        (root (locate-dominating-file test-dir "early-init.el")))
   (add-to-list 'load-path test-dir)
+  (setq module-load-spec--loader-file (expand-file-name "org-graph.el" module-dir))
   (when root
     (dolist (pkg '("compat" "gptel" "org-roam"))
       (let ((d (expand-file-name (format "runtime/straight/build/%s" pkg) root)))
@@ -96,7 +101,63 @@
   ;; -- either way the assertions check the LOADER-produced state.
   (require 'org-graph (expand-file-name "org-graph.el" module-dir)))
 
+(defconst module-load-spec--canonical-order
+  '("schemas" "extractor" "coordinator" "query" "finders"
+    "authoring" "edge-type" "tools" "discovery" "menu")
+  "The TEN submodule basenames in canonical loader order.
+register/invariant/org-graph-loader-ordered-sequence (re-stated
+cycle-1789334430: the workspace-integration slot is removed).")
+
+(defun module-load-spec--loader-load-lines ()
+  "Return (LINE-NUMBER . BASENAME) for each `jf/load-module' line in org-graph.el."
+  (with-temp-buffer
+    (insert-file-contents module-load-spec--loader-file)
+    (goto-char (point-min))
+    (let (found)
+      (while (re-search-forward
+              "^(jf/load-module (expand-file-name \"config/org-graph/\\([^\"]+\\)\\.el\" jf/emacs-dir))"
+              nil t)
+        (push (cons (line-number-at-pos) (match-string 1)) found))
+      (nreverse found))))
+
 (describe "org-graph cold-load guard (D7/D8, RE-5; verifies register/invariant/org-graph-loader-ordered-sequence: (require 'org-graph) ALONE fires every registration from the loader path)"
+
+  ;; --- Step 1: loader structure -- ten modules, one contiguous block ---
+
+  (describe "loader load-wires exactly the ten submodules, in canonical order, contiguously"
+
+    ;; Structural enforcement of the ordered-sequence invariant: the
+    ;; tangled loader's `jf/load-module' lines ARE the order (basename !=
+    ;; feature, so `require' cannot reorder them).  Reading the file is
+    ;; the same audit the register's enforcement note prescribes
+    ;; (grep -nE "jf/load-module.*org-graph" org-graph.el).
+    (it "loads the ten submodules in canonical order with no workspace-integration slot"
+      (let ((lines (module-load-spec--loader-load-lines)))
+        (expect (mapcar #'cdr lines) :to-equal module-load-spec--canonical-order)
+        (expect (mapcar #'cdr lines) :not :to-contain "workspace-integration")))
+
+    (it "keeps the load lines in one contiguous block"
+      (let* ((lines (module-load-spec--loader-load-lines))
+             (numbers (mapcar #'car lines)))
+        (expect (length numbers) :to-equal 10)
+        (expect (- (car (last numbers)) (car numbers)) :to-equal 9)))
+
+    (it "defines no org-graph symbol or feature that names workspaces (interim package-independence lint)"
+      ;; register/invariant/packages-independent-no-cross-naming: after
+      ;; the cold load, no `org-graph-'-prefixed feature, function, or
+      ;; variable mentions "workspace" (the deleted integration module,
+      ;; its handlers, and the watch toggle would all match).  The
+      ;; tangled-file grep lint lands with int-scaffold-and-lint; this is
+      ;; the loaded-image counterpart.
+      (let ((offenders nil))
+        (mapatoms
+         (lambda (sym)
+           (let ((name (symbol-name sym)))
+             (when (and (string-prefix-p "org-graph-" name)
+                        (string-match-p "workspace" name)
+                        (or (fboundp sym) (boundp sym) (memq sym features)))
+               (push name offenders)))))
+        (expect offenders :to-equal nil))))
 
   ;; --- Step 2: loader defcustoms ---------------------------------------
 
@@ -122,11 +183,7 @@
     (it "org-graph-note-types is the fixed note-type taxonomy"
       (expect (boundp 'org-graph-note-types) :to-be-truthy)
       (expect org-graph-note-types
-              :to-equal '(log debug topic reference project)))
-
-    (it "org-graph-watch-workspace-homes defaults on"
-      (expect (boundp 'org-graph-watch-workspace-homes) :to-be-truthy)
-      (expect org-graph-watch-workspace-homes :to-be t)))
+              :to-equal '(log debug topic reference project))))
 
   ;; --- Step 3: note-type schemas registered ----------------------------
 
@@ -252,10 +309,13 @@
                   ((symbol-function 'vulpea-db-sync-full-scan)
                    (lambda (&rest _) (cl-incf scan-count))))
           (org-graph--configure-sync-deferred))
-        ;; sync directories point at the bounded discovery roots
+        ;; sync directories are exactly the single vault root
         ;; (register/invariant/bounded-discovery-roots)
         (expect vulpea-db-sync-directories
                 :to-equal (org-graph/index-roots))
+        (expect vulpea-db-sync-directories
+                :to-equal (list (file-name-as-directory
+                                 (expand-file-name org-graph-vault-root))))
         ;; autosync enabled exactly once, and the initial full scan fired
         (expect autosync-args :to-equal '(1))
         (expect scan-count :to-equal 1)))
@@ -340,42 +400,11 @@
                     org-graph-edge-type-invalidate-cache))
         (expect (fboundp fn) :to-be-truthy))))
 
-  ;; --- Step 6: workspace integration registered ------------------------
-
-  (describe "workspace integration registered from the loader path"
-
-    ;; `workspace-integration.el' registers via `with-eval-after-load
-    ;; 'workspaces'.  The `make' test runner loads `init.el', which loads
-    ;; the workspaces module, so that form FIRES when the loader loads
-    ;; workspace-integration.el -- registering org-graph in the REAL
-    ;; `workspace--integrations' registry.  Asserting that registry proves
-    ;; the loader path fired (not a stubbed call).
-    (it "registers org-graph in workspace--integrations with :on-create and :menu"
-      (expect (featurep 'workspaces) :to-be-truthy)
-      (expect (boundp 'workspace--integrations) :to-be-truthy)
-      (let* ((cell (assq 'org-graph workspace--integrations))
-             (plist (cdr cell)))
-        (expect cell :to-be-truthy)
-        (expect (plist-get plist :label) :to-equal "org-graph")
-        ;; :on-create handler present and fbound
-        (expect (plist-get plist :on-create)
-                :to-be #'org-graph-workspace-integration--on-create)
-        (expect (fboundp 'org-graph-workspace-integration--on-create)
-                :to-be-truthy)
-        ;; :menu is a (KEY . COMMAND) cons; COMMAND fbound, accepts the
-        ;; anchor payload (arity 1)
-        (let ((menu (plist-get plist :menu)))
-          (expect (consp menu) :to-be-truthy)
-          (expect (car menu) :to-equal "G")
-          (expect (cdr menu) :to-be #'org-graph-workspace-integration--menu)
-          (expect (fboundp 'org-graph-workspace-integration--menu)
-                  :to-be-truthy)))))
-
-  ;; --- Step 6a: menu module loaded LAST (vulpea-human-commands) --------
+  ;; --- Step 6: menu module loaded LAST (vulpea-human-commands) ---------
 
   (describe "menu module loaded from the loader path"
 
-    ;; menu.el is the ELEVENTH and LAST submodule: it dispatches commands
+    ;; menu.el is the TENTH and LAST submodule: it dispatches commands
     ;; defined by finders, authoring, query, discovery, and schemas, so
     ;; everything it references is already loaded when it defines the
     ;; transient prefix.  DB-free at load: it only defines commands (the
