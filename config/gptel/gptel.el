@@ -95,8 +95,15 @@ that topic heading and calls `org-id-get-create'.  Point is left where
 ready to type.  Returns the topic heading's ID.
 
 Only the ID is added; nothing else about the topic layout changes.
-Works in any `org-mode'-derived buffer, `gptel-chat-mode' included."
+Works in any file-visiting `org-mode'-derived buffer, `gptel-chat-mode'
+included.  In a buffer visiting no file (a `gptel-chat-new' scratch
+buffer, say) it signals `user-error' before touching the buffer: org-id
+records every ID against a file, so there is nowhere to register the
+new one and a topic without its ID would be a half-applied gesture."
   (interactive "sTopic: ")
+  (unless (or (bound-and-true-p org-id-overriding-file-name)
+              (buffer-file-name (buffer-base-buffer)))
+    (user-error "Topic IDs need a file-visiting buffer"))
   (require 'gptel-org-utils)
   (gptel-org-utils-new-topic topic)
   (save-excursion

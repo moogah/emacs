@@ -233,15 +233,29 @@ content.
 
 The interactive session-creation path
 (=jf/gptel--create-session-core= →
-=jf/gptel--initial-session-body=) and this agent-creation path
-both emit a session.org with the same shape (config drawer at
-point-min followed by exactly one turn block). They differ only
-in what populates the user block:
+=jf/gptel--initial-session-body=) and this agent-creation path are
+two deliberate producer variants of
+=register/shape/session-file-head=, and they do *not* emit the same
+shape:
 
-- interactive sessions get the empty template
-  =#+begin_user\n\n#+end_user\n=
-- agent sessions get the populated block
-  =#+begin_user\n<prompt>\n#+end_user\n=
+- interactive sessions are composed by the sessions core: config
+  drawer at point-min, then =#+title:= and =#+filetags:= keywords, a
+  blank line, and the empty user block
+  =#+begin_user\n\n#+end_user\n=. The core then runs
+  =jf/gptel-session-created-hook= (see commands.org, "Session
+  Lifecycle Hooks").
+- agent sessions are composed *by this module* and bypass the core:
+  config drawer at point-min followed directly by the populated user
+  block =#+begin_user\n<prompt>\n#+end_user\n=. No =#+title:=, no
+  =#+filetags:=, and =jf/gptel-session-created-hook= is not fired.
+
+The omission is by design, not an oversight: agent sessions are
+tool-driven scratch conversations, not vault notes, so the
+title/filetags head (regions 3-5 of the register shape) and the
+lifecycle hook that publishes new sessions to subscribers do not
+apply to them. Anyone widening the register shape or adding a hook
+subscriber should treat this path as a second, narrower producer
+rather than assume every =session.org= carries the full head.
 
 The session's system prompt lives in the sibling
 =system-prompt.<ext>= file next to =session.org= (design.md

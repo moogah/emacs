@@ -20,7 +20,9 @@
 ;;
 ;; Runs the real `gptel-org-utils-new-topic' and real `org-id-get-create'
 ;; against a temp `.org' file (org-id insists on a file-visiting
-;; buffer).  Nothing is stubbed.
+;; buffer).  Nothing is stubbed.  One spec covers the non-file case:
+;; the command must refuse up front with `user-error' rather than
+;; insert the topic and then fail inside org-id.
 
 ;;; Code:
 
@@ -85,6 +87,19 @@ afterwards -- even on error."
       (save-excursion
         (org-back-to-heading t)
         (expect (looking-at "\\*\\* Next Question") :to-be-truthy))))
+
+  (it "signals user-error and leaves the buffer untouched when it visits no file"
+    (with-temp-buffer
+      (org-mode)
+      (insert "* Existing heading\n")
+      (set-buffer-modified-p nil)
+      (let ((before (buffer-string))
+            (org-id-overriding-file-name nil))
+        (expect (buffer-file-name) :to-be nil)
+        (expect (jf/gptel-org-new-topic-with-id "Scratch topic")
+                :to-throw 'user-error)
+        (expect (buffer-string) :to-equal before)
+        (expect (buffer-modified-p) :to-be nil))))
 
   (it "gives each topic its own ID"
     (jf-gptel-topic-test--with-org-file buf
