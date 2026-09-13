@@ -2,7 +2,9 @@
 name: og-parser-hardening
 description: Advise vulpea's parser to never evaluate file-local variables and contain per-file sync errors so indexing cannot enter the debugger.
 change: workspace-notes-in-vault
-status: needs_review
+status: done
+reviewed_at: 2026-09-14T00:25:00Z
+findings_path: .orchestrator/cycles/cycle-1789334430/reviews/og-parser-hardening.md
 merge_commit: cbea6143
 merged_at: 2026-09-13T23:20:00Z
 task_class: bug
