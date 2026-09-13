@@ -3,7 +3,7 @@
 (require 'cl-lib)
 
 (defgroup org-graph nil
-  "Layered knowledge graph over vulpea, plugged into workspaces."
+  "Layered knowledge graph over vulpea."
   :group 'convenience
   :prefix "org-graph-")
 
@@ -18,9 +18,11 @@ extraction and the agent write target."
 
 (defcustom org-graph-roam-root "~/org/roam/"
   "Durable concept vault and typed-edge extraction scope.
-This directory is always indexed by vulpea, and it is the only root on
-which the typed-edge extractor runs.  Workspace homes are indexed for
-discovery/navigation but excluded from typed-edge extraction."
+This directory is always indexed by vulpea (it lies under
+`org-graph-vault-root'), and it is the only root on which the
+typed-edge extractor runs.  Notes elsewhere under the vault root are
+indexed for discovery/navigation but excluded from typed-edge
+extraction."
   :type 'directory
   :group 'org-graph)
 
@@ -83,13 +85,6 @@ A `setq' rename bypasses this — re-evaluate the exclusion or restart."
     (setq org-export-with-drawers
           (list 'not "LOGBOOK" org-graph-edge-drawer))))
 
-(defcustom org-graph-watch-workspace-homes t
-  "When non-nil, add workspace `:home' directories to vulpea's sync roots.
-Consumed by the registry-driven discovery layer and the workspace
-`:on-create' integration handler."
-  :type 'boolean
-  :group 'org-graph)
-
 (defcustom org-graph-note-types
   '(log debug topic reference project)
   "Fixed taxonomy of note-type symbols backed by vulpea-schema definitions.
@@ -115,7 +110,6 @@ its notes and field expectations validated by `vulpea-schema-validate'."
 (jf/load-module (expand-file-name "config/org-graph/edge-type.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
-(jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
 (jf/load-module (expand-file-name "config/org-graph/menu.el" jf/emacs-dir))
 
 (defun org-graph--run-deferred-op (fn what)
@@ -146,7 +140,7 @@ than aborting startup."
 (defun org-graph--configure-sync-deferred ()
   "Run sync configuration once, resiliently, for `emacs-startup-hook'.
 `org-graph/configure-sync' points `vulpea-db-sync-directories' at the
-bounded discovery roots, enables `vulpea-db-autosync-mode', and
+vault root, enables `vulpea-db-autosync-mode', and
 triggers an async full scan -- all DB-touching, so it is deferred out
 of module-load time (load stays DB-free).  Failures are reported via
 `display-warning' rather than aborting startup."
