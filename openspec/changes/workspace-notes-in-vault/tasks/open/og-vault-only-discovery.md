@@ -2,7 +2,9 @@
 name: og-vault-only-discovery
 description: Index the vault root only; delete workspace-home discovery, its toggle, and org-graph's workspace-integration module and loader slot.
 change: workspace-notes-in-vault
-status: ready
+status: needs_review
+merge_commit: b6678ebc
+merged_at: 2026-09-13T23:35:00Z
 task_class: module-load
 on_critical_path: true
 cycle: cycle-1789334430
