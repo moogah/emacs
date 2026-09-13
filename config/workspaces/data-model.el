@@ -99,7 +99,7 @@ disturbing callers."
   (list :name (workspace--group-name group)
         :layouts (list layout)))
 
-(defun workspace--make (name home)
+(defun workspace--make (name home &optional node-id)
   "Build an empty workspace plist named NAME anchored at HOME.
 
 NAME is the workspace name (and the registry key under which it is
@@ -124,13 +124,21 @@ directory) are structurally unrepresentable.  HOME is type-checked
 so that a programmatic caller passing nil (the only way to land a
 no-=:home= entry, since the deserialiser skips such entries) fails
 loudly at the constructor rather than producing a workspace that
-violates =register/invariant/home-required-no-floating-workspaces=."
+violates =register/invariant/home-required-no-floating-workspaces=.
+
+NODE-ID, when supplied, is the workspace's opaque identity token (a
+string) stored verbatim under =:node-id=; it defaults to nil, which is
+a valid value (no external identity yet).  It is type-checked to
+=(or null string)= so a caller passing anything else fails loudly at
+the constructor.  The package never interprets the value."
   (cl-check-type home string)
+  (cl-check-type node-id (or null string))
   (list :name name
         :home (file-name-as-directory (expand-file-name home))
         :recent-layout-group nil
         :buffer-files nil
-        :layout-groups nil))
+        :layout-groups nil
+        :node-id node-id))
 
 (defun workspace--name (ws)
   "Return the name of workspace WS."
@@ -166,6 +174,16 @@ differs from the workspace's current name (per
 =register/invariant/registry-name-equals-basename=)."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :name name)))
+
+(defun workspace-node-id (ws)
+  "Return the opaque node-id of workspace WS, or nil.
+
+Public reader for the =:node-id= slot (register/shape/workspace-
+plist-v3).  The value is an identity token the package stores but
+never interprets; nil means WS is anchored to no external identity.
+Returns nil for a plist lacking the key entirely (a v3 persistence
+file written before the slot existed loads that way — no notice)."
+  (plist-get ws :node-id))
 
 (defun workspace--layout-groups (ws)
   "Return the layout-groups of workspace WS."
@@ -254,12 +272,6 @@ Non-destructive: WS is not modified.  Sets =:broken t= on the copy."
 Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :broken nil)))
-
-(defun workspace--sessions-dir (home)
-  "Return =<HOME>/sessions/= as an absolute path.
-Pure function: does not touch the filesystem.  HOME is the
-workspace's =:home= directory."
-  (expand-file-name "sessions" home))
 
 (provide 'workspace-data-model)
 ;;; data-model.el ends here

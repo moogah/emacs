@@ -16,6 +16,9 @@
 ;;   notice, while still loading sibling entries that do have :home.
 ;; - A full round-trip preserves :home and the legacy slots
 ;;   (:recent-layout-group, :buffer-files, :layout-groups).
+;; - :node-id (register/shape/workspace-plist-v3, optional, opaque)
+;;   round-trips; a v3 plist lacking it loads with nil and NO notice
+;;   (schema stays 3); `workspace-set-node-id' flushes synchronously.
 
 (require 'buttercup)
 (require 'cl-lib)
@@ -247,6 +250,169 @@ synthetic :home directories the tests construct.")
                                        (workspace--state-file))
                                       (buffer-string))))
             (expect bytes-after-broken :to-equal bytes-clean)))))))
+
+(describe "v3 :node-id slot"
+  ;; register/shape/workspace-plist-v3 (optional :node-id); workspaces
+  ;; spec "Workspace node identity" + "Per-machine persistence and
+  ;; restoration".
+  (before-each (persistence-v3-spec--reset))
+  (after-each (persistence-v3-spec--cleanup))
+
+  (it "round-trips a node-id through serialize → write → read → deserialize"
+    ;; Scenario: "Node ID round-trips through persistence".
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (puthash "alpha"
+                 (workspace--make "alpha" alpha-home "ABC")
+                 workspace--registry)
+        (workspace--write-state (workspace--serialize-registry))
+        (clrhash workspace--registry)
+        (workspace--deserialize-state (workspace--read-state))
+        (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                :to-equal "ABC"))))
+
+  (it "writes :node-id into the on-disk plist (whitelisted, unlike :broken)"
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (puthash "alpha"
+                 (workspace--make "alpha" alpha-home "ABC")
+                 workspace--registry)
+        (workspace--write-state (workspace--serialize-registry))
+        (let ((on-disk (car (plist-get (persistence-v3-spec--read-raw)
+                                       :workspaces))))
+          (expect (plist-member on-disk :node-id) :not :to-be nil)
+          (expect (plist-get on-disk :node-id) :to-equal "ABC")))))
+
+  (it "loads a v3 plist lacking :node-id with nil and no *Messages* notice"
+    ;; Scenario: "Absent node ID loads as nil".  Schema version stays 3:
+    ;; the pre-slot file is accepted as-is, silently.
+    (persistence-v3-spec--with-state-file
+      (let* ((message-log-max t)
+             (alpha-home (persistence-v3-spec--make-home "alpha"))
+             (messages-before (with-current-buffer "*Messages*"
+                                (buffer-string))))
+        (persistence-v3-spec--write-raw
+         `(:version 3
+                    :workspaces ((:name "alpha"
+                                        :home ,alpha-home
+                                        :recent-layout-group nil
+                                        :buffer-files nil
+                                        :layout-groups nil))))
+        (workspace--restore)
+        (let ((alpha (gethash "alpha" workspace--registry))
+              (messages-after (with-current-buffer "*Messages*"
+                                (buffer-string))))
+          (expect alpha :not :to-be nil)
+          (expect (workspace--broken-p alpha) :to-be nil)
+          (expect (workspace-node-id alpha) :to-be nil)
+          ;; Preserved verbatim: the loader does not synthesize the key.
+          (expect (plist-member alpha :node-id) :to-be nil)
+          ;; No notice of any kind was emitted for the absent slot.
+          (expect (substring messages-after (length messages-before))
+                  :to-equal "")))))
+
+  (it "loads an explicit :node-id nil silently as well"
+    (persistence-v3-spec--with-state-file
+      (let* ((message-log-max t)
+             (alpha-home (persistence-v3-spec--make-home "alpha"))
+             (messages-before (with-current-buffer "*Messages*"
+                                (buffer-string))))
+        (persistence-v3-spec--write-raw
+         `(:version 3
+                    :workspaces ((:name "alpha"
+                                        :home ,alpha-home
+                                        :node-id nil
+                                        :recent-layout-group nil
+                                        :buffer-files nil
+                                        :layout-groups nil))))
+        (workspace--restore)
+        (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                :to-be nil)
+        (expect (substring (with-current-buffer "*Messages*" (buffer-string))
+                           (length messages-before))
+                :to-equal "")))))
+
+(describe "workspace-set-node-id"
+  ;; The public identity setter: validates, mutates the LIVE record in
+  ;; place, flushes synchronously (workspaces spec, "Per-machine
+  ;; persistence and restoration": listed flush trigger; design D2).
+  (before-each (persistence-v3-spec--reset))
+  (after-each (persistence-v3-spec--cleanup))
+
+  (it "flushes synchronously exactly once per call"
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (puthash "alpha" (workspace--make "alpha" alpha-home) workspace--registry)
+        (spy-on 'workspace--flush-state :and-call-through)
+        (workspace-set-node-id (gethash "alpha" workspace--registry) "ABC")
+        (expect 'workspace--flush-state :to-have-been-called-times 1))))
+
+  (it "updates the registry's live record and returns it"
+    (persistence-v3-spec--with-state-file
+      (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
+             (ws (workspace--make "alpha" alpha-home)))
+        (puthash "alpha" ws workspace--registry)
+        (expect (workspace-set-node-id ws "ABC") :to-be ws)
+        (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                :to-equal "ABC"))))
+
+  (it "persists the new identity immediately and restores it after a reload"
+    ;; Scenario: "Node ID is persisted and restored".
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (puthash "alpha" (workspace--make "alpha" alpha-home) workspace--registry)
+        (workspace-set-node-id (gethash "alpha" workspace--registry) "ABC")
+        ;; On disk right away — no debounce.
+        (let ((on-disk (car (plist-get (persistence-v3-spec--read-raw)
+                                       :workspaces))))
+          (expect (plist-get on-disk :node-id) :to-equal "ABC"))
+        ;; And back through a cold restore.
+        (clrhash workspace--registry)
+        (workspace--restore)
+        (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                :to-equal "ABC"))))
+
+  (it "mutates in place a pre-slot record that lacks the :node-id key"
+    ;; A record hydrated from a file written before the slot existed has
+    ;; no :node-id key at all; the setter must still update the very
+    ;; object the registry holds (the ordering contract depends on it).
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (persistence-v3-spec--write-raw
+         `(:version 3
+                    :workspaces ((:name "alpha"
+                                        :home ,alpha-home
+                                        :recent-layout-group nil
+                                        :buffer-files nil
+                                        :layout-groups nil))))
+        (workspace--restore)
+        (let ((ws (gethash "alpha" workspace--registry)))
+          (workspace-set-node-id ws "ABC")
+          (expect (workspace-node-id ws) :to-equal "ABC")
+          (expect (eq ws (gethash "alpha" workspace--registry)) :to-be t)
+          (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                  :to-equal "ABC")))))
+
+  (it "accepts nil to clear the identity, and flushes"
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (puthash "alpha" (workspace--make "alpha" alpha-home "ABC") workspace--registry)
+        (spy-on 'workspace--flush-state :and-call-through)
+        (workspace-set-node-id (gethash "alpha" workspace--registry) nil)
+        (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                :to-be nil)
+        (expect 'workspace--flush-state :to-have-been-called-times 1))))
+
+  (it "rejects a non-string node-id before mutating or flushing"
+    (persistence-v3-spec--with-state-file
+      (let ((alpha-home (persistence-v3-spec--make-home "alpha")))
+        (puthash "alpha" (workspace--make "alpha" alpha-home "ABC") workspace--registry)
+        (spy-on 'workspace--flush-state :and-call-through)
+        (expect (workspace-set-node-id (gethash "alpha" workspace--registry) 42)
+                :to-throw 'wrong-type-argument)
+        (expect (workspace-node-id (gethash "alpha" workspace--registry))
+                :to-equal "ABC")
+        (expect 'workspace--flush-state :not :to-have-been-called)))))
 
 (provide 'persistence-v3-spec)
 ;;; persistence-v3-spec.el ends here

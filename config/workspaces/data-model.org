@@ -9,7 +9,7 @@ The in-memory representation mirrors the persistent shape (design.md
 §D5) so that serialization is a direct walk of the registry, no
 struct-to-plist conversion at the disk boundary:
 
-- =Workspace=    : =(:name STR :home STR :recent-layout-group STR :buffer-files (FILE ...) :layout-groups (LAYOUT-GROUP ...))=
+- =Workspace=    : =(:name STR :home STR :recent-layout-group STR :buffer-files (FILE ...) :layout-groups (LAYOUT-GROUP ...) :node-id STR-or-nil)=
 - =Layout-group= : =(:name STR :layouts (LAYOUT ...))=
 - =Layout=       : =(:timestamp INT :saved-state BLOB :working-state BLOB-or-nil :etc nil)=
 
@@ -20,6 +20,16 @@ convention, =basename(:home)= equals =:name=, and the registry key
 under which a workspace is stored equals =:name=; the data layer does
 not enforce this equality (the constructor takes both NAME and HOME
 independently), but every caller is expected to honour the contract.
+
+The =:node-id= slot is the workspace's durable, machine-independent
+identity: an opaque string token (in practice the org ID of a project
+note, supplied by an integration) or nil.  The package stores,
+persists, and pushes it in the anchor payload but never interprets or
+resolves it; nil is a valid value (a workspace anchored to no external
+identity).  It is identity, not key — the registry stays keyed by
+=:name= (design.md §D2, register/shape/workspace-plist-v3).  Read it
+with the public =workspace-node-id=; mutate it through the public
+=workspace-set-node-id= (=persistence.el=), which flushes to disk.
 
 The optional =:broken= runtime tag is set when the persistence loader
 discovers that =:home= no longer exists on disk; it is never
@@ -42,8 +52,9 @@ The =:etc= slot is an alist forward-compat hook; replaces the v1
 
 Public-facing commands live in sibling modules (=tabs.el=,
 =layouts.el=, =buffer-membership.el=, =persistence.el=) and call into
-=workspace--= helpers defined here. No symbol in this file is intended
-as a public API surface.
+=workspace--= helpers defined here.  The one public symbol here is the
+=workspace-node-id= reader (pure; paired with the flushing setter in
+=persistence.el=); every other symbol is package-private.
 
 * Lexical Binding
 
@@ -238,7 +249,7 @@ register/invariant/registry-name-equals-basename, and
 register/shape/workspace-plist-v3.
 
 #+begin_src emacs-lisp
-(defun workspace--make (name home)
+(defun workspace--make (name home &optional node-id)
   "Build an empty workspace plist named NAME anchored at HOME.
 
 NAME is the workspace name (and the registry key under which it is
@@ -263,13 +274,21 @@ directory) are structurally unrepresentable.  HOME is type-checked
 so that a programmatic caller passing nil (the only way to land a
 no-=:home= entry, since the deserialiser skips such entries) fails
 loudly at the constructor rather than producing a workspace that
-violates =register/invariant/home-required-no-floating-workspaces=."
+violates =register/invariant/home-required-no-floating-workspaces=.
+
+NODE-ID, when supplied, is the workspace's opaque identity token (a
+string) stored verbatim under =:node-id=; it defaults to nil, which is
+a valid value (no external identity yet).  It is type-checked to
+=(or null string)= so a caller passing anything else fails loudly at
+the constructor.  The package never interprets the value."
   (cl-check-type home string)
+  (cl-check-type node-id (or null string))
   (list :name name
         :home (file-name-as-directory (expand-file-name home))
         :recent-layout-group nil
         :buffer-files nil
-        :layout-groups nil))
+        :layout-groups nil
+        :node-id node-id))
 
 (defun workspace--name (ws)
   "Return the name of workspace WS."
@@ -305,6 +324,16 @@ differs from the workspace's current name (per
 =register/invariant/registry-name-equals-basename=)."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :name name)))
+
+(defun workspace-node-id (ws)
+  "Return the opaque node-id of workspace WS, or nil.
+
+Public reader for the =:node-id= slot (register/shape/workspace-
+plist-v3).  The value is an identity token the package stores but
+never interprets; nil means WS is anchored to no external identity.
+Returns nil for a plist lacking the key entirely (a v3 persistence
+file written before the slot existed loads that way — no notice)."
+  (plist-get ws :node-id))
 
 (defun workspace--layout-groups (ws)
   "Return the layout-groups of workspace WS."
@@ -413,24 +442,6 @@ Non-destructive: WS is not modified.  Sets =:broken t= on the copy."
 Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :broken nil)))
-#+end_src
-
-* Sessions directory helper
-
-Canonical attachment point for =<HOME>/sessions/= path
-construction.  Multiple call sites (=workspace-sessions-dir=, the
-=workspace-scaffold= stage that creates the empty =sessions/=
-directory, and the integration anchor payload's =:sessions-dir=)
-all need this exact path; routing through a single helper makes the
-layout vocabulary (subdirectory name) editable in one place (cycle 2
-architect finding =arch-cycle-20260525-213500-05=).
-
-#+begin_src emacs-lisp
-(defun workspace--sessions-dir (home)
-  "Return =<HOME>/sessions/= as an absolute path.
-Pure function: does not touch the filesystem.  HOME is the
-workspace's =:home= directory."
-  (expand-file-name "sessions" home))
 #+end_src
 
 * Provide

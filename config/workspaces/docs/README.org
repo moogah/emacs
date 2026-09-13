@@ -177,37 +177,24 @@ Routing concerns also honour broken state: gptel session creation
 falls through to the global default rather than re-materialising the
 missing directory (see *gptel sessions*).
 
-* gptel sessions
+* Workspace identity (=:node-id=)
 
-When a workspace owns the current tab and the =workspaces= feature
-is loaded, =jf/gptel-persistent-session= writes new session
-directories under that workspace's =<:home>/sessions/=.  When no
-workspace owns the current tab, the active workspace is broken, or
-its =sessions/= directory has been removed out-of-band, creation
-falls through to the global =jf/gptel-sessions-directory=.
+Each workspace record carries an optional =:node-id= — an opaque
+string token (in practice the org ID of a project note, supplied by an
+integration) or nil.  The package stores it, persists it (schema v3,
+no version bump; a file written before the slot existed loads with nil
+and no notice), includes it in every anchor payload, and never
+interprets it.  Read it with =workspace-node-id=; set it with
+=workspace-set-node-id=, which mutates the live record and flushes to
+disk synchronously.  The registry stays keyed by name: =:node-id= is
+identity, not key, and a nil value is a valid integration-less
+workspace.
 
-Two user-facing commands:
-
-- =M-x jf/gptel-persistent-session= — the default flow.  Routes
-  to the active workspace's =sessions/= when one applies; otherwise
-  global.  Its existing =C-u= prefix prompts for a preset (the
-  prefix is already spoken for in the per-session UX), so it is
-  /not/ the global-override knob.
-- =M-x jf/gptel-persistent-session-global= — the
-  escape-hatch.  Forces the global =jf/gptel-sessions-directory=
-  unconditionally, even when a workspace is active.  Use this when
-  you explicitly want a session outside any workspace.
-
-The =sessions/= directory contents are the source of truth.  The
-workspaces package does not auto-render a listing into =home.org=;
-if you want one, write it by hand or via a custom
-=workspace-home-builder=.
-
-The integration is one-way: workspaces never references gptel;
-gptel-side code reaches into workspaces behind a =(featurep
-'workspaces)= + =fboundp= guard.  The published consult function is
-=workspace-sessions-dir= (nil on the three no-route conditions:
-off-workspace, broken workspace, missing =sessions/= dir).
+Workspaces publishes no session consult.  The package has no session
+concept — where an external subsystem files its artifacts is that
+subsystem's business, and any association between them and a
+workspace is made by the integration layer through the =:node-id= it
+finds in the payload.
 
 * The =C-x w= menu
 
@@ -263,8 +250,10 @@ and re-registering an existing ID updates it in place.
   workspace is born (any of the three creation contexts: a fresh
   scaffold, an anchored-and-scaffolded directory, or an
   anchored-existing directory).  Workspaces pushes an *anchor payload*
-  — a flat plist of =:name=, =:home=, =:sessions-dir=, and =:context=
-  — to each handler.  The handler reports its result as =ok=,
+  — a flat plist of =:name=, =:home=, =:node-id=, and =:context= —
+  built from the live workspace record for each handler in turn, so a
+  =:node-id= set by an earlier handler is visible to later ones — to
+  each handler.  The handler reports its result as =ok=,
   =skipped=, or =(failed . REASON)=.  Failures are *visible but
   non-fatal*: a =(failed . REASON)= outcome (or a signalled error,
   which normalizes to one) emits a =*Messages*= notice naming the

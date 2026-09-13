@@ -27,9 +27,11 @@ Three extension surfaces exist per integration:
 
 Design references: design.md §Decisions 1–4; spec =workspace-integrations=.
 
-The single dependency is =workspace--sessions-dir= (from =data-model.el=),
-used by the payload constructor to derive =:sessions-dir=.  No path logic
-is duplicated here.
+The single dependency is =data-model.el=, whose accessors
+(=workspace--name=, =workspace--home=, =workspace-node-id=) the payload
+constructor reads off the live workspace record.  No path logic lives
+here and the package has no session concept: the payload carries the
+workspace's own self-knowledge and nothing derived from it.
 
 #+begin_src emacs-lisp :comments no
 ;;; integrations.el --- Workspace integration registry -*- lexical-binding: t; -*-
@@ -96,21 +98,36 @@ order.  Returns ID."
 * Anchor payload constructor
 
 The single source of payload shape (Decision 2).  A flat, extensible
-plist so future keys (β's =:integration-choices=) extend freely.
-=:sessions-dir= is derived from =workspace--sessions-dir=, never
-recomputed locally.
+plist so future keys (β's =:integration-choices=) extend freely.  The
+keys are =:name=, =:home=, =:node-id=, and =:context=
+(register/shape/workspace-integration-anchor-payload).
+
+The constructor takes the *live workspace record*, not a name/home
+snapshot.  This is what makes the ordering contract hold: an
+=:on-create= handler may set the workspace's =:node-id= through the
+public =workspace-set-node-id=, and every handler that runs after it in
+the same dispatch must see the new value.  The dispatchers below
+therefore rebuild the payload from the record once per handler rather
+than once before the loop; because the setter mutates the record in
+place, the record the dispatcher holds *is* the record the setter
+wrote.  The record — not a registry lookup by name — is also what lets
+purge-time dispatch carry =:node-id= after =workspace-purge= has
+already removed the entry from the registry.
 
 #+begin_src emacs-lisp
-(defun workspace--integration-payload (name home context)
-  "Build the anchor payload plist for a workspace creation event.
-NAME is the workspace name, HOME its filesystem anchor directory,
-CONTEXT one of the symbols `fresh', `anchored-scaffolded', or
-`anchored-existing'.  `:sessions-dir' is derived from HOME via
-`workspace--sessions-dir' (no path logic is duplicated here).  The
-plist is flat and extensible: handlers read only the keys they need."
-  (list :name name
-        :home home
-        :sessions-dir (workspace--sessions-dir home)
+(defun workspace--integration-payload (ws context)
+  "Build the anchor payload plist for workspace record WS.
+WS is the live workspace plist (see `workspace--make'); CONTEXT is the
+symbol describing why the payload is being built (`fresh',
+`anchored-scaffolded', `anchored-existing', `menu-invoke', `purge').
+The payload carries WS's self-knowledge only: `:name', `:home',
+`:node-id' (an opaque string or nil, read from WS at call time), and
+`:context'.  It is flat and extensible: handlers read only the keys
+they need.  Callers that must observe a `:node-id' written mid-flight
+rebuild the payload from the same WS rather than caching one."
+  (list :name (workspace--name ws)
+        :home (workspace--home ws)
+        :node-id (workspace-node-id ws)
         :context context))
 #+end_src
 
@@ -148,28 +165,34 @@ mapped as `ok' -> ok, `skipped' -> skipped, (failed . R) ->
 
 * Creation-time dispatch
 
-Additive, never signals (Decision 4).  Builds the payload via the
-constructor, runs every registered =:on-create= once in registration
-order, skips entries lacking =:on-create=, =message='s each failure,
-and returns the result alist.  Wiring this into the creation pipeline
-is a *separate* later task.
+Additive, never signals (Decision 4).  Runs every registered
+=:on-create= once in registration order, skips entries lacking
+=:on-create=, =message='s each failure, and returns the result alist.
+The payload is rebuilt from the live record for *each* handler so a
+=:node-id= set by an earlier handler is visible to later ones (the
+ordering contract in the =workspace-integrations= spec, "Creation-time
+dispatch").  The creation pipeline in =tabs.el= calls this after the
+record is registered.
 
 #+begin_src emacs-lisp
-(defun workspace--dispatch-create-integrations (name home context)
-  "Dispatch all integration `:on-create' handlers for a new workspace.
-NAME, HOME, CONTEXT describe the just-created workspace (see
-`workspace--integration-payload').  Each registered integration with
-an `:on-create' handler is run once, in registration order, on the
-shared payload.  Entries lacking `:on-create' are skipped.  Each
-\(failed . REASON) outcome is surfaced via `message' as
+(defun workspace--dispatch-create-integrations (ws context)
+  "Dispatch all integration `:on-create' handlers for new workspace WS.
+WS is the just-registered live workspace record; CONTEXT is the
+creation context symbol (see `workspace--integration-payload').  Each
+registered integration with an `:on-create' handler is run once, in
+registration order, on a payload rebuilt from WS immediately before
+that handler runs — so a `:node-id' written by an earlier handler via
+`workspace-set-node-id' is present in every later handler's payload.
+Entries lacking `:on-create' are skipped.  Each (failed . REASON)
+outcome is surfaced via `message' as
 \"workspace: integration %s failed: %s\".  Returns the alist of
 \(ID . OUTCOME) results.  NEVER signals: handler errors are caught by
 `workspace--run-one-integration'."
-  (let ((payload (workspace--integration-payload name home context))
-        (results nil))
+  (let ((results nil))
     (dolist (entry workspace--integrations)
       (when (plist-get (cdr entry) :on-create)
-        (let* ((result (workspace--run-one-integration entry payload))
+        (let* ((payload (workspace--integration-payload ws context))
+               (result (workspace--run-one-integration entry payload))
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))
             (message "workspace: integration %s failed: %s"
@@ -182,29 +205,34 @@ shared payload.  Entries lacking `:on-create' are skipped.  Each
 
 Additive, never signals — the purge mirror of creation-time dispatch
 (design.md §D3).  Builds the same anchor payload via the shared
-constructor, runs every registered =:on-purge= once in registration
-order via the generalised runner, skips entries lacking =:on-purge=,
-=message='s each failure, and returns the result alist.  Teardown is a
-generic lifecycle event (a future consumer might archive sessions on
-it), so it belongs here rather than as advice from one consumer.
+constructor (per handler, mirroring creation-time dispatch), runs
+every registered =:on-purge= once in registration order via the
+generalised runner, skips entries lacking =:on-purge=, =message='s
+each failure, and returns the result alist.  Teardown is a generic
+lifecycle event (a consumer might retire the workspace's external
+identity on it — which is why the payload is built from the record
+=workspace-purge= hands over, not from a registry lookup: by the time
+purge dispatches, the entry has already been unregistered).
 
 #+begin_src emacs-lisp
-(defun workspace--dispatch-purge-integrations (name home context)
-  "Dispatch all integration `:on-purge' handlers for a purged workspace.
-NAME, HOME, CONTEXT describe the workspace being torn down (see
+(defun workspace--dispatch-purge-integrations (ws context)
+  "Dispatch all integration `:on-purge' handlers for purged workspace WS.
+WS is the workspace record being torn down (already removed from the
+registry by `workspace-purge'; the record itself still carries `:home'
+and `:node-id'); CONTEXT is the teardown context symbol (see
 `workspace--integration-payload').  Each registered integration with
-an `:on-purge' handler is run once, in registration order, on the
-shared payload via `workspace--run-one-integration' (surface key
-`:on-purge').  Entries lacking `:on-purge' are skipped.  Each
+an `:on-purge' handler is run once, in registration order, on a
+payload rebuilt from WS via `workspace--run-one-integration' (surface
+key `:on-purge').  Entries lacking `:on-purge' are skipped.  Each
 \(failed . REASON) outcome is surfaced via `message' as
 \"workspace: integration %s purge-teardown failed: %s\".  Returns the
 alist of (ID . OUTCOME) results.  NEVER signals: handler errors are
 caught by `workspace--run-one-integration'."
-  (let ((payload (workspace--integration-payload name home context))
-        (results nil))
+  (let ((results nil))
     (dolist (entry workspace--integrations)
       (when (plist-get (cdr entry) :on-purge)
-        (let* ((result (workspace--run-one-integration entry payload :on-purge))
+        (let* ((payload (workspace--integration-payload ws context))
+               (result (workspace--run-one-integration entry payload :on-purge))
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))
             (message "workspace: integration %s purge-teardown failed: %s"

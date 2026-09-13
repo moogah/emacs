@@ -233,7 +233,8 @@ workspace plist on success."
       ;; scaffold failure (above) leaves no registry entry and runs no
       ;; :on-create handler (design Decision 4).  Case 1 dispatches too,
       ;; so consumers can decide/skip even when nothing was scaffolded.
-      (workspace--dispatch-create-integrations name home context)
+      (workspace--dispatch-create-integrations
+       (gethash name workspace--registry) context)
       ;; Offer the front-door menu (worktrees etc.) for scaffolded
       ;; births only.  `anchored-existing' is skipped inside the helper
       ;; — we never auto-open a menu against a directory the user owned.
@@ -276,7 +277,8 @@ never blocks the already-clean workspace (design Decision 4)."
     ;; already-clean workspace, and a mid-pipeline scaffold failure
     ;; (which propagates above, before this point) leaves no registry
     ;; entry and runs no :on-create handler (design Decision 4).
-    (workspace--dispatch-create-integrations name home 'fresh)
+    (workspace--dispatch-create-integrations
+     (gethash name workspace--registry) 'fresh)
     ;; Offer the front-door menu (worktrees etc.) now that the fresh
     ;; workspace is current and registered (design.md D4).
     (workspace--offer-birth-menu 'fresh)

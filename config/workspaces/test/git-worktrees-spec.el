@@ -21,7 +21,7 @@
 ;; The registration-gating describe block drives
 ;; `workspace-register-integration' / inspects `workspace--integrations'
 ;; directly, so make the registry available regardless of spec load order.
-;; integrations.el depends on `workspace--sessions-dir' from data-model.el.
+;; integrations.el reads the record accessors from data-model.el.
 (load (expand-file-name "../data-model.el" git-worktrees-spec--this-dir))
 (load (expand-file-name "../integrations.el" git-worktrees-spec--this-dir))
 (load (expand-file-name "../git-worktrees.el" git-worktrees-spec--this-dir))

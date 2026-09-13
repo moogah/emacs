@@ -304,15 +304,14 @@ delete-leaves-files-on-disk assertions are meaningful."
     (spy-on 'workspace--flush-state :and-return-value nil))
   (after-each (wdp-spec--cleanup))
 
-  (it "calls dispatch once with NAME + HOME, BEFORE delete-directory, on purge"
+  (it "calls dispatch once with the record, BEFORE delete-directory, on purge"
     (let* ((home (wdp-spec--seed-home
                   (expand-file-name "myproj" wdp-spec--tmp-parent)))
            (order nil)
-           ;; `workspace--make' normalises :home to a directory name; the
-           ;; dispatch receives the stored (normalised) value, so assert
-           ;; against that rather than the raw seed path.
-           (stored-home (workspace--home
-                         (wdp-spec--make-workspace "myproj" home))))
+           ;; The dispatch receives the live record `workspace-purge'
+           ;; captured before unregistering it (so :on-purge handlers
+           ;; still see :home and :node-id), with context `purge'.
+           (ws (wdp-spec--make-workspace "myproj" home)))
       ;; Record relative ordering: dispatch must run while :home still
       ;; exists, and delete-directory after.  Both are spied so the
       ;; ORDER assertion proves dispatch precedes deletion.
@@ -331,9 +330,9 @@ delete-leaves-files-on-disk assertions are meaningful."
       ;; Dispatch called exactly once.
       (expect 'workspace--dispatch-purge-integrations
               :to-have-been-called-times 1)
-      ;; With the workspace NAME and its on-disk :home, context `purge'.
+      ;; With the workspace record and context `purge'.
       (expect 'workspace--dispatch-purge-integrations
-              :to-have-been-called-with "myproj" stored-home 'purge)
+              :to-have-been-called-with ws 'purge)
       ;; And BEFORE the recursive delete (order is reversed push list).
       (expect (nreverse order) :to-equal '(dispatch delete))))
 

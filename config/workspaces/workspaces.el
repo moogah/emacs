@@ -195,31 +195,16 @@ purge as =:allowed= on broken)."
       ;; alist is ignored for control flow — a (failed . REASON) result
       ;; is surfaced via `message' but NEVER aborts the purge.  Fires on
       ;; purge only; `workspace-delete' leaves :home intact and so has
-      ;; nothing to tear down.
-      (workspace--dispatch-purge-integrations name home 'purge)
+      ;; nothing to tear down.  The record captured above (not a
+      ;; registry lookup — the entry is already unregistered) supplies
+      ;; the payload, so :on-purge handlers still see :node-id.
+      (workspace--dispatch-purge-integrations ws 'purge)
       (delete-directory home t))
     (message "Workspace %s purged" name)))
 
 (global-set-key (kbd "C-x w") #'workspace-menu)
 
 (workspace--install-tab-bar-display-name)
-
-(defun workspace-sessions-dir ()
-  "Return the sessions/ directory of the current workspace, or nil.
-
-Returns nil when no workspace owns the current tab, when the workspace
-is broken, or when its :home/sessions/ directory is missing on disk.
-
-This function is the soft-dependency entry point used by other
-subsystems (notably gptel/sessions) to route new artifacts under the
-active workspace's home.  It MUST NOT signal and has no side effects."
-  (when-let* ((name (workspace--current-name))
-              (ws   (gethash name workspace--registry))
-              ((not (workspace--broken-p ws)))
-              (home (workspace--home ws)))
-    (let ((dir (workspace--sessions-dir home)))
-      (when (file-directory-p dir)
-        dir))))
 
 (when (fboundp 'workspace--restore)
   (workspace--restore))
