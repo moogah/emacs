@@ -4,12 +4,17 @@
 #+auto_tangle: y
 
 Human-side authoring commands (design D3 / D4,
-=register/boundary/authoring-commands-delegation=): find-or-create a
-note by title, and insert an =id:= link at point.  Both delegate
-WHOLESALE to installed vulpea 2.4 built-ins — no custom completion,
-creation, or link-insertion logic lives here.  The wrappers exist to
-give the surface stable org-graph names (menu targets, future filtering
-hooks, tests); behavior is vulpea's:
+=register/boundary/authoring-commands-delegation=) plus the two
+programmatic writers org-graph publishes for other packages
+(workspace-notes-in-vault design D6): a locked, idempotent typed-edge
+writer and a project-note constructor.
+
+The two interactive commands — find-or-create a note by title, and
+insert an =id:= link at point — delegate WHOLESALE to installed vulpea
+2.4 built-ins — no custom completion, creation, or link-insertion logic
+lives here.  The wrappers exist to give the surface stable org-graph
+names (menu targets, future filtering hooks, tests); behavior is
+vulpea's:
 
 - =vulpea-find= with =:require-match nil= routes a completion miss
   through =vulpea-find-default-create-fn= → =vulpea-create=, whose
@@ -40,10 +45,23 @@ this first block uses =:comments no= to keep org structure comments from
 being inserted ahead of it (see memory: lexical-binding mode line
 position).
 
+The edge writer leans on the extractor for the three things the reader
+owns — the drawer name (=org-graph-extractor--edge-drawer-name=), the
+relation normaliser (=org-graph-extractor--normalize-rel=), and the
+item-tag reader (=org-graph-extractor--item-relation=) — and on the
+coordinator for the per-file lock, so both features are hard
+requirements.  =org-id= is required so =[[id:...]]= links parse with
+=:type "id"= when the writer re-reads a drawer for de-duplication.
+
 #+begin_src emacs-lisp :comments no
 ;;; authoring.el --- Human-side note authoring commands -*- lexical-binding: t; -*-
 
+(require 'org)
+(require 'org-id)
+(require 'org-element)
 (require 'vulpea)
+(require 'org-graph-extractor)
+(require 'org-graph-coordinator)
 #+end_src
 
 * Find-or-create
@@ -71,6 +89,336 @@ Thin wrapper over `vulpea-insert': active region becomes the link
 description and is replaced by the link."
   (interactive)
   (vulpea-insert))
+#+end_src
+
+* Edge writer
+:PROPERTIES:
+:CUSTOM_ID: edge-writer
+:END:
+
+=org-graph/write-edge= is the one way code outside the extractor
+produces a structured typed edge on disk
+(=register/boundary/edge-writer-api=).  It appends
+=- TYPE :: [[id:TARGET]]= to the edge drawer of one node in FILE —
+the file-level node by default, or the heading whose =:ID:= equals
+NODE-ID — creating the drawer on the line directly after that node's
+=:PROPERTIES:= drawer when absent
+(=register/invariant/edge-drawer-immediately-after-property-drawer=).
+For the file-level node that puts the drawer *before* =#+title:= and
+every other keyword, which is what the sessions package relies on
+without knowing it: a branch's verbatim head copy carries the drawer
+and gptel's identity rewrite (property-drawer key lines and the title
+only) never touches it (design D7).
+
+The writer produces exactly what the reader accepts
+(=register/invariant/edge-drawer-discriminator=): the drawer name comes
+from the extractor's resolver, never a literal; the item tag is the
+*normalised* relation symbol's name
+(=register/vocabulary/relation-types=, single translation site — no
+second trim/downcase/replace chain here); the value is a bare =id:=
+link.  De-duplication reads the existing drawer back through the same
+=org-element= item/link walk the extractor uses, comparing
+=(normalised tag, id: link path)= and ignoring link descriptions, so
+"part-of" and "Part_of" are one edge and a repeated call is a byte-level
+no-op — no write, no reindex
+(=register/invariant/write-edge-idempotent=).
+
+Stages, with their failure contracts:
+
+1. *Validate arguments* — an empty relation, an empty target, or an
+   unconfigured drawer name is a =user-error= raised *before* the lock
+   is taken (nothing to release).
+2. *Acquire the lock* — =org-graph-coordinator/with-file-lock= on FILE
+   wraps everything below; =unwind-protect= releases it on any exit
+   (=register/invariant/coordinator-lock-contract=).
+3. *Visit in a temp buffer* — =insert-file-contents= plus
+   =delay-mode-hooks= =org-mode=.  NEVER =find-file=: a =session.org=
+   would be hijacked into =gptel-chat-mode= (via =magic-mode-alist=)
+   and its save hook would rewrite the drawer; and no mode hooks or
+   file-local variables run.
+4. *Locate the node* — nil NODE-ID is =point-min=; otherwise
+   =org-find-property "ID" NODE-ID= scans THIS buffer (not
+   =org-id-find=, which depends on =org-id-locations= being seeded and
+   could resolve to another file), so an unindexed file still works.  A
+   NODE-ID absent from FILE is a =user-error=, never a silent fallback
+   to the file-level node.  Passing the file-level ID itself resolves to
+   =point-min= and is fine.
+5. *Find the property drawer* — =org-get-property-block= at the node;
+   a node without one is a =user-error= (an edge needs an =:ID:=-bearing
+   node).  The insertion point is the line after its =:END:=.
+6. *Find or create the drawer* — if a drawer named
+   =(org-graph-extractor--edge-drawer-name)= (case-insensitively, per
+   org drawer semantics) opens on that line, append inside it, before
+   its =:END:=; else insert a fresh three-line drawer there.
+7. *Write back* — =write-region= with the =silent= flag: no save hooks,
+   no backup churn, every byte outside the inserted / extended drawer
+   identical to the input.  Buffers already visiting FILE are not
+   revisited; callers (hooks that run before the chat buffer is
+   displayed) guarantee none exist.
+8. *Reindex* — =vulpea-db-update-file= synchronously, so the edge is
+   queryable before the caller returns instead of waiting for autosync.
+
+Returns the appended item text when an edge was written, nil when the
+edge already existed (a caller such as the migration command can
+report "added" vs "already present").
+
+** Relation coercion
+
+TYPE may be a symbol or a string (the tools.el precedent).  The only
+normalisation logic is the extractor's; this merely turns a symbol
+into text for it.
+
+#+begin_src emacs-lisp
+(defun org-graph-authoring--rel-symbol (type)
+  "Return the canonical relation symbol for TYPE, or nil when empty.
+TYPE is a symbol or string; both route through the extractor's single
+normaliser `org-graph-extractor--normalize-rel' so the written tag
+equals what the reader stores."
+  (org-graph-extractor--normalize-rel
+   (cond ((null type) nil)
+         ((symbolp type) (symbol-name type))
+         (t type))))
+#+end_src
+
+** Node location
+
+#+begin_src emacs-lisp
+(defun org-graph-authoring--locate-node (node-id file)
+  "Return the position where NODE-ID's node begins in the current buffer.
+A nil NODE-ID names the file-level node (`point-min').  Otherwise the
+buffer is scanned for the entry whose :ID: property equals NODE-ID
+\(`org-find-property', bounded to this buffer — not `org-id-find').
+Signals `user-error' naming FILE when no such node exists."
+  (if (null node-id)
+      (point-min)
+    (or (org-find-property "ID" node-id)
+        (user-error "org-graph/write-edge: no node with :ID: %s in %s"
+                    node-id file))))
+
+(defun org-graph-authoring--after-property-drawer (node-pos node-id file)
+  "Return the position of the line after the property drawer at NODE-POS.
+NODE-POS is a heading position or `point-min'.  Signals `user-error'
+\(naming NODE-ID and FILE) when the node has no :PROPERTIES: drawer.
+When the drawer's :END: is the last line of the buffer and lacks a
+trailing newline, the returned position is `point-max' at that line's
+end; the caller inserts a newline first."
+  (let ((block (org-get-property-block node-pos)))
+    (unless block
+      (user-error "org-graph/write-edge: node %s in %s has no property drawer"
+                  (or node-id "(file-level)") file))
+    (save-excursion
+      (goto-char (cdr block))
+      (forward-line 1)
+      (point))))
+#+end_src
+
+** Drawer lookup and de-duplication
+
+=org-element-at-point= on the candidate line is cheap (it parses the
+local element only); the drawer's contents are then parsed in a
+narrowed region so a long session file is never parsed whole just to
+check for a duplicate item.
+
+#+begin_src emacs-lisp
+(defun org-graph-authoring--edge-drawer-at (pos drawer-name)
+  "Return the drawer element opening exactly at POS named DRAWER-NAME, or nil.
+The name comparison is case-insensitive (org drawer semantics).  A
+drawer that starts later, an unrelated element, or a drawer of another
+name yields nil."
+  (save-excursion
+    (goto-char pos)
+    (let ((element (org-element-at-point)))
+      (when (and (eq (org-element-type element) 'drawer)
+                 (= (org-element-property :begin element) pos)
+                 (string-equal
+                  (downcase (or (org-element-property :drawer-name element) ""))
+                  (downcase drawer-name)))
+        element))))
+
+(defun org-graph-authoring--drawer-has-edge-p (drawer rel target)
+  "Return non-nil when DRAWER already holds an item for REL -> TARGET.
+DRAWER is an unparsed drawer element (from `org-element-at-point');
+its contents are parsed in a narrowed region and walked with the same
+item / `id:' link rules the extractor reads with
+\(`org-graph-extractor--item-relation', links at item depth only).
+Equality is (normalised tag, id: link path); link descriptions are
+ignored."
+  (let ((tree (save-restriction
+                (narrow-to-region (org-element-property :begin drawer)
+                                  (org-element-property :end drawer))
+                (org-element-parse-buffer))))
+    (org-element-map tree 'item
+      (lambda (item)
+        (and (eq (org-graph-extractor--item-relation item) rel)
+             (org-element-map (org-element-contents item) 'link
+               (lambda (link)
+                 (and (equal (org-element-property :type link) "id")
+                      (equal (org-element-property :path link) target)))
+               nil t 'item)))
+      nil t 'item)))
+#+end_src
+
+** Append
+
+Returns non-nil only when the buffer was modified, so the caller can
+skip the write-back and reindex on a duplicate.
+
+#+begin_src emacs-lisp
+(defun org-graph-authoring--append-edge-item (pos drawer-name rel target item)
+  "Append ITEM for REL -> TARGET to the edge drawer at POS, creating it if absent.
+POS is the line after the node's property drawer.  When a drawer named
+DRAWER-NAME opens there, ITEM is inserted before its :END: unless an
+equal edge is already present (then nothing changes).  Otherwise a new
+drawer holding ITEM is inserted at POS.  Returns non-nil when the
+buffer was modified."
+  (goto-char pos)
+  (unless (bolp) (insert "\n"))
+  (let ((drawer (org-graph-authoring--edge-drawer-at (point) drawer-name)))
+    (cond
+     ((null drawer)
+      (insert (format ":%s:\n%s:END:\n" drawer-name item))
+      t)
+     ((org-graph-authoring--drawer-has-edge-p drawer rel target)
+      nil)
+     (t
+      (goto-char (or (org-element-property :contents-end drawer)
+                     (save-excursion
+                       (goto-char (org-element-property :begin drawer))
+                       (re-search-forward "^[ \t]*:END:[ \t]*$"
+                                          (org-element-property :end drawer))
+                       (line-beginning-position))))
+      (insert item)
+      t))))
+#+end_src
+
+** Public entry point
+
+#+begin_src emacs-lisp
+(defun org-graph/write-edge (file type target &optional node-id)
+  "Append the typed edge TYPE -> TARGET to a node's edge drawer in FILE.
+
+TYPE is a relation symbol or string, normalised through the
+extractor's `org-graph-extractor--normalize-rel' before it is written
+\(\"Part_of\" and `part-of' are the same edge).  TARGET is the org ID
+the edge points at.  NODE-ID names the heading in FILE whose :ID:
+equals it; nil (the default) means the file-level node.
+
+Runs under `org-graph-coordinator/with-file-lock' on FILE.  FILE is
+read into a temp buffer (never visited with `find-file', no mode
+hooks), the node's :PROPERTIES: drawer is located, and the item
+`- TYPE :: [[id:TARGET]]' is appended to the drawer named by
+`org-graph-extractor--edge-drawer-name' directly after it — creating
+that drawer on the line after the property drawer's :END: when absent.
+The file is then written back with every other byte unchanged and
+reindexed synchronously via `vulpea-db-update-file'.
+
+Idempotent: when an item with the same normalised relation and the
+same id: link path already exists in that drawer, nothing is written
+or reindexed and nil is returned.  Otherwise returns the appended item
+text.
+
+Signals `user-error' (before taking the lock) for an empty TYPE or
+TARGET or an unconfigured drawer name, and (under the lock, which is
+released) when NODE-ID is not in FILE or the node has no property
+drawer."
+  (let* ((file (expand-file-name file))
+         (rel (org-graph-authoring--rel-symbol type))
+         (drawer-name (org-graph-extractor--edge-drawer-name)))
+    (unless rel
+      (user-error "org-graph/write-edge: empty relation type"))
+    (unless (and (stringp target)
+                 (not (string-empty-p (string-trim target))))
+      (user-error "org-graph/write-edge: empty target id"))
+    (unless drawer-name
+      (user-error "org-graph/write-edge: no edge drawer name configured (org-graph-edge-drawer)"))
+    (org-graph-coordinator/with-file-lock file
+      (with-temp-buffer
+        (insert-file-contents file)
+        (let ((org-mode-hook nil)
+              (org-element-use-cache nil))
+          (delay-mode-hooks (org-mode))
+          (let* ((node-pos (org-graph-authoring--locate-node node-id file))
+                 (pos (org-graph-authoring--after-property-drawer
+                       node-pos node-id file))
+                 (item (format "- %s :: [[id:%s]]\n" (symbol-name rel) target)))
+            (when (org-graph-authoring--append-edge-item
+                   pos drawer-name rel target item)
+              (write-region (point-min) (point-max) file nil 'silent)
+              (vulpea-db-update-file file)
+              item)))))))
+#+end_src
+
+* Project note
+:PROPERTIES:
+:CUSTOM_ID: project-note
+:END:
+
+=org-graph/create-project-note= is the package-neutral constructor for
+the note that becomes a workspace's identity (design D2 / D8,
+=register/boundary/project-note-creation=): org-graph knows only that
+it is making a =project= note.  It exists so the integration layer
+never hand-assembles a vulpea template, and so the note passes the
+=project= schema on its first index.
+
+The note is created through =vulpea-create='s synchronous birth-index
+path, which yields — in this order — the file-level =:PROPERTIES:=
+drawer with vulpea's own =:ID:=, =#+title:=, =#+filetags: :project:=,
+a blank line, the meta item =- status :: active=, a blank line, the
+empty =org-graph-connected= dynamic block, and then BODY.
+
+*=status= is vulpea META, not a property.*  The =project= schema in
+=schemas.org= declares =status= as a field, and vulpea-schema fields
+are read through =vulpea-note-meta-get=, which reads the note's first
+description list — so the value is emitted with =vulpea-create='s
+=:meta= (a =- status :: active= item in the body), not as a
+=:STATUS:= property-drawer entry.  A project note receives incoming
+edges only, so it is born without an edge drawer.
+
+*BODY is data, not template.*  =vulpea-create= expands =%(elisp)=,
+=%<format>= and =${var}= directives in its =:body= argument, so
+caller-supplied text (the migration command carries a legacy
+=home.org= body here) must not be passed as the template itself.  It
+is passed as a =:context= value substituted for a =${body}=
+placeholder instead: vulpea substitutes context values *after*
+directive expansion and never re-scans them, so a body containing
+=%(...)= or =${title}= lands verbatim.
+
+Placement (=vulpea-default-notes-directory= plus the dash filename
+template) is =discovery.org='s; unlike =org-graph-tools/write-node=
+this computes no path and takes no lock — =vulpea-create= refuses to
+overwrite an existing file and the timestamp keeps the name fresh.
+
+#+begin_src emacs-lisp
+(defconst org-graph-authoring--connected-block
+  "#+BEGIN: org-graph-connected\n#+END:"
+  "Empty connected-notes dynamic block stamped into every new project note.
+Filled later by `org-dblock-write:org-graph-connected' on update.")
+
+(defun org-graph/create-project-note (title &optional body)
+  "Create an indexed vault note of type `project' titled TITLE; return its ID.
+
+The note carries `#+filetags: :project:', the meta item
+`- status :: active' (the `project' schema reads `status' via
+`vulpea-note-meta-get'), an empty `org-graph-connected' dynamic block,
+and BODY (when non-nil and non-empty) after it.  BODY is inserted
+verbatim — it is passed to `vulpea-create' as a context value, so
+template directives inside it are never expanded.
+
+Placement follows `vulpea-default-notes-directory' and the configured
+filename template; creation is `vulpea-create''s synchronous
+birth-index path, so the returned ID resolves via `vulpea-db-get-by-id'
+and the `project' finder offers the note with no manual sync."
+  (let* ((body (and body (not (string-empty-p body))
+                    (string-trim-right body "\n+")))
+         (template (if body
+                       (concat org-graph-authoring--connected-block "\n\n${body}\n")
+                     (concat org-graph-authoring--connected-block "\n")))
+         (note (vulpea-create title nil
+                              :tags '("project")
+                              :meta '(("status" . "active"))
+                              :body template
+                              :context (and body (list :body body)))))
+    (vulpea-note-id note)))
 #+end_src
 
 * Module Initialization
