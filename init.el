@@ -140,11 +140,12 @@ resolve to a real file."
     ;; GPTEL - LLM/AI integration (moved from major-modes)
     ("gptel/gptel"        "GPTEL LLM/AI integration")
 
-    ;; org-graph - layered knowledge graph over vulpea.  MUST load after
-    ;; both "gptel" and "workspaces/workspaces" (RE-5): org-graph registers
-    ;; into the gptel tool registry and the workspaces integration registry,
-    ;; so both must already be loaded for the registration to take effect.
-    ("org-graph/org-graph" "Layered knowledge graph over vulpea, plugged into workspaces")
+    ;; org-graph - layered knowledge graph over vulpea.  Loads after
+    ;; "gptel" so its guarded gptel-tool registration takes effect; it names
+    ;; no workspaces symbol (package independence, workspace-notes-in-vault).
+    ;; The cross-package integration layer (config/integrations/) loads after
+    ;; all three packages.
+    ("org-graph/org-graph" "Layered knowledge graph over vulpea")
     )
   "List of enabled modules with their paths and descriptions.")
 

@@ -86,6 +86,11 @@ Register entries are reference material to pressure-test, not authority to defer
 
 See sibling tasks in this change; do not fold in cycle-2 work (og-extraction-root-and-agent-dir, int-scaffold-and-lint).
 
+## Orchestrator merge notes (cycle-1789334430)
+
+- Merge b6678ebc resolved one conflict in `config/org-graph/test/discovery-spec.el`: both this task and og-parser-hardening edited the file's header commentary. Resolution kept this task's corrected sentence ("scoped stub for it.") followed by the parser-hardening paragraph; no code or spec bodies were involved.
+- Inline fix (arch-cycle-1789334430-ot-vault-discovery-1): the `jf/enabled-modules` comment/description for `org-graph/org-graph` in `init.org` still claimed the workspaces-registry coupling; rewritten by the orchestrator in the follow-up commit and `init.el` re-tangled.
+
 ## Observations
 
 - `init.org` entry text ("Layered knowledge graph over vulpea, plugged into
