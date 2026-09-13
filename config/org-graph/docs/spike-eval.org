@@ -166,7 +166,7 @@ only; hidden directories under it are excluded by vulpea's own rule.
   =(vulpea-db-query (lambda (n) (string-match-p "<basename>"
   (vulpea-note-path n))))=).  It appears — autosync's save/filenotify
   pickup is live from startup.
-- [x] *No workspaces Integrations entry (workspace-notes-in-vault).*
+- [ ] *No workspaces Integrations entry (workspace-notes-in-vault).*
   org-graph no longer registers with the workspaces integration
   registry, so the Integrations group of =M-x workspace-menu= has NO
   =org-graph= / ="G"= entry.  Its absence is the expected result; the
@@ -229,7 +229,8 @@ relates-to)= → keys =:IMPLEMENTS:= / =:CONTRADICTS:= / =:SUPERSEDES:= /
   → returns the union of outgoing + incoming for that note.
 - [ ] *Project notes do NOT get typed edges (D2 / roam-only).*  Add an
   =:IMPLEMENTS:= property to a *project* note that lives OUTSIDE
-  =~/org/roam/= (e.g. in a workspace home).  Re-index, then query its id
+  =~/org/roam/= but inside the vault (workspace homes are no longer
+  indexed at all — workspace-notes-in-vault).  Re-index, then query its id
   with =org-graph-query/outgoing= → returns nothing.  Extraction is
   gated to roam notes (=org-graph-extractor--roam-note-p=).
 - [ ] *Vault-top-level notes get NO typed edges either (D1/OQ-A,
@@ -252,12 +253,15 @@ these into the =workspace-assistant= preset itself — attaching them to
 any preset is the integration layer's job (=int-workspaces-gptel=), and
 until that lands the preset carries no org-graph tools.
 
-- [x] *Tools are in the global registry (workspace-notes-in-vault).*
+- [ ] *Tools are in the global registry (workspace-notes-in-vault).*
   From a fresh boot, eval =(org-graph/agent-tools)= → three
   =gptel-tool= objects, and =(gptel-get-tool '("org-graph"
   "org_graph_query"))= → a tool.  Whether a given preset LISTS them is
   the integration layer's runbook item, not org-graph's.
-- [ ] *=org_graph_query= read.*  From the workspace assistant, ask it to
+  The next three checks need a preset that LISTS the org-graph tools.
+  Until =int-workspaces-gptel= lands, attach =(org-graph/agent-tools)=
+  to a scratch preset; the =workspace-assistant= preset carries none.
+- [ ] *=org_graph_query= read.*  From that assistant, ask it to
   query the graph (e.g. "list notes tagged topic" / search by title).
   It returns matching notes (routes through =org-graph-tools/query=).
 - [ ] *=org_graph_typed_edges= read.*  Ask the assistant for the typed
@@ -400,9 +404,9 @@ Answer these from real usage during the window, not pre-emptively.
   without a manual full resync.
 - [ ] *Do un-ID'd notes still slip through?*  vulpea only indexes notes
   with an =:ID:=.  Spot-check whether notes you *expected* indexed are
-  silently missing because they lack an =:ID:= (workspace homes /
-  sessions should be auto-ID'd per RE-2a; hand-authored notes may not
-  be).  Record any surprising omissions.
+  silently missing because they lack an =:ID:= (gptel sessions are
+  auto-ID'd at creation; workspace homes are no longer indexed;
+  hand-authored notes may not be).  Record any surprising omissions.
 
 * Findings
 
