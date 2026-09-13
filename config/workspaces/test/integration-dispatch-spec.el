@@ -117,7 +117,13 @@ prompt to return HOME."
         ;; :home is the resolved scaffold directory.
         (expect (file-equal-p (plist-get payload :home)
                               (expand-file-name "foo" idsp--tmp))
-                :to-be t))))
+                :to-be t)
+        ;; A fresh workspace has no identity yet: :node-id is present
+        ;; and nil; the payload carries no :sessions-dir (workspace-
+        ;; integrations spec, "Anchor payload contract").
+        (expect (plist-member payload :node-id) :not :to-be nil)
+        (expect (plist-get payload :node-id) :to-be nil)
+        (expect (plist-member payload :sessions-dir) :to-be nil))))
 
   (it "fires once with `anchored-existing' for case 1 (repo + home.org)"
     (let* ((home (file-name-as-directory
@@ -158,6 +164,41 @@ prompt to return HOME."
       (expect (length seen) :to-equal 1)
       (expect (plist-get (car seen) :name) :to-equal "gamma")
       (expect (plist-get (car seen) :context) :to-equal 'fresh))))
+
+;;; A node-id set by an earlier handler is visible to later ones ---
+
+(describe "creation-time integration dispatch — :node-id ordering contract"
+  ;; workspace-integrations spec, "Creation-time dispatch": "A handler
+  ;; MAY set the workspace's :node-id through the public setter;
+  ;; handlers registered later in the same dispatch SHALL observe the
+  ;; updated value in their payload."  End-to-end through
+  ;; `workspace-new' and the real `workspace-set-node-id'.
+  (before-each
+    (idsp--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'tab-bar-rename-tab :and-call-through))
+  (after-each (idsp--cleanup))
+
+  (it "integration B (registered second) sees the :node-id integration A set"
+    (let ((seen-by-a 'unset)
+          (seen-by-b 'unset))
+      (workspace-register-integration
+       'a :on-create
+       (lambda (p)
+         (setq seen-by-a (plist-get p :node-id))
+         ;; The handler locates the live record by the payload's :name
+         ;; and writes identity through the public setter.
+         (workspace-set-node-id
+          (gethash (plist-get p :name) workspace--registry) "ABC")
+         'ok))
+      (workspace-register-integration
+       'b :on-create (lambda (p) (setq seen-by-b (plist-get p :node-id)) 'ok))
+      (workspace-new "foo")
+      (expect seen-by-a :to-be nil)
+      (expect seen-by-b :to-equal "ABC")
+      ;; And the registry record itself carries the identity.
+      (expect (workspace-node-id (gethash "foo" workspace--registry))
+              :to-equal "ABC"))))
 
 ;;; A throwing handler is additive-never-load-bearing --------------
 

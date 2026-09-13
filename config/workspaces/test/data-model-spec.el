@@ -225,5 +225,53 @@
       (expect (workspace-buffer-indirect-p round-tripped) :to-be t)
       (expect (workspace-buffer-name round-tripped) :to-equal "foo"))))
 
+(describe "workspace--make :node-id slot"
+  ;; register/shape/workspace-plist-v3 — the optional, opaque identity
+  ;; token (workspaces spec, "Workspace node identity").
+  (it "defaults :node-id to nil when the third argument is omitted"
+    (let ((ws (workspace--make "code" "/tmp/ws-test/code/")))
+      (expect (plist-member ws :node-id) :not :to-be nil)
+      (expect (workspace-node-id ws) :to-be nil)))
+
+  (it "stores a supplied node-id string verbatim"
+    (let ((ws (workspace--make "code" "/tmp/ws-test/code/" "ABC")))
+      (expect (workspace-node-id ws) :to-equal "ABC")))
+
+  (it "accepts an explicit nil node-id"
+    (expect (workspace-node-id (workspace--make "code" "/tmp/ws-test/code/" nil))
+            :to-be nil))
+
+  (it "rejects a non-string node-id at the constructor"
+    (expect (workspace--make "code" "/tmp/ws-test/code/" 42)
+            :to-throw 'wrong-type-argument)
+    (expect (workspace--make "code" "/tmp/ws-test/code/" 'abc)
+            :to-throw 'wrong-type-argument))
+
+  (it "does not disturb the existing slots"
+    (let ((ws (workspace--make "code" "/tmp/ws-test/code/" "ABC")))
+      (expect (workspace--name ws) :to-equal "code")
+      (expect (workspace--home ws) :to-equal "/tmp/ws-test/code/")
+      (expect (workspace--layout-groups ws) :to-equal nil)
+      (expect (workspace--recent-group ws) :to-equal nil)
+      (expect (workspace--buffer-files ws) :to-equal nil))))
+
+(describe "workspace-node-id"
+  (it "returns nil for a plist that lacks the key entirely (pre-slot persisted shape)"
+    (expect (workspace-node-id '(:name "old" :home "/tmp/old/")) :to-be nil))
+
+  (it "survives the non-destructive setters used by workspace-re-anchor"
+    ;; workspaces spec scenario "Re-anchor after an out-of-band move
+    ;; keeps the node ID": the rename chain copies the record, so the
+    ;; identity must ride along.
+    (let* ((ws (workspace--make "code" "/tmp/ws-test/code/" "ABC"))
+           (renamed (workspace--clear-broken
+                     (workspace--set-name
+                      (workspace--set-home ws "/tmp/ws-test/renamed/")
+                      "renamed"))))
+      (expect (workspace-node-id renamed) :to-equal "ABC")
+      (expect (workspace-node-id (workspace--set-recent-group ws "g"))
+              :to-equal "ABC")
+      (expect (workspace-node-id (workspace--mark-broken ws)) :to-equal "ABC"))))
+
 (provide 'data-model-spec)
 ;;; data-model-spec.el ends here

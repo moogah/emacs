@@ -32,10 +32,7 @@ healthy-only, so this is a defensive guard)."
     (unless ws
       (user-error "No current workspace"))
     (funcall command
-             (workspace--integration-payload
-              (workspace--name ws)
-              (workspace--home ws)
-              'menu-invoke))))
+             (workspace--integration-payload ws 'menu-invoke))))
 
 (defun workspace--menu-integration-children (&optional _)
   "Build transient suffix specs for registry integrations with a `:menu'.

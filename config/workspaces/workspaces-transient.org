@@ -97,8 +97,9 @@ the entry's =:label=, falling back to the integration id.
 
 Each generated suffix wraps COMMAND in a closure that, at invoke time,
 rebuilds the current-workspace payload via
-=workspace--integration-payload= (name + home from the live current
-workspace, context =menu-invoke=) and calls COMMAND with it.  Building
+=workspace--integration-payload= (from the live current workspace
+record — so its current =:node-id= is included — with context
+=menu-invoke=) and calls COMMAND with it.  Building
 the payload at invoke time — not at menu-render time — keeps the suffix
 bound to whatever workspace is current when the user presses the key.
 
@@ -113,10 +114,7 @@ healthy-only, so this is a defensive guard)."
     (unless ws
       (user-error "No current workspace"))
     (funcall command
-             (workspace--integration-payload
-              (workspace--name ws)
-              (workspace--home ws)
-              'menu-invoke))))
+             (workspace--integration-payload ws 'menu-invoke))))
 #+end_src
 
 #+begin_src emacs-lisp

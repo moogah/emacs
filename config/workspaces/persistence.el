@@ -47,7 +47,10 @@ Resolves in three tiers (see the module commentary):
 (defconst workspace--state-version 3
   "Schema version for the workspaces persistence file.
 v3 (current): adds the required =:home= filesystem-anchor slot to every
-workspace plist.  Inherits v2's per-layout =:saved-state= /
+workspace plist, and — without a version bump — the OPTIONAL =:node-id=
+slot (an opaque string, or absent/nil).  A v3 file written before the
+slot existed loads with =:node-id= nil and no notice, so no migration is
+needed for it.  Inherits v2's per-layout =:saved-state= /
 =:working-state= split, per-leaf =workspace-buffer= reincarnation struct,
 =:etc= forward-compat alist.  The reader emits an *Messages* notice and
 returns nil for any file whose =:version= is not 3 (no migration: v1 and
@@ -55,14 +58,17 @@ v2 files are rejected; delete the file to start fresh, design.md §D5).")
 
 (defun workspace--persistence-serialize-workspace (ws)
   "Return WS reduced to its persistable shape.
-The persisted-slot whitelist is =(:name :home :recent-layout-group
-:buffer-files :layout-groups)=; any runtime-only tag not in that set is
-stripped at this boundary.  Currently that is =:broken= (set by the
-deserializer on missing-home detection) — an observation about the
-*current session* that must be re-derived on next load, never persisted
-(register/invariant/broken-tag-runtime-only, design.md §D5)."
+The persisted-slot whitelist is =(:name :home :node-id
+:recent-layout-group :buffer-files :layout-groups)=; any runtime-only
+tag not in that set is stripped at this boundary.  Currently that is
+=:broken= (set by the deserializer on missing-home detection) — an
+observation about the *current session* that must be re-derived on next
+load, never persisted (register/invariant/broken-tag-runtime-only,
+design.md §D5).  =:node-id= IS persisted (it is identity, not a session
+observation); it is written verbatim, nil when unset."
   (list :name (workspace--name ws)
         :home (workspace--home ws)
+        :node-id (workspace-node-id ws)
         :recent-layout-group (workspace--recent-group ws)
         :buffer-files (workspace--buffer-files ws)
         :layout-groups (workspace--layout-groups ws)))
@@ -108,7 +114,13 @@ absolute-path arm):
 - Entries whose =:home= directory does not exist on disk are tagged
   via `workspace--mark-broken' before insertion.  The broken tag is
   runtime-only (never serialized; the next load re-derives it from the
-  current filesystem state)."
+  current filesystem state).
+
+The optional =:node-id= slot is NOT filtered on: an entry lacking the
+key (a v3 file written before the slot existed) or carrying nil loads
+as-is and reads back nil through `workspace-node-id' — silently, with
+no notice.  Like =:home=, a present value is preserved verbatim (the
+loader never rewrites a user's file)."
   (clrhash workspace--registry)
   (let ((ws-list (plist-get state :workspaces))
         (restored nil))
@@ -247,6 +259,25 @@ Three outcomes (design.md §D2):
 The block check, write-time readable assert, and atomic temp-file +
 rename are enforced in `workspace--write-state'."
   (workspace--write-state (workspace--serialize-registry)))
+
+(defun workspace-set-node-id (ws node-id)
+  "Set workspace record WS's `:node-id' to NODE-ID and flush to disk.
+NODE-ID is an opaque identity string, or nil to clear the identity;
+any other type signals `wrong-type-argument' before anything is
+mutated or written.  WS must be the LIVE record (the one stored in
+`workspace--registry'): the slot is updated in place so every holder
+of the record — the registry, a creation-time dispatch in progress,
+the transient's menu invoke — sees the new value immediately, and the
+registry is then flushed synchronously via `workspace--flush-state'.
+Returns WS.
+
+The package never interprets NODE-ID; it is written verbatim.  The
+registry key is untouched — identity is `:node-id', the key is
+`:name' (register/invariant/registry-name-equals-basename)."
+  (cl-check-type node-id (or null string))
+  (plist-put ws :node-id node-id)
+  (workspace--flush-state)
+  ws)
 
 (defun workspace--apply-saved-layout (name)
   "Apply NAME's recent effective window-state to the current frame.

@@ -4,7 +4,8 @@
 ;; 1-4): the ordered-alist registry, `workspace-register-integration'
 ;; (register / replace-in-place / order / no-surface user-error /
 ;; :on-purge surface), the `workspace--integration-payload' constructor
-;; (shape + :sessions-dir derivation + :context passthrough), the
+;; (shape from the live record: :name :home :node-id :context, NO
+;; :sessions-dir, and :context passthrough), the
 ;; `workspace--run-one-integration' result protocol + error guard, and
 ;; `workspace--dispatch-create-integrations' /
 ;; `workspace--dispatch-purge-integrations' (in-order, skip no-handler,
@@ -20,7 +21,7 @@
   (file-name-directory (or load-file-name buffer-file-name))
   "Directory of this spec file, captured at load time.")
 
-;; The registry depends on `workspace--sessions-dir' from data-model.el.
+;; The registry reads the record accessors from data-model.el.
 (load (expand-file-name "../data-model.el" integration-registry-spec--this-dir))
 (load (expand-file-name "../integrations.el" integration-registry-spec--this-dir))
 
@@ -79,23 +80,48 @@
       (expect (length workspace--integrations) :to-equal 3)))
 
   (describe "workspace--integration-payload"
+    ;; register/shape/workspace-integration-anchor-payload; workspace-
+    ;; integrations spec "Anchor payload contract (push, not consult)".
 
-    (it "builds a flat plist with :name :home :sessions-dir :context"
-      (let ((payload (workspace--integration-payload "proj" "/tmp/proj" 'fresh)))
+    (it "builds a flat plist with :name :home :node-id :context from the record"
+      (let ((payload (workspace--integration-payload
+                      (workspace--make "proj" "/tmp/proj/" "ABC") 'fresh)))
         (expect (plist-get payload :name) :to-equal "proj")
-        (expect (plist-get payload :home) :to-equal "/tmp/proj")
+        (expect (plist-get payload :home) :to-equal "/tmp/proj/")
+        (expect (plist-get payload :node-id) :to-equal "ABC")
         (expect (plist-get payload :context) :to-equal 'fresh)))
 
-    (it "derives :sessions-dir via workspace--sessions-dir"
-      (let ((payload (workspace--integration-payload "proj" "/tmp/proj" 'fresh)))
-        (expect (plist-get payload :sessions-dir)
-                :to-equal (workspace--sessions-dir "/tmp/proj"))))
+    (it "carries :node-id nil (key present) for an identity-less workspace"
+      (let ((payload (workspace--integration-payload
+                      (workspace--make "proj" "/tmp/proj/") 'fresh)))
+        (expect (plist-member payload :node-id) :not :to-be nil)
+        (expect (plist-get payload :node-id) :to-be nil)))
+
+    (it "has no :sessions-dir key — the package has no session concept"
+      (let ((payload (workspace--integration-payload
+                      (workspace--make "proj" "/tmp/proj/") 'fresh)))
+        (expect (plist-member payload :sessions-dir) :to-be nil)))
+
+    (it "carries only workspace self-knowledge keys"
+      (let ((payload (workspace--integration-payload
+                      (workspace--make "proj" "/tmp/proj/" "ABC") 'menu-invoke)))
+        (expect (sort (cl-loop for (k _v) on payload by #'cddr collect k)
+                      (lambda (a b) (string< (symbol-name a) (symbol-name b))))
+                :to-equal '(:context :home :name :node-id))))
+
+    (it "reads :node-id from the record at call time, not from a cached snapshot"
+      (let ((ws (workspace--make "proj" "/tmp/proj/")))
+        (expect (plist-get (workspace--integration-payload ws 'fresh) :node-id)
+                :to-be nil)
+        (plist-put ws :node-id "LATE")
+        (expect (plist-get (workspace--integration-payload ws 'fresh) :node-id)
+                :to-equal "LATE")))
 
     (it "passes through each documented :context symbol"
-      (dolist (ctx '(fresh anchored-scaffolded anchored-existing))
-        (expect (plist-get (workspace--integration-payload "p" "/tmp/p" ctx)
-                           :context)
-                :to-equal ctx))))
+      (let ((ws (workspace--make "p" "/tmp/p/")))
+        (dolist (ctx '(fresh anchored-scaffolded anchored-existing menu-invoke purge))
+          (expect (plist-get (workspace--integration-payload ws ctx) :context)
+                  :to-equal ctx)))))
 
   (describe "workspace--run-one-integration"
 
@@ -145,32 +171,67 @@
          'b :on-create (lambda (_p) (push 'b calls) 'ok))
         (workspace-register-integration
          'c :on-create (lambda (_p) (push 'c calls) 'ok))
-        (workspace--dispatch-create-integrations "proj" "/tmp/proj" 'fresh)
+        (workspace--dispatch-create-integrations
+         (workspace--make "proj" "/tmp/proj/") 'fresh)
         (expect (nreverse calls) :to-equal '(a b c))))
 
     (it "returns the result alist in registration order"
       (workspace-register-integration 'a :on-create (lambda (_p) 'ok))
       (workspace-register-integration 'b :on-create (lambda (_p) 'skipped))
-      (expect (workspace--dispatch-create-integrations "p" "/tmp/p" 'fresh)
+      (expect (workspace--dispatch-create-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
               :to-equal '((a . ok) (b . skipped))))
 
     (it "skips entries lacking an :on-create handler"
       (workspace-register-integration 'menu-only :menu '(?m . cmd))
       (workspace-register-integration 'has-handler :on-create (lambda (_p) 'ok))
       (let ((results (workspace--dispatch-create-integrations
-                      "p" "/tmp/p" 'fresh)))
+                      (workspace--make "p" "/tmp/p/") 'fresh)))
         (expect (mapcar #'car results) :to-equal '(has-handler))))
 
     (it "feeds the constructed anchor payload to handlers"
       (let ((seen nil))
         (workspace-register-integration
          'a :on-create (lambda (p) (setq seen p) 'ok))
-        (workspace--dispatch-create-integrations "proj" "/tmp/proj" 'fresh)
+        (workspace--dispatch-create-integrations
+         (workspace--make "proj" "/tmp/proj/") 'fresh)
         (expect (plist-get seen :name) :to-equal "proj")
-        (expect (plist-get seen :home) :to-equal "/tmp/proj")
-        (expect (plist-get seen :sessions-dir)
-                :to-equal (workspace--sessions-dir "/tmp/proj"))
+        (expect (plist-get seen :home) :to-equal "/tmp/proj/")
+        (expect (plist-member seen :node-id) :not :to-be nil)
+        (expect (plist-member seen :sessions-dir) :to-be nil)
         (expect (plist-get seen :context) :to-equal 'fresh)))
+
+    (it "rebuilds the payload per handler: a :node-id written by an earlier handler is visible to later ones"
+      ;; workspace-integrations spec, "Creation-time dispatch": scenario
+      ;; "a node ID set by an earlier handler is visible to later ones".
+      ;; This unit spec loads no persistence, so handler A performs the
+      ;; same in-place mutation `workspace-set-node-id' does; the
+      ;; end-to-end form with the real setter lives in
+      ;; integration-dispatch-spec.el.
+      (let ((ws (workspace--make "proj" "/tmp/proj/"))
+            (seen-by-a 'unset)
+            (seen-by-b 'unset))
+        (workspace-register-integration
+         'a :on-create (lambda (p)
+                         (setq seen-by-a (plist-get p :node-id))
+                         (plist-put ws :node-id "ABC")
+                         'ok))
+        (workspace-register-integration
+         'b :on-create (lambda (p) (setq seen-by-b (plist-get p :node-id)) 'ok))
+        (workspace--dispatch-create-integrations ws 'fresh)
+        (expect seen-by-a :to-be nil)
+        (expect seen-by-b :to-equal "ABC")))
+
+    (it "purge dispatch carries the record's :node-id (no registry lookup)"
+      ;; `workspace-purge' unregisters BEFORE dispatching teardown, so
+      ;; the payload must come from the record it hands over.
+      (let ((seen nil))
+        (workspace-register-integration
+         'a :on-purge (lambda (p) (setq seen p) 'ok))
+        (workspace--dispatch-purge-integrations
+         (workspace--make "proj" "/tmp/proj/" "ABC") 'purge)
+        (expect (plist-get seen :node-id) :to-equal "ABC")
+        (expect (plist-get seen :context) :to-equal 'purge)))
 
     (it "never signals when a handler errors, and surfaces it via message"
       (workspace-register-integration
@@ -178,7 +239,7 @@
       (spy-on 'message)
       (let (results)
         (expect (setq results (workspace--dispatch-create-integrations
-                               "p" "/tmp/p" 'fresh))
+                               (workspace--make "p" "/tmp/p/") 'fresh))
                 :not :to-throw)
         ;; Single (ID failed . REASON) result.
         (expect (caar results) :to-equal 'boom)
@@ -191,7 +252,8 @@
       (workspace-register-integration
        'f :on-create (lambda (_p) '(failed . "declined")))
       (spy-on 'message)
-      (workspace--dispatch-create-integrations "p" "/tmp/p" 'fresh)
+      (workspace--dispatch-create-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
       (expect 'message :to-have-been-called-with
               "workspace: integration %s failed: %s" 'f "declined"))
 
@@ -199,11 +261,13 @@
       (workspace-register-integration 'ok-one :on-create (lambda (_p) 'ok))
       (workspace-register-integration 'skip-one :on-create (lambda (_p) 'skipped))
       (spy-on 'message)
-      (workspace--dispatch-create-integrations "p" "/tmp/p" 'fresh)
+      (workspace--dispatch-create-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
       (expect 'message :not :to-have-been-called))
 
     (it "returns nil and never signals with an empty registry"
-      (expect (workspace--dispatch-create-integrations "p" "/tmp/p" 'fresh)
+      (expect (workspace--dispatch-create-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
               :to-equal nil)))
 
   (describe "workspace--dispatch-purge-integrations"
@@ -216,31 +280,34 @@
          'b :on-purge (lambda (_p) (push 'b calls) 'ok))
         (workspace-register-integration
          'c :on-purge (lambda (_p) (push 'c calls) 'ok))
-        (workspace--dispatch-purge-integrations "proj" "/tmp/proj" 'fresh)
+        (workspace--dispatch-purge-integrations
+         (workspace--make "proj" "/tmp/proj/") 'fresh)
         (expect (nreverse calls) :to-equal '(a b c))))
 
     (it "returns the result alist in registration order"
       (workspace-register-integration 'a :on-purge (lambda (_p) 'ok))
       (workspace-register-integration 'b :on-purge (lambda (_p) 'skipped))
-      (expect (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+      (expect (workspace--dispatch-purge-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
               :to-equal '((a . ok) (b . skipped))))
 
     (it "skips entries lacking an :on-purge handler"
       (workspace-register-integration 'create-only :on-create (lambda (_p) 'ok))
       (workspace-register-integration 'has-purge :on-purge (lambda (_p) 'ok))
       (let ((results (workspace--dispatch-purge-integrations
-                      "p" "/tmp/p" 'fresh)))
+                      (workspace--make "p" "/tmp/p/") 'fresh)))
         (expect (mapcar #'car results) :to-equal '(has-purge))))
 
     (it "feeds the constructed anchor payload to handlers"
       (let ((seen nil))
         (workspace-register-integration
          'a :on-purge (lambda (p) (setq seen p) 'ok))
-        (workspace--dispatch-purge-integrations "proj" "/tmp/proj" 'fresh)
+        (workspace--dispatch-purge-integrations
+         (workspace--make "proj" "/tmp/proj/") 'fresh)
         (expect (plist-get seen :name) :to-equal "proj")
-        (expect (plist-get seen :home) :to-equal "/tmp/proj")
-        (expect (plist-get seen :sessions-dir)
-                :to-equal (workspace--sessions-dir "/tmp/proj"))
+        (expect (plist-get seen :home) :to-equal "/tmp/proj/")
+        (expect (plist-member seen :node-id) :not :to-be nil)
+        (expect (plist-member seen :sessions-dir) :to-be nil)
         (expect (plist-get seen :context) :to-equal 'fresh)))
 
     (it "never signals when a handler errors, and surfaces it via message"
@@ -249,7 +316,7 @@
       (spy-on 'message)
       (let (results)
         (expect (setq results (workspace--dispatch-purge-integrations
-                               "p" "/tmp/p" 'fresh))
+                               (workspace--make "p" "/tmp/p/") 'fresh))
                 :not :to-throw)
         (expect (caar results) :to-equal 'boom)
         (expect (cadar results) :to-equal 'failed)
@@ -262,7 +329,8 @@
       (workspace-register-integration
        'f :on-purge (lambda (_p) '(failed . "declined")))
       (spy-on 'message)
-      (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+      (workspace--dispatch-purge-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
       (expect 'message :to-have-been-called-with
               "workspace: integration %s purge-teardown failed: %s"
               'f "declined"))
@@ -271,11 +339,13 @@
       (workspace-register-integration 'ok-one :on-purge (lambda (_p) 'ok))
       (workspace-register-integration 'skip-one :on-purge (lambda (_p) 'skipped))
       (spy-on 'message)
-      (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+      (workspace--dispatch-purge-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
       (expect 'message :not :to-have-been-called))
 
     (it "returns nil and never signals with an empty registry"
-      (expect (workspace--dispatch-purge-integrations "p" "/tmp/p" 'fresh)
+      (expect (workspace--dispatch-purge-integrations
+         (workspace--make "p" "/tmp/p/") 'fresh)
               :to-equal nil))))
 
 (provide 'integration-registry-spec)

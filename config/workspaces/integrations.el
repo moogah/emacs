@@ -38,16 +38,19 @@ order.  Returns ID."
             (append workspace--integrations (list (cons id plist))))))
   id)
 
-(defun workspace--integration-payload (name home context)
-  "Build the anchor payload plist for a workspace creation event.
-NAME is the workspace name, HOME its filesystem anchor directory,
-CONTEXT one of the symbols `fresh', `anchored-scaffolded', or
-`anchored-existing'.  `:sessions-dir' is derived from HOME via
-`workspace--sessions-dir' (no path logic is duplicated here).  The
-plist is flat and extensible: handlers read only the keys they need."
-  (list :name name
-        :home home
-        :sessions-dir (workspace--sessions-dir home)
+(defun workspace--integration-payload (ws context)
+  "Build the anchor payload plist for workspace record WS.
+WS is the live workspace plist (see `workspace--make'); CONTEXT is the
+symbol describing why the payload is being built (`fresh',
+`anchored-scaffolded', `anchored-existing', `menu-invoke', `purge').
+The payload carries WS's self-knowledge only: `:name', `:home',
+`:node-id' (an opaque string or nil, read from WS at call time), and
+`:context'.  It is flat and extensible: handlers read only the keys
+they need.  Callers that must observe a `:node-id' written mid-flight
+rebuild the payload from the same WS rather than caching one."
+  (list :name (workspace--name ws)
+        :home (workspace--home ws)
+        :node-id (workspace-node-id ws)
         :context context))
 
 (defun workspace--run-one-integration (entry payload &optional surface-key)
@@ -70,21 +73,24 @@ mapped as `ok' -> ok, `skipped' -> skipped, (failed . R) ->
                 (_ 'ok)))
       (error (cons id (cons 'failed (error-message-string err)))))))
 
-(defun workspace--dispatch-create-integrations (name home context)
-  "Dispatch all integration `:on-create' handlers for a new workspace.
-NAME, HOME, CONTEXT describe the just-created workspace (see
-`workspace--integration-payload').  Each registered integration with
-an `:on-create' handler is run once, in registration order, on the
-shared payload.  Entries lacking `:on-create' are skipped.  Each
-\(failed . REASON) outcome is surfaced via `message' as
+(defun workspace--dispatch-create-integrations (ws context)
+  "Dispatch all integration `:on-create' handlers for new workspace WS.
+WS is the just-registered live workspace record; CONTEXT is the
+creation context symbol (see `workspace--integration-payload').  Each
+registered integration with an `:on-create' handler is run once, in
+registration order, on a payload rebuilt from WS immediately before
+that handler runs — so a `:node-id' written by an earlier handler via
+`workspace-set-node-id' is present in every later handler's payload.
+Entries lacking `:on-create' are skipped.  Each (failed . REASON)
+outcome is surfaced via `message' as
 \"workspace: integration %s failed: %s\".  Returns the alist of
 \(ID . OUTCOME) results.  NEVER signals: handler errors are caught by
 `workspace--run-one-integration'."
-  (let ((payload (workspace--integration-payload name home context))
-        (results nil))
+  (let ((results nil))
     (dolist (entry workspace--integrations)
       (when (plist-get (cdr entry) :on-create)
-        (let* ((result (workspace--run-one-integration entry payload))
+        (let* ((payload (workspace--integration-payload ws context))
+               (result (workspace--run-one-integration entry payload))
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))
             (message "workspace: integration %s failed: %s"
@@ -92,22 +98,24 @@ shared payload.  Entries lacking `:on-create' are skipped.  Each
           (push result results))))
     (nreverse results)))
 
-(defun workspace--dispatch-purge-integrations (name home context)
-  "Dispatch all integration `:on-purge' handlers for a purged workspace.
-NAME, HOME, CONTEXT describe the workspace being torn down (see
+(defun workspace--dispatch-purge-integrations (ws context)
+  "Dispatch all integration `:on-purge' handlers for purged workspace WS.
+WS is the workspace record being torn down (already removed from the
+registry by `workspace-purge'; the record itself still carries `:home'
+and `:node-id'); CONTEXT is the teardown context symbol (see
 `workspace--integration-payload').  Each registered integration with
-an `:on-purge' handler is run once, in registration order, on the
-shared payload via `workspace--run-one-integration' (surface key
-`:on-purge').  Entries lacking `:on-purge' are skipped.  Each
+an `:on-purge' handler is run once, in registration order, on a
+payload rebuilt from WS via `workspace--run-one-integration' (surface
+key `:on-purge').  Entries lacking `:on-purge' are skipped.  Each
 \(failed . REASON) outcome is surfaced via `message' as
 \"workspace: integration %s purge-teardown failed: %s\".  Returns the
 alist of (ID . OUTCOME) results.  NEVER signals: handler errors are
 caught by `workspace--run-one-integration'."
-  (let ((payload (workspace--integration-payload name home context))
-        (results nil))
+  (let ((results nil))
     (dolist (entry workspace--integrations)
       (when (plist-get (cdr entry) :on-purge)
-        (let* ((result (workspace--run-one-integration entry payload :on-purge))
+        (let* ((payload (workspace--integration-payload ws context))
+               (result (workspace--run-one-integration entry payload :on-purge))
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))
             (message "workspace: integration %s purge-teardown failed: %s"

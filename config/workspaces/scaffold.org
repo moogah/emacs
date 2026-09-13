@@ -220,7 +220,7 @@ that is the caller's responsibility (tabs.el's workspace-new)."
   (when init-and-commit?
     (workspace--scaffold-git home "init"))
   (workspace--scaffold-write-home-org home name)
-  (make-directory (workspace--sessions-dir home) t)
+  (make-directory (expand-file-name "sessions" home) t)
   (when init-and-commit?
     (workspace--scaffold-git home "add" ".")
     (workspace--scaffold-git home "commit" "-m" "Initial workspace"))
