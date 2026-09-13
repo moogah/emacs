@@ -330,7 +330,34 @@ synthetic :home directories the tests construct.")
                 :to-be nil)
         (expect (substring (with-current-buffer "*Messages*" (buffer-string))
                            (length messages-before))
-                :to-equal "")))))
+                :to-equal ""))))
+
+  (it "loads a non-string :node-id as nil with a *Messages* notice, keeping the entry"
+    ;; The constructor and `workspace-set-node-id' both reject a
+    ;; non-string node-id; the loader must not be the one path that
+    ;; admits it.  Mirrors the :home type arm, but the entry is kept
+    ;; (the workspace itself is fine) rather than skipped.
+    (persistence-v3-spec--with-state-file
+      (let* ((message-log-max t)
+             (alpha-home (persistence-v3-spec--make-home "alpha"))
+             (messages-before (with-current-buffer "*Messages*"
+                                (buffer-string))))
+        (persistence-v3-spec--write-raw
+         `(:version 3
+                    :workspaces ((:name "alpha"
+                                        :home ,alpha-home
+                                        :node-id 42
+                                        :recent-layout-group nil
+                                        :buffer-files nil
+                                        :layout-groups nil))))
+        (workspace--restore)
+        (let ((alpha (gethash "alpha" workspace--registry)))
+          (expect alpha :not :to-be nil)
+          (expect (workspace--broken-p alpha) :to-be nil)
+          (expect (workspace-node-id alpha) :to-be nil)
+          (expect (substring (with-current-buffer "*Messages*" (buffer-string))
+                             (length messages-before))
+                  :to-match "non-string :node-id 42"))))))
 
 (describe "workspace-set-node-id"
   ;; The public identity setter: validates, mutates the LIVE record in

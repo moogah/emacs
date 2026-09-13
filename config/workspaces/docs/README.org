@@ -5,7 +5,7 @@ filesystem-anchored home directory, recent-layout pointer,
 per-workspace buffer membership scoping (via [[https://github.com/florommel/bufferlo][bufferlo]]), and
 per-machine persistence.  Each workspace is bound 1:1 to a tab and to
 a =:home= directory on disk that holds =home.org= (the dashboard /
-display-name source) and =sessions/= (gptel session files).
+display-name source).
 
 * Concepts
 
@@ -43,8 +43,9 @@ The home directory contains:
   you like (links, TODOs, embedded session listings).  A
   =#+TITLE:= keyword here overrides the workspace's display name
   without changing its registry name.
-- =sessions/= — where new gptel persistent sessions land when this
-  workspace is active (see *gptel sessions*).
+- =sessions/= — an empty directory the scaffold creates next to
+  =home.org=.  The package itself never writes into it; it is left
+  for integrations that keep per-workspace files.
 
 The package does not auto-render =sessions/= contents back into
 =home.org=.  If you want a listing, add it manually; =sessions/=
@@ -173,10 +174,6 @@ message naming both remediation commands:
 - =workspace-switch= (=C-x w s=)
 - =workspace-restore= (=C-x w o=)
 
-Routing concerns also honour broken state: gptel session creation
-falls through to the global default rather than re-materialising the
-missing directory (see *gptel sessions*).
-
 * Workspace identity (=:node-id=)
 
 Each workspace record carries an optional =:node-id= — an opaque
@@ -263,9 +260,10 @@ and re-registering an existing ID updates it in place.
   workspace.
 
 *gptel-session is the first real client.*  Its =:on-create= handler
-builds a real scoped gptel session under the new workspace's
-=sessions/= directory at birth, and its =:menu= entry =g= ("gptel
-session") adds a further scoped session on demand from the menu.  The
+builds a real scoped gptel session for the new workspace at birth
+(where that session lives on disk is the integration's business, not
+the workspace's), and its =:menu= entry =g= ("gptel session") adds a
+further scoped session on demand from the menu.  The
 handler lives under =config/gptel/= and attaches itself via
 =workspace-register-integration=; the workspaces package itself names
 no gptel symbol.

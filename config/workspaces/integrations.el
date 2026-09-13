@@ -3,6 +3,8 @@
 (require 'cl-lib)
 (require 'workspace-data-model)
 
+(defvar workspace--registry)
+
 (defvar workspace--integrations nil
   "Alist of (ID . PLIST) registered workspace integrations, in order.
 ID is a symbol.  PLIST may carry `:label' (string), `:on-create'
@@ -47,11 +49,25 @@ The payload carries WS's self-knowledge only: `:name', `:home',
 `:node-id' (an opaque string or nil, read from WS at call time), and
 `:context'.  It is flat and extensible: handlers read only the keys
 they need.  Callers that must observe a `:node-id' written mid-flight
-rebuild the payload from the same WS rather than caching one."
+rebuild the payload from the registry's CURRENT record for WS's name
+\(see `workspace--integration-live-record') rather than caching one."
   (list :name (workspace--name ws)
         :home (workspace--home ws)
         :node-id (workspace-node-id ws)
         :context context))
+
+(defun workspace--integration-live-record (ws)
+  "Return the registry's current record for workspace WS, else WS.
+WS is a workspace plist.  Look up its `:name' in `workspace--registry'
+and return the record stored there, so a caller rebuilding a payload
+mid-dispatch observes replacements made by copy-on-write mutators and
+any `:node-id' written to the replacement.  Fall back to WS itself
+when the name is unregistered (purge-time dispatch) or when
+`workspace--registry' is not bound (the registry module is not
+loaded)."
+  (or (and (boundp 'workspace--registry)
+           (gethash (workspace--name ws) workspace--registry))
+      ws))
 
 (defun workspace--run-one-integration (entry payload &optional surface-key)
   "Run ENTRY's SURFACE-KEY handler on PAYLOAD; return (ID . OUTCOME).
@@ -78,10 +94,12 @@ mapped as `ok' -> ok, `skipped' -> skipped, (failed . R) ->
 WS is the just-registered live workspace record; CONTEXT is the
 creation context symbol (see `workspace--integration-payload').  Each
 registered integration with an `:on-create' handler is run once, in
-registration order, on a payload rebuilt from WS immediately before
-that handler runs — so a `:node-id' written by an earlier handler via
-`workspace-set-node-id' is present in every later handler's payload.
-Entries lacking `:on-create' are skipped.  Each (failed . REASON)
+registration order, on a payload rebuilt immediately before that
+handler runs from the registry's CURRENT record for WS's name (see
+`workspace--integration-live-record') — so a `:node-id' written by an
+earlier handler via `workspace-set-node-id' is present in every later
+handler's payload, even if a copy-on-write mutator replaced the
+registry entry in between.  Entries lacking `:on-create' are skipped.  Each (failed . REASON)
 outcome is surfaced via `message' as
 \"workspace: integration %s failed: %s\".  Returns the alist of
 \(ID . OUTCOME) results.  NEVER signals: handler errors are caught by
@@ -89,7 +107,8 @@ outcome is surfaced via `message' as
   (let ((results nil))
     (dolist (entry workspace--integrations)
       (when (plist-get (cdr entry) :on-create)
-        (let* ((payload (workspace--integration-payload ws context))
+        (let* ((payload (workspace--integration-payload
+                         (workspace--integration-live-record ws) context))
                (result (workspace--run-one-integration entry payload))
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))
@@ -105,8 +124,9 @@ registry by `workspace-purge'; the record itself still carries `:home'
 and `:node-id'); CONTEXT is the teardown context symbol (see
 `workspace--integration-payload').  Each registered integration with
 an `:on-purge' handler is run once, in registration order, on a
-payload rebuilt from WS via `workspace--run-one-integration' (surface
-key `:on-purge').  Entries lacking `:on-purge' are skipped.  Each
+payload rebuilt per handler via `workspace--integration-live-record'
+\(which falls back to WS, the name being unregistered) and run via
+`workspace--run-one-integration' (surface key `:on-purge').  Entries lacking `:on-purge' are skipped.  Each
 \(failed . REASON) outcome is surfaced via `message' as
 \"workspace: integration %s purge-teardown failed: %s\".  Returns the
 alist of (ID . OUTCOME) results.  NEVER signals: handler errors are
@@ -114,7 +134,8 @@ caught by `workspace--run-one-integration'."
   (let ((results nil))
     (dolist (entry workspace--integrations)
       (when (plist-get (cdr entry) :on-purge)
-        (let* ((payload (workspace--integration-payload ws context))
+        (let* ((payload (workspace--integration-payload
+                         (workspace--integration-live-record ws) context))
                (result (workspace--run-one-integration entry payload :on-purge))
                (outcome (cdr result)))
           (when (and (consp outcome) (eq (car outcome) 'failed))

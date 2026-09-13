@@ -40,6 +40,11 @@
     (provide 'bufferlo))
   (load (expand-file-name "../buffer-membership.el" dir))
   (load (expand-file-name "../layouts.el"           dir))
+  ;; `workspace-set-node-id' lives in persistence.el (it flushes);
+  ;; load it explicitly so this spec does not depend on a sibling
+  ;; spec having loaded it first.  persistence.el sandboxes its state
+  ;; directory under `noninteractive', so no rebinding is needed.
+  (load (expand-file-name "../persistence.el"       dir))
   (load (expand-file-name "../workspaces.el"        dir)))
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
@@ -197,6 +202,41 @@ prompt to return HOME."
       (expect seen-by-a :to-be nil)
       (expect seen-by-b :to-equal "ABC")
       ;; And the registry record itself carries the identity.
+      (expect (workspace-node-id (gethash "foo" workspace--registry))
+              :to-equal "ABC")))
+
+  (it "integration B sees the :node-id even when A replaced the registry entry before setting it"
+    ;; The package's mutators are copy-on-write: they `copy-sequence'
+    ;; the record and `puthash' the copy (see
+    ;; `workspace--sync-registry-from-bufferlo', layout autosave, the
+    ;; tab-switch advice).  If handler A triggers any of them before
+    ;; writing identity, the record the dispatcher captured at loop
+    ;; start is superseded.  The dispatcher must therefore re-read the
+    ;; registry per handler rather than rely on object identity.
+    (let ((seen-by-b 'unset)
+          (captured nil))
+      (workspace-register-integration
+       'a :on-create
+       (lambda (p)
+         (let* ((name (plist-get p :name))
+                (old (gethash name workspace--registry))
+                (new (plist-put (copy-sequence old)
+                                :buffer-files '("/tmp/x.org"))))
+           (setq captured old)
+           ;; Copy-on-write replacement, as the package's own mutators do.
+           (puthash name new workspace--registry)
+           (expect (gethash name workspace--registry) :not :to-be old)
+           ;; Then write identity through the public setter on the
+           ;; registry's CURRENT record.
+           (workspace-set-node-id (gethash name workspace--registry) "ABC"))
+         'ok))
+      (workspace-register-integration
+       'b :on-create (lambda (p) (setq seen-by-b (plist-get p :node-id)) 'ok))
+      (workspace-new "foo")
+      ;; The superseded record never learned the identity...
+      (expect (workspace-node-id captured) :to-be nil)
+      ;; ...but B's payload, rebuilt from the live registry entry, did.
+      (expect seen-by-b :to-equal "ABC")
       (expect (workspace-node-id (gethash "foo" workspace--registry))
               :to-equal "ABC"))))
 

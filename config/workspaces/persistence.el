@@ -119,8 +119,14 @@ absolute-path arm):
 The optional =:node-id= slot is NOT filtered on: an entry lacking the
 key (a v3 file written before the slot existed) or carrying nil loads
 as-is and reads back nil through `workspace-node-id' — silently, with
-no notice.  Like =:home=, a present value is preserved verbatim (the
-loader never rewrites a user's file)."
+no notice.  A string value is preserved verbatim.  Like =:home=, the
+value IS type-checked: a non-nil non-string =:node-id= (a hand-edited
+or corrupted file) emits a notice naming the entry and the entry
+loads with =:node-id= nil — the workspace itself is fine, only its
+identity token is unusable, so the entry is kept rather than skipped.
+This keeps the loader from being the one path that admits a value the
+constructor and `workspace-set-node-id' both reject.  The on-disk file
+is not rewritten by the loader; the next flush serializes the nil."
   (clrhash workspace--registry)
   (let ((ws-list (plist-get state :workspaces))
         (restored nil))
@@ -137,7 +143,14 @@ loader never rewrites a user's file)."
            "Workspaces: skipping persisted entry %S — :home %S is not absolute"
            name home))
          (t
-          (let* ((broken-p (not (file-directory-p home)))
+          (let* ((node-id (workspace-node-id ws))
+                 (ws (if (or (null node-id) (stringp node-id))
+                         ws
+                       (message
+                        "Workspaces: workspace %S has non-string :node-id %S — loading with nil"
+                        name node-id)
+                       (plist-put (copy-sequence ws) :node-id nil)))
+                 (broken-p (not (file-directory-p home)))
                  (with-broken (if broken-p
                                   (workspace--mark-broken ws)
                                 ws)))
@@ -264,12 +277,14 @@ rename are enforced in `workspace--write-state'."
   "Set workspace record WS's `:node-id' to NODE-ID and flush to disk.
 NODE-ID is an opaque identity string, or nil to clear the identity;
 any other type signals `wrong-type-argument' before anything is
-mutated or written.  WS must be the LIVE record (the one stored in
-`workspace--registry'): the slot is updated in place so every holder
-of the record — the registry, a creation-time dispatch in progress,
-the transient's menu invoke — sees the new value immediately, and the
-registry is then flushed synchronously via `workspace--flush-state'.
-Returns WS.
+mutated or written.  WS must be the LIVE record — the one CURRENTLY
+stored in `workspace--registry', i.e. `(gethash NAME
+workspace--registry)' at call time, not a record captured earlier
+\(copy-on-write mutators may have replaced it since).  The slot is
+updated in place, so the registry reflects the new value without a
+`puthash'; other holders observe it by re-reading the registry (the
+integration dispatchers do so per handler).  The registry is then
+flushed synchronously via `workspace--flush-state'.  Returns WS.
 
 The package never interprets NODE-ID; it is written verbatim.  The
 registry key is untouched — identity is `:node-id', the key is
