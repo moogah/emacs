@@ -10,17 +10,14 @@ User-facing commands for creating and managing gptel persistent sessions.
 ** Usage
 
 Create a persistent gptel session with =M-x jf/gptel-persistent-session=.
-Sessions are stored in =~/.gptel/sessions/= by default, configured
-with branch-based structure (=branches/main/= by default) and scope
-defined by the chosen preset's scope profile (embedded in
-=session.org='s =:PROPERTIES:= drawer as =:GPTEL_SCOPE_*:= keys).
+Sessions are stored under =jf/gptel-sessions-directory=
+(=~/.gptel/sessions/= by default) — the module's single sessions root
+(register/invariant/sessions-single-root) — configured with
+branch-based structure (=branches/main/= by default) and scope defined
+by the chosen preset's scope profile (embedded in =session.org='s
+=:PROPERTIES:= drawer as =:GPTEL_SCOPE_*:= keys).
 
 See [[*Create Persistent Session][Create Persistent Session]] section below for details.
-
-(An earlier integration auto-created sessions for each =activities.el=
-activity under =~/emacs-activities/<slug>/session/=; that integration
-was removed when the =workspaces= package replaced =activities-extensions=.
-A workspace-scoped equivalent may land later.)
 
 * Lexical Binding
 
@@ -781,35 +778,27 @@ When projects are selected:
 - The scope profile's =${project_root}= variables are expanded to the selected project path
 - Project names are displayed in the creation message
 
-** Workspace routing
+** Sessions root
 
-By default, =jf/gptel-persistent-session= writes new session directories
-under the active workspace's =<:home>/sessions/= when the =workspaces=
-feature is loaded and a workspace owns the current tab.  When no
-workspace is active (or workspaces is not loaded, or the active
-workspace is broken, or its =sessions/= directory is missing), creation
-falls through to the global =jf/gptel-sessions-directory=.
-
-The escape-hatch command =jf/gptel-persistent-session-global= forces
-the global directory unconditionally — used when the user explicitly
-wants a session outside any workspace.  It exists as a separate command
-because the existing =jf/gptel-persistent-session='s prefix-arg
-(=current-prefix-arg=) is already bound to "prompt for preset", a UX
-that predates this work.  See
-register/boundary/gptel-sessions-workspace-consult.
+=jf/gptel-persistent-session= always creates the new session directory
+under =jf/gptel-sessions-directory= via
+=jf/gptel--create-session-directory= — the same root the registry and
+every listing command walk, so a session created from any tab or
+context is enumerable.  This module does not consult any other package
+to choose a location, offers no per-context alternative root, and has
+no separate "global"-suffixed creation command: every creation targets
+the one root.  See register/invariant/sessions-single-root.
 
 #+begin_src emacs-lisp
-(defun jf/gptel-persistent-session (session-name &optional backend model preset-name force-global)
+(defun jf/gptel-persistent-session (session-name &optional backend model preset-name)
   "Create a new persistent gptel session named SESSION-NAME.
 
 Optional BACKEND and MODEL default to Claude Opus 4.5.
 Optional PRESET-NAME specifies registered preset (default: 'executor).
 With prefix argument (C-u), prompts to select preset interactively.
 
-When FORCE-GLOBAL is non-nil, write the session under the global
-gptel sessions directory even when a workspace is active.  The
-user-facing escape-hatch command is
-`jf/gptel-persistent-session-global'.
+The session directory is created under `jf/gptel-sessions-directory'
+\(see `jf/gptel--create-session-directory'); there is no other root.
 
 Prompts user to select projectile projects (0 or more).
 If projects selected, first project is used as project-root for scope expansion.
@@ -835,9 +824,9 @@ No special resume command needed - sessions activate by content recognition when
                                                  (mapcar #'symbol-name presets)
                                                  nil t)))
                     'executor)))
-     (list name nil nil preset nil)))
+     (list name nil nil preset)))
   (let* ((session-id (jf/gptel--generate-session-id session-name))
-         (session-dir (jf/gptel--create-session-directory session-id force-global))
+         (session-dir (jf/gptel--create-session-directory session-id))
          (preset-name (or preset-name 'executor))
          ;; Project selection
          (selected-projects (when (y-or-n-p "Select projectile projects for this session? ")
@@ -881,31 +870,6 @@ No special resume command needed - sessions activate by content recognition when
                    ""))
         buffer))))
 
-(defun jf/gptel-persistent-session-global (session-name &optional backend model preset-name)
-  "Create a new persistent gptel session in the global sessions directory.
-Like `jf/gptel-persistent-session', but forces the global
-`jf/gptel-sessions-directory' as the target root even when a workspace
-is active.  Use this when you explicitly want a session outside any
-workspace.
-
-This is the user-facing escape-hatch for the workspaces consult
-established by `jf/gptel--target-sessions-root'."
-  (interactive
-   (let* ((name (read-string "Session name (global): "))
-          (preset (if current-prefix-arg
-                      (let* ((presets (mapcar #'car gptel--known-presets))
-                             (annotator (lambda (name)
-                                          (let* ((preset (gptel-get-preset (intern name)))
-                                                 (desc (plist-get preset :description)))
-                                            (when desc (format "  -- %s" desc)))))
-                             (completion-extra-properties
-                              (list :annotation-function annotator)))
-                        (intern (completing-read "Select preset: "
-                                                 (mapcar #'symbol-name presets)
-                                                 nil t)))
-                    'executor)))
-     (list name nil nil preset)))
-  (jf/gptel-persistent-session session-name backend model preset-name t))
 #+end_src
 
 * Initialize Registry
