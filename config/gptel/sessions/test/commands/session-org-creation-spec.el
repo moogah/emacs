@@ -16,7 +16,8 @@
 ;; 1. `session.org' is pre-populated with a file-level `:PROPERTIES:'
 ;;    config drawer at point-min containing `GPTEL_PRESET' (and
 ;;    `GPTEL_PARENT_SESSION_ID' when an agent session declares a
-;;    parent), followed directly by an empty `#+begin_user' /
+;;    parent), followed directly by the `#+title:' / `#+filetags:'
+;;    keywords, a blank line, and an empty `#+begin_user' /
 ;;    `#+end_user' turn block.  No `* System Prompt' / `* Chat'
 ;;    headings are emitted — the preset's `:system' lives in the
 ;;    sibling `system-prompt.<ext>' file (design.md §Decision 1 of
@@ -65,9 +66,9 @@
 
   (describe "session.org initial content (Decision 4)"
 
-    (it "contains the config drawer followed directly by an empty user block, with no heading shape"
+    (it "contains the config drawer, the head keywords, then an empty user block, with no heading shape"
       ;; replace-system-prompt-heading-with-sibling-file: the
-      ;; canonical layout is drawer + bare user block.  No
+      ;; canonical layout is drawer + keywords + bare user block.  No
       ;; `* System Prompt' / `* Chat' headings are emitted.  The
       ;; preset's `:system' is materialised in a sibling file by a
       ;; subsequent task; this spec only verifies the no-heading shape.
@@ -89,10 +90,11 @@
           (expect (string-match-p "^\\* System Prompt" content) :to-be nil)
           (expect (string-match-p "^\\* Chat" content) :to-be nil)
           (expect (string-match-p ":VISIBILITY: folded" content) :to-be nil)
-          ;; The empty user block follows the drawer directly (no
-          ;; intervening blank line — drawer + body concatenation is
-          ;; verbatim) and is the last thing in the file.
-          (expect content :to-match ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'")
+          ;; The `#+title:' / `#+filetags:' keywords follow the drawer
+          ;; directly (drawer + body concatenation is verbatim), then a
+          ;; blank line, then the empty user block ends the file
+          ;; (register/shape/session-file-head).
+          (expect content :to-match ":END:\n#\\+title: sess-decision4-20260421120000\n#\\+filetags: :gptel_session:\n\n#\\+begin_user\n\n#\\+end_user\n\\'")
           ;; :GPTEL_SYSTEM: must NEVER appear in the rendered drawer
           ;; (register/invariant/drawer-system-key-write-exclusion).
           (expect (string-match-p ":GPTEL_SYSTEM:" content)
@@ -252,21 +254,26 @@
             (expect (< preset-pos end-pos) :to-be t)
             (expect (< parent-pos end-pos) :to-be t)))))))
 
-(describe "jf/gptel--initial-session-body returns the bare user-block template"
+(describe "jf/gptel--initial-session-body returns the head keywords + bare user-block template"
 
-  ;; After replace-system-prompt-heading-with-sibling-file, the helper
-  ;; takes no arguments and returns only the empty `#+begin_user' /
+  ;; The helper takes the session id and returns the post-drawer head
+  ;; (register/shape/session-file-head regions 3-6): `#+title:',
+  ;; `#+filetags:', a blank line, and the empty `#+begin_user' /
   ;; `#+end_user' block.  No headings, no preset content.  The
   ;; document parser (heading-indifferent, design.md §Decision 12)
-  ;; reads the template as a single empty user turn.
+  ;; reads the template as a single empty user turn -- keyword lines
+  ;; sit outside every block.
 
-  (it "returns the empty user-block template"
-    (expect (jf/gptel--initial-session-body)
-            :to-equal "#+begin_user\n\n#+end_user\n"))
+  (it "returns the keywords followed by the empty user-block template"
+    (expect (jf/gptel--initial-session-body "sess-body-20260913120000")
+            :to-equal (concat "#+title: sess-body-20260913120000\n"
+                              "#+filetags: :gptel_session:\n"
+                              "\n"
+                              "#+begin_user\n\n#+end_user\n")))
 
   (it "produces a buffer the chat parser reads as a single empty user turn"
     (with-temp-buffer
-      (insert (jf/gptel--initial-session-body))
+      (insert (jf/gptel--initial-session-body "sess-body-20260913120000"))
       (let ((turns (gptel-chat-parse-buffer)))
         (expect (length turns) :to-equal 1)
         (expect (plist-get (car turns) :role) :to-equal 'user)
@@ -344,10 +351,10 @@
               (expect end-pos :to-be-truthy)
               (expect (< file-pos end-pos) :to-be t))
             ;; Drawer + body adjacency is preserved (no separator
-            ;; injected between :END: and #+begin_user).
+            ;; injected between :END: and the `#+title:' keyword).
             (expect content
                     :to-match
-                    ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'"))))))
+                    ":END:\n#\\+title: sess-sibling-drawer-20260423120000\n#\\+filetags: :gptel_session:\n\n#\\+begin_user\n\n#\\+end_user\n\\'"))))))
 
   (describe "preset declares no :system"
 
@@ -478,9 +485,9 @@
           (expect id-pos :to-be-truthy)
           (expect (< props-pos id-pos) :to-be t)
           (expect (< id-pos end-pos) :to-be t))
-        ;; Drawer still starts the file; body adjacency preserved.
+        ;; Drawer still starts the file; the keywords follow it directly.
         (expect content :to-match "\\`:PROPERTIES:\n")
-        (expect content :to-match ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'"))))
+        (expect content :to-match ":END:\n#\\+title: sess-id-20260421120000\n#\\+filetags: :gptel_session:\n\n#\\+begin_user\n\n#\\+end_user\n\\'"))))
 
   (it "does NOT stamp an :ID: into a caller-supplied INITIAL-CONTENT override"
     ;; The override path keeps the caller's bytes verbatim — including

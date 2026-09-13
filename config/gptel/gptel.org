@@ -184,6 +184,43 @@ The utils module requires the heading-adjust module internally — one =use-pack
   (gptel-org-heading-adjust-mode-enable))
 #+end_src
 
+** New Topic With ID
+
+=jf/gptel-org-new-topic-with-id= wraps =gptel-org-utils-new-topic= and
+stamps an org =:ID:= on the new topic heading with =org-id-get-create=.
+With branching context on, a =*= topic heading is already the fork
+point of a conversation; giving it an ID makes it a link target and an
+indexable node as well, so "mark a topic" and "fork a conversation"
+become one gesture. Pure org-id — no graph or index package is named.
+Not bound to any key or menu yet.
+
+It is a plain top-level =defun= (not inside the =use-package= =:config=
+above) so the command exists as soon as this file loads; the
+third-party package is required on first call.
+
+#+begin_src emacs-lisp
+(declare-function gptel-org-utils-new-topic "gptel-org-utils" (topic))
+
+(defun jf/gptel-org-new-topic-with-id (topic)
+  "Insert a new gptel topic heading TOPIC and stamp an org `:ID:' on it.
+
+Calls `gptel-org-utils-new-topic' (a new top-level heading carrying
+`GPTEL_TOPIC' plus its \"Next Question\" subheading), then moves to
+that topic heading and calls `org-id-get-create'.  Point is left where
+`gptel-org-utils-new-topic' leaves it -- in the Next Question body,
+ready to type.  Returns the topic heading's ID.
+
+Only the ID is added; nothing else about the topic layout changes.
+Works in any `org-mode'-derived buffer, `gptel-chat-mode' included."
+  (interactive "sTopic: ")
+  (require 'gptel-org-utils)
+  (gptel-org-utils-new-topic topic)
+  (save-excursion
+    (org-back-to-heading t)
+    (while (org-up-heading-safe))
+    (org-id-get-create)))
+#+end_src
+
 * GPTEL Skills System
 
 Load the skills system modules that provide skill discovery, mention detection, and injection.

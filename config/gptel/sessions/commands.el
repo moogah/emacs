@@ -309,20 +309,40 @@ state (design.md §Decision 3)."
         (write-region body nil path nil 'silent)
         basename))))
 
-(defun jf/gptel--initial-session-body ()
-  "Return the chat-mode body portion of a fresh `session.org'.
+(defun jf/gptel--initial-session-body (session-id)
+  "Return the post-drawer portion of a fresh `session.org' for SESSION-ID.
 
-The body is the empty `#+begin_user' / `#+end_user' block
-template — no headings, no system-prompt content.  Callers are
-expected to prepend a file-level `:PROPERTIES:' config drawer
-rendered by `jf/gptel-scope-profile--render-drawer-text' before
-writing the file.
+The string is, in order (register/shape/session-file-head regions
+3-6):
+
+  #+title: SESSION-ID
+  #+filetags: :gptel_session:
+  <blank line>
+  #+begin_user
+  <blank line>
+  #+end_user
+
+Callers prepend the file-level `:PROPERTIES:' config drawer rendered
+by `jf/gptel-scope-profile--render-drawer-text' with no separator, so
+the keywords sit directly after the drawer's `:END:'.  The drawer
+stays the first non-blank content, which is all the `magic-mode-alist'
+signature (`jf/gptel--session-signature-p') reads; it never scans past
+the first `:END:'.
+
+The title makes an indexed session distinguishable; the
+`gptel_session' filetag lets an index recognise session files without
+this module naming any indexer.  Both are plain org keywords the user
+owns after creation -- the chat-mode save path rewrites only the
+property drawer.  This is the ONLY site that emits them.
 
 The chat parser locates turn blocks by `#+begin_user' /
-`#+begin_assistant' markers (design.md §Decision 12), so this
-template parses to exactly one empty user turn —
-`gptel-chat-new' scratch buffers remain valid input."
-  "#+begin_user\n\n#+end_user\n")
+`#+begin_assistant' markers (design.md §Decision 12); keyword lines
+sit outside every block, so the template still parses to exactly one
+empty user turn."
+  (concat "#+title: " session-id "\n"
+          "#+filetags: :gptel_session:\n"
+          "\n"
+          "#+begin_user\n\n#+end_user\n"))
 
 (defun jf/gptel--stamp-session-org-id (content session-file)
   "Return CONTENT with a file-level org `:ID:' stamped into its drawer.
@@ -342,6 +362,80 @@ is a no-op and CONTENT is returned unchanged."
       (org-id-get-create)
       (buffer-string))))
 
+(defvar jf/gptel-session-created-hook nil
+  "Hook run after a new session's files exist on disk.
+
+Each function is called with ONE argument, a plist
+\(register/shape/session-created-hook-payload) carrying at least:
+
+  :session-file  absolute path of the new branches/main/session.org
+  :session-id    the canonical session id (its `:GPTEL_SESSION_ID:' value)
+  :branch        always \"main\" for a freshly created session
+  :session-dir   absolute path of the <session-id>/ directory
+  :branch-dir    absolute path of the main branch directory
+  :project-root  the PROJECT-ROOT the core was given (absolute), or nil
+                 when the caller supplied none -- subscribers MUST
+                 tolerate nil
+
+Run by `jf/gptel--create-session-core' as its last step: session.org,
+the sibling system-prompt file and the file-level org `:ID:' are on
+disk, and nothing has displayed or registered the buffer yet, so a
+subscriber may edit the file without racing the chat buffer.  Runs
+for every core creation, including one with caller-supplied
+INITIAL-CONTENT (whose `:ID:' is then the caller's responsibility).
+NOT run for PersistentAgent sessions, which compose their own
+session.org without the core.
+
+Functions run through `jf/gptel--run-lifecycle-hook': one that
+signals is logged and skipped, every other function still runs, and
+creation completes normally.  The sessions module never adds to this
+hook itself; it is the seam other packages subscribe on, e.g. under
+\(with-eval-after-load \\='gptel-session-commands ...).")
+
+(defvar jf/gptel-branch-created-hook nil
+  "Hook run after a new branch's files exist on disk.
+
+DECLARED BUT NOT YET RUN.  It lives here alongside
+`jf/gptel-session-created-hook' so the public hook surface is in one
+place, but no code runs it yet -- the runner belongs at the end of
+`jf/gptel--create-branch-session' (config/gptel/sessions/branching.org)
+after the branch identity rewrite.  Until that lands, adding a
+function here has no effect.
+
+Each function will be called with ONE argument, a plist
+\(register/shape/branch-created-hook-payload) carrying at least:
+
+  :branch-file  absolute path of the new branch's session.org
+  :parent-file  absolute path of the parent branch's session.org
+  :session-id   the shared session id
+  :branch       the new branch's name (its `:GPTEL_BRANCH:' value)
+
+Same guard (`jf/gptel--run-lifecycle-hook') and same direction rule
+as the session hook: the sessions module never subscribes itself.")
+
+(defun jf/gptel--run-lifecycle-hook (hook payload)
+  "Run every function on HOOK with PAYLOAD, containing any failure.
+
+HOOK is a hook symbol (`jf/gptel-session-created-hook' or
+`jf/gptel-branch-created-hook'); PAYLOAD is the plist each function
+receives as its single argument.  Each function runs inside its own
+`condition-case': an error is logged at level `error' through
+`jf/gptel--log' (so it reaches *Messages*) and the next function
+still runs.  The wrapper always returns nil so `run-hook-wrapped'
+never stops early -- nothing a subscriber does can abort the caller.
+Returns nil."
+  (run-hook-wrapped
+   hook
+   (lambda (fn payload)
+     (condition-case err
+         (funcall fn payload)
+       (error
+        (jf/gptel--log 'error "%s: function %S failed: %s"
+                       hook fn (error-message-string err))))
+     nil)
+   payload)
+  nil)
+
 (defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root parent-session-id)
   "Create session directory structure with branching support.
 
@@ -359,9 +453,11 @@ INITIAL-CONTENT - optional initial content for session.org. When
       and the resolved `GPTEL_SCOPE_*' keys for the preset's scope
       profile (with `WORKTREE-PATHS' deep-merged in when present
       and `${project_root}' expanded against PROJECT-ROOT).
-    - body is the empty `#+begin_user' / `#+end_user' template
-      returned by `jf/gptel--initial-session-body'.  No headings
-      are emitted; the preset's `:system' lives in the sibling
+    - body is `#+title: SESSION-ID', `#+filetags: :gptel_session:',
+      a blank line and the empty `#+begin_user' / `#+end_user'
+      template, returned by `jf/gptel--initial-session-body'
+      (register/shape/session-file-head).  No headings are
+      emitted; the preset's `:system' lives in the sibling
       `system-prompt.<ext>' file (design.md §Decision 1 of
       replace-system-prompt-heading-with-sibling-file).
 WORKTREE-PATHS - optional scope plist with explicit paths for activity isolation
@@ -385,13 +481,26 @@ Creates:
   and that single absolute string is fanned out to BOTH the
   `${project_root}' scope-key expansion AND the `:GPTEL_WORK_ROOT:'
   value — byte-identical and absolute, so the two agree by
-  construction.  Followed by an empty `#+begin_user' / `#+end_user'
-  block
+  construction.  Followed by the `#+title:' / `#+filetags:'
+  keywords, a blank line, and an empty `#+begin_user' /
+  `#+end_user' block.
 
 NOTE: No `metadata.yml' is written. No `scope.yml' is written.
 The drawer embedded in `session.org' is the authoritative
 session-level configuration source (design Decision 6;
 gptel-scope-in-org-properties drawer-resident scope).
+
+As its LAST step -- after session.org, the sibling file and the org
+`:ID:' are on disk, and before anything displays or registers the
+buffer -- runs `jf/gptel-session-created-hook' once with a
+`register/shape/session-created-hook-payload' plist built from the
+values returned below (plus `:branch \"main\"' and
+`:project-root').  Hook failures are contained by
+`jf/gptel--run-lifecycle-hook' and never abort creation.
+
+SESSION-DIR is canonicalized once at entry via `expand-file-name'
+\(a no-op for the absolute path every caller passes) so the paths
+in the hook payload and the return plist are absolute.
 
 Returns plist with:
   :session-id - session identifier
@@ -400,6 +509,11 @@ Returns plist with:
   :branch-name - \"main\"
   :session-file - path to session.org"
 
+  ;; Canonicalize SESSION-DIR once so every path the hook payload and
+  ;; the return plist carry is absolute (the payload contract
+  ;; requires it).  Every caller already passes an absolute path, so
+  ;; this is a no-op for them.
+  (setq session-dir (expand-file-name session-dir))
   ;; Canonicalize the incoming PROJECT-ROOT ONCE, at entry, before it
   ;; fans out to its two consumers (the scope-profile expansion below
   ;; and the `:GPTEL_WORK_ROOT:' drawer write).  Both consumers read
@@ -520,17 +634,37 @@ Returns plist with:
                             initial-content
                           (jf/gptel--stamp-session-org-id
                            (concat drawer-text
-                                   (jf/gptel--initial-session-body))
+                                   (jf/gptel--initial-session-body
+                                    session-id))
                            session-file))))
 
     ;; Create session file with initial content (file-level config
-    ;; drawer followed by an empty `#+begin_user' / `#+end_user'
-    ;; block).  The drawer is authoritative — no metadata.yml
-    ;; sidecar and no scope.yml file are written (design Decision 6;
+    ;; drawer, the `#+title:' / `#+filetags:' keywords, a blank line,
+    ;; and an empty `#+begin_user' / `#+end_user' block).  The drawer
+    ;; is authoritative — no metadata.yml sidecar and no scope.yml
+    ;; file are written (design Decision 6;
     ;; gptel-scope-in-org-properties drawer-resident scope).
     (with-temp-file session-file
       (insert final-content))
     (jf/gptel--log 'info "Created session file: %s" session-file)
+
+    ;; Publish the new session (register/boundary/session-lifecycle-
+    ;; hooks, creation stage 6).  Every file the payload names is on
+    ;; disk with its identity stamped; nothing has displayed or
+    ;; registered the buffer yet — that is the caller's `find-file'
+    ;; (stage 7), which the chat-mode binder reacts to.  The payload
+    ;; is built ONCE here from the same values the return plist
+    ;; carries; a second construction site would be a duplication bug.
+    ;; `jf/gptel--run-lifecycle-hook' contains subscriber failures, so
+    ;; the core always reaches its return.
+    (jf/gptel--run-lifecycle-hook
+     'jf/gptel-session-created-hook
+     (list :session-file session-file
+           :session-id session-id
+           :branch "main"
+           :session-dir session-dir
+           :branch-dir main-branch-dir
+           :project-root project-root))
 
     ;; Return paths as plist
     (list :session-id session-id
