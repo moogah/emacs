@@ -1,12 +1,12 @@
 ---
-name: spike-eval-doc-update
+name: org-graph-spike-eval-doc-update
 description: Update the spike-eval runbook's typed-edge checks to exercise the open vocabulary, both authoring surfaces, and the optional registry.
-change: org-graph-spike
+source: openspec/changes/archive/2026-09-13-org-graph-spike
 status: blocked
 relations:
-  - blocked-by:extractor-union
-  - blocked-by:rel-link-type
-  - blocked-by:query-inverse-symmetric
+  - blocked-by:org-graph-extractor-union
+  - blocked-by:org-graph-rel-link-type
+  - blocked-by:org-graph-query-inverse-symmetric
 cites_register_entries:
   - register/invariant/edge-drawer-discriminator
   - register/invariant/enclosing-node-attribution
@@ -14,6 +14,10 @@ cites_register_entries:
   - register/boundary/edge-type-registry-lookup
   - register/vocabulary/relation-types
 ---
+
+> Externalised from `org-graph-spike` at archive time (2026-09-13). The change
+> was archived with this task still open; the spike's typed-edge spec
+> (`openspec/specs/org-graph/spec.md`) describes the target behaviour.
 
 > Docs follow implementation. The runbook currently checks the closed-set
 > properties surface; retarget it to the shipped open-vocab links-drawer /

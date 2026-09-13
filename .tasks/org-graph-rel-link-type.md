@@ -1,15 +1,18 @@
 ---
-name: rel-link-type
+name: org-graph-rel-link-type
 description: "Register the custom rel: org link type (path rel:<type>:<id>) with follow/complete/face/export via org-link-set-parameters (OV-3)."
-change: org-graph-spike
+source: openspec/changes/archive/2026-09-13-org-graph-spike
 status: ready
-relations:
-  - blocked-by:edge-type-registry
+relations: []
 cites_register_entries:
   - register/boundary/rel-link-path-syntax
   - register/boundary/edge-type-registry-lookup
   - register/vocabulary/relation-types
 ---
+
+> Externalised from `org-graph-spike` at archive time (2026-09-13). The change
+> was archived with this task still open; the spike's typed-edge spec
+> (`openspec/specs/org-graph/spec.md`) describes the target behaviour.
 
 > The inline authoring UX. AST-level extraction of the same links lives in
 > `parse-rel-links`; this task owns only the interactive link runtime.

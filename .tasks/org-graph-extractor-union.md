@@ -1,17 +1,19 @@
 ---
-name: extractor-union
+name: org-graph-extractor-union
 description: Wire both pure scanners (drawer + inline) into the vulpea extractor wrapper, unioning their rows into the typed_edges table (OV-5/LD-5).
-change: org-graph-spike
+source: openspec/changes/archive/2026-09-13-org-graph-spike
 status: ready
-relations:
-  - blocked-by:edges-drawer
-  - blocked-by:parse-rel-links
+relations: []
 cites_register_entries:
   - register/boundary/parser-extractor-db
   - register/shape/typed-edge-tuple
   - register/invariant/typed-edge-extraction-scope
   - register/invariant/enclosing-node-attribution
 ---
+
+> Externalised from `org-graph-spike` at archive time (2026-09-13). The change
+> was archived with this task still open; the spike's typed-edge spec
+> (`openspec/specs/org-graph/spec.md`) describes the target behaviour.
 
 > Cycle cycle-1786458912: contract point RESOLVED — the note-granularity
 > filter shipped with `edges-drawer` (a `seq-filter` on from-id = note-id

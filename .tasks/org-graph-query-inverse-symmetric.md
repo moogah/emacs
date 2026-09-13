@@ -1,15 +1,18 @@
 ---
-name: query-inverse-symmetric
+name: org-graph-query-inverse-symmetric
 description: Add registry-driven inverse-label rendering and symmetric-aware reads to the query layer, derived at read time with no stored inverse rows (OV-7).
-change: org-graph-spike
+source: openspec/changes/archive/2026-09-13-org-graph-spike
 status: ready
-relations:
-  - blocked-by:edge-type-registry
+relations: []
 cites_register_entries:
   - register/boundary/typed-edge-query-api
   - register/invariant/no-materialized-inverse-rows
   - register/boundary/edge-type-registry-lookup
 ---
+
+> Externalised from `org-graph-spike` at archive time (2026-09-13). The change
+> was archived with this task still open; the spike's typed-edge spec
+> (`openspec/specs/org-graph/spec.md`) describes the target behaviour.
 
 > Revises the (closed) `typed-edge-query` read API. Storage stays canonical
 > and directional; this is a read/render concern only. See design.md
