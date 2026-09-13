@@ -2,7 +2,9 @@
 name: ws-node-id-and-payload
 description: Add the opaque :node-id slot to the workspace record, payload, and persistence; delete the sessions-dir helpers and payload key.
 change: workspace-notes-in-vault
-status: ready
+status: needs_review
+merge_commit: 8f30337a
+merged_at: 2026-09-13T23:50:00Z
 task_class: contract
 on_critical_path: true
 cycle: cycle-1789334430
