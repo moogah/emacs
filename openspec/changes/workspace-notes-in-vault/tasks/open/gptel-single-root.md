@@ -2,7 +2,9 @@
 name: gptel-single-root
 description: Remove the workspaces consult, force-global threading, the -global command, and the in-package workspace integration so gptel sessions target one root and name no other package.
 change: workspace-notes-in-vault
-status: needs_review
+status: done
+reviewed_at: 2026-09-14T00:55:00Z
+findings_path: .orchestrator/cycles/cycle-1789334430/reviews/gptel-single-root.md
 merge_commit: ad69b5dc
 merged_at: 2026-09-13T22:45:00Z
 task_class: module-load

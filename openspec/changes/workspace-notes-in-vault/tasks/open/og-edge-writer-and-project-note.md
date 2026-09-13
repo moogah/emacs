@@ -2,7 +2,10 @@
 name: og-edge-writer-and-project-note
 description: Add org-graph/write-edge (append an EDGES item under the coordinator lock) and org-graph/create-project-note.
 change: workspace-notes-in-vault
-status: needs_review
+status: done
+reviewed_at: 2026-09-14T01:00:00Z
+findings_path: .orchestrator/cycles/cycle-1789334430/reviews/og-edge-writer-and-project-note.md
+inline_fix_commit: f83b3226
 merge_commit: 3b946013
 merged_at: 2026-09-14T00:20:00Z
 task_class: feature
