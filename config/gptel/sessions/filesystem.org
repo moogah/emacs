@@ -220,8 +220,10 @@ the structural marker, not a fixed =../..= count, locates the root — so
 the session tree may be moved or nested arbitrarily and still resolve.
 
 For an =agent= session branch-dir is ITSELF the session root: agents live
-under =branches/<b>/agents/<agent>/= and do not branch, so their own
-directory is the answer and no walk is performed.
+under =branches/<b>/.agents/<agent>/= and do not branch, so their own
+directory is the answer and no walk is performed. The hidden name of
+the agents directory is irrelevant to the walk: it only ever looks for
+a =branches/= ancestor, and for an agent it does not walk at all.
 
 When no =branches/= ancestor is found (corrupt / standalone layout) the
 function returns branch-dir unchanged and logs at debug — never signals.
@@ -346,7 +348,11 @@ Does not check if file exists."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--system-prompts-file))
 
 (defun jf/gptel--agents-dir-path (branch-dir)
-  "Get path to agents directory in BRANCH-DIR."
+  "Get path to the hidden agents directory (`.agents') in BRANCH-DIR.
+The sole composer of the agents-directory name: reads
+`jf/gptel-session--agents-dir' and nothing else spells it.  Reach the
+directory through this function plus `file-directory-p'; never discover
+it by listing BRANCH-DIR, whose enumerators skip hidden entries."
   (jf/gptel--branch-file-path branch-dir jf/gptel-session--agents-dir))
 #+end_src
 
@@ -377,6 +383,14 @@ Returns absolute path if found, nil otherwise."
 * Branch and Agent Discovery
 
 Discover all branches and agents in the new branch-inside-session architecture.
+
+Enumerators here list the /children/ of a known directory — session
+ids under the root, branch names under =branches/=, agent dirs under
+=.agents/= — and filter with ="^[^.]"= at that level, which is fine
+because none of those children is hidden. The agents directory itself
+is never discovered by listing a branch directory (that filter would
+hide it); it is reached only through =jf/gptel--agents-dir-path= plus
+=file-directory-p=.
 
 #+begin_src emacs-lisp
 (defun jf/gptel--find-all-branches-with-agents ()
@@ -434,7 +448,12 @@ register/boundary/drawer-first-identity-resolution."
 
 * Agent Directories
 
-Agent directories are now per-branch, not per-session.
+Agent directories are per-branch, not per-session, and live under the
+hidden =<branch>/.agents/= directory (=jf/gptel-session--agents-dir=).
+Both helpers compose the path through =jf/gptel--agents-dir-path=; no
+literal appears here. There is no compatibility shim for the former
+=agents/= name — the migration command renames existing directories,
+and a tree still using =agents/= is simply not seen as having agents.
 
 #+begin_src emacs-lisp
 (defun jf/gptel--create-agent-directory (parent-branch-dir preset description)
@@ -457,8 +476,11 @@ Returns the absolute path to the created agent directory."
     agent-dir))
 
 (defun jf/gptel--list-agent-directories (parent-branch-dir)
-  "List all agent directories under PARENT-BRANCH-DIR.
-Returns list of absolute paths."
+  "List all agent directories under PARENT-BRANCH-DIR's `.agents/'.
+Returns list of absolute paths.  The hidden-entry filter applies to the
+CHILDREN of the agents directory (so `.' / `..' and dot-entries are
+never returned); the agents directory itself is located through
+`jf/gptel--agents-dir-path', not by listing PARENT-BRANCH-DIR."
   (let ((agents-dir (jf/gptel--agents-dir-path parent-branch-dir)))
     (when (file-directory-p agents-dir)
       (seq-filter

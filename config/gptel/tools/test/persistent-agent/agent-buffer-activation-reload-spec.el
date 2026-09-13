@@ -76,14 +76,14 @@
 (require 'gptel)
 
 (defun jf-pa-auto-init-test--find-agent-buffer (branch-dir)
-  "Return the agent buffer visiting a `session.org' under BRANCH-DIR/agents/.
+  "Return the agent buffer visiting a `session.org' under BRANCH-DIR/.agents/.
 Walks `(buffer-list)' for buffers whose `buffer-file-name' lies under
-the parent BRANCH-DIR's `agents/' subtree.  Compares via
+the parent BRANCH-DIR's `.agents/' subtree.  Compares via
 `file-truename' to absorb macOS `/var' → `/private/var' resolution.
 Returns nil if no such buffer is open."
   (let ((agents-prefix (file-name-as-directory
                         (file-truename
-                         (expand-file-name "agents" branch-dir)))))
+                         (expand-file-name ".agents" branch-dir)))))
     (cl-find-if
      (lambda (buf)
        (when-let* ((file (buffer-file-name buf)))

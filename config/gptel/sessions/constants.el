@@ -45,8 +45,13 @@ Uses org-mode format for better structure and linking.")
   "File name for system prompt change log.
 Uses org-mode format for better structure.")
 
-(defconst jf/gptel-session--agents-dir "agents"
-  "Directory name for agent sessions within parent session.")
+(defconst jf/gptel-session--agents-dir ".agents"
+  "Directory name for agent sessions within a parent branch directory.
+Hidden (dot-prefixed) so an indexer that skips hidden directories
+excludes agent transcripts, which are byte copies carrying the parent's
+org IDs.  This constant is the only place the name is spelled; compose
+paths through `jf/gptel--agents-dir-path', never from a literal.  No
+compatibility shim exists for the former \"agents\" name.")
 
 (defcustom jf/gptel-autosave-idle-time 0.5
   "Idle time in seconds before auto-saving session buffer.

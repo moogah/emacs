@@ -99,9 +99,9 @@ Caller is responsible for cleanup via `delete-directory'."
 
       (before-each
         (setq root (jf/gptel-test--make-tree))
-        ;; <root>/branches/main/agents/<agent>/
+        ;; <root>/branches/main/.agents/<agent>/ (hidden agents dir)
         (setq agent-dir (expand-file-name
-                         "branches/main/agents/researcher-20260120153042" root))
+                         "branches/main/.agents/researcher-20260120153042" root))
         (make-directory agent-dir t))
 
       (after-each

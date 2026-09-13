@@ -193,7 +193,7 @@ without activating any major mode (the binder is invoked directly)."
         (unwind-protect
             (let* ((agent-dir
                     (expand-file-name
-                     "qux-20260420000000/branches/main/agents/researcher-1"
+                     "qux-20260420000000/branches/main/.agents/researcher-1"
                      temp-root))
                    (session-file
                     (jf-gptel-bind-test--write-session

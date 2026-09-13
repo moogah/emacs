@@ -22,7 +22,7 @@
 (defmacro jf/persistent-agent-test--with-mock-parent-session (&rest body)
   "Run BODY inside a temp parent persistent session.
 The temp dir matches the layout `<root>/<session-id>/branches/main/'
-so that nested-agent paths under `agents/' resolve correctly when
+so that nested-agent paths under `.agents/' resolve correctly when
 content-addressed activation binds session identity.
 
 Inside BODY, the following buffer-local-style bindings are visible

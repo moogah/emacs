@@ -97,7 +97,7 @@ so the value is immune to the working-tree mirror writer."
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "do the thing"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (entries    (and (file-directory-p agents-dir)
                                  (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
@@ -133,7 +133,7 @@ so the value is immune to the working-tree mirror writer."
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
@@ -205,7 +205,7 @@ so the value is immune to the working-tree mirror writer."
             #'ignore "test-preset" "analyze code" "do the thing"
             "/path/to/project"
             '("/path/to/project/**" "/another/**")))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
@@ -254,7 +254,7 @@ so the value is immune to the working-tree mirror writer."
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "do the thing"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
@@ -295,7 +295,7 @@ so the value is immune to the working-tree mirror writer."
     ;; Scenario: specs/persistent-agent/spec.md (delta) § "Error handling"
     ;; -> "Unknown preset rejected before any side effect"
     (jf/persistent-agent-test--with-mock-parent-session
-     (let ((agents-dir (expand-file-name "agents" mock-branch-dir))
+     (let ((agents-dir (expand-file-name ".agents" mock-branch-dir))
            (err nil))
        ;; Capture the user-error so we can both confirm it fired and
        ;; inspect its message.
@@ -307,7 +307,7 @@ so the value is immune to the working-tree mirror writer."
        (expect (car-safe err) :to-equal 'user-error)
        (expect (error-message-string err) :to-match
                "Preset .nonexistent. not found")
-       ;; agents/ MUST be empty (or nonexistent) — no side effects on the
+       ;; .agents/ MUST be empty (or nonexistent) — no side effects on the
        ;; failure path.
        (let ((entries (and (file-directory-p agents-dir)
                            (cl-remove-if
@@ -361,7 +361,7 @@ so the value is immune to the working-tree mirror writer."
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
@@ -388,7 +388,7 @@ so the value is immune to the working-tree mirror writer."
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))
@@ -445,7 +445,7 @@ so the value is immune to the working-tree mirror writer."
                (jf/persistent-agent-test--with-mock-gptel-request captured
                  (jf/gptel-persistent-agent--task
                   #'ignore "sibling-agent-preset" "analyze code" "DO THE THING"))
-               (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+               (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                       (agent-name (car (cl-remove-if
                                         (lambda (n) (member n '("." "..")))
                                         (directory-files agents-dir))))
@@ -491,7 +491,7 @@ so the value is immune to the working-tree mirror writer."
          (jf/persistent-agent-test--with-mock-gptel-request captured
            (jf/gptel-persistent-agent--task
             #'ignore "test-preset" "analyze code" "DO THE THING"))
-         (let* ((agents-dir (expand-file-name "agents" mock-branch-dir))
+         (let* ((agents-dir (expand-file-name ".agents" mock-branch-dir))
                 (agent-name (car (cl-remove-if
                                   (lambda (n) (member n '("." "..")))
                                   (directory-files agents-dir))))

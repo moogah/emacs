@@ -56,6 +56,7 @@ instrumentation.
 ;;; Code:
 
 (require 'org)
+(require 'gptel-session-constants)      ; jf/gptel-session--agents-dir
 
 (defvar jf/gptel-drawer-trace-file
   (expand-file-name "~/.gptel-drawer-trace.log")
@@ -77,15 +78,19 @@ full coverage to see inserts that land at point-max.")
 * Session predicate
 
 Match only gptel session files under =branches/<name>/session.org= or
-=agents/<name>/session.org=. This keeps the after-change hook from
-firing on every edit in every buffer.
+=<agents-dir>/<name>/session.org=, where the agents directory name is
+composed from =jf/gptel-session--agents-dir= (the hidden =.agents/=)
+rather than spelled here. This keeps the after-change hook from firing
+on every edit in every buffer.
 
 #+begin_src emacs-lisp
 (defun jf/gptel-drawer--session-p ()
   "Non-nil when the current buffer is a gptel session .org file."
   (and buffer-file-name
        (string-match-p
-        "/\\(?:branches\\|agents\\)/[^/]+/session\\.org\\'"
+        (concat "/\\(?:branches\\|"
+                (regexp-quote jf/gptel-session--agents-dir)
+                "\\)/[^/]+/session\\.org\\'")
         buffer-file-name)))
 #+end_src
 
