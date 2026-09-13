@@ -2,7 +2,9 @@
 name: gptel-session-keywords-and-hooks
 description: Emit #+title and #+filetags on new sessions, add jf/gptel-session-created-hook under an error guard, and add a pure-gptel "new topic with ID" command.
 change: workspace-notes-in-vault
-status: ready
+status: needs_review
+merge_commit: 43d3414a
+merged_at: 2026-09-14T00:05:00Z
 task_class: contract
 on_critical_path: true
 cycle: cycle-1789334430
