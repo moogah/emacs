@@ -219,6 +219,157 @@ alongside the typed-edge extractor registration, through the shared
 resilient-deferral idiom (=org-graph--run-deferred-op= — failures are
 logged via =display-warning=, never abort startup).
 
+* Parser hardening
+:PROPERTIES:
+:CUSTOM_ID: parser-hardening
+:END:
+
+Two runtime guards on vulpea's indexer, installed here because this
+module already owns the vulpea sync surface.  Both are =:around= advice
+on functions of the pinned vulpea v2.4.0 (=vulpea-db-extract.el= /
+=vulpea-db-sync.el=), added idempotently at module load — before any
+sync can run — rather than carried as a vulpea fork: two stable seams,
+a few lines each, and =advice-add= is a no-op when the advice is
+already present.  Both entry points are private (=--=) vulpea
+functions, so the spec asserts =advice-member-p= on each: a vulpea
+bump that renames either fails the suite loudly instead of silently
+reopening the hole.
+
+** Hazard 1 — file-local variables evaluated during indexing
+
+With =vulpea-db-parse-method= at its default =temp-buffer=, every
+parse sets =buffer-file-name= to the file and re-runs =(org-mode)= with
+hooks.  =run-mode-hooks= calls =hack-local-variables= whenever the
+buffer has a file name, so a =Local Variables:= block at the end of an
+indexed file is read and — subject to =enable-local-variables= — its
+=eval:= entries are evaluated.  The incident that started this change
+was exactly that: a third-party org file under a recursively indexed
+workspace home carried =eval: (org-hugo-auto-export-mode -1)=, which
+ran from the sync timer and dropped into the debugger.  Vault-only
+discovery removes that particular file, but the exposure is
+root-independent (any file dropped in the vault can carry an =eval:=
+local), so it is closed at the parser
+(=register/invariant/index-parser-never-evaluates-file-locals=).
+
+The advised seam is =vulpea-db--parse-file=, the single dispatcher
+that =vulpea-db-update-file= calls for every indexed file.  It
+selects among the three parse methods — =single-temp-buffer=,
+=temp-buffer= (both via =vulpea-db--parse-with-temp-buffer=) and
+=find-file= (=find-file-noselect=, which also runs =hack-local-variables=
+and additionally honours =.dir-locals.el=; forced for
+=vulpea-db-extra-extensions= such as =.org.gpg=).  Binding the two
+variables around the dispatcher covers all three, so the guarantee does
+not depend on the parse-method setting.  =enable-local-variables= nil
+makes =hack-local-variables= read nothing at all (no filter, no
+confirmation prompt, no =eval=); =enable-dir-local-variables= nil is
+belt-and-braces for the =find-file= branch.  The parse itself is
+untouched: org keywords (=#+title=, =#+filetags=, =#+property=) are not
+local variables and are still honoured.
+
+#+begin_src emacs-lisp
+(declare-function vulpea-db--parse-file "vulpea-db-extract" (path))
+(declare-function vulpea-db-sync--update-file-if-changed "vulpea-db-sync"
+                  (path &optional hash-cache))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph--vulpea-parse-safely (orig &rest args)
+  "Call ORIG, vulpea's per-file parser, with file-local variables disabled.
+Binds `enable-local-variables' and `enable-dir-local-variables' to nil
+for the whole parse so a `Local Variables' block (in particular its
+`eval:' entries) is never read, evaluated, or confirmed while indexing,
+whatever the user's global settings.  Installed `:around'
+`vulpea-db--parse-file' by `org-graph--install-vulpea-hardening'."
+  (let ((enable-local-variables nil)
+        (enable-dir-local-variables nil))
+    (apply orig args)))
+#+end_src
+
+** Hazard 2 — one bad file takes down the sync timer
+
+=vulpea-db-sync--update-file-if-changed= is the per-file unit of both
+the autosync queue processor (=vulpea-db-sync--process-queue=, run from
+a timer) and =vulpea-db-sync-full-scan=; each caller loops over its
+batch and calls it once per path.  Wrapping that unit in a
+=condition-case= bounds the blast radius of any per-file failure — a
+malformed drawer, an encoding error, a future extractor bug — to a
+single logged skip: the wrapper returns nil (the caller counts the file
+as unchanged and moves on), the file's stored hash is left as it was so
+the next scan retries it, and the batch continues
+(=register/invariant/index-sync-per-file-errors-contained=).
+
+The skip is recorded as =(FILE . ERROR)= in the =*org-graph*= buffer
+and echoed with =message=, through the small =org-graph--log= helper
+below (this module's first logging need; other modules use
+=display-warning= for startup-time failures).
+
+Precision about the debugger: a =condition-case= keeps the debugger
+out for errors that *reach* it unhandled — with =debug-on-error= t,
+Emacs only enters the debugger for errors no =condition-case= handles.
+It cannot intercept a frame deeper in the call that handles the error
+itself with a =debug= condition (=condition-case-unless-debug= /
+=with-demoted-errors=), because the debugger is entered at signal time
+inside that frame.  =run-mode-hooks= wraps =hack-local-variables= in
+exactly such a frame, which is how the incident reached the debugger
+despite vulpea's own per-file handler — and why Hazard 1 is the
+load-bearing fix for it, with this guard as the independent backstop.
+
+#+begin_src emacs-lisp
+(defconst org-graph--log-buffer-name "*org-graph*"
+  "Name of the buffer `org-graph--log' appends to.")
+
+(defun org-graph--log (format-string &rest args)
+  "Append a timestamped line to `org-graph--log-buffer-name' and echo it.
+FORMAT-STRING and ARGS are as for `format'.  Returns the formatted line."
+  (let ((line (apply #'format format-string args)))
+    (with-current-buffer (get-buffer-create org-graph--log-buffer-name)
+      (let ((inhibit-read-only t))
+        (goto-char (point-max))
+        (insert (format-time-string "[%Y-%m-%d %H:%M:%S] ") line "\n")))
+    (message "org-graph: %s" line)
+    line))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph--vulpea-update-safely (orig path &rest args)
+  "Call ORIG, vulpea's per-file sync update, on PATH; contain any error.
+On error, log (PATH . ERROR) via `org-graph--log' and return nil so the
+sync loop treats the file as skipped and continues with the next one.
+ARGS are passed through.  Installed `:around'
+`vulpea-db-sync--update-file-if-changed' by
+`org-graph--install-vulpea-hardening'."
+  (condition-case err
+      (apply orig path args)
+    (error
+     (org-graph--log "sync: skipped %S -- %s  (%S . %S)"
+                     path (error-message-string err) path err)
+     nil)))
+#+end_src
+
+** Installer
+
+Named and idempotent so it can be re-run from a module reload; the
+advice functions are added by symbol, so a redefinition of either
+=defun= above does not stack a second copy.  Installed at load: with
+vulpea already loaded by the loader's =use-package= the advice wraps
+the live definitions, and if vulpea were to load later =advice-add= on
+a not-yet-defined symbol still takes effect when the =defun= runs.
+
+#+begin_src emacs-lisp
+(defun org-graph--install-vulpea-hardening ()
+  "Install the parser and sync-containment advice on vulpea (idempotent).
+Adds `org-graph--vulpea-parse-safely' `:around' `vulpea-db--parse-file'
+and `org-graph--vulpea-update-safely' `:around'
+`vulpea-db-sync--update-file-if-changed'.  `advice-add' is a no-op when
+the advice is already present, so repeated calls are harmless."
+  (advice-add 'vulpea-db--parse-file
+              :around #'org-graph--vulpea-parse-safely)
+  (advice-add 'vulpea-db-sync--update-file-if-changed
+              :around #'org-graph--vulpea-update-safely))
+
+(org-graph--install-vulpea-hardening)
+#+end_src
+
 * Module Initialization
 
 #+begin_src emacs-lisp

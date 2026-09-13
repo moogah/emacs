@@ -91,5 +91,61 @@ session without waiting for vulpea's lazy per-file-touch registration."
       (when (and id path)
         (org-id-add-location id path)))))
 
+(declare-function vulpea-db--parse-file "vulpea-db-extract" (path))
+(declare-function vulpea-db-sync--update-file-if-changed "vulpea-db-sync"
+                  (path &optional hash-cache))
+
+(defun org-graph--vulpea-parse-safely (orig &rest args)
+  "Call ORIG, vulpea's per-file parser, with file-local variables disabled.
+Binds `enable-local-variables' and `enable-dir-local-variables' to nil
+for the whole parse so a `Local Variables' block (in particular its
+`eval:' entries) is never read, evaluated, or confirmed while indexing,
+whatever the user's global settings.  Installed `:around'
+`vulpea-db--parse-file' by `org-graph--install-vulpea-hardening'."
+  (let ((enable-local-variables nil)
+        (enable-dir-local-variables nil))
+    (apply orig args)))
+
+(defconst org-graph--log-buffer-name "*org-graph*"
+  "Name of the buffer `org-graph--log' appends to.")
+
+(defun org-graph--log (format-string &rest args)
+  "Append a timestamped line to `org-graph--log-buffer-name' and echo it.
+FORMAT-STRING and ARGS are as for `format'.  Returns the formatted line."
+  (let ((line (apply #'format format-string args)))
+    (with-current-buffer (get-buffer-create org-graph--log-buffer-name)
+      (let ((inhibit-read-only t))
+        (goto-char (point-max))
+        (insert (format-time-string "[%Y-%m-%d %H:%M:%S] ") line "\n")))
+    (message "org-graph: %s" line)
+    line))
+
+(defun org-graph--vulpea-update-safely (orig path &rest args)
+  "Call ORIG, vulpea's per-file sync update, on PATH; contain any error.
+On error, log (PATH . ERROR) via `org-graph--log' and return nil so the
+sync loop treats the file as skipped and continues with the next one.
+ARGS are passed through.  Installed `:around'
+`vulpea-db-sync--update-file-if-changed' by
+`org-graph--install-vulpea-hardening'."
+  (condition-case err
+      (apply orig path args)
+    (error
+     (org-graph--log "sync: skipped %S -- %s  (%S . %S)"
+                     path (error-message-string err) path err)
+     nil)))
+
+(defun org-graph--install-vulpea-hardening ()
+  "Install the parser and sync-containment advice on vulpea (idempotent).
+Adds `org-graph--vulpea-parse-safely' `:around' `vulpea-db--parse-file'
+and `org-graph--vulpea-update-safely' `:around'
+`vulpea-db-sync--update-file-if-changed'.  `advice-add' is a no-op when
+the advice is already present, so repeated calls are harmless."
+  (advice-add 'vulpea-db--parse-file
+              :around #'org-graph--vulpea-parse-safely)
+  (advice-add 'vulpea-db-sync--update-file-if-changed
+              :around #'org-graph--vulpea-update-safely))
+
+(org-graph--install-vulpea-hardening)
+
 (provide 'org-graph-discovery)
 ;;; discovery.el ends here
