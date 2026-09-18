@@ -62,3 +62,14 @@ already formats the directory into its description).
 ## Context
 design.md § D6 (Extraction root bullet); § Risks (roam-root removal)
 specs/org-graph/spec.md § 'Typed Semantic Edges' (extraction root paragraph and 'Session heading contributes an edge'), 'Agent-Facing Graph Tools'
+
+## Cycle 1 updates (cycle-1789334430)
+
+### Cited register entries
+- `register/boundary/vault-root-vs-roam-root`: speculated (annotated). `og-vault-only-discovery` already scrubbed the workspace vocabulary from the `org-graph-roam-root` docstring (org-graph.el:19-27); the knob and its three readers are still live. Whole-tree grep confirmed the readers to remove are exactly: `org-graph-extractor--roam-note-p` extractor.el:166-181 (plus the `(defvar org-graph-roam-root)` at :166), `org-graph-tools--roam-root` tools.el:14-20, and the seed installer's `user-error` fallback edge-type.el:176-178. **Implication**: steps 1-4 stand; the org-line estimates in "Files to modify" (tools.org ~:77-83, extractor ~:386) are stale — locate by the tangled lines above. See `.orchestrator/cycles/cycle-1789334430/reconciliations/boundary-vault-root-vs-roam-root.md`.
+- `register/invariant/bounded-discovery-roots`: speculated → reconciled. `org-graph/index-roots` (discovery.el:24-36) returns exactly the expanded `org-graph-vault-root`; the `boundp` fallback to `~/org/` is pinned (discovery-spec.el:93). **Implication**: step 2's "every indexed note is under the vault" is now a tested fact, so the widened gate is purely defensive as the step says. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-bounded-discovery-roots.md`.
+- `register/boundary/typed-edge-extraction-scope` (unchanged this cycle): this task is its cycle-2 owner — re-state it when the gate widens to the vault root.
+
+### Meta-discoveries
+- `untouched-neighbour-consumer-drift`: the Verification grep over `config/org-graph/*.el` misses prose and specs. Add `grep -rn 'org-graph-roam-root\|roam-root' config/org-graph/ openspec/specs/ config/org-graph/docs/` and clean every survivor (module-load-spec.el's roam-root default assertion, tools-spec / edge-type-spec fixtures, spike-eval.org prose).
+- `vulpea-api-verify-against-source`: `write-node`'s refusal path (step 3) sits in front of `vulpea-create`; read `runtime/straight/repos/vulpea/vulpea.el` for how `:file-name` / directory are resolved before asserting "creates no file".

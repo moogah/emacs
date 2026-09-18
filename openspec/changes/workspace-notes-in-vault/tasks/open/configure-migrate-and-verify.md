@@ -62,3 +62,19 @@ config placement per CLAUDE.md "Machine roles".
 ## Context
 design.md § D7, § D9, § Migration Plan (steps 2–3)
 specs/workspace-graph-integration/spec.md § 'Sessions root within the vault', 'Migration of co-located workspaces'
+
+## Cycle 1 updates (cycle-1789334430)
+
+### Cited register entries
+- `register/invariant/sessions-single-root`: speculated → reconciled. `jf/gptel-sessions-directory` is the ONLY knob; creation resolves through the mkdir-ing `jf/gptel--ensure-sessions-root`, enumerators expand the variable directly and never create the root. **Implication for step 1**: the load-time check compares `(expand-file-name jf/gptel-sessions-directory)` against the expanded vault root; setting the variable in init.org is sufficient — no other root exists to redirect. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-sessions-single-root.md`.
+- `register/invariant/index-parser-never-evaluates-file-locals`: speculated → reconciled — the seam is `:around vulpea-db--parse-file` (discovery.el:68/:113), spec-covered by discovery-spec.el:289-383. Step 4's "`eval:` local does not prompt" human check remains the live-boot confirmation. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-index-parser-never-evaluates-file-locals.md`.
+- `register/invariant/index-sync-per-file-errors-contained`: reconciled, SOFTENED — containment does not cover the force full scan or a manual `vulpea-db-update-file` (ask-11). **Implication for step 4**: run the `eval:`-local check through BOTH the non-force scan and a force scan and record which path was exercised. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-index-sync-per-file-errors-contained.md`.
+- `register/invariant/bounded-discovery-roots` / `register/boundary/session-dir-marker-walk`: reconciled / confirmed. Hidden-dir exclusion is vulpea's at both enumeration paths (sync predicate `vulpea-db-sync--org-file-p`; async `fd --exclude '.*'`), only the sync form is spec-covered; the `.agents/` walk is e2e-tested in hidden-agents-dir-spec.el:139-190. **Implication for step 4**: the "full re-scan indexes nothing under `.agents/`" check should exercise the async (fd) path as well. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-bounded-discovery-roots.md`.
+- `register/invariant/edge-drawer-immediately-after-property-drawer`: DIVERGENT (ask-8). **Implication for step 3/4**: alongside the D7 prompt-hygiene spec, add a human check that `vulpea-note-meta-get` on a migrated session note is nil and a project note's `status` still reads `active` after edges exist — whichever placement option the user chose. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-edge-drawer-immediately-after-property-drawer.md`.
+
+### Already-shipped inline fixes
+- `f014ee38`: the spike-eval runbook's stale passages were partially rewritten. **Implication for this task**: cross-check `config/org-graph/docs/spike-eval.org` § "Capability: Discovery" (:120-176) and § Findings/Discovery (:417) against the vault-only discovery before adding the "Workspace notes in vault" section, so the runbook does not contradict itself.
+
+### Meta-discoveries
+- `register-status-lags-commit-prose`: when recording findings in step 6, cite the reconciliation-note paths above (statuses live in interfaces.org), not commit messages.
+- `stub-bounded-regression`: this task IS the un-stubbed end-to-end gate for the change; do not close it on suite-green alone — the step 4 human checks are the requirement.

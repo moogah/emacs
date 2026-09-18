@@ -7,6 +7,7 @@ relations:
   - blocked-by:int-workspaces-org-graph
   - blocked-by:og-menu-extra-groups
   - enables:configure-migrate-and-verify
+  - blocked-by:disposition-edge-drawer-meta-and-placement
 ---
 
 ## Files to modify
@@ -66,3 +67,16 @@ workspace `:menu` registration shape from integrations.org.
 design.md § D8 (find-in-workspace, new-in-workspace), § Open Questions OQ-B
 specs/workspace-graph-integration/spec.md § 'Workspace-scoped note commands'
 specs/org-graph-menu/spec.md § 'Graph Menu Prefix' (Workspace group)
+
+## Cycle 1 updates (cycle-1789334430)
+
+### Cited register entries
+- `register/invariant/edge-drawer-immediately-after-property-drawer`: speculated → DIVERGENT (ask-cycle-1789334430-8). `vulpea-db--extract-meta` (vulpea-db-extract.el:807-840) takes the first description list before the first headline and descends into drawers, so the EDGES drawer `write-edge` places right after the property drawer SHADOWS any META the note carries. Step 4's `new-in-workspace` writes onto arbitrary vault notes that may carry META → BLOCKED (`blocked-by:disposition-edge-drawer-meta-and-placement`). If option (a)+dedupe is chosen, integrate will re-point this task's blocked-by to `og-edge-writer-meta-safe-and-dedupe`. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-edge-drawer-immediately-after-property-drawer.md`.
+- `register/invariant/write-edge-idempotent`: speculated → DIVERGENT (ask-cycle-1789334430-13). Dedupe looks only at the drawer on the line after `:END:`; a hand-authored EDGES drawer elsewhere yields a second drawer and duplicate tuples. Step 4's "still write the edge (idempotent)" holds only for writer-created drawers until this is decided. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-write-edge-idempotent.md`.
+- `register/boundary/edge-writer-api`: speculated → reconciled. `(org-graph/write-edge FILE TYPE TARGET &optional NODE-ID)` returns the item text or nil on the no-op and REFUSES an ID-less node (`user-error`). **Implication**: `org-graph/find-or-create` must yield an ID'd note before step 4's write; treat a nil return as "already linked". See `.orchestrator/cycles/cycle-1789334430/reconciliations/boundary-edge-writer-api.md`.
+- `register/shape/workspace-plist-v3`: reconciled — read the id with `workspace-node-id` (data-model.el:178); `workspace--current-name` (tabs.el:47) is the tab→name resolver step 1 leans on. See `.orchestrator/cycles/cycle-1789334430/reconciliations/shape-workspace-plist-v3.md`.
+- `register/vocabulary/relation-types`: confirmed — `'part-of` is normalised by the writer; the query side (`org-graph-query/incoming node-id 'part-of`) takes the same symbol. See `.orchestrator/cycles/cycle-1789334430/reconciliations/vocabulary-relation-types.md`.
+
+### Meta-discoveries
+- `vulpea-api-verify-against-source`: read `vulpea-find` (`:filter-fn`, `:require-match`) and `vulpea-db-query` in `runtime/straight/repos/vulpea` before writing steps 2-3; the path-expansion query shape is a guess until checked.
+- `stub-bounded-regression`: step 6 is fully stubbed; add ONE un-stubbed scenario (temp vault with a file note, an ID'd heading in a linked session file, an unrelated note; real index) asserting the id set is {A, H}.

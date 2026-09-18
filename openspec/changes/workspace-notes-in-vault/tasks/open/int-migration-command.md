@@ -9,6 +9,7 @@ relations:
   - blocked-by:int-gptel-org-graph
   - blocked-by:gptel-hidden-agents
   - enables:configure-migrate-and-verify
+  - blocked-by:disposition-edge-drawer-meta-and-placement
 ---
 
 ## Files to modify
@@ -75,3 +76,21 @@ atomic-write path for the flush.
 ## Context
 design.md § D9 'Migration command'; § Risks (migration touches the persistence file)
 specs/workspace-graph-integration/spec.md § 'Migration of co-located workspaces'
+
+## Cycle 1 updates (cycle-1789334430)
+
+### Cited register entries
+- `register/invariant/edge-drawer-immediately-after-property-drawer` / `register/invariant/write-edge-idempotent`: speculated → DIVERGENT (ask-8 / ask-13). Migration-era session files may carry hand-authored EDGES drawers elsewhere (second drawer + duplicates on re-run — breaks step 9's "second run performs no file operations") and META-bearing notes get shadowed. BLOCKED (`blocked-by:disposition-edge-drawer-meta-and-placement`); if (a)+dedupe is chosen, integrate re-points the blocked-by to `og-edge-writer-meta-safe-and-dedupe`. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-write-edge-idempotent.md`, `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-edge-drawer-immediately-after-property-drawer.md`.
+- `register/boundary/edge-writer-api`: reconciled. `write-edge` REFUSES a node without a file-level `:ID:` (`user-error`). **Implication for step 3**: pre-ID-stamping `main` branches must be stamped (same `org-id-new` + `org-id-add-location` recipe) BEFORE the `part-of` write, not only the non-`main` branches. See `.orchestrator/cycles/cycle-1789334430/reconciliations/boundary-edge-writer-api.md`.
+- `register/boundary/project-note-creation`: reconciled. `(org-graph/create-project-note TITLE &optional BODY)`; BODY is inserted verbatim via `:context (:body BODY)`, so a `home.org` body containing `id:` links, `%(` or `${` is safe in step 2. See `.orchestrator/cycles/cycle-1789334430/reconciliations/boundary-project-note-creation.md`.
+- `register/shape/workspace-plist-v3`: reconciled. `workspace-set-node-id` needs the live record; after `ws-node-id-setter-live-record` (blocked transitively via `int-workspaces-org-graph`) call it with the workspace NAME in step 2. See `.orchestrator/cycles/cycle-1789334430/reconciliations/shape-workspace-plist-v3.md`.
+- `register/invariant/sessions-single-root`: reconciled. The configured root is `(expand-file-name jf/gptel-sessions-directory)`; `jf/gptel--ensure-sessions-root` (filesystem.el:16) creates it. **Implication for steps 3-4**: call the resolver once before the first `rename-file`; enumerate the target with the same expansion the enumerators use. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-sessions-single-root.md`.
+- `register/vocabulary/session-tree-directory-names`: reconciled. `.agents` is single-sourced from `jf/gptel-session--agents-dir` (constants.el:48). **Implication for step 5**: rename to `(jf/gptel--agents-dir-path branch-dir)` / the constant, never a literal `".agents"`. See `.orchestrator/cycles/cycle-1789334430/reconciliations/vocabulary-session-tree-directory-names.md`.
+- `register/shape/session-file-head`: reconciled. Migration-era session files predate `#+title:` / `#+filetags: :gptel_session:` (commands.el:312); a migrated session is indexed but has no `gptel_session` filetag, so the `session` schema predicate will not match it. **Implication**: add a step (or fold into step 3) that inserts the two keywords after the drawer's `:END:` when absent, so migrated sessions group as `session` in the dblock. See `.orchestrator/cycles/cycle-1789334430/reconciliations/shape-session-file-head.md`.
+
+### User-resolved decisions
+- `ask-cycle-1789334430-12` (open; default carried — `disposition-persistent-agent-session-head` (a)): agent transcripts get no keywords / hook / edges. **Implication for this task**: step 5 renames `agents/` → `.agents/` only; never write edges, keywords or IDs into transcripts under it.
+
+### Meta-discoveries
+- `stub-bounded-regression`: step 9's temp-tree run is the un-stubbed scenario — keep the real `rename-file` / real `write-edge` path and spy only for the second-run no-op assertion.
+- `untouched-neighbour-consumer-drift`: layout blobs (step 7) are a regex/prose-style consumer of `home.org` paths that no helper grep finds — grep the persisted state file for the literal path before and after to prove step 7 repointed every occurrence.

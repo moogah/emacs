@@ -67,3 +67,14 @@ as in `authoring.org` / `menu.org` additions.
 ## Context
 design.md § D6 (Dynamic block bullet); § Risks (regeneration edits the note)
 specs/org-graph/spec.md § 'Connected-notes dynamic block'
+
+## Cycle 1 updates (cycle-1789334430)
+
+### Cited register entries
+- `register/invariant/org-graph-loader-ordered-sequence`: speculated → reconciled. The loader is the ten-module contiguous block org-graph.el:104-113 (schemas, extractor, coordinator, query, finders, authoring, edge-type, tools, discovery, menu) and the enforcement is now a structural audit of the TANGLED loader, module-load-spec.el:127-143 (`module-load-spec--canonical-order`, count 10, line span 9). **Implication**: step 3's `dblock.el` slot after `query.el` must also update `module-load-spec--canonical-order`, the `(expect (length numbers) :to-equal 10)` and the span `9` → eleven modules / span 10, or the audit fails. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-org-graph-loader-ordered-sequence.md`.
+- `register/boundary/project-note-creation`: speculated → reconciled. `org-graph/create-project-note` (authoring.el:192) stamps the literal `org-graph-authoring--connected-block` = `#+BEGIN: org-graph-connected\n#+END:` (authoring.el:185-189) — no params. **Implication**: step 1's `:id` default (file-level node at point-min) is the path every stamped block will take; step 2 holds as written. See `.orchestrator/cycles/cycle-1789334430/reconciliations/boundary-project-note-creation.md`.
+- `register/invariant/edge-drawer-immediately-after-property-drawer`: speculated → DIVERGENT (ask-cycle-1789334430-8): an EDGES drawer at the pinned spot is parsed by `vulpea-db--extract-meta` as the note's META. The dblock reads rows from the typed-edge index (`org-graph-query/incoming`), which the divergence does not affect for session notes (no META today); keep the dblock index-only — do not read `vulpea-note-meta` for grouping. See `.orchestrator/cycles/cycle-1789334430/reconciliations/invariant-edge-drawer-immediately-after-property-drawer.md`.
+
+### Meta-discoveries
+- `vulpea-api-verify-against-source`: every speculated vulpea claim this cycle was wrong until read against `runtime/straight/repos/vulpea`; verify `vulpea-db-get-by-id`, `vulpea-note-title` / `-path` / `-tags` signatures there before writing step 1's resolver, not from memory.
+- `stub-bounded-regression`: step 4 stubs the query and the DB; add ONE un-stubbed end-to-end scenario (temp vault, real `vulpea-db-sync`, a real `org-graph/write-edge part-of` from a session note, then `org-dblock-update` on the project note lists it) so the stubbed shapes are pinned to the real index.

@@ -41,3 +41,8 @@ format-string crash in the assertion message while there.
 
 - `./bin/run-tests.sh -d config/gptel/presets` — green.
 - Full `./bin/run-tests.sh` no longer counts this spec among failures.
+
+> cycle-1789334430 integrate (2026-09-17): og-vault-only-discovery moved tool injection off the
+> workspace-integration module and the presets suite is green (86 specs); this task is moot on
+> branch workspace-notes-in-vault as written. Re-pointed at `int-workspaces-gptel`, which owns
+> tool injection into the workspace-assistant preset; re-check the stale spec at that task's review.
