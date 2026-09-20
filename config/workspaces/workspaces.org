@@ -119,6 +119,13 @@ user enables it explicitly).  It is loaded last so its dependencies
 (=workspace--current-name= from =tabs=, =workspace--autosave-current-
 layout= from =layouts=) exist at definition time.
 
+=portable-bookmarks= is a *consumer* module, loaded from here rather
+than from =jf/enabled-modules= in =init.org= (which holds the single
+entry =("workspaces/workspaces" …)= for this whole package) so that it
+inherits the package's own ordering guarantees.  It reads
+=workspace--registry= / =workspace--current-name= (=tabs=) and calls
+=workspace-restore= (=persistence=), so it loads after both.
+
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/integrations.el"      jf/emacs-dir))
@@ -134,6 +141,11 @@ layout= from =layouts=) exist at definition time.
 (jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
 (require 'workspaces-mode)
+;; Consumer of the workspace registry (must load after tabs.el, which owns
+;; `workspace--registry'/`workspace--current-name', and after persistence.el,
+;; which defines `workspace-restore').  Droppable: removing this one line
+;; removes the bookmark advice and returns behaviour to stock.
+(jf/load-module (expand-file-name "config/workspaces/portable-bookmarks.el" jf/emacs-dir))
 ;; Front-door transient: needs `workspace--current-name'/`workspace--registry'
 ;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
 ;; (integrations), so it loads last.

@@ -1,0 +1,225 @@
+#+title: Workspaces — Portable Bookmarks
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle portable-bookmarks.el
+#+auto_tangle: y
+
+* Overview
+
+Workspace-relative resolution of Emacs bookmarks.  A bookmark records an
+absolute =filename=; when the same file lives in several checkouts of one
+repository (a canonical clone plus one git worktree per workspace),
+jumping to that bookmark opens whichever checkout happened to be current
+when the bookmark was made.  This module stamps portable coordinates onto
+new bookmark records and resolves them against the current workspace at
+jump time.
+
+** Boundary
+
+This module is a *consumer* of the workspaces package, not part of its
+core (=register/boundary/portable-bookmarks-consumer=).  The one-way rule:
+
+- It MAY name =bookmark=, =git=, and workspaces registry internals
+  (=workspace--registry=, =workspace--current-name=, =workspace--broken-p=,
+  =workspace-restore=, =workspace-anti-save-predicates=).
+- Workspaces CORE (=data-model= / =integrations= / =workspaces= / =tabs= /
+  =persistence= / =layouts= / =workspaces-mode= / =workspaces-transient=)
+  MUST NEVER name a =workspace-bookmark-*= symbol.  The single permitted
+  mention in core is the loader PATH STRING "portable-bookmarks.el" in
+  =workspaces.org= — a string, not a live symbol.
+
+** No magit, no projectile
+
+Git is reached by subprocess (=process-file=), never through magit.  This
+is deliberately the OPPOSITE choice from =git-worktrees.el=, which reaches
+worktrees via =magit-list-worktrees= and therefore carries a hard magit
+dependency.  Bookmark resolution must not inherit it: bookmarks are a
+stock-Emacs facility and this module has to keep working in a session that
+has never loaded magit.  The two worktree enumerations are a known,
+accepted overlap for this slice
+(=register/boundary/portable-bookmarks-consumer= =known_overlap=).
+
+** Droppable
+
+Removing the single =jf/load-module= line in =workspaces.org= removes the
+advice and returns behaviour to stock.  Records already stamped keep their
+absolute =filename= and keep working — the stamp is additive.  Rollback is
+one line.
+
+** Load order
+
+Loaded from the package loader =config/workspaces/workspaces.org=, NOT
+from =jf/enabled-modules= in =init.org= (which holds the single entry
+=("workspaces/workspaces" …)= for this whole package).  It loads after
+=tabs.el= (owner of =workspace--registry= and =workspace--current-name=)
+and after =persistence.el= (which defines =workspace-restore=), so the
+loader line sits between =workspaces-mode.el= and
+=workspaces-transient.el=.
+
+** Scaffold status
+
+This file is the module skeleton.  The two advice seams are installed and
+are deliberately PASS-THROUGH: the stamp seam returns the record it was
+given, and the jump seam calls straight through.  Later tasks
+(=stamp-seam=, =resolver-outcomes=, =jump-seam=) fill in the bodies
+without moving the seams.
+
+* Header Block
+
+#+begin_src emacs-lisp :comments no
+;;; portable-bookmarks.el --- Workspace-relative bookmark resolution -*- lexical-binding: t; -*-
+#+end_src
+
+* Requires
+
+#+begin_src emacs-lisp
+(require 'cl-lib)
+(require 'bookmark)
+#+end_src
+
+* Custom Group
+
+#+begin_src emacs-lisp
+(defgroup workspace-bookmark nil
+  "Workspace-relative resolution of Emacs bookmarks."
+  :group 'workspaces
+  :prefix "workspace-bookmark-")
+#+end_src
+
+* Stamped property names
+
+The two coordinates written into the user's bookmark file.  They are
+named here and ONLY here: these symbols end up serialised into
+=bookmark-default-file= on the user's disk, so renaming one later would
+orphan every existing stamp.  The indirection is cheap insurance against
+that.
+
+The pair is written and read together — a record carries BOTH coordinates
+or NEITHER (=register/shape/portable-bookmark-coordinates=).
+
+#+begin_src emacs-lisp
+(defcustom workspace-bookmark-repo-property 'workspace-bookmark-repo
+  "Bookmark-record property holding the repository identity.
+The value stored under this property is the normalized remote URL of the
+repository the bookmarked file belongs to.
+
+This symbol is serialised into the user's bookmark file.  Changing it
+orphans coordinates stamped under the previous name; records so orphaned
+degrade to the `non-portable' outcome and behave exactly as stock
+bookmarks do."
+  :type 'symbol
+  :group 'workspace-bookmark)
+
+(defcustom workspace-bookmark-relpath-property 'workspace-bookmark-relpath
+  "Bookmark-record property holding the repository-relative file path.
+The value stored under this property is the bookmarked file's path
+relative to the root of its checkout, so it can be re-anchored against a
+different checkout of the same repository.
+
+This symbol is serialised into the user's bookmark file; see
+`workspace-bookmark-repo-property' for the consequence of renaming it."
+  :type 'symbol
+  :group 'workspace-bookmark)
+#+end_src
+
+* Seam 1 — stamp on ~bookmark-make-record~
+
+=:filter-return= advice on =bookmark-make-record=.  It receives the record
+Emacs just built and returns it either stamped or byte-identical.  It must
+never prompt, message, or alter the bookmark name the user chose, and a
+failure to stamp must never prevent a bookmark from being created — hence
+the =condition-case= returning the ORIGINAL record
+(=register/boundary/bookmark-advice-seams= seam 1).
+
+Scaffold: pass-through.  No =condition-case= yet — there is no fallible
+work to guard, and a =condition-case= wrapped around a bare variable
+reference would read as protection that isn't there.  The guard arrives
+with the stamping body in =stamp-seam=.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--stamp-record (record)
+  "Return RECORD with portable coordinates added, or RECORD unchanged.
+
+Intended as `:filter-return' advice on `bookmark-make-record'.  Never
+prompts, never messages, never touches the bookmark name.  Any internal
+error must be swallowed and the original RECORD returned: failing to
+stamp must not prevent a bookmark from being created."
+  record)
+#+end_src
+
+* Seam 2 — substitute on ~bookmark-handle-bookmark~
+
+Advice on =bookmark-handle-bookmark= (bookmark.el:1339), chosen because
+=bookmark--jump-via= calls it and that is the shared path behind
+=bookmark-jump=, =bookmark-jump-other-window=, =bookmark-jump-other-frame=
+and completion front-ends such as =consult-bookmark=.  Advising
+=bookmark-jump= instead would silently miss the others.
+
+The seam parameter =BOOKMARK-NAME-OR-RECORD= may be a STRING NAME or a
+record; resolution normalizes it with =bookmark-get-bookmark= before
+reading coordinates.  The substituted copy keeps its own =handler=
+property — this module NEVER installs a handler of its own, which is what
+leaves dired / org / pdf-view restoration intact.
+
+Combinator: =:around=, not =:filter-args=.  =:filter-args= can substitute
+the record but cannot decline to call through, and
+=register/invariant/no-silent-wrong-file-open= requires that a cancelled
+resolution "open nothing AND signal nothing" — an explicit no-op that only
+an =:around= can express.
+
+Scaffold: pass-through.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--handle-bookmark-advice (orig-fn bookmark-name-or-record &rest args)
+  "Resolve BOOKMARK-NAME-OR-RECORD against the current workspace, then jump.
+
+Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is the
+advised function and ARGS its remaining arguments.  Any internal error
+falls through to ORIG-FN with the ORIGINAL argument, so a failure
+affecting one bookmark cannot affect another or the bookmark file."
+  (apply orig-fn bookmark-name-or-record args))
+#+end_src
+
+* Advice installation
+
+Installation AND matching removal are both defined so the module can be
+reloaded during development without stacking advice.  =advice-add= does
+not duplicate an advice that names the same function symbol, so
+=workspace-bookmark-install-advice= is idempotent; the explicit removal
+exists for =M-x workspace-bookmark-remove-advice= during development and
+for tests that need stock bookmark behaviour.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark-install-advice ()
+  "Install the two portable-bookmark advice seams.  Idempotent."
+  (interactive)
+  (advice-add 'bookmark-make-record :filter-return
+              #'workspace-bookmark--stamp-record)
+  (advice-add 'bookmark-handle-bookmark :around
+              #'workspace-bookmark--handle-bookmark-advice))
+
+(defun workspace-bookmark-remove-advice ()
+  "Remove the two portable-bookmark advice seams, restoring stock behaviour."
+  (interactive)
+  (advice-remove 'bookmark-make-record
+                 #'workspace-bookmark--stamp-record)
+  (advice-remove 'bookmark-handle-bookmark
+                 #'workspace-bookmark--handle-bookmark-advice))
+
+(workspace-bookmark-install-advice)
+#+end_src
+
+* Module Initialization
+
+The feature symbol is =workspace-portable-bookmarks= while the file is
+=portable-bookmarks.el=.  That is the package's established convention,
+not an accident: every sibling in =config/workspaces/= provides a
+=workspace-=-prefixed feature whose name differs from its basename
+(=data-model.el= → =workspace-data-model=, =tabs.el= → =workspace-tabs=,
+=git-worktrees.el= → =workspace-git-worktrees=).  The prefix keeps the
+feature namespace collision-free; the basename stays short because the
+directory already says "workspaces".
+
+#+begin_src emacs-lisp
+(provide 'workspace-portable-bookmarks)
+;;; portable-bookmarks.el ends here
+#+end_src

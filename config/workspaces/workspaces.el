@@ -55,6 +55,11 @@ The explicit `workspace-save' command never consults this list."
 (jf/load-module (expand-file-name "config/workspaces/persistence.el"       jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/workspaces-mode.el"   jf/emacs-dir))
 (require 'workspaces-mode)
+;; Consumer of the workspace registry (must load after tabs.el, which owns
+;; `workspace--registry'/`workspace--current-name', and after persistence.el,
+;; which defines `workspace-restore').  Droppable: removing this one line
+;; removes the bookmark advice and returns behaviour to stock.
+(jf/load-module (expand-file-name "config/workspaces/portable-bookmarks.el" jf/emacs-dir))
 ;; Front-door transient: needs `workspace--current-name'/`workspace--registry'
 ;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
 ;; (integrations), so it loads last.
