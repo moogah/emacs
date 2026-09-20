@@ -57,14 +57,19 @@
             :to-be nil))
 
   (it "installs advice idempotently"
-    (workspace-bookmark-install-advice)
-    (workspace-bookmark-install-advice)
-    (workspace-bookmark-remove-advice)
-    (expect (advice-member-p #'workspace-bookmark--stamp-record
-                             'bookmark-make-record)
-            :to-be nil)
-    ;; Put the module back the way the rest of the suite expects it.
-    (workspace-bookmark-install-advice)
+    ;; The whole suite shares one Emacs process, so the re-install has to
+    ;; happen on the failure path too: a `buttercup' `expect' throws, which
+    ;; would otherwise skip it and leave both seams un-advised for every
+    ;; later spec — including the wave-2/3 seam specs.
+    (unwind-protect
+        (progn
+          (workspace-bookmark-install-advice)
+          (workspace-bookmark-install-advice)
+          (workspace-bookmark-remove-advice)
+          (expect (advice-member-p #'workspace-bookmark--stamp-record
+                                   'bookmark-make-record)
+                  :to-be nil))
+      (workspace-bookmark-install-advice))
     (expect (advice-member-p #'workspace-bookmark--stamp-record
                              'bookmark-make-record)
             :to-be-truthy))
@@ -117,6 +122,13 @@
             :to-equal "bookmarks")))
 
 (describe "portable-bookmarks fixture teardown"
+
+  ;; This describe drives setup/teardown by hand because teardown IS the
+  ;; subject.  The safety net is still required: `workspace-bookmark-fixtures-teardown'
+  ;; is idempotent and documented safe when nothing was created, so running it
+  ;; again here costs nothing and stops a failed assertion from leaving the
+  ;; bookmark globals, registry entries and temp dirs visible to later specs.
+  (after-each (workspace-bookmark-fixtures-teardown))
 
   (it "deletes every temp directory it created and unregisters workspaces"
     (workspace-bookmark-fixtures-setup)

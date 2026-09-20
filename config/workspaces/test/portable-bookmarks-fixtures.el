@@ -60,9 +60,17 @@ A plist of the pre-isolation values restored by
   "Start a fixture scope.  Call from `before-each'.
 
 Isolates the bookmark globals so no spec can read or write the real
-bookmark file, and resets the bookmkeeping the teardown walks."
-  (setq workspace-bookmark-fixtures--temp-dirs nil
-        workspace-bookmark-fixtures--registered-names nil)
+bookmark file, and resets the bookkeeping the teardown walks.
+
+Re-entrant, on the same terms as
+`workspace-bookmark-fixtures-isolate-bookmarks': when a scope is already
+open, the tracking lists ACCUMULATE rather than reset, so a nested or
+repeated setup cannot orphan the outer scope\'s temp directories or leave
+its names in `workspace--registry\' — the one hash table the other specs
+in this directory share."
+  (unless workspace-bookmark-fixtures--bookmark-state
+    (setq workspace-bookmark-fixtures--temp-dirs nil
+          workspace-bookmark-fixtures--registered-names nil))
   (workspace-bookmark-fixtures-isolate-bookmarks))
 
 (defun workspace-bookmark-fixtures-teardown ()
