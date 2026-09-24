@@ -151,26 +151,58 @@ directory, and anything that still is not an existing directory yields nil
 rather than letting =process-file= signal on an unusable
 =default-directory=.
 
+LOCAL PATHS ONLY.  A remote (TRAMP) DIR is rejected before anything
+touches the filesystem, and the whole body sits inside the error barrier.
+Three distinct failures are being prevented, in increasing order of harm:
+
+1. =file-directory-p= on a remote name SIGNALS rather than returning nil
+   — measured: =/nosuchmethod:host:/tmp= raises =user-error=,
+   =/ssh:nonexistent.invalid:/tmp= raises =file-error=.  The caller is
+   =bookmark-make-record=, so the contract breach lands in a core Emacs
+   interaction.
+2. A reachable host is worse than an unreachable one: the probe becomes a
+   synchronous network round trip — and =/sudo::= blocks on a password
+   prompt — inside bookmark creation.  A hang is not a signal, so the
+   =condition-case= would not save us.
+3. Worst: =process-file= is TRAMP-aware, so on a reachable host git runs
+   ON THAT HOST.  A bookmark for =/ssh:build-box:/srv/emacs/foo.el= would
+   be stamped with the identity of the REMOTE checkout, and the resolver
+   would later re-point it at a LOCAL worktree — a different machine's
+   file, opened silently.  That is exactly
+   =register/invariant/no-silent-wrong-file-open=.
+
+A remote file is not portable in this capability's sense anyway: its
+identity is the host, not a repo the workspace could hold.  Rejecting it
+yields nil, which degrades to the record's stored absolute filename.
+
 #+begin_src emacs-lisp
 (defun workspace-bookmark--git (dir &rest args)
   "Run git with ARGS in DIR and return its trimmed stdout, or nil.
 
-Returns nil — never signals — when DIR is not (and is not inside) an
-existing directory, when git exits non-zero, or when git produces no
-output.  If DIR names a file, git is run in the file's directory.
-stderr is discarded."
-  (let* ((path (and (stringp dir) (expand-file-name dir)))
-         (cwd (cond ((null path) nil)
-                    ((file-directory-p path) (file-name-as-directory path))
-                    (t (file-name-directory (directory-file-name path))))))
-    (when (and cwd (file-directory-p cwd))
-      (condition-case nil
-          (let ((default-directory cwd))
-            (with-temp-buffer
-              (when (eq 0 (apply #'process-file "git" nil '(t nil) nil args))
-                (let ((out (string-trim (buffer-string))))
-                  (unless (string-empty-p out) out)))))
-        (error nil)))))
+Returns nil — never signals — when DIR is nil, remote, not (and not
+inside) an existing directory, when git exits non-zero, or when git
+produces no output.  If DIR names a file, git is run in the file's
+directory.  stderr is discarded.
+
+DIR must be LOCAL.  A remote (TRAMP) name returns nil without touching
+the filesystem: probing one can signal, can block on a password prompt,
+and — on a reachable host — would run git remotely and stamp the wrong
+machine's identity."
+  (condition-case nil
+      (let ((path (and (stringp dir)
+                       (not (file-remote-p dir))
+                       (expand-file-name dir))))
+        (when (and path (not (file-remote-p path)))
+          (let ((cwd (if (file-directory-p path)
+                         (file-name-as-directory path)
+                       (file-name-directory (directory-file-name path)))))
+            (when (and cwd (file-directory-p cwd))
+              (let ((default-directory cwd))
+                (with-temp-buffer
+                  (when (eq 0 (apply #'process-file "git" nil '(t nil) nil args))
+                    (let ((out (string-trim (buffer-string))))
+                      (unless (string-empty-p out) out)))))))))
+    (error nil)))
 #+end_src
 
 * Repository identity
@@ -189,29 +221,55 @@ nil when DIR is in no git repository, and never signals."
 
 ** Which repository this is
 
-=origin= is preferred.  When there is no =origin= the FIRST remote git
-lists is used, so a checkout whose only remote is named =upstream= still
-has an identity instead of silently degrading to "no remote".  A
-repository with no remote at all returns nil, and that is the whole
-answer: NO REMOTE MEANS NO IDENTITY.  A path-based fallback would be
+=origin= is preferred.  When there is no =origin= and there is EXACTLY
+ONE remote, that one is used, so a checkout whose only remote is named
+=upstream= still has an identity instead of silently degrading to "no
+remote".  A repository with no remote at all returns nil, and that is the
+whole answer: NO REMOTE MEANS NO IDENTITY.  A path-based fallback would be
 meaningless on another machine, which is the one thing this capability
 exists to survive.  On this machine 9 of 51 repositories under =~/src=
 have no remote, so the nil branch is a normal case, not an edge case.
 
+Two corrections to the obvious implementation, both of which produce a
+CONFIDENTLY WRONG identity rather than a missing one:
+
+=git remote get-url=, NOT =git config --get remote.origin.url=.  The
+config value is raw; =get-url= is the effective URL.  Measured on a
+throwaway repo: with =url."git@github.com:".insteadOf "gh:"=, the config
+read returns =gh:moogah/emacs.git=, which normalizes to the fabricated
+host =gh/moogah/emacs= — an identity that exists only in one machine's
+gitconfig, and therefore precisely the cross-machine breakage this
+capability exists to prevent.  =get-url= returns the expanded
+=git@github.com:moogah/emacs.git=.  The same command also reads the LAST
+value of a multi-valued =remote.origin.url= while git fetches the FIRST.
+(The common =https= ↔ =ssh= =insteadOf= rewrite is harmless here, because
+both spellings normalize equal; it is the shorthand aliases that break.)
+
+SOLE remote, not FIRST remote.  =git remote= lists alphabetically, so
+"first" makes the identity depend on remote NAMES: adding a remote called
+=backup= to a repo whose only remote was =upstream= would silently re-key
+every bookmark already stamped from it — the stamps are persisted, so they
+are orphaned, not recomputed.  Ambiguity must degrade to nil, not to a
+guess.
+
 #+begin_src emacs-lisp
 (defun workspace-bookmark--remote-url (dir)
-  "Return the remote URL of the repository containing DIR, or nil.
+  "Return the effective remote URL of the repository containing DIR, or nil.
 
-`origin' is preferred.  When the repository has no `origin', the first
-remote `git remote' lists is used.  Returns nil when the repository has
-no remote at all, or when DIR is in no repository."
-  (or (workspace-bookmark--git dir "config" "--get" "remote.origin.url")
-      (let ((first (car (split-string
-                         (or (workspace-bookmark--git dir "remote") "")
-                         "\n" t "[ \t\r]+"))))
-        (and first
-             (workspace-bookmark--git dir "config" "--get"
-                                      (concat "remote." first ".url"))))))
+`origin' is preferred.  When the repository has no `origin' but has
+exactly ONE remote, that remote is used.  Returns nil when the repository
+has no remote, when it has several and none is `origin', or when DIR is
+in no repository.
+
+Uses `git remote get-url', which expands `url.*.insteadOf' rewrites and
+yields the URL git actually uses.  `git config --get remote.origin.url'
+would return the raw, machine-local spelling."
+  (or (workspace-bookmark--git dir "remote" "get-url" "origin")
+      (let ((remotes (split-string
+                      (or (workspace-bookmark--git dir "remote") "")
+                      "\n" t "[ \t\r]+")))
+        (when (= 1 (length remotes))
+          (workspace-bookmark--git dir "remote" "get-url" (car remotes))))))
 #+end_src
 
 ** Normalizing a remote URL to an identity
@@ -311,8 +369,8 @@ git reads everything after the colon as the path.")
   "Return the normalized repository identity of URL, or nil.
 
 The identity is HOST/PATH, with the scheme, any userinfo, any port, a
-trailing \".git\" and any trailing slash removed, and the host — but not
-the path — downcased.  The SSH, HTTPS and ssh:// spellings of one
+trailing \".git\" (in any case) and any trailing slash removed, runs of
+slashes collapsed, and the host — but not the path — downcased.  The SSH, HTTPS and ssh:// spellings of one
 repository therefore compare `equal'.
 
 Returns nil for anything that does not name a host: local paths,
@@ -330,9 +388,10 @@ Returns nil for anything that does not name a host: local paths,
               path (match-string 2 url))))
       (when (and host path)
         (setq host (downcase host))
+        (setq path (replace-regexp-in-string "/+" "/" path))
         (setq path (replace-regexp-in-string "\\`/+" "" path))
         (setq path (replace-regexp-in-string "/+\\'" "" path))
-        (when (string-suffix-p ".git" path)
+        (when (string-suffix-p ".git" path t)
           (setq path (substring path 0 -4)))
         (setq path (replace-regexp-in-string "/+\\'" "" path))
         (unless (or (string-empty-p host) (string-empty-p path))

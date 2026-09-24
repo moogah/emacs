@@ -154,20 +154,41 @@
       (cl-letf (((symbol-function 'workspace-bookmark--git)
                  (lambda (_dir &rest args)
                    (push args calls)
-                   (when (equal args '("config" "--get" "remote.origin.url"))
+                   (when (equal args '("remote" "get-url" "origin"))
                      "git@github.com:moogah/emacs.git"))))
         (expect (workspace-bookmark--remote-url "/anywhere")
                 :to-equal "git@github.com:moogah/emacs.git")
-        (expect calls :to-equal '(("config" "--get" "remote.origin.url"))))))
+        (expect calls :to-equal '(("remote" "get-url" "origin"))))))
 
-  (it "falls back to the first remote git lists"
+  (it "asks git for the EFFECTIVE url, never for the raw config value"
+    ;; Pins the command itself, because the two disagree whenever
+    ;; `url.*.insteadOf' is set and the raw value yields a fabricated host.
+    (let (calls)
+      (cl-letf (((symbol-function 'workspace-bookmark--git)
+                 (lambda (_dir &rest args) (push args calls) nil)))
+        (workspace-bookmark--remote-url "/anywhere")
+        (expect (seq-filter (lambda (a) (member "config" a)) calls)
+                :to-be nil))))
+
+  (it "falls back to a SOLE non-origin remote"
     (cl-letf (((symbol-function 'workspace-bookmark--git)
                (lambda (_dir &rest args)
-                 (cond ((equal args '("remote")) "upstream\nfork")
-                       ((equal args '("config" "--get" "remote.upstream.url"))
+                 (cond ((equal args '("remote")) "upstream")
+                       ((equal args '("remote" "get-url" "upstream"))
                         "https://github.com/moogah/emacs.git")))))
       (expect (workspace-bookmark--remote-url "/anywhere")
               :to-equal "https://github.com/moogah/emacs.git")))
+
+  (it "returns nil when several remotes exist and none is origin"
+    ;; NOT the alphabetically-first one: `git remote' is sorted, so choosing
+    ;; first would make a persisted identity depend on remote names, and
+    ;; adding a remote would orphan every stamp already written.
+    (cl-letf (((symbol-function 'workspace-bookmark--git)
+               (lambda (_dir &rest args)
+                 (cond ((equal args '("remote" "get-url" "origin")) nil)
+                       ((equal args '("remote")) "fork\nupstream")
+                       (t "https://github.com/moogah/emacs.git")))))
+      (expect (workspace-bookmark--remote-url "/anywhere") :to-be nil)))
 
   (it "returns nil when the repository has no remote"
     (cl-letf (((symbol-function 'workspace-bookmark--git) (lambda (&rest _) nil)))
@@ -321,6 +342,121 @@
     (let ((repo (workspace-bookmark-fixtures-make-repo)))
       (expect (workspace-bookmark--git repo "rev-parse" "--is-inside-work-tree")
               :to-equal "true"))))
+
+
+;;; Review fix-ups (merge 0f513ca6 -> review findings)
+;;
+;; Each describe below pins a defect found in review or on-touch audit. All
+;; three defects produced a CONFIDENTLY WRONG answer rather than a missing
+;; one, which is the class `register/invariant/no-silent-wrong-file-open'
+;; exists to prevent.
+
+(describe "workspace-bookmark--git rejects remote paths (review finding 1, blocking)"
+
+  ;; These MUST NOT be mocked. The defect was that `file-directory-p' sat
+  ;; outside the `condition-case', so a real TRAMP name signalled before the
+  ;; error barrier was entered -- measured: /nosuchmethod: -> user-error,
+  ;; /ssh:nonexistent.invalid: -> file-error. A spec that stubs `process-file'
+  ;; only covers the guarded region and cannot see this.
+
+  (it "returns nil instead of signalling on an unknown TRAMP method"
+    (expect (workspace-bookmark--git "/nosuchmethod:host:/tmp"
+                                     "rev-parse" "--show-toplevel")
+            :to-be nil))
+
+  (it "returns nil instead of signalling on an unreachable ssh host"
+    (expect (workspace-bookmark--git "/ssh:nonexistent.invalid:/tmp"
+                                     "rev-parse" "--show-toplevel")
+            :to-be nil))
+
+  (it "never runs a subprocess for a remote path"
+    ;; The harm is not only the signal. `process-file' is TRAMP-aware, so a
+    ;; REACHABLE host would run git remotely and stamp the remote checkout's
+    ;; identity onto a local-looking bookmark. Assert no process is attempted.
+    (let ((called nil))
+      (cl-letf (((symbol-function 'process-file)
+                 (lambda (&rest _) (setq called t) 0)))
+        (workspace-bookmark--git "/ssh:build-box:/srv/emacs" "rev-parse"))
+      (expect called :to-be nil)))
+
+  (it "still works for an ordinary local repository"
+    (workspace-bookmark-fixtures-setup)
+    (unwind-protect
+        (let ((repo (workspace-bookmark-fixtures-make-repo)))
+          (expect (workspace-bookmark--git repo "rev-parse" "--is-inside-work-tree")
+                  :to-equal "true"))
+      (workspace-bookmark-fixtures-teardown))))
+
+(describe "workspace-bookmark--remote-url reads the EFFECTIVE url (review finding 2)"
+
+  (before-each (workspace-bookmark-fixtures-setup))
+  (after-each (workspace-bookmark-fixtures-teardown))
+
+  (it "expands url.*.insteadOf rather than reading the raw config value"
+    ;; `git config --get remote.origin.url' returns the raw `gh:...' spelling,
+    ;; which normalizes to the fabricated host `gh' -- an identity that exists
+    ;; only in one machine's gitconfig, which is precisely the cross-machine
+    ;; breakage this capability exists to prevent.
+    (let ((repo (workspace-bookmark-fixtures-make-repo
+                 :remote "gh:moogah/emacs.git")))
+      (workspace-bookmark--git repo "config"
+                               "url.git@github.com:.insteadOf" "gh:")
+      (expect (workspace-bookmark--remote-url repo)
+              :to-equal "git@github.com:moogah/emacs.git")
+      (expect (workspace-bookmark--identity repo)
+              :to-equal "github.com/moogah/emacs")))
+
+  (it "uses a sole non-origin remote"
+    (let ((repo (workspace-bookmark-fixtures-make-repo)))
+      (workspace-bookmark--git repo "remote" "add" "upstream"
+                               "git@github.com:moogah/emacs.git")
+      (expect (workspace-bookmark--identity repo)
+              :to-equal "github.com/moogah/emacs")))
+
+  (it "degrades to nil rather than guessing when several remotes exist and none is origin"
+    ;; `git remote' lists alphabetically, so picking the FIRST would make the
+    ;; identity depend on remote NAMES: adding `backup' to a repo whose only
+    ;; remote was `upstream' would silently re-key every persisted stamp.
+    (let ((repo (workspace-bookmark-fixtures-make-repo)))
+      (workspace-bookmark--git repo "remote" "add" "upstream"
+                               "git@github.com:moogah/emacs.git")
+      (workspace-bookmark--git repo "remote" "add" "backup"
+                               "git@example.com:mirror/emacs.git")
+      (expect (workspace-bookmark--remote-url repo) :to-be nil)
+      (expect (workspace-bookmark--identity repo) :to-be nil)))
+
+  (it "still prefers origin when origin exists alongside others"
+    (let ((repo (workspace-bookmark-fixtures-make-repo
+                 :remote "git@github.com:moogah/emacs.git")))
+      (workspace-bookmark--git repo "remote" "add" "backup"
+                               "git@example.com:mirror/emacs.git")
+      (expect (workspace-bookmark--identity repo)
+              :to-equal "github.com/moogah/emacs"))))
+
+(describe "normalization spellings closed after the on-touch probe"
+
+  (it "strips a trailing .git in any case"
+    (expect (workspace-bookmark--normalize-identity
+             "git@github.com:moogah/emacs.GIT")
+            :to-equal "github.com/moogah/emacs"))
+
+  (it "collapses interior runs of slashes"
+    (expect (workspace-bookmark--normalize-identity
+             "https://github.com//moogah//emacs.git")
+            :to-equal "github.com/moogah/emacs"))
+
+  (it "agrees across every spelling of one repository"
+    (let ((spellings '("git@github.com:moogah/emacs.git"
+                       "git@github.com:moogah/emacs.GIT"
+                       "https://github.com/moogah/emacs"
+                       "https://github.com/moogah/emacs.git/"
+                       "https://github.com//moogah//emacs.git"
+                       "ssh://git@github.com/moogah/emacs.git"
+                       "https://ghp_TOKEN@github.com/moogah/emacs.git"
+                       "git@GITHUB.com:moogah/emacs.git")))
+      (expect (delete-dups
+               (mapcar #'workspace-bookmark--normalize-identity spellings))
+              :to-equal '("github.com/moogah/emacs")))))
 
 (provide 'portable-bookmarks-identity-spec)
 ;;; portable-bookmarks-identity-spec.el ends here

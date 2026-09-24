@@ -35,22 +35,30 @@ This symbol is serialised into the user's bookmark file; see
 (defun workspace-bookmark--git (dir &rest args)
   "Run git with ARGS in DIR and return its trimmed stdout, or nil.
 
-Returns nil — never signals — when DIR is not (and is not inside) an
-existing directory, when git exits non-zero, or when git produces no
-output.  If DIR names a file, git is run in the file's directory.
-stderr is discarded."
-  (let* ((path (and (stringp dir) (expand-file-name dir)))
-         (cwd (cond ((null path) nil)
-                    ((file-directory-p path) (file-name-as-directory path))
-                    (t (file-name-directory (directory-file-name path))))))
-    (when (and cwd (file-directory-p cwd))
-      (condition-case nil
-          (let ((default-directory cwd))
-            (with-temp-buffer
-              (when (eq 0 (apply #'process-file "git" nil '(t nil) nil args))
-                (let ((out (string-trim (buffer-string))))
-                  (unless (string-empty-p out) out)))))
-        (error nil)))))
+Returns nil — never signals — when DIR is nil, remote, not (and not
+inside) an existing directory, when git exits non-zero, or when git
+produces no output.  If DIR names a file, git is run in the file's
+directory.  stderr is discarded.
+
+DIR must be LOCAL.  A remote (TRAMP) name returns nil without touching
+the filesystem: probing one can signal, can block on a password prompt,
+and — on a reachable host — would run git remotely and stamp the wrong
+machine's identity."
+  (condition-case nil
+      (let ((path (and (stringp dir)
+                       (not (file-remote-p dir))
+                       (expand-file-name dir))))
+        (when (and path (not (file-remote-p path)))
+          (let ((cwd (if (file-directory-p path)
+                         (file-name-as-directory path)
+                       (file-name-directory (directory-file-name path)))))
+            (when (and cwd (file-directory-p cwd))
+              (let ((default-directory cwd))
+                (with-temp-buffer
+                  (when (eq 0 (apply #'process-file "git" nil '(t nil) nil args))
+                    (let ((out (string-trim (buffer-string))))
+                      (unless (string-empty-p out) out)))))))))
+    (error nil)))
 
 (defun workspace-bookmark--repo-root (dir)
   "Return the root of the git checkout containing DIR, or nil.
@@ -61,18 +69,22 @@ nil when DIR is in no git repository, and never signals."
     (and root (file-name-as-directory (expand-file-name root)))))
 
 (defun workspace-bookmark--remote-url (dir)
-  "Return the remote URL of the repository containing DIR, or nil.
+  "Return the effective remote URL of the repository containing DIR, or nil.
 
-`origin' is preferred.  When the repository has no `origin', the first
-remote `git remote' lists is used.  Returns nil when the repository has
-no remote at all, or when DIR is in no repository."
-  (or (workspace-bookmark--git dir "config" "--get" "remote.origin.url")
-      (let ((first (car (split-string
-                         (or (workspace-bookmark--git dir "remote") "")
-                         "\n" t "[ \t\r]+"))))
-        (and first
-             (workspace-bookmark--git dir "config" "--get"
-                                      (concat "remote." first ".url"))))))
+`origin' is preferred.  When the repository has no `origin' but has
+exactly ONE remote, that remote is used.  Returns nil when the repository
+has no remote, when it has several and none is `origin', or when DIR is
+in no repository.
+
+Uses `git remote get-url', which expands `url.*.insteadOf' rewrites and
+yields the URL git actually uses.  `git config --get remote.origin.url'
+would return the raw, machine-local spelling."
+  (or (workspace-bookmark--git dir "remote" "get-url" "origin")
+      (let ((remotes (split-string
+                      (or (workspace-bookmark--git dir "remote") "")
+                      "\n" t "[ \t\r]+")))
+        (when (= 1 (length remotes))
+          (workspace-bookmark--git dir "remote" "get-url" (car remotes))))))
 
 (defconst workspace-bookmark--scheme-prefix-re
   "\\`[a-zA-Z][a-zA-Z0-9+.-]*://"
@@ -99,8 +111,8 @@ git reads everything after the colon as the path.")
   "Return the normalized repository identity of URL, or nil.
 
 The identity is HOST/PATH, with the scheme, any userinfo, any port, a
-trailing \".git\" and any trailing slash removed, and the host — but not
-the path — downcased.  The SSH, HTTPS and ssh:// spellings of one
+trailing \".git\" (in any case) and any trailing slash removed, runs of
+slashes collapsed, and the host — but not the path — downcased.  The SSH, HTTPS and ssh:// spellings of one
 repository therefore compare `equal'.
 
 Returns nil for anything that does not name a host: local paths,
@@ -118,9 +130,10 @@ Returns nil for anything that does not name a host: local paths,
               path (match-string 2 url))))
       (when (and host path)
         (setq host (downcase host))
+        (setq path (replace-regexp-in-string "/+" "/" path))
         (setq path (replace-regexp-in-string "\\`/+" "" path))
         (setq path (replace-regexp-in-string "/+\\'" "" path))
-        (when (string-suffix-p ".git" path)
+        (when (string-suffix-p ".git" path t)
           (setq path (substring path 0 -4)))
         (setq path (replace-regexp-in-string "/+\\'" "" path))
         (unless (or (string-empty-p host) (string-empty-p path))
