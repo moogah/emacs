@@ -2,7 +2,7 @@
 name: worktree-candidates-git-first
 description: Reorder the git-worktrees repo-candidate seam to put git-derived discovery first and demote projectile to optional legacy
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: contract
 on_critical_path: true
 cycle: cycle-1789935943
@@ -102,3 +102,17 @@ its discovery when present.
 - specs/workspace-git-worktrees/spec.md § MODIFIED 'Soft repo-source selection'
 - proposal.md § 'What Changes' (BREAKING spec-level note)
 - design.md § D5 'Warm-path (git-derived) discovery only'
+
+## Amendments (2026-09-24, after wave 3)
+
+A. **Reuse, don't re-derive, the in-view set.** Wave 3 shipped
+   `workspace-bookmark--checkouts-in-view` (current workspace's checkouts, then
+   other workspaces', then `jf/emacs-dir`) and `workspace-bookmark--classify`.
+   Step 2 MUST call those (behind an `fboundp` guard) rather than walking
+   workspace homes itself: a second enumeration here is duplication, which the
+   project overlay rates blocking. Step 4's filter MUST use `--classify`; offer
+   only `canonical`.
+B. A parallel task (`discovery-refinements`) is changing what "in view"
+   includes: anchored homes, and directory-only symlink ownership. Your specs
+   should assert behaviour THROUGH those helpers, not pin their internals, so
+   they stay green when that task merges.
