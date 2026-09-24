@@ -1210,6 +1210,11 @@ that must agree, and then confirmed against the candidate itself:
    candidate.  This catches the one layout where 1 and 2 agree and are
    both wrong (see the =core.worktree= row below).  It costs one more
    subprocess, paid only once 1 and 2 have agreed.
+4. The candidate must HOLD the work tree: at least one path =git
+   ls-files= lists there exists under it.  This catches the layouts
+   where all three checks above agree on a directory that holds nothing
+   but the git directory (the two =.git=-named rows below).  One more
+   subprocess, paid only once 1–3 have passed.
 
 =--path-format=absolute= is required, not cosmetic.  Asked in the main
 worktree, plain =--git-common-dir= answers =.git=, and from a
@@ -1230,6 +1235,34 @@ GUESS, and every one of them resolves to nil (measured, git 2.49):
 | =git init --separate-git-dir G W=       | =G=               | =G= (not =W=!)      | the parent of =G=            |
 | submodule =S/m=                         | =S/.git/modules/m= | =S/.git/modules/m=  | =S/.git/modules=             |
 | =D/.git= with =core.worktree = T=       | =D/.git=          | =D=                 | =D= — but the work tree is =T= |
+| =git init --separate-git-dir P/.git W=  | =P/.git=          | =P=                 | =P= — a husk holding only =.git= |
+| =W/.git= a symlink to =P/.git=          | =P/.git=          | =P=                 | =P= — a husk holding only =.git= |
+
+The =--separate-git-dir= row holds only when the git directory is NOT
+named =.git=.  When it is — =git init --separate-git-dir=<elsewhere>/.git=,
+or a main worktree whose =.git= is a symlink to a directory kept on
+another disk or outside a sync folder — the last two rows apply, and
+every signal agrees on the wrong directory.  Git's absolute common dir is
+the RESOLVED git directory =P/.git=; its main-worktree slot is that path
+minus =/.git=; and git run IN =P= finds =P/.git= and treats =P= as a
+work tree, so =--show-toplevel= names =P= and =P='s own git dir IS the
+common dir.  Nothing git says distinguishes =P= from a real main
+worktree.  Only the disk does: =P= holds none of the files git's index
+lists (measured, git 2.49).  Hence check 4.
+
+Check 4 asks for a TRACKED path, not merely "something besides =.git=":
+a husk that Finder, Spotlight or a sync client has visited holds a
+=.DS_Store= or similar, and would pass the weaker test.  The price is
+that a main worktree tracking no files, or one whose every tracked file
+has been deleted, has no canonical checkout — which costs nothing, since
+an untracked location is never stamped.  A husk that still holds an OLD
+copy of the tree passes check 4; no git-derived signal can tell it from
+the real work tree.
+
+The real main worktree =W= in those two rows is not recoverable from a
+linked worktree: git records no path to it.  When =W= itself is the
+checkout in view the answer is also nil — =W= is not the parent of the
+common dir.  Nil over a guess.
 
 The =D/.git= row is why the first signal alone is not enough: =D= even
 passes the classifier's cheap =.git=-is-a-directory test.  The last two
@@ -1242,6 +1275,40 @@ find nothing, or a stale copy.  Only the third check sees it: run in =D=,
 =--show-toplevel= answers =T=.  (A LINKED worktree of such a repository
 ignores =core.worktree= and is its own top level, measured on git 2.49.)
 
+Check 4 reads =ls-files -z= (no quoting of unusual names) and stops at
+the first listed path that exists, so a real main worktree costs one
+stat.  Paths are joined to the candidate by concatenation, with file
+name handlers off: a tracked name is data, and =expand-file-name= would
+read a leading =~= in it as a home directory.  =file-attributes= does not
+follow symlinks, so a tracked symlink counts as present even when it
+dangles.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--holds-tracked-file-p (dir)
+  "Return non-nil when DIR holds at least one path git tracks there.
+
+Runs `git ls-files -z' in DIR and returns t at the first listed path
+that exists under DIR.  Nil when git fails, lists nothing, or none of
+the listed paths exists — the shape of a directory that holds only a
+git directory.  Never signals."
+  (let ((out (workspace-bookmark--git dir "ls-files" "-z")))
+    (when out
+      (condition-case nil
+          (let ((root (file-name-as-directory (expand-file-name dir)))
+                (file-name-handler-alist nil)
+                (start 0)
+                (found nil))
+            (while (and (not found) (< start (length out)))
+              (let ((end (or (string-search "\0" out start) (length out))))
+                (when (and (> end start)
+                           (file-attributes
+                            (concat root (substring out start end))))
+                  (setq found t))
+                (setq start (1+ end))))
+            found)
+        (error nil)))))
+#+end_src
+
 #+begin_src emacs-lisp
 (defun workspace-bookmark--canonical-checkout (dir)
   "Return the main worktree of the repository containing DIR, or nil.
@@ -1251,11 +1318,15 @@ signals must agree: the parent of the shared git directory
 \(`git rev-parse --path-format=absolute --git-common-dir'), which must
 be a directory named `.git', and the first, non-bare entry of `git
 worktree list --porcelain'.  The candidate must then be its own top
-level: `git rev-parse --show-toplevel' run in it names it.  When the
-signals disagree — a bare main repository, a `--separate-git-dir'
-layout, a submodule — or the candidate's work tree is elsewhere
-\(`core.worktree'), or any answer is unavailable, the answer is nil: no
-canonical checkout is better than a guessed one.  Never signals."
+level: `git rev-parse --show-toplevel' run in it names it, and it must
+hold the work tree: at least one path git tracks exists under it (see
+`workspace-bookmark--holds-tracked-file-p').  When the signals disagree
+— a bare main repository, a `--separate-git-dir' layout, a submodule —
+or the candidate's work tree is elsewhere (`core.worktree'), or the
+candidate is a husk holding only a `.git'-named git directory whose
+work tree lives elsewhere (`--separate-git-dir=<dir>/.git', or a `.git'
+symlink), or any answer is unavailable, the answer is nil: no canonical
+checkout is better than a guessed one.  Never signals."
   (let ((common (workspace-bookmark--git
                  dir "rev-parse" "--path-format=absolute" "--git-common-dir")))
     (when (and common
@@ -1272,7 +1343,9 @@ canonical checkout is better than a guessed one.  Never signals."
                                                     candidate))
           (let ((top (workspace-bookmark--git
                       candidate "rev-parse" "--show-toplevel")))
-            (when (and top (workspace-bookmark--same-file-p top candidate))
+            (when (and top
+                       (workspace-bookmark--same-file-p top candidate)
+                       (workspace-bookmark--holds-tracked-file-p candidate))
               (file-name-as-directory candidate))))))))
 #+end_src
 
@@ -1280,9 +1353,9 @@ canonical checkout is better than a guessed one.  Never signals."
 
 Three symbols, tested in THIS order — ownership before structure:
 
-1. =workspace-owned= — the checkout lies within some registered
-   workspace's =:home= (or is that home), or a symbolic link among the
-   home's immediate children leads into it (see "Symlinked children"
+1. =workspace-owned= — the checkout really lies within some registered
+   workspace's =:home=, or is that home (an anchored workspace).
+   Symbolic links confer nothing (see "Symbolic links are ignored"
    below).
 2. =canonical= — =.git= is a directory.  A linked worktree's =.git= is a
    FILE (=~/.emacs.d/.git= on this machine is a 54-byte file); a main
@@ -1331,31 +1404,33 @@ Remote paths are rejected before any filesystem call: =file-truename= on a
 TRAMP name would open a connection, and a remote home cannot own a local
 checkout anyway.
 
-*Symlinked children.*  Truenaming the checkout before the walk is what
-makes spellings compare equal, but it also means the walk only ever sees
-the checkout's REAL ancestors.  A workspace that symlinks an existing
-clone into its home (=ws/A/x -> ~/src/main=) instead of adding a worktree
-is using that clone; the walk from =~/src/main= never passes through
-=ws/A=, so the clone classified =canonical= and was offered to every
-other workspace — while =--home-checkouts= itself lists =ws/A/x/= as one
-of A's checkouts.  So a checkout is also owned by a workspace when a
-symbolic link among the home's IMMEDIATE children (the same level
-=--home-checkouts= enumerates) leads to it:
+*Symbolic links are ignored* (user decision, 2026-09-24).  A child of a
+home that is a symbolic link is not one of the workspace's checkouts —
+=--home-checkouts= skips it, whatever it points to — and no link, of
+any kind, makes anything =workspace-owned=.  Only real directories
+count: a checkout is owned when its truename really lies inside a home,
+or is the home.  Nothing in the workspaces tooling creates links in a
+home: worktrees are added with =git worktree add=, homes are scaffolded
+with real directories, and an anchored home is the repository itself.
 
-- the checkout is the link's target, or lies inside it
-  (=ws/A/src -> ~/src= owns every checkout under =~/src=); or
-- the link's target lies inside the checkout
-  (=ws/A/foo -> ~/src/mono/packages/foo= owns =~/src/mono=), because the
-  workspace is then editing that checkout's files.
+KNOWN LIMITATION — stated here because it is accepted, not fixed.  If a
+user symlinks a main clone into a workspace home (=ws/A/x ->
+~/src/main=) instead of adding a worktree, workspace A is editing that
+clone, yet the clone is not A's: it classifies =canonical=, and
+=--canonical-for-identity= may offer it to a user standing in workspace
+B.  That is the defect the safety rule exists to prevent, reached
+through a layout the tooling never builds.  The user's guidance is
+simply: do not symlink checkouts into a workspace home; add a worktree.
+The same holds for a link to a directory inside a clone, to a file
+inside it, or to a directory above it.  An earlier revision owned the
+targets of such links; it was removed because the rule was either too
+broad (a single linked notes file silenced every bookmark into a
+repository, with no diagnostic) or, once narrowed, still a partial
+answer to a layout the tooling does not produce.
 
-Both directions only ever turn a would-be =canonical= into
-=workspace-owned=.  The cost is the conservative one this module always
-chooses: a workspace that links broadly (to =~/src=, say) makes every
-checkout under it non-canonical, and the resolver says =no-clone=.  Only
-symbolic links need the extra test — a real child directory lies inside
-the home, and the walk already sees that.  Links deeper than the home's
-immediate children are not followed: that is scanning, not enumeration of
-the registered layout.
+The flip side is conservative: because the link is not a checkout of
+the workspace, a repository reachable ONLY through such a link is not
+in view, and =--workspace-checkout= never answers with it.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--path-within-p (path dir)
@@ -1385,45 +1460,23 @@ neither do DIR's timestamps changing during the walk.  Never signals."
              found)
          (error nil))))
 
-(defun workspace-bookmark--home-symlinks (home)
-  "Return the immediate children of HOME that are symbolic links.
-Each is an absolute file name, as spelled under HOME.  Returns nil when
-HOME is nil, remote, or not an existing directory.  Never signals."
-  (when (and (stringp home) (not (file-remote-p home)))
-    (condition-case nil
-        (let ((home (file-name-as-directory (expand-file-name home))))
-          (when (file-directory-p home)
-            (seq-filter #'file-symlink-p
-                        (directory-files
-                         home t directory-files-no-dot-files-regexp))))
-      (error nil))))
-
-(defun workspace-bookmark--home-owns-p (home checkout)
-  "Return non-nil when the workspace whose home is HOME owns CHECKOUT.
-That is: CHECKOUT is HOME or lies inside it, or a symbolic link among
-HOME's immediate children leads to CHECKOUT, to a directory holding it,
-or to something inside it.  Never signals."
-  (or (workspace-bookmark--path-within-p checkout home)
-      (seq-some (lambda (link)
-                  (or (workspace-bookmark--path-within-p checkout link)
-                      (workspace-bookmark--path-within-p link checkout)))
-                (workspace-bookmark--home-symlinks home))))
-
 (defun workspace-bookmark--owning-workspace (checkout)
   "Return the name of a registered workspace that owns CHECKOUT, or nil.
-See `workspace-bookmark--home-owns-p' for what owning means."
+A workspace owns CHECKOUT when CHECKOUT is its `:home' or really lies
+inside it, by file identity (see `workspace-bookmark--path-within-p').
+Symbolic links confer nothing: a clone linked into a home from outside
+it is not owned.  Never signals."
   (seq-find (lambda (name)
-              (workspace-bookmark--home-owns-p
-               (workspace-bookmark--workspace-home name) checkout))
+              (workspace-bookmark--path-within-p
+               checkout (workspace-bookmark--workspace-home name)))
             (workspace-bookmark--registered-names)))
 
 (defun workspace-bookmark--classify (checkout)
   "Classify CHECKOUT as `canonical', `workspace-owned' or `other'.
 
 `workspace-owned' when a registered workspace owns CHECKOUT (see
-`workspace-bookmark--home-owns-p'); otherwise `canonical' when its
-`.git' is a directory (a main
-worktree); otherwise `other'.  Ownership is tested FIRST: a full clone
+`workspace-bookmark--owning-workspace'); otherwise `canonical' when
+its `.git' is a directory (a main worktree); otherwise `other'.  Ownership is tested FIRST: a full clone
 inside a workspace home is workspace-owned, never canonical.  A remote
 or non-string CHECKOUT is `other'.  Never signals."
   (condition-case nil
@@ -1442,52 +1495,105 @@ or non-string CHECKOUT is `other'.  Never signals."
 
 A workspace holds its checkouts as the IMMEDIATE children of its =:home=:
 =~/emacs-workspaces/<name>/<repo>/=.  Grandchildren are not searched —
-this is enumeration of a known layout, not scanning.  The home itself is
-not a candidate either: a home is a workspace anchor that contains
-checkouts, and treating it as one would let a stray =.git= at the home
-level claim every file under it.
+this is enumeration of a known layout, not scanning.  A child that is a
+symbolic link is skipped, whatever it points to: only real directories
+count (see "Symbolic links are ignored" under Classification).
 
-=workspace-bookmark--workspace-checkout= is the resolver's workhorse.  It
-takes an identity per child — one =rev-parse --show-toplevel= plus one
-=remote get-url= each (two more when there is no =origin=) — and stops at
-the first match.
+The home ITSELF is a checkout of the workspace too, when it is one (user
+decision, 2026-09-24).  A workspace anchored at an existing repository
+(=workspace-new= with a prefix argument, =workspace--new-anchor-existing=)
+has that repository AS its =:home=, not as a child of it; without this
+such a workspace could never resolve a bookmark into its own repository,
+and the resolver would say =no-clone= while the user stands in the
+clone.  The home comes first, then the children, sorted.  This does not
+widen what may be offered as canonical: a home is always inside itself,
+so it classifies =workspace-owned=.  A scaffolded home is a git
+repository too (=git init=), usually with no remote and so no identity;
+it is enumerated like any other and never matches.
+
+*One identity, several checkouts.*  A home can hold two sibling worktrees
+of one repository (=project-alpha/=, =project-zeta/=), or be a checkout
+of a repository and also hold a worktree of it.
+=workspace-bookmark--workspace-checkouts= returns EVERY checkout of the
+identity in the home, in the order above.
+=workspace-bookmark--workspace-checkout= returns a checkout only when it
+is the ONLY one, and nil when there are none or several.  The first
+implementation returned the alphabetically-first match, which is a
+choice of branch made by =directory-files=' sort order; the consumer
+could not tell, and might open the other branch's copy of the file.
+Several matches is AMBIGUITY, not absence: a consumer that needs to tell
+the two apart calls =--workspace-checkouts=.  How ambiguity maps onto
+the resolver's outcomes is the resolver's decision, not this section's.
+
+Each checkout costs an identity — one =rev-parse --show-toplevel= plus
+one =remote get-url= (two more when there is no =origin=) — and, because
+uniqueness needs them all, every checkout of the home is asked; there is
+no early stop at the first match.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--home-checkouts (home)
-  "Return the checkouts that are immediate children of HOME, sorted.
-Each is an absolute directory name with a trailing slash.  Returns nil
-when HOME is nil, remote, or not an existing directory.  Never signals."
+  "Return HOME and its immediate children that are checkouts.
+
+HOME comes first when it is itself a checkout (a workspace anchored at
+an existing repository), then the checkout children, sorted.  A child
+that is a symbolic link is skipped, whatever it points to.  Each is an
+absolute directory name with a trailing slash.  Returns nil when HOME
+is nil, remote, or not an existing directory.  Never signals."
   (when (and (stringp home) (not (file-remote-p home)))
     (condition-case nil
         (let ((home (file-name-as-directory (expand-file-name home))))
           (when (file-directory-p home)
             (mapcar #'file-name-as-directory
                     (seq-filter #'workspace-bookmark--checkout-dir-p
-                                (directory-files
-                                 home t directory-files-no-dot-files-regexp)))))
+                                (cons home
+                                      (seq-remove
+                                       #'file-symlink-p
+                                       (directory-files
+                                        home t
+                                        directory-files-no-dot-files-regexp)))))))
       (error nil))))
+#+end_src
 
-(defun workspace-bookmark--workspace-checkout (identity workspace-name)
-  "Return the checkout of IDENTITY inside WORKSPACE-NAME's home, or nil.
+#+begin_src emacs-lisp
+(defun workspace-bookmark--workspace-checkouts (identity workspace-name)
+  "Return every checkout of IDENTITY in WORKSPACE-NAME's home.
 
-Walks the immediate children of the workspace's `:home' that are
-checkouts and returns the first whose repository identity is IDENTITY,
-as an absolute directory name with a trailing slash.  Returns nil when
-IDENTITY or WORKSPACE-NAME is nil, when the workspace is not registered,
-or when no child matches.  Never signals."
+The candidates are those of `workspace-bookmark--home-checkouts' — the
+home itself when it is a checkout, then its immediate children — and
+the value keeps their order.  Each is an absolute directory name with a
+trailing slash.  Returns nil when IDENTITY or WORKSPACE-NAME is nil,
+when the workspace is not registered, or when nothing matches.  Never
+signals."
   (when (and identity workspace-name)
-    (seq-find (lambda (checkout)
-                (equal identity (workspace-bookmark--identity checkout)))
-              (workspace-bookmark--home-checkouts
-               (workspace-bookmark--workspace-home workspace-name)))))
+    (seq-filter (lambda (checkout)
+                  (equal identity (workspace-bookmark--identity checkout)))
+                (workspace-bookmark--home-checkouts
+                 (workspace-bookmark--workspace-home workspace-name)))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--workspace-checkout (identity workspace-name)
+  "Return the one checkout of IDENTITY in WORKSPACE-NAME's home, or nil.
+
+The value is the checkout only when it is UNIQUE among
+`workspace-bookmark--workspace-checkouts'.  Nil when there is none, and
+nil when there are several — the home holds sibling checkouts of one
+repository, and picking one would pick a branch.  Call
+`workspace-bookmark--workspace-checkouts' to tell the two apart.  Also
+nil when IDENTITY or WORKSPACE-NAME is nil or the workspace is not
+registered.  Never signals."
+  (let ((matches (workspace-bookmark--workspace-checkouts
+                  identity workspace-name)))
+    (and matches (null (cdr matches)) (car matches))))
 #+end_src
 
 ** Checkouts in view, and the safety rule
 
-The checkouts in view, in order: the current workspace's children, then
-the children of every other registered workspace, then the configuration
-repository this Emacs was loaded from (=jf/emacs-dir=).  That last one is
-what makes the =emacs= repository resolvable from a workspace that holds
+The checkouts in view, in order: the current workspace's checkouts (its
+home, when that is a checkout, then its children; see "A workspace's
+checkouts"), then those of every other registered workspace, then the
+configuration repository this Emacs was loaded from (=jf/emacs-dir=).
+That last one is what makes the =emacs= repository resolvable from a workspace that holds
 no checkout of it: =~/.emacs.d= is itself a linked worktree, and git
 expands it to its main worktree =~/emacs=.
 
@@ -1503,8 +1609,10 @@ to =no-clone= — never "the closest thing in view".
 #+begin_src emacs-lisp
 (defun workspace-bookmark--checkouts-in-view ()
   "Return the checkouts in view, most relevant first, without duplicates.
-The current workspace's home children, then every other registered
-workspace's home children, then `jf/emacs-dir'."
+The current workspace's checkouts, then every other registered
+workspace's, then `jf/emacs-dir'.  A workspace's checkouts are its
+home, when that is a checkout, and its home's checkout children (see
+`workspace-bookmark--home-checkouts')."
   (let* ((current (workspace-bookmark--current-workspace))
          (others (remove current (workspace-bookmark--registered-names)))
          (config (bound-and-true-p jf/emacs-dir)))

@@ -33,6 +33,7 @@
                         portable-bookmarks-discovery-spec--this-dir))
 
 (defvar jf/emacs-dir)
+(defvar workspace-home-builder)
 
 ;; `workspace--registered-names' is owned by tabs.el, which the test harness
 ;; loads through init.el.  tabs.el cannot be loaded on its own (it requires
@@ -214,6 +215,11 @@
                portable-bookmarks-discovery-spec--identity "wsbm-disc-a")
               :to-equal owned))
 
+    (it "lists exactly that one checkout, so it is unique"
+      (expect (workspace-bookmark--workspace-checkouts
+               portable-bookmarks-discovery-spec--identity "wsbm-disc-a")
+              :to-equal (list owned)))
+
     (it "is nil for an identity the workspace does not hold"
       (expect (workspace-bookmark--workspace-checkout
                "example.com/fixtures/absent" "wsbm-disc-a")
@@ -358,6 +364,89 @@
       (expect (workspace-bookmark--canonical-checkout d) :to-be nil))))
 
 
+;;; Behavioral — a `.git'-named git directory outside its work tree
+;;
+;; Review finding 1 (wave3-review-fixes).  When the real git directory is
+;; named `.git' but lives elsewhere, every git signal agrees on the
+;; directory that CONTAINS it — a husk holding nothing but `.git'.
+
+(defun portable-bookmarks-discovery-spec--husk-only-p (husk)
+  "Return non-nil when HUSK holds nothing but `.git'."
+  (equal (directory-files husk nil directory-files-no-dot-files-regexp)
+         '(".git")))
+
+(describe "Canonical checkout when a `.git'-named git directory lives outside the work tree"
+  :var (main store husk)
+
+  (before-each
+    (portable-bookmarks-discovery-spec--setup)
+    (setq main (workspace-bookmark-fixtures-make-repo
+                :remote portable-bookmarks-discovery-spec--remote)
+          store (workspace-bookmark-fixtures-temp-dir "wsbm-store-")
+          husk (file-name-as-directory (expand-file-name "husk" store)))
+    (make-directory husk))
+
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "is nil for `git init --separate-git-dir=<dir>/.git', not the husk"
+    ;; Re-running init with --separate-git-dir MOVES the git directory and
+    ;; leaves a gitfile in MAIN: the same layout as a fresh
+    ;; `git init --separate-git-dir=HUSK/.git MAIN'.
+    (workspace-bookmark-fixtures-git
+     main "init" "--quiet"
+     (concat "--separate-git-dir=" (expand-file-name ".git" husk)))
+    (let* ((home-b (workspace-bookmark-fixtures-make-workspace "wsbm-disc-sep-b"))
+           (wt (workspace-bookmark-fixtures-add-worktree
+                main (expand-file-name "sep" home-b) :branch "b")))
+      ;; Preconditions: MAIN's .git is a gitfile, git's main-worktree slot
+      ;; names the husk, and the husk holds only the git directory.
+      (expect (file-regular-p (expand-file-name ".git" main)) :to-be-truthy)
+      (expect (file-name-as-directory
+               (plist-get (car (workspace-bookmark--worktree-entries wt)) :path))
+              :to-equal husk)
+      (expect (portable-bookmarks-discovery-spec--husk-only-p husk)
+              :to-be-truthy)
+      (expect (workspace-bookmark--canonical-checkout wt) :to-be nil)
+      (expect (workspace-bookmark--canonical-checkout main) :to-be nil)
+      (portable-bookmarks-discovery-spec--hermetic
+        (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+                   (lambda () "wsbm-disc-sep-b")))
+          (expect (workspace-bookmark--canonical-for-identity
+                   portable-bookmarks-discovery-spec--identity)
+                  :to-be nil)))))
+
+  (it "is nil for a main worktree whose .git is a symlink, not the husk"
+    ;; The git directory kept on another disk or outside a sync folder.
+    ;; The configuration checkout is the only thing in view.
+    (rename-file (expand-file-name ".git" main) (expand-file-name ".git" husk))
+    (make-symbolic-link (expand-file-name ".git" husk)
+                        (expand-file-name ".git" main))
+    (expect (file-symlink-p (expand-file-name ".git" main)) :to-be-truthy)
+    (expect (file-name-as-directory
+             (plist-get (car (workspace-bookmark--worktree-entries main)) :path))
+            :to-equal husk)
+    (expect (portable-bookmarks-discovery-spec--husk-only-p husk) :to-be-truthy)
+    (expect (workspace-bookmark--canonical-checkout main) :to-be nil)
+    (portable-bookmarks-discovery-spec--hermetic
+      (let ((jf/emacs-dir main))
+        (expect (workspace-bookmark--canonical-for-identity
+                 portable-bookmarks-discovery-spec--identity)
+                :to-be nil))))
+
+  (it "is nil for a husk that holds an untracked file besides .git"
+    ;; Finder, Spotlight and sync clients drop files like .DS_Store into
+    ;; any directory they visit; "something besides .git" is not enough.
+    (rename-file (expand-file-name ".git" main) (expand-file-name ".git" husk))
+    (make-symbolic-link (expand-file-name ".git" husk)
+                        (expand-file-name ".git" main))
+    (with-temp-file (expand-file-name ".DS_Store" husk) (insert "x"))
+    (expect (workspace-bookmark--canonical-checkout main) :to-be nil))
+
+  (it "still returns an ordinary main worktree that holds its tracked files"
+    (expect (workspace-bookmark--holds-tracked-file-p main) :to-be-truthy)
+    (expect (workspace-bookmark--canonical-checkout main) :to-equal main)))
+
+
 ;;; Behavioral — the safety rule against a full clone inside a workspace
 
 (describe "Canonical safety with a full clone inside a workspace home"
@@ -416,6 +505,108 @@
         (expect (workspace-bookmark--canonical-for-identity
                  portable-bookmarks-discovery-spec--identity)
                 :to-be nil)))))
+
+
+;;; Behavioral — a workspace anchored at an existing repository
+;;
+;; User decision 2026-09-24 (ask 7a).  An anchored workspace has the
+;; repository AS its :home, so the home itself is one of its checkouts.
+
+(describe "A workspace anchored at an existing repository"
+
+  (before-each (portable-bookmarks-discovery-spec--setup))
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "resolves its identity to the home, and never offers the home as canonical"
+    (assume (fboundp 'workspace-new) "tabs.el is not loaded")
+    (let* ((repo (workspace-bookmark-fixtures-make-repo
+                  :remote portable-bookmarks-discovery-spec--remote))
+           (ws nil))
+      ;; Case 1 of `workspace--new-anchor-existing': a repository that
+      ;; already has a home.org is registered as it stands.
+      (with-temp-file (expand-file-name "home.org" repo) (insert "* home\n"))
+      (spy-on 'tab-bar-new-tab)
+      (spy-on 'tab-bar-rename-tab)
+      (spy-on 'workspace--dispatch-create-integrations)
+      (let ((workspace-home-builder nil))
+        (cl-letf (((symbol-function 'read-directory-name)
+                   (lambda (&rest _) repo)))
+          (setq ws (workspace-new "ignored" t))))
+      (push (workspace--name ws) workspace-bookmark-fixtures--registered-names)
+      (let ((name (workspace--name ws)))
+        (expect (workspace--home ws) :to-equal repo)
+        (expect (workspace-bookmark--home-checkouts repo) :to-equal (list repo))
+        (expect (workspace-bookmark--workspace-checkouts
+                 portable-bookmarks-discovery-spec--identity name)
+                :to-equal (list repo))
+        (expect (workspace-bookmark--workspace-checkout
+                 portable-bookmarks-discovery-spec--identity name)
+                :to-equal repo)
+        ;; Safety: the home is the repository's main worktree, and it is
+        ;; the anchored workspace's — so it is offered to no one else.
+        (expect (workspace-bookmark--canonical-checkout repo) :to-equal repo)
+        (expect (workspace-bookmark--classify repo) :to-be 'workspace-owned)
+        (let ((home-b (workspace-bookmark-fixtures-make-workspace
+                       "wsbm-disc-anchor-b")))
+          (workspace-bookmark-fixtures-add-worktree
+           repo (expand-file-name "wt" home-b) :branch "b")
+          (portable-bookmarks-discovery-spec--hermetic
+            (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+                       (lambda () "wsbm-disc-anchor-b")))
+              (expect (workspace-bookmark--canonical-for-identity
+                       portable-bookmarks-discovery-spec--identity)
+                      :to-be nil))))))))
+
+
+;;; Behavioral — several checkouts of one repository in one home
+;;
+;; User decision 2026-09-24 (ask 7b).  The alphabetically-first sibling
+;; used to win silently.
+
+(describe "Several checkouts of one identity in one workspace home"
+  :var (repo home)
+
+  (before-each
+    (portable-bookmarks-discovery-spec--setup)
+    (setq repo (workspace-bookmark-fixtures-make-repo
+                :remote portable-bookmarks-discovery-spec--remote)
+          home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-sib")))
+
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "lists every sibling worktree, and names none as THE checkout"
+    (let ((zeta (workspace-bookmark-fixtures-add-worktree
+                 repo (expand-file-name "project-zeta" home) :branch "zeta"))
+          (alpha (workspace-bookmark-fixtures-add-worktree
+                  repo (expand-file-name "project-alpha" home) :branch "alpha")))
+      (expect (workspace-bookmark--workspace-checkouts
+               portable-bookmarks-discovery-spec--identity "wsbm-disc-sib")
+              :to-equal (list alpha zeta))
+      (expect (workspace-bookmark--workspace-checkout
+               portable-bookmarks-discovery-spec--identity "wsbm-disc-sib")
+              :to-be nil)))
+
+  (it "treats a home that is a checkout and also holds a worktree of it as ambiguous"
+    (let* ((anchored (workspace-bookmark-fixtures-make-workspace
+                      "wsbm-disc-sib-anchored" repo))
+           (child (workspace-bookmark-fixtures-add-worktree
+                   repo (expand-file-name "child" anchored) :branch "child")))
+      (expect (workspace-bookmark--workspace-checkouts
+               portable-bookmarks-discovery-spec--identity
+               "wsbm-disc-sib-anchored")
+              :to-equal (list repo child))
+      (expect (workspace-bookmark--workspace-checkout
+               portable-bookmarks-discovery-spec--identity
+               "wsbm-disc-sib-anchored")
+              :to-be nil)))
+
+  (it "is nil for both when the home holds no checkout of the identity"
+    (expect (workspace-bookmark--workspace-checkouts
+             portable-bookmarks-discovery-spec--identity "wsbm-disc-sib")
+            :to-be nil)
+    (expect (workspace-bookmark--workspace-checkout
+             portable-bookmarks-discovery-spec--identity "wsbm-disc-sib")
+            :to-be nil)))
 
 
 ;;; Behavioral — ownership while the home is being written to
@@ -503,14 +694,35 @@ Returns DIR as a directory name."
       (expect wrong :to-equal 0))))
 
 
-;;; Behavioral — a symlinked workspace child
+;;; Behavioral — symbolic links in a workspace home are ignored
 ;;
-;; Review finding B2 (wave 3).  The checkout is truenamed before the
-;; containment walk, so a clone reachable inside a home only through a
-;; symbolic link was never workspace-owned, and was offered to every
-;; other workspace as canonical.
+;; User decision 2026-09-24 (discovery-refinements, part D).  Only real
+;; directories count: a symlinked child of a home is not one of the
+;; workspace's checkouts, and no link makes its target workspace-owned.
+;; This replaces the symlink ownership added for review finding B2
+;; (wave 3).  The accepted consequence — a main clone linked into a home
+;; can be offered to another workspace — is documented in the org as a
+;; known limitation, and pinned here so a change to it is deliberate.
 
-(describe "Canonical safety with a symlinked workspace child"
+(defun portable-bookmarks-discovery-spec--expect-offered-main-only
+    (main home-a home-b)
+  "Expect MAIN, and only MAIN, to be offered to workspace B.
+With workspace B current, the answer is MAIN, the repository's main
+worktree: no workspace owns it, and it is none of the checkouts of
+HOME-A or HOME-B (B's own worktree included)."
+  (portable-bookmarks-discovery-spec--hermetic
+    (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+               (lambda () "wsbm-disc-link-b")))
+      (let ((answer (workspace-bookmark--canonical-for-identity
+                     portable-bookmarks-discovery-spec--identity)))
+        (expect answer :to-equal main)
+        (expect (workspace-bookmark--owning-workspace answer) :to-be nil)
+        (dolist (home (list home-a home-b))
+          (dolist (held (workspace-bookmark--home-checkouts home))
+            (expect (workspace-bookmark--same-file-p held answer)
+                    :to-be nil)))))))
+
+(describe "Symbolic links in a workspace home are ignored"
   :var (outer main home-a home-b)
 
   (before-each
@@ -534,42 +746,49 @@ Returns DIR as a directory name."
 
   (after-each (portable-bookmarks-discovery-spec--teardown))
 
-  (it "owns the clone a home child links to, and never offers it"
+  (it "does not list a symlinked child among the workspace's checkouts"
+    (make-symbolic-link (directory-file-name main)
+                        (expand-file-name "x" home-a))
+    (expect (workspace-bookmark--home-checkouts home-a) :to-be nil)
+    (expect (workspace-bookmark--workspace-checkouts
+             portable-bookmarks-discovery-spec--identity "wsbm-disc-link-a")
+            :to-be nil)
+    (expect (workspace-bookmark--workspace-checkout
+             portable-bookmarks-discovery-spec--identity "wsbm-disc-link-a")
+            :to-be nil))
+
+  (it "does not own the clone a home child links to (known limitation)"
+    ;; The accepted consequence: A edits MAIN through the link, yet MAIN
+    ;; is offered to B.  Guidance: add a worktree, do not link a clone in.
     (let ((link (expand-file-name "x" home-a)))
       (make-symbolic-link (directory-file-name main) link)
-      ;; The link is one of A's checkouts, in A's spelling ...
-      (expect (workspace-bookmark--home-checkouts home-a)
-              :to-equal (list (file-name-as-directory link)))
-      ;; ... both spellings of the clone are A's ...
+      (expect (workspace-bookmark--classify main) :to-be 'canonical)
       (expect (workspace-bookmark--classify (file-name-as-directory link))
-              :to-be 'workspace-owned)
-      (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
-      ;; ... so it is offered to nobody.
-      (portable-bookmarks-discovery-spec--hermetic
-        (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
-                   (lambda () "wsbm-disc-link-b")))
-          (expect (workspace-bookmark--canonical-for-identity
-                   portable-bookmarks-discovery-spec--identity)
-                  :to-be nil)))))
+              :to-be 'canonical)
+      (portable-bookmarks-discovery-spec--expect-offered-main-only
+       main home-a home-b)))
 
-  (it "owns every checkout under a directory a home child links to"
-    (make-symbolic-link (directory-file-name outer)
-                        (expand-file-name "src" home-a))
-    (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
-    (portable-bookmarks-discovery-spec--hermetic
-      (expect (workspace-bookmark--canonical-for-identity
-               portable-bookmarks-discovery-spec--identity)
-              :to-be nil)))
-
-  (it "owns the clone when a home child links to something inside it"
-    ;; The workspace edits MAIN's files through the link.
+  (it "does not own the clone when a home child links to a directory inside it"
     (make-symbolic-link (expand-file-name "sub" main)
                         (expand-file-name "sub-link" home-a))
-    (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
-    (portable-bookmarks-discovery-spec--hermetic
-      (expect (workspace-bookmark--canonical-for-identity
-               portable-bookmarks-discovery-spec--identity)
-              :to-be nil)))
+    (expect (workspace-bookmark--classify main) :to-be 'canonical)
+    (portable-bookmarks-discovery-spec--expect-offered-main-only
+     main home-a home-b))
+
+  (it "does not own the clone when a home child links to one of its files"
+    (let ((link (expand-file-name "README-link" home-a)))
+      (make-symbolic-link (expand-file-name "README.md" main) link)
+      (expect (file-regular-p link) :to-be-truthy)
+      (expect (workspace-bookmark--classify main) :to-be 'canonical)
+      (portable-bookmarks-discovery-spec--expect-offered-main-only
+       main home-a home-b)))
+
+  (it "does not own a checkout below a directory a home child links to"
+    (make-symbolic-link (directory-file-name outer)
+                        (expand-file-name "src" home-a))
+    (expect (workspace-bookmark--classify main) :to-be 'canonical)
+    (portable-bookmarks-discovery-spec--expect-offered-main-only
+     main home-a home-b))
 
   (it "does not own the clone because of a dangling link or a link elsewhere"
     (make-symbolic-link (expand-file-name "gone" outer)
@@ -577,7 +796,24 @@ Returns DIR as a directory name."
     (make-symbolic-link (directory-file-name
                          (workspace-bookmark-fixtures-temp-dir "wsbm-elsewhere-"))
                         (expand-file-name "elsewhere" home-a))
-    (expect (workspace-bookmark--classify main) :to-be 'canonical)))
+    (expect (workspace-bookmark--classify main) :to-be 'canonical))
+
+  (it "still owns a real clone child of the home, next to any links"
+    ;; Links are ignored in both directions: they neither add nor remove
+    ;; ownership.  A real child clone of the same identity stays A's.
+    (let ((clone (portable-bookmarks-discovery-spec--clone-into
+                  (expand-file-name "real" home-a))))
+      (make-symbolic-link (directory-file-name main)
+                          (expand-file-name "x" home-a))
+      (expect (workspace-bookmark--home-checkouts home-a)
+              :to-equal (list clone))
+      (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
+      (portable-bookmarks-discovery-spec--hermetic
+        (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+                   (lambda () "wsbm-disc-link-b")))
+          (expect (workspace-bookmark--canonical-for-identity
+                   portable-bookmarks-discovery-spec--identity)
+                  :not :to-equal clone))))))
 
 
 ;;; Behavioral — the runner answers about the checkout it is given
@@ -630,9 +866,11 @@ Returns DIR as a directory name."
       (expect (workspace-bookmark--repo-root proj) :to-equal proj)
       (expect (workspace-bookmark--identity proj)
               :to-equal portable-bookmarks-discovery-spec--identity)
-      (expect (workspace-bookmark--workspace-checkout
+      ;; The home is a checkout of its own identity (anchored homes), and
+      ;; only of that one: PROJ does not answer for it.
+      (expect (workspace-bookmark--workspace-checkouts
                "example.com/fixtures/home-repo" "wsbm-disc-space")
-              :to-be nil)
+              :to-equal (list home))
       (expect (workspace-bookmark--workspace-checkout
                portable-bookmarks-discovery-spec--identity "wsbm-disc-space")
               :to-equal proj))))
