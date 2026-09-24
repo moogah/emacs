@@ -338,10 +338,86 @@
     (expect (workspace-bookmark--git nil "rev-parse") :to-be nil)
     (expect (workspace-bookmark--git 42 "rev-parse") :to-be nil))
 
-  (it "returns trimmed stdout on success"
+  (it "returns stdout without its line terminator on success"
     (let ((repo (workspace-bookmark-fixtures-make-repo)))
       (expect (workspace-bookmark--git repo "rev-parse" "--is-inside-work-tree")
               :to-equal "true"))))
+
+
+;;; Wave-3 review fix-ups: the runner answers about DIR and nothing else
+;;
+;; On-touch audit findings F2 and F3, review findings A1 (checkout
+;; discovery) and A2 (stamp seam).
+
+(describe "workspace-bookmark--git output, missing paths and environment"
+
+  (before-each (workspace-bookmark-fixtures-setup))
+  (after-each (workspace-bookmark-fixtures-teardown))
+
+  (it "removes only git's line terminator, keeping whitespace that belongs to the output"
+    (let ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-ws-")))
+      (dolist (case '(("  padded path \n" . "  padded path ")
+                      ("two\nlines\n" . "two\nlines")
+                      ("\n\n" . "\n")
+                      ("\n" . nil)
+                      ("no terminator" . "no terminator")))
+        (cl-letf (((symbol-function 'process-file)
+                   (lambda (&rest _) (insert (car case)) 0)))
+          (expect (cons (car case) (workspace-bookmark--git dir "x"))
+                  :to-equal case)))))
+
+  (it "keeps a trailing space in a checkout root"
+    (let* ((parent (workspace-bookmark-fixtures-temp-dir "wsbm-space-"))
+           (repo (expand-file-name "proj " parent)))
+      (make-directory repo)
+      (workspace-bookmark-fixtures-git repo "init" "--quiet")
+      (expect (workspace-bookmark--git repo "rev-parse" "--show-toplevel")
+              :to-equal repo)
+      (expect (workspace-bookmark--repo-root repo)
+              :to-equal (file-name-as-directory repo))))
+
+  (it "returns nil for a missing path inside a repository instead of asking its parent"
+    (let ((repo (workspace-bookmark-fixtures-make-repo)))
+      (dolist (missing (list (expand-file-name "no-such-dir" repo)
+                             (expand-file-name "no-such-dir/" repo)
+                             (expand-file-name "no-such-file.el" repo)))
+        (expect (cons missing (workspace-bookmark--git
+                               missing "rev-parse" "--show-toplevel"))
+                :to-equal (list missing)))
+      ;; An EXISTING file still resolves to its directory.
+      (expect (workspace-bookmark--git (expand-file-name "README.md" repo)
+                                       "rev-parse" "--show-toplevel")
+              :to-equal (directory-file-name repo))))
+
+  (it "answers about DIR's repository whatever GIT_* variables name another"
+    (let ((repo (workspace-bookmark-fixtures-make-repo
+                 :remote "git@github.com:acme/one.git"))
+          (other (workspace-bookmark-fixtures-make-repo
+                  :remote "https://gitlab.com/other/two.git")))
+      ;; Asked from a subdirectory, so that a ceiling at the root would
+      ;; stop git's upward search before it finds the repository.
+      (make-directory (expand-file-name "sub" repo))
+      (dolist (env (list (list (concat "GIT_DIR=" (expand-file-name ".git" other)))
+                         (list (concat "GIT_DIR=" (expand-file-name ".git" other))
+                               (concat "GIT_WORK_TREE=" (directory-file-name other)))
+                         (list (concat "GIT_COMMON_DIR=" (expand-file-name ".git" other)))
+                         (list (concat "GIT_CEILING_DIRECTORIES="
+                                       (directory-file-name repo)))))
+        (let ((process-environment (append env process-environment)))
+          (expect (list env (workspace-bookmark--repo-root
+                             (expand-file-name "sub/" repo)))
+                  :to-equal (list env repo))
+          (expect (list env (workspace-bookmark--identity
+                             (expand-file-name "sub/" repo)))
+                  :to-equal (list env "github.com/acme/one"))))))
+
+  (it "does not change the caller's process-environment"
+    (let* ((repo (workspace-bookmark-fixtures-make-repo))
+           (process-environment (cons "GIT_DIR=/wsbm/elsewhere/.git"
+                                      process-environment))
+           (before (copy-sequence process-environment)))
+      (workspace-bookmark--git repo "rev-parse" "--show-toplevel")
+      (expect process-environment :to-equal before))))
 
 
 ;;; Review fix-ups (merge 0f513ca6 -> review findings)

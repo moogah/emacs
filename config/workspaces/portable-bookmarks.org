@@ -173,10 +173,36 @@ exactly the failures we are deliberately ignoring, and folding them into
 stdout would turn a clean nil into a bogus "value".
 
 DIR may name a file rather than a directory — callers hand this helper
-bookmark =filename= values.  A non-directory is resolved to its parent
-directory, and anything that still is not an existing directory yields nil
-rather than letting =process-file= signal on an unusable
-=default-directory=.
+bookmark =filename= values.  An EXISTING file is resolved to its
+directory.  A DIR that does not exist yields nil; it is NOT resolved to
+its parent.  Querying the parent of a missing path answers for whatever
+repository encloses that parent, which is a different repository from
+the one the caller asked about.  Measured: a checkout named =proj = (with
+a trailing space) inside a home that is itself a repository.  A trimmed
+=--show-toplevel= spelling =proj= does not exist, and running git in its
+parent returned the HOME's identity for a checkout of a different
+repository.
+
+*Only =default-directory= decides which repository git answers for.*
+Binding it is not enough on its own: git gives =GIT_DIR=,
+=GIT_WORK_TREE=, =GIT_COMMON_DIR= and their relatives precedence over the
+working directory.  They reach Emacs's =process-environment= when Emacs is
+started by git (as =GIT_EDITOR=, or from a hook, which exports =GIT_DIR=),
+from a shell that exported them for a bare "dotfiles" repository, or by
+=setenv=.  Measured with =GIT_DIR= set: every checkout took the identity of
+the repository it named, and =--workspace-checkout= returned a checkout of
+a different repository.  The runner therefore unsets every variable git
+lists as repository-local (=git rev-parse --local-env-vars=) plus the two
+that steer repository discovery (=GIT_CEILING_DIRECTORIES=,
+=GIT_DISCOVERY_ACROSS_FILESYSTEM=) and =GIT_NAMESPACE=.  An element
+without === in =process-environment= removes that variable from the
+subprocess environment, and putting the removals FIRST makes them win over
+any duplicate later in the list.
+
+*Output is not trimmed.*  Only the single line terminator git appends is
+removed.  Whitespace at either end of a path is part of the path:
+=string-trim= turned a checkout named =proj = into =proj=.  Callers that
+read several lines split the output themselves.
 
 LOCAL PATHS ONLY.  A remote (TRAMP) DIR is rejected before anything
 touches the filesystem, and the whole body sits inside the error barrier.
@@ -203,13 +229,30 @@ identity is the host, not a repo the workspace could hold.  Rejecting it
 yields nil, which degrades to the record's stored absolute filename.
 
 #+begin_src emacs-lisp
-(defun workspace-bookmark--git (dir &rest args)
-  "Run git with ARGS in DIR and return its trimmed stdout, or nil.
+(defconst workspace-bookmark--git-unset-environment
+  '("GIT_DIR" "GIT_WORK_TREE" "GIT_COMMON_DIR" "GIT_INDEX_FILE"
+    "GIT_OBJECT_DIRECTORY" "GIT_ALTERNATE_OBJECT_DIRECTORIES"
+    "GIT_NAMESPACE" "GIT_CEILING_DIRECTORIES"
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM" "GIT_IMPLICIT_WORK_TREE"
+    "GIT_PREFIX" "GIT_CONFIG" "GIT_CONFIG_PARAMETERS" "GIT_CONFIG_COUNT"
+    "GIT_GRAFT_FILE" "GIT_NO_REPLACE_OBJECTS" "GIT_REPLACE_REF_BASE"
+    "GIT_SHALLOW_FILE")
+  "Environment variables removed for every git subprocess this module runs.
+Each one can make git answer about a repository other than the one
+`default-directory' names.")
 
-Returns nil — never signals — when DIR is nil, remote, not (and not
-inside) an existing directory, when git exits non-zero, or when git
-produces no output.  If DIR names a file, git is run in the file's
-directory.  stderr is discarded.
+(defun workspace-bookmark--git (dir &rest args)
+  "Run git with ARGS in DIR and return its stdout, or nil.
+
+Only the one line terminator git appends is removed from the output;
+other leading and trailing whitespace is kept, because it can be part of
+a path.  Returns nil — never signals — when DIR is nil, remote or
+missing, when git exits non-zero, or when git produces no output.  If
+DIR names an existing file, git is run in the file's directory; a DIR
+that does not exist is never resolved to its parent.  stderr is
+discarded.  The variables in `workspace-bookmark--git-unset-environment'
+are removed from git's environment, so `default-directory' alone decides
+which repository git answers for.
 
 DIR must be LOCAL.  A remote (TRAMP) name returns nil without touching
 the filesystem: probing one can signal, can block on a password prompt,
@@ -220,16 +263,71 @@ machine's identity."
                        (not (file-remote-p dir))
                        (expand-file-name dir))))
         (when (and path (not (file-remote-p path)))
-          (let ((cwd (if (file-directory-p path)
-                         (file-name-as-directory path)
-                       (file-name-directory (directory-file-name path)))))
+          (let ((cwd (cond ((file-directory-p path)
+                            (file-name-as-directory path))
+                           ((file-exists-p path)
+                            (file-name-directory (directory-file-name path))))))
             (when (and cwd (file-directory-p cwd))
-              (let ((default-directory cwd))
+              (let ((default-directory cwd)
+                    (process-environment
+                     (append workspace-bookmark--git-unset-environment
+                             process-environment)))
                 (with-temp-buffer
                   (when (eq 0 (apply #'process-file "git" nil '(t nil) nil args))
-                    (let ((out (string-trim (buffer-string))))
+                    (let ((out (string-remove-suffix "\n" (buffer-string))))
                       (unless (string-empty-p out) out)))))))))
     (error nil)))
+#+end_src
+
+* Same file
+
+Every "are these two paths the same file?" question in this module goes
+through one predicate, and it compares FILE IDENTITY: the device and
+inode numbers of the two paths' truenames.  Spelling does not matter
+(trailing slash, =~=, symlinks, letter case on a case-insensitive disk),
+and neither does anything that can change while the file stays the same
+file.
+
+=file-equal-p= is NOT used.  In Emacs 30 it truenames and stats each path
+and then compares the WHOLE attribute lists with =equal=.  Those lists
+include the access, modification and status-change times, so a directory
+that is modified, or merely read, between the two stats compares unequal
+to itself.  In the ownership test, "not equal" means "not inside this
+home", and ownership-first classification then calls a workspace's full
+clone =canonical=.  The reviewer measured 4,817 wrong =canonical= answers
+in 20,000 =--classify= calls while a shell loop created and removed one
+file in the home.  On this APFS volume the first read of a directory after
+it changes also updates its access time, so any concurrent reader
+(Spotlight, a sync client, git in another process) is enough.
+
+Nil when either path is not a local string or does not exist.  Remote
+names are rejected before any filesystem call, as everywhere else in this
+module.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--same-file-p (a b)
+  "Return non-nil when A and B name the same existing local file.
+
+Compares the device and inode numbers of the two paths' truenames, so
+spelling, symlinks and timestamps do not matter.  `file-equal-p' is
+deliberately not used: it compares whole attribute lists, timestamps
+included, and so reports a directory modified between its two stats as
+unequal to itself.  Nil when either is not a string, is remote, or does
+not exist.  Never signals."
+  (and (stringp a) (stringp b)
+       (not (file-remote-p a))
+       (not (file-remote-p b))
+       (condition-case nil
+           (let ((attrs-a (file-attributes (file-truename (expand-file-name a))))
+                 (attrs-b (file-attributes (file-truename (expand-file-name b)))))
+             (and attrs-a attrs-b
+                  (file-attribute-inode-number attrs-a)
+                  (file-attribute-device-number attrs-a)
+                  (equal (file-attribute-inode-number attrs-a)
+                         (file-attribute-inode-number attrs-b))
+                  (equal (file-attribute-device-number attrs-a)
+                         (file-attribute-device-number attrs-b))))
+         (error nil))))
 #+end_src
 
 * Repository identity
@@ -487,6 +585,12 @@ Two decisions about what the memo holds:
   =M-x workspace-bookmark-clear-identity-cache= covers it.  (Filesystems
   with coarse mtimes can also hide two config writes within one tick;
   the same command covers that.)
+- *No stamp, no reuse.*  When the config file's modification time
+  cannot be read, the stamp is nil.  An entry with a nil stamp would
+  match every later nil stamp and never be revalidated, so a nil stamp
+  never counts as a hit: identity is recomputed.  This is the failure
+  that let a wrongly-resolved common dir freeze a stale identity (see
+  "Where a location sits in its checkout").
 - *It does not survive a reload.*  The memo holds the OUTPUT of
   =workspace-bookmark--normalize-identity=.  A =defvar= keeps its value
   when the file is loaded again, so after an edit to the normalizer
@@ -529,11 +633,12 @@ this module clears the memo too."
 (defun workspace-bookmark--memoised-identity (root git-common-dir)
   "Return the identity of the checkout at ROOT, memoised per ROOT.
 GIT-COMMON-DIR is the repository's shared git directory; the memoised
-value is reused only while its config file is unchanged.  A nil identity
-is memoised like any other."
+value is reused only while its config file is unchanged, and never when
+that file's modification time cannot be read.  A nil identity is
+memoised like any other."
   (let ((stamp (workspace-bookmark--config-stamp git-common-dir))
         (hit (gethash root workspace-bookmark--identity-memo)))
-    (if (and hit (equal (car hit) stamp))
+    (if (and hit stamp (equal (car hit) stamp))
         (cdr hit)
       (let ((identity (workspace-bookmark--root-identity root)))
         (puthash root (cons stamp identity) workspace-bookmark--identity-memo)
@@ -615,15 +720,23 @@ argument order.
 
 Two spellings need care:
 
-- At the repository root the prefix is the EMPTY string.  The runner
-  trims its output, so the trailing empty line disappears and only two
-  lines come back.  Two lines therefore means "prefix is empty", not
-  "malformed".
-- =--git-common-dir= may be RELATIVE (=.git=, =../.git=) — relative to
-  the directory git ran in, which is DIR.  It is expanded against DIR.
+- At the repository root the prefix is the EMPTY string: git prints an
+  empty line.  The runner removes only git's final line terminator, so
+  that empty line is still there and three lines come back, the last
+  one empty.
+- =--git-common-dir= is asked with =--path-format=absolute=.  Without
+  it git answers RELATIVE to the directory it ran in (=../../.git=),
+  and it runs in the RESOLVED directory, not in the spelling the caller
+  passed.  Through a symlink to a repository SUBDIRECTORY
+  (=L/linksub -> R/sub=), expanding =../../.git= against the caller's
+  =L/linksub/deep/= named =L/.git= instead of =R/.git=.  The memo then
+  validated against a config file that does not exist, got a nil stamp
+  and matched it forever, so a =git remote set-url= was never noticed
+  and the OLD identity kept being stamped (measured).  The flag needs
+  git 2.31; an older git exits non-zero and the position is nil.
 
-Anything other than two or three lines (a checkout path containing a
-newline, say) is refused rather than parsed.
+Anything other than three lines (a checkout path containing a newline,
+say) is refused rather than parsed.
 
 For a DIRECTORY location the same call also asks a fourth question:
 =HEAD:./=, the object id of DIR's own tree in HEAD.  That is the bounded
@@ -631,8 +744,7 @@ For a DIRECTORY location the same call also asks a fourth question:
 below): git resolves one tree entry per path component and prints one
 line, however large the subtree.  If DIR is not in HEAD — or there is no
 HEAD — =rev-parse= exits non-zero and the whole position is nil.  With
-the fourth argument the prefix line is no longer last, so it survives
-the runner's trim and exactly FOUR lines come back.
+the fourth argument exactly FOUR lines come back.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--checkout-position (dir &optional committed)
@@ -647,13 +759,17 @@ With COMMITTED non-nil, also return TREE, the object id of DIR's tree in
 HEAD, and return nil when DIR is not in HEAD or there is no HEAD.  The
 cost is bounded by DIR's depth, not by the size of its subtree."
   (let* ((out (apply #'workspace-bookmark--git
-                     dir "rev-parse" "--show-toplevel" "--git-common-dir" "--show-prefix"
+                     dir "rev-parse"
+                     "--path-format=absolute" "--show-toplevel" "--git-common-dir"
+                     "--show-prefix"
                      (and committed '("HEAD:./"))))
          (lines (and out (split-string out "\n"))))
-    (when (memq (length lines) (if committed '(4) '(2 3)))
+    (when (and (= (length lines) (if committed 4 3))
+               (file-name-absolute-p (nth 0 lines))
+               (file-name-absolute-p (nth 1 lines)))
       (append (list (file-name-as-directory (nth 0 lines))
-                    (expand-file-name (nth 1 lines) dir)
-                    (or (nth 2 lines) ""))
+                    (nth 1 lines)
+                    (nth 2 lines))
               (and committed (list (nth 3 lines)))))))
 #+end_src
 
@@ -729,11 +845,10 @@ has no way to stop at the first match, so the check moved to HEAD.
   =(expand-file-name "./" root)= is =root= itself, with its slash.
 
 *Verification.*  The relpath git reports is accepted only if, anchored
-back on the root, it names the SAME file as the location (=file-equal-p=
-compares the files, not the strings).  The runner trims whitespace, so a
-path with leading or trailing blanks could come back altered; this
-check turns any such corruption — or any git answer we misparsed — into
-"unstamped" instead of into a persisted wrong path.
+back on the root, it names the SAME file as the location
+(=workspace-bookmark--same-file-p= compares the files, not the strings).
+This turns any git answer we misparsed into "unstamped" instead of into a
+persisted wrong path.
 
 Output is decoded as UTF-8 regardless of locale: a GUI Emacs can start
 with a non-UTF-8 =default-process-coding-system=, and the raw =-z= bytes
@@ -775,7 +890,7 @@ re-anchor on ROOT to the same file as LOCATION, or nil is returned."
               (setq reported (delete-dups reported))
               (and (= 1 (length reported)) (car reported))))))
     (and relpath
-         (file-equal-p (expand-file-name relpath root) location)
+         (workspace-bookmark--same-file-p (expand-file-name relpath root) location)
          relpath)))
 #+end_src
 
@@ -1132,8 +1247,9 @@ ignores =core.worktree= and is its own top level, measured on git 2.49.)
   "Return the main worktree of the repository containing DIR, or nil.
 
 The value is an absolute directory name with a trailing slash.  Two
-signals must agree: the parent of `git rev-parse --git-common-dir', which
-must be a directory named `.git', and the first, non-bare entry of `git
+signals must agree: the parent of the shared git directory
+\(`git rev-parse --path-format=absolute --git-common-dir'), which must
+be a directory named `.git', and the first, non-bare entry of `git
 worktree list --porcelain'.  The candidate must then be its own top
 level: `git rev-parse --show-toplevel' run in it names it.  When the
 signals disagree — a bare main repository, a `--separate-git-dir'
@@ -1152,15 +1268,11 @@ canonical checkout is better than a guessed one.  Never signals."
             (first (car (workspace-bookmark--worktree-entries dir))))
         (when (and first
                    (not (plist-get first :bare))
-                   (condition-case nil
-                       (file-equal-p (plist-get first :path) candidate)
-                     (error nil)))
+                   (workspace-bookmark--same-file-p (plist-get first :path)
+                                                    candidate))
           (let ((top (workspace-bookmark--git
                       candidate "rev-parse" "--show-toplevel")))
-            (when (and top
-                       (condition-case nil
-                           (file-equal-p top candidate)
-                         (error nil)))
+            (when (and top (workspace-bookmark--same-file-p top candidate))
               (file-name-as-directory candidate))))))))
 #+end_src
 
@@ -1169,7 +1281,9 @@ canonical checkout is better than a guessed one.  Never signals."
 Three symbols, tested in THIS order — ownership before structure:
 
 1. =workspace-owned= — the checkout lies within some registered
-   workspace's =:home= (or is that home).
+   workspace's =:home= (or is that home), or a symbolic link among the
+   home's immediate children leads into it (see "Symlinked children"
+   below).
 2. =canonical= — =.git= is a directory.  A linked worktree's =.git= is a
    FILE (=~/.emacs.d/.git= on this machine is a 54-byte file); a main
    worktree's is a directory.  No subprocess.
@@ -1186,12 +1300,16 @@ canonical, and the resolver reports =no-clone= instead.  Nil over a guess.
 
 Containment is tested by FILE IDENTITY, never by comparing strings.
 The checkout path is truenamed, then it and each of its parent
-directories in turn is compared to the home with =file-equal-p=, which
-compares the file identity from =file-attributes= (inode and device), not
-the spelling.  A trailing slash, a =~= spelling, macOS's =/var= →
+directories in turn is compared to the home with
+=workspace-bookmark--same-file-p= (device and inode; see "Same file"),
+not by spelling.  A trailing slash, a =~= spelling, macOS's =/var= →
 =/private/var= symlink and — the case that matters — a difference in
 LETTER CASE on a case-insensitive filesystem all compare correctly, and
 because whole directories are compared, =/a/ws-old= is not inside =/a/ws=.
+Because only device and inode are compared, a home that is being written
+to while the walk runs still compares equal to itself.  The first
+implementation used =file-equal-p=, which also compares timestamps, and
+under a concurrent writer it failed OPEN: see "Same file".
 
 String comparison is rejected even after truenaming.  =file-in-directory-p=
 (the first implementation) truenames both sides and then compares path
@@ -1203,7 +1321,7 @@ it — and =file-in-directory-p= then says the workspace's own full clone
 is NOT inside it.  Ownership-first classification turns that miss into a
 =canonical= verdict for git's (on-disk-case) spelling of the clone, and
 =--canonical-for-identity= would offer workspace A's clone to a user in
-workspace B.  =file-equal-p= says t for the same pair.
+workspace B.  Comparing file identity says t for the same pair.
 
 The walk stops at the filesystem root.  A path that does not exist cannot
 be proven inside anything, so it is not; every caller passes existing
@@ -1213,27 +1331,53 @@ Remote paths are rejected before any filesystem call: =file-truename= on a
 TRAMP name would open a connection, and a remote home cannot own a local
 checkout anyway.
 
+*Symlinked children.*  Truenaming the checkout before the walk is what
+makes spellings compare equal, but it also means the walk only ever sees
+the checkout's REAL ancestors.  A workspace that symlinks an existing
+clone into its home (=ws/A/x -> ~/src/main=) instead of adding a worktree
+is using that clone; the walk from =~/src/main= never passes through
+=ws/A=, so the clone classified =canonical= and was offered to every
+other workspace — while =--home-checkouts= itself lists =ws/A/x/= as one
+of A's checkouts.  So a checkout is also owned by a workspace when a
+symbolic link among the home's IMMEDIATE children (the same level
+=--home-checkouts= enumerates) leads to it:
+
+- the checkout is the link's target, or lies inside it
+  (=ws/A/src -> ~/src= owns every checkout under =~/src=); or
+- the link's target lies inside the checkout
+  (=ws/A/foo -> ~/src/mono/packages/foo= owns =~/src/mono=), because the
+  workspace is then editing that checkout's files.
+
+Both directions only ever turn a would-be =canonical= into
+=workspace-owned=.  The cost is the conservative one this module always
+chooses: a workspace that links broadly (to =~/src=, say) makes every
+checkout under it non-canonical, and the resolver says =no-clone=.  Only
+symbolic links need the extra test — a real child directory lies inside
+the home, and the walk already sees that.  Links deeper than the home's
+immediate children are not followed: that is scanning, not enumeration of
+the registered layout.
+
 #+begin_src emacs-lisp
 (defun workspace-bookmark--path-within-p (path dir)
   "Return non-nil when PATH is DIR or lies inside it.
 
-Both must be local and exist.  Containment is by file identity: PATH is
-truenamed, then it and each of its ancestors is compared to DIR with
-`file-equal-p', so differences of spelling — trailing slash, `~',
-symlinked prefixes, and letter case on a case-insensitive filesystem —
-do not matter.  Never signals."
+Both must be local and exist; DIR must be a directory.  Containment is
+by file identity: PATH is truenamed, then it and each of its ancestors
+is compared to DIR with `workspace-bookmark--same-file-p', so
+differences of spelling — trailing slash, `~', symlinked prefixes, and
+letter case on a case-insensitive filesystem — do not matter, and
+neither do DIR's timestamps changing during the walk.  Never signals."
   (and (stringp path) (stringp dir)
        (not (file-remote-p path))
        (not (file-remote-p dir))
        (condition-case nil
-           (let ((dir (expand-file-name dir))
-                 (current (directory-file-name
+           (let ((current (directory-file-name
                            (file-truename (expand-file-name path))))
                  (previous nil)
                  (found nil))
-             (when (file-directory-p dir)
+             (when (file-directory-p (expand-file-name dir))
                (while (and (not found) (not (equal current previous)))
-                 (if (file-equal-p current dir)
+                 (if (workspace-bookmark--same-file-p current dir)
                      (setq found t)
                    (setq previous current
                          current (directory-file-name
@@ -1241,19 +1385,44 @@ do not matter.  Never signals."
              found)
          (error nil))))
 
+(defun workspace-bookmark--home-symlinks (home)
+  "Return the immediate children of HOME that are symbolic links.
+Each is an absolute file name, as spelled under HOME.  Returns nil when
+HOME is nil, remote, or not an existing directory.  Never signals."
+  (when (and (stringp home) (not (file-remote-p home)))
+    (condition-case nil
+        (let ((home (file-name-as-directory (expand-file-name home))))
+          (when (file-directory-p home)
+            (seq-filter #'file-symlink-p
+                        (directory-files
+                         home t directory-files-no-dot-files-regexp))))
+      (error nil))))
+
+(defun workspace-bookmark--home-owns-p (home checkout)
+  "Return non-nil when the workspace whose home is HOME owns CHECKOUT.
+That is: CHECKOUT is HOME or lies inside it, or a symbolic link among
+HOME's immediate children leads to CHECKOUT, to a directory holding it,
+or to something inside it.  Never signals."
+  (or (workspace-bookmark--path-within-p checkout home)
+      (seq-some (lambda (link)
+                  (or (workspace-bookmark--path-within-p checkout link)
+                      (workspace-bookmark--path-within-p link checkout)))
+                (workspace-bookmark--home-symlinks home))))
+
 (defun workspace-bookmark--owning-workspace (checkout)
-  "Return the name of a registered workspace whose home holds CHECKOUT.
-Returns nil when CHECKOUT lies inside no registered workspace's `:home'."
+  "Return the name of a registered workspace that owns CHECKOUT, or nil.
+See `workspace-bookmark--home-owns-p' for what owning means."
   (seq-find (lambda (name)
-              (workspace-bookmark--path-within-p
-               checkout (workspace-bookmark--workspace-home name)))
+              (workspace-bookmark--home-owns-p
+               (workspace-bookmark--workspace-home name) checkout))
             (workspace-bookmark--registered-names)))
 
 (defun workspace-bookmark--classify (checkout)
   "Classify CHECKOUT as `canonical', `workspace-owned' or `other'.
 
-`workspace-owned' when CHECKOUT lies inside a registered workspace's
-home; otherwise `canonical' when its `.git' is a directory (a main
+`workspace-owned' when a registered workspace owns CHECKOUT (see
+`workspace-bookmark--home-owns-p'); otherwise `canonical' when its
+`.git' is a directory (a main
 worktree); otherwise `other'.  Ownership is tested FIRST: a full clone
 inside a workspace home is workspace-owned, never canonical.  A remote
 or non-string CHECKOUT is `other'.  Never signals."

@@ -647,6 +647,84 @@
       (set-file-times config (time-add (current-time) 10))
       (expect (car (portable-bookmarks-stamp-spec--stamps
                     (workspace-bookmark--stamp-record record)))
-              :to-equal "github.com/acme/gadgets"))))
+              :to-equal "github.com/acme/gadgets")))
+
+  (it "re-reads identity after origin is re-pointed, reached through a symlink to a subdirectory"
+    ;; Review finding A1 (stamp seam).  A relative --git-common-dir
+    ;; (\"../../.git\", relative to git's RESOLVED directory) expanded
+    ;; against the symlinked spelling named a config file that does not
+    ;; exist; the memo's nil stamp then matched forever.
+    (let* ((repo (portable-bookmarks-stamp-spec--track
+                  (portable-bookmarks-stamp-spec--repo) "sub/deep/f.el"))
+           (links (workspace-bookmark-fixtures-temp-dir "wsbm-sublink-"))
+           (link (expand-file-name "linksub" links))
+           (via (expand-file-name "deep/f.el" link))
+           (record (portable-bookmarks-stamp-spec--record-for via))
+           (config (expand-file-name ".git/config" repo)))
+      (make-symbolic-link (expand-file-name "sub" repo) link)
+      (expect (nth 1 (workspace-bookmark--checkout-position
+                      (file-name-directory via)))
+              :to-equal (expand-file-name ".git" repo))
+      (expect (portable-bookmarks-stamp-spec--stamps
+               (workspace-bookmark--stamp-record record))
+              :to-equal (portable-bookmarks-stamp-spec--expected "sub/deep/f.el"))
+      (workspace-bookmark-fixtures-git
+       repo "remote" "set-url" "origin" "https://github.com/acme/gadgets.git")
+      (set-file-times config (time-add (current-time) 10))
+      (expect (car (portable-bookmarks-stamp-spec--stamps
+                    (workspace-bookmark--stamp-record record)))
+              :to-equal "github.com/acme/gadgets")))
+
+  (it "never reuses a memoised identity whose config stamp is unreadable"
+    (spy-on 'workspace-bookmark--root-identity :and-return-value "example.com/a/b")
+    (dotimes (_ 2)
+      (expect (workspace-bookmark--memoised-identity
+               "/wsbm/no/root/" "/wsbm/no/such/common/.git")
+              :to-equal "example.com/a/b"))
+    (expect 'workspace-bookmark--root-identity :to-have-been-called-times 2)))
+
+
+;;; Behavioral — the stamp names the file's own repository (wave-3 review)
+
+(describe "stamp seam: the runner answers about the file's own repository"
+
+  (before-each
+    (workspace-bookmark-fixtures-setup)
+    (workspace-bookmark-clear-identity-cache))
+
+  (after-each
+    (workspace-bookmark-clear-identity-cache)
+    (workspace-bookmark-fixtures-teardown))
+
+  (it "stamps the right identity with GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE naming another repository"
+    ;; Review finding A2 (stamp seam): with GIT_DIR inherited, a file in
+    ;; one repository was stamped with another repository's identity.
+    (let* ((other (portable-bookmarks-stamp-spec--repo
+                   "https://gitlab.com/other/two.git"))
+           (repo (portable-bookmarks-stamp-spec--repo))
+           (record (portable-bookmarks-stamp-spec--record-for
+                    (expand-file-name "README.md" repo))))
+      (dolist (env (list (list (concat "GIT_DIR=" (expand-file-name ".git" other)))
+                         (list (concat "GIT_DIR=" (expand-file-name ".git" other))
+                               (concat "GIT_WORK_TREE=" (directory-file-name other))
+                               (concat "GIT_INDEX_FILE="
+                                       (expand-file-name ".git/index" other)))))
+        (workspace-bookmark-clear-identity-cache)
+        (let ((process-environment (append env process-environment)))
+          (expect (cons env (portable-bookmarks-stamp-spec--stamps
+                             (workspace-bookmark--stamp-record record)))
+                  :to-equal (cons env (portable-bookmarks-stamp-spec--expected
+                                       "README.md")))))))
+
+  (it "stamps a file at the repository root whose name begins with a space"
+    ;; The runner used to trim the whole of git's output, which removed
+    ;; the leading blank from a root-level `ls-files -z' answer.
+    (let* ((repo (portable-bookmarks-stamp-spec--track
+                  (portable-bookmarks-stamp-spec--repo) " lead.txt"))
+           (record (portable-bookmarks-stamp-spec--record-for
+                    (expand-file-name " lead.txt" repo))))
+      (expect (portable-bookmarks-stamp-spec--stamps
+               (workspace-bookmark--stamp-record record))
+              :to-equal (portable-bookmarks-stamp-spec--expected " lead.txt")))))
 
 ;;; portable-bookmarks-stamp-spec.el ends here

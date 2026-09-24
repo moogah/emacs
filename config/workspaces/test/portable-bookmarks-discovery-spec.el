@@ -418,6 +418,226 @@
                 :to-be nil)))))
 
 
+;;; Behavioral — ownership while the home is being written to
+;;
+;; Review finding B1 (wave 3).  `file-equal-p' compares whole attribute
+;; lists, timestamps included, so a home modified between the two reads of
+;; one comparison was "not the home", and ownership-first classification
+;; then called the workspace's full clone `canonical'.
+
+(defun portable-bookmarks-discovery-spec--clone-into (dir)
+  "Clone a fresh fixture repository into DIR and give it the fixture remote.
+Returns DIR as a directory name."
+  (let ((origin (workspace-bookmark-fixtures-make-repo))
+        (dir (file-name-as-directory dir)))
+    (workspace-bookmark-fixtures-git (file-name-directory (directory-file-name dir))
+                                     "clone" "--quiet" origin
+                                     (directory-file-name dir))
+    (workspace-bookmark-fixtures-git dir "remote" "set-url" "origin"
+                                     portable-bookmarks-discovery-spec--remote)
+    dir))
+
+(describe "Canonical safety while the workspace home is being written to"
+  :var (home clone)
+
+  (before-each
+    (portable-bookmarks-discovery-spec--setup)
+    (setq home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-race")
+          clone (portable-bookmarks-discovery-spec--clone-into
+                 (expand-file-name "clone" home))))
+
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "still owns a full clone when every read of a file sees new timestamps"
+    ;; Deterministic model of a concurrent writer (or reader: on APFS the
+    ;; first read after a change updates atime): every call to
+    ;; `file-attributes' reports access, modification and status-change
+    ;; times one second later than the call before.  Identity — device and
+    ;; inode — never changes, because the files do not.
+    (let ((real-file-attributes (symbol-function 'file-attributes))
+          (reads 0))
+      (cl-letf (((symbol-function 'file-attributes)
+                 (lambda (file &optional id-format)
+                   (let ((attrs (funcall real-file-attributes file id-format)))
+                     (when attrs
+                       (setq reads (1+ reads)
+                             attrs (copy-sequence attrs))
+                       (dolist (slot '(4 5 6))
+                         (setf (nth slot attrs)
+                               (time-add (nth slot attrs) reads))))
+                     attrs))))
+        (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
+        (portable-bookmarks-discovery-spec--hermetic
+          (expect (workspace-bookmark--canonical-for-identity
+                   portable-bookmarks-discovery-spec--identity)
+                  :to-be nil)))
+      (expect reads :to-be-greater-than 1)))
+
+  (it "never classifies the clone canonical under a real concurrent writer (bounded)"
+    ;; A stress companion to the spec above.  With the fix it cannot fail:
+    ;; ownership no longer reads timestamps at all.  Without the fix the
+    ;; reviewer measured about one wrong answer in four.
+    (let ((writer nil)
+          (wrong 0)
+          (calls 0)
+          (deadline (time-add nil 3)))
+      (unwind-protect
+          (progn
+            (setq writer
+                  (make-process
+                   :name "wsbm-disc-writer" :buffer nil :noquery t
+                   :command
+                   (list "sh" "-c"
+                         "while :; do : > \"$1/.#wsbm-lock\"; rm -f \"$1/.#wsbm-lock\"; done"
+                         "sh" (directory-file-name home))))
+            (while (and (< calls 1000) (time-less-p nil deadline))
+              (setq calls (1+ calls))
+              (unless (eq 'workspace-owned (workspace-bookmark--classify clone))
+                (setq wrong (1+ wrong)))))
+        (when (process-live-p writer)
+          (delete-process writer))
+        (with-timeout (5)
+          (while (process-live-p writer)
+            (accept-process-output nil 0.05))))
+      (expect calls :to-be-greater-than 100)
+      (expect wrong :to-equal 0))))
+
+
+;;; Behavioral — a symlinked workspace child
+;;
+;; Review finding B2 (wave 3).  The checkout is truenamed before the
+;; containment walk, so a clone reachable inside a home only through a
+;; symbolic link was never workspace-owned, and was offered to every
+;; other workspace as canonical.
+
+(describe "Canonical safety with a symlinked workspace child"
+  :var (outer main home-a home-b)
+
+  (before-each
+    (portable-bookmarks-discovery-spec--setup)
+    ;; MAIN is a full clone outside every home, inside a directory of its
+    ;; own; workspace B holds a linked worktree of it, so the identity is
+    ;; in view whatever workspace A links to.
+    (setq outer (workspace-bookmark-fixtures-temp-dir "wsbm-outer-")
+          main (portable-bookmarks-discovery-spec--clone-into
+                (expand-file-name "main" outer))
+          home-a (workspace-bookmark-fixtures-make-workspace "wsbm-disc-link-a")
+          home-b (workspace-bookmark-fixtures-make-workspace "wsbm-disc-link-b"))
+    (make-directory (expand-file-name "sub" main))
+    (workspace-bookmark-fixtures-add-worktree
+     main (expand-file-name "discovery" home-b) :branch "b")
+    ;; Control: before any link, MAIN is the canonical checkout.
+    (portable-bookmarks-discovery-spec--hermetic
+      (expect (workspace-bookmark--canonical-for-identity
+               portable-bookmarks-discovery-spec--identity)
+              :to-equal main)))
+
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "owns the clone a home child links to, and never offers it"
+    (let ((link (expand-file-name "x" home-a)))
+      (make-symbolic-link (directory-file-name main) link)
+      ;; The link is one of A's checkouts, in A's spelling ...
+      (expect (workspace-bookmark--home-checkouts home-a)
+              :to-equal (list (file-name-as-directory link)))
+      ;; ... both spellings of the clone are A's ...
+      (expect (workspace-bookmark--classify (file-name-as-directory link))
+              :to-be 'workspace-owned)
+      (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
+      ;; ... so it is offered to nobody.
+      (portable-bookmarks-discovery-spec--hermetic
+        (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+                   (lambda () "wsbm-disc-link-b")))
+          (expect (workspace-bookmark--canonical-for-identity
+                   portable-bookmarks-discovery-spec--identity)
+                  :to-be nil)))))
+
+  (it "owns every checkout under a directory a home child links to"
+    (make-symbolic-link (directory-file-name outer)
+                        (expand-file-name "src" home-a))
+    (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
+    (portable-bookmarks-discovery-spec--hermetic
+      (expect (workspace-bookmark--canonical-for-identity
+               portable-bookmarks-discovery-spec--identity)
+              :to-be nil)))
+
+  (it "owns the clone when a home child links to something inside it"
+    ;; The workspace edits MAIN's files through the link.
+    (make-symbolic-link (expand-file-name "sub" main)
+                        (expand-file-name "sub-link" home-a))
+    (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
+    (portable-bookmarks-discovery-spec--hermetic
+      (expect (workspace-bookmark--canonical-for-identity
+               portable-bookmarks-discovery-spec--identity)
+              :to-be nil)))
+
+  (it "does not own the clone because of a dangling link or a link elsewhere"
+    (make-symbolic-link (expand-file-name "gone" outer)
+                        (expand-file-name "dangling" home-a))
+    (make-symbolic-link (directory-file-name
+                         (workspace-bookmark-fixtures-temp-dir "wsbm-elsewhere-"))
+                        (expand-file-name "elsewhere" home-a))
+    (expect (workspace-bookmark--classify main) :to-be 'canonical)))
+
+
+;;; Behavioral — the runner answers about the checkout it is given
+;;
+;; On-touch audit findings F2 and F3 (wave 3).
+
+(describe "Checkout discovery with repository-locating variables in the environment"
+
+  (before-each (portable-bookmarks-discovery-spec--setup))
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "finds the workspace's checkout of the identity, not of GIT_DIR's repository"
+    (let* ((other (workspace-bookmark-fixtures-make-repo
+                   :remote "git@example.com:fixtures/other.git"))
+           (repo (workspace-bookmark-fixtures-make-repo
+                  :remote portable-bookmarks-discovery-spec--remote))
+           (home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-env"))
+           (child (workspace-bookmark-fixtures-add-worktree
+                   repo (expand-file-name "zz" home) :branch "zz")))
+      (let ((process-environment
+             (append (list (concat "GIT_DIR=" (expand-file-name ".git" other))
+                           (concat "GIT_WORK_TREE=" (directory-file-name other)))
+                     process-environment)))
+        (expect (workspace-bookmark--identity child)
+                :to-equal portable-bookmarks-discovery-spec--identity)
+        (expect (workspace-bookmark--workspace-checkout
+                 "example.com/fixtures/other" "wsbm-disc-env")
+                :to-be nil)
+        (expect (workspace-bookmark--workspace-checkout
+                 portable-bookmarks-discovery-spec--identity "wsbm-disc-env")
+                :to-equal child)
+        (expect (workspace-bookmark--checkouts-of child) :to-contain child)
+        (expect (workspace-bookmark--canonical-checkout child) :to-equal repo)))))
+
+(describe "A checkout whose directory name ends in a space"
+
+  (before-each (portable-bookmarks-discovery-spec--setup))
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "has its own identity, not that of the repository enclosing it"
+    ;; The home is itself a repository (scaffolded homes are), with a
+    ;; different remote.  Trimming "proj " to "proj", then running git in
+    ;; the parent of that missing path, answered with the home's identity.
+    (let* ((home (workspace-bookmark-fixtures-make-repo
+                  :remote "git@example.com:fixtures/home-repo.git"
+                  :prefix "wsbm-home-repo-"))
+           (proj (portable-bookmarks-discovery-spec--clone-into
+                  (expand-file-name "proj " home))))
+      (workspace-bookmark-fixtures-register-workspace "wsbm-disc-space" home)
+      (expect (workspace-bookmark--repo-root proj) :to-equal proj)
+      (expect (workspace-bookmark--identity proj)
+              :to-equal portable-bookmarks-discovery-spec--identity)
+      (expect (workspace-bookmark--workspace-checkout
+               "example.com/fixtures/home-repo" "wsbm-disc-space")
+              :to-be nil)
+      (expect (workspace-bookmark--workspace-checkout
+               portable-bookmarks-discovery-spec--identity "wsbm-disc-space")
+              :to-equal proj))))
+
+
 ;;; Behavioral — containment across real path spellings
 
 (describe "Workspace containment across path spellings"
@@ -514,7 +734,7 @@
     ;; The registry canonicalises :home through `workspace--make', so a ~
     ;; or slash-less home can only arrive from a hand-built or stale
     ;; plist.  Stand in for that with the home accessor; the directories
-    ;; are real, because `file-equal-p' compares file attributes.
+    ;; are real, because containment compares file identity on disk.
     (let* ((fake-home (workspace-bookmark-fixtures-temp-dir "wsbm-home-"))
            (process-environment
             (cons (concat "HOME=" (directory-file-name fake-home))
