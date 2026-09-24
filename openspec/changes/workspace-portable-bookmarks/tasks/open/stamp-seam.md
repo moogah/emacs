@@ -288,6 +288,66 @@ Pressure-test items from the brief, each settled by a spec or a recorded probe
   brief directs; it is the user's step and would touch the real bookmark
   file.
 
+## Revision 1
+
+This revision fixes three advisory findings from the architect's on-touch
+audit (`findings/on-touch-stamp-seam.md`: findings 3, 6 and item 2 of
+finding 4). The shared runner is unchanged, and so is everything at or
+after `* Seam 2`. Where this conflicts with the directory bullets above,
+this section supersedes them.
+
+- **Bounded directory tracked-check (finding 3).** I chose to ask HEAD
+  rather than the index. The same `rev-parse` that places the location now
+  also asks for `HEAD:./`, the object id of the directory's own tree. If
+  the directory is not in HEAD, or there is no HEAD, `rev-parse` exits
+  128 and the record is unstamped.
+  - **Cost:** git resolves one tree entry per path component and prints a
+    single 40-character line, so a directory record costs ONE subprocess
+    at any depth and any subtree size. That is one fewer spawn than
+    before, for the root and for every other directory.
+  - **Root:** the root is a tree in HEAD whenever there is a HEAD, so it
+    counts as tracked by definition. An unborn repository's root is
+    unstamped.
+  - **Why not the index:** `ls-files` cannot stop at the first match, and
+    no index-based git query I could find is bounded in the same way. The
+    one semantic change is that a NEW directory whose files are staged
+    but never committed is unstamped until its first commit. That is a
+    degraded outcome, not a wrong one, and files inside it are still
+    stamped because files are asked of the index.
+  - **Verification:** a spec with 300 committed files stamps both the
+    root (`./`) and a subdirectory (`sub/`). For each it asserts exactly
+    one git call whose output is four short lines, far below the size of
+    the listing. Mutation check: restoring the `ls-files -- .` check
+    fails that spec.
+  - **New specs:** "leaves a staged-but-never-committed directory
+    unstamped, not its files" and "leaves the root of a repository with
+    no commit yet unstamped". The tracked-subdirectory spec now commits
+    its fixture.
+- **Merge-conflict stages (finding 6).** The names `ls-files` reports are
+  passed through `delete-dups` before the "exactly one path" rule. I used
+  `delete-dups` rather than `--deduplicate` because it has no git-version
+  floor.
+  - **Spec:** it builds a real conflicted index (two branches edit
+    `README.md`, and `git merge` stops with a conflict). It asserts that
+    `ls-files` really lists the path three times and that the bookmark is
+    still stamped.
+  - **Mutation check:** removing the dedupe fails the spec.
+- **Memo reset on load (finding 4, item 2).** A top-level
+  `(workspace-bookmark-clear-identity-cache)` runs right after the memo
+  definitions, in the memo section. The architect suggested putting it in
+  `workspace-bookmark-install-advice`, but that function lives in
+  `* Advice installation`, which is off-limits to me.
+  - **Spec:** it seeds a stale entry, loads the `.el` again, and asserts
+    the memo is empty and the advice is still installed. Mutation check:
+    removing the form fails the spec.
+  - **Blind spots:** the gaps in the global, XDG and system gitconfig,
+    `include.path` / `includeIf`, `config.worktree`, and coarse-mtime
+    filesystems remain documented behaviour. The org prose and the
+    `workspace-bookmark-clear-identity-cache` docstring now say so, and
+    say that the command covers them. I did not add extra `stat` calls on
+    the global config files, as the coordinator directed.
+- **In-radius count:** 449 specs, all passing (445 + 4 new).
+
 ## Discoveries
 
 - discovery_id: disc-stamp-seam-1

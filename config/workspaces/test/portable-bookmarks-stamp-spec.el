@@ -52,6 +52,11 @@
   (apply #'workspace-bookmark-fixtures-git root "add" "--" relpaths)
   root)
 
+(defun portable-bookmarks-stamp-spec--commit (root)
+  "Commit everything staged in ROOT.  Return ROOT."
+  (workspace-bookmark-fixtures-git root "commit" "--quiet" "-m" "spec")
+  root)
+
 (defun portable-bookmarks-stamp-spec--visit (path)
   "Visit PATH (a file, or a directory in Dired) and return the buffer."
   (let ((buffer (if (file-directory-p path)
@@ -189,6 +194,29 @@
       (expect (portable-bookmarks-stamp-spec--stamps linked)
               :to-equal (portable-bookmarks-stamp-spec--expected "README.md"))))
 
+  (it "stamps a file with unmerged index entries during a merge conflict"
+    ;; `ls-files' prints a conflicted path once per stage (1, 2 and 3).
+    (let* ((repo (portable-bookmarks-stamp-spec--repo))
+           (path (expand-file-name "README.md" repo))
+           (git (lambda (&rest args)
+                  (apply #'workspace-bookmark-fixtures-git repo args))))
+      (funcall git "checkout" "--quiet" "-b" "theirs")
+      (portable-bookmarks-stamp-spec--write repo "README.md" "theirs\n")
+      (funcall git "commit" "--quiet" "-am" "theirs")
+      (funcall git "checkout" "--quiet" "main")
+      (portable-bookmarks-stamp-spec--write repo "README.md" "ours\n")
+      (funcall git "commit" "--quiet" "-am" "ours")
+      ;; The merge must stop with a conflict, so its non-zero exit is the
+      ;; expected outcome and bypasses the fixture runner's error.
+      (let ((default-directory repo))
+        (expect (process-file "git" nil nil nil "merge" "--quiet" "theirs")
+                :not :to-equal 0))
+      (expect (length (split-string (funcall git "ls-files" "--" "README.md") "\n"))
+              :to-equal 3)
+      (expect (portable-bookmarks-stamp-spec--stamps
+               (portable-bookmarks-stamp-spec--bookmark path "conflicted"))
+              :to-equal (portable-bookmarks-stamp-spec--expected "README.md"))))
+
   (it "survives bookmark-write-file and bookmark-load unchanged"
     ;; The property that makes the design additive: stock Emacs writes the
     ;; extra properties out and reads them back with no handler of ours.
@@ -230,8 +258,9 @@
   (it "stamps a tracked subdirectory with git's prefix, not a file list"
     ;; `ls-files -- DIR' would list lisp/deep/foo.el; the directory's own
     ;; relpath is what `rev-parse --show-prefix' reports inside it.
-    (let* ((repo (portable-bookmarks-stamp-spec--track
-                  (portable-bookmarks-stamp-spec--repo) "lisp/deep/foo.el"))
+    (let* ((repo (portable-bookmarks-stamp-spec--commit
+                  (portable-bookmarks-stamp-spec--track
+                   (portable-bookmarks-stamp-spec--repo) "lisp/deep/foo.el")))
            (dir (file-name-as-directory (expand-file-name "lisp" repo)))
            (record (portable-bookmarks-stamp-spec--bookmark dir "lisp-dir")))
       (expect (portable-bookmarks-stamp-spec--stamps record)
@@ -246,6 +275,30 @@
       (expect (portable-bookmarks-stamp-spec--stamps record)
               :to-equal (portable-bookmarks-stamp-spec--expected "./"))
       (expect (expand-file-name relpath repo) :to-equal repo)))
+
+  (it "leaves a staged-but-never-committed directory unstamped, not its files"
+    ;; Directories are asked of HEAD (a bounded lookup), files of the index.
+    ;; A brand-new directory therefore degrades until its first commit.
+    (let* ((repo (portable-bookmarks-stamp-spec--track
+                  (portable-bookmarks-stamp-spec--repo) "fresh/new.el"))
+           (dir-record (portable-bookmarks-stamp-spec--bookmark
+                        (file-name-as-directory (expand-file-name "fresh" repo))
+                        "fresh-dir"))
+           (file-record (portable-bookmarks-stamp-spec--bookmark
+                         (expand-file-name "fresh/new.el" repo) "fresh-file")))
+      (expect (portable-bookmarks-stamp-spec--unstamped-p dir-record) :to-be-truthy)
+      (expect (portable-bookmarks-stamp-spec--stamps file-record)
+              :to-equal (portable-bookmarks-stamp-spec--expected "fresh/new.el"))))
+
+  (it "leaves the root of a repository with no commit yet unstamped"
+    ;; No HEAD, so no tree to find the root in.
+    (let* ((repo (workspace-bookmark-fixtures-temp-dir "wsbm-unborn-")))
+      (workspace-bookmark-fixtures-git repo "init" "--quiet")
+      (workspace-bookmark-fixtures-git
+       repo "remote" "add" "origin" portable-bookmarks-stamp-spec--remote)
+      (expect (portable-bookmarks-stamp-spec--unstamped-p
+               (portable-bookmarks-stamp-spec--bookmark repo "unborn"))
+              :to-be-truthy)))
 
   (it "leaves a directory holding only untracked files unstamped"
     (let* ((repo (portable-bookmarks-stamp-spec--repo))
@@ -527,16 +580,31 @@
        (portable-bookmarks-stamp-spec--record-for (expand-file-name "a.el" repo)))
       (expect 'workspace-bookmark--git :to-have-been-called-times 2)))
 
-  (it "costs two git calls per directory record once identity is memoised"
-    (let ((repo (portable-bookmarks-stamp-spec--track
-                 (portable-bookmarks-stamp-spec--repo) "sub/a.el")))
+  (it "costs one bounded git call per directory record, root or not, whatever its size"
+    ;; The tracked-check must not list the subtree: 300 committed files
+    ;; would be about 3 KB of `ls-files' output, and the root lists all.
+    (let ((repo (portable-bookmarks-stamp-spec--repo)))
+      (apply #'portable-bookmarks-stamp-spec--track repo
+             (mapcar (lambda (n) (format "sub/deep/file-%03d.el" n))
+                     (number-sequence 1 300)))
+      (portable-bookmarks-stamp-spec--commit repo)
       (workspace-bookmark--stamp-record
        (portable-bookmarks-stamp-spec--record-for (expand-file-name "README.md" repo)))
-      (spy-on 'workspace-bookmark--git :and-call-through)
-      (workspace-bookmark--stamp-record
-       (portable-bookmarks-stamp-spec--record-for
-        (file-name-as-directory (expand-file-name "sub" repo))))
-      (expect 'workspace-bookmark--git :to-have-been-called-times 2)))
+      (dolist (case (list (cons repo "./")
+                          (cons (file-name-as-directory (expand-file-name "sub" repo))
+                                "sub/")))
+        (spy-on 'workspace-bookmark--git :and-call-through)
+        (expect (portable-bookmarks-stamp-spec--stamps
+                 (workspace-bookmark--stamp-record
+                  (portable-bookmarks-stamp-spec--record-for (car case))))
+                :to-equal (portable-bookmarks-stamp-spec--expected (cdr case)))
+        (expect 'workspace-bookmark--git :to-have-been-called-times 1)
+        (let ((out (spy-context-return-value
+                    (car (spy-calls-all 'workspace-bookmark--git)))))
+          ;; root, common dir, prefix, tree id: four short lines
+          (expect (length (split-string out "\n")) :to-equal 4)
+          (expect (< (length out) (+ 200 (* 2 (length repo)))) :to-be-truthy))
+        (spy-calls-reset 'workspace-bookmark--git))))
 
   (it "costs one git call for a file in no repository"
     (let* ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-plain-"))
@@ -551,6 +619,18 @@
       (spy-on 'workspace-bookmark--remote-url :and-call-through)
       (workspace-bookmark--stamp-record (portable-bookmarks-stamp-spec--record-for path))
       (expect 'workspace-bookmark--remote-url :not :to-have-been-called)))
+
+  (it "empties the memo when the module is loaded again"
+    ;; A reload may have changed the normalizer whose output the memo holds.
+    (puthash "/wsbm/stale/root/" (cons nil "stale.example/identity")
+             workspace-bookmark--identity-memo)
+    (load (expand-file-name "../portable-bookmarks.el"
+                            portable-bookmarks-stamp-spec--this-dir)
+          nil t)
+    (expect (hash-table-count workspace-bookmark--identity-memo) :to-equal 0)
+    (expect (advice-member-p #'workspace-bookmark--stamp-record
+                             'bookmark-make-record)
+            :to-be-truthy))
 
   (it "re-reads identity after origin is re-pointed mid-session"
     (let* ((repo (portable-bookmarks-stamp-spec--repo))

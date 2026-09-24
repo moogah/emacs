@@ -479,8 +479,21 @@ Two decisions about what the memo holds:
   runs anyway (=--git-common-dir=), so checking it costs one =stat= and no
   subprocess.  Without this, re-pointing =origin= mid-session would keep
   stamping the OLD identity into new, persisted records.  What it does
-  NOT see: =url.*.insteadOf= rewrites in a global or included gitconfig.
-  =M-x workspace-bookmark-clear-identity-cache= covers that.
+  NOT see: anything outside the repository's own =config= that
+  =git remote get-url= honours — =url.*.insteadOf= rewrites in the global
+  (=~/.gitconfig=, =~/.config/git/config=) or system gitconfig, an
+  =include.path= / =includeIf= target, or =config.worktree=.  That blind
+  spot is accepted and documented:
+  =M-x workspace-bookmark-clear-identity-cache= covers it.  (Filesystems
+  with coarse mtimes can also hide two config writes within one tick;
+  the same command covers that.)
+- *It does not survive a reload.*  The memo holds the OUTPUT of
+  =workspace-bookmark--normalize-identity=.  A =defvar= keeps its value
+  when the file is loaded again, so after an edit to the normalizer
+  followed by =jf/reload-module=, the session would go on persisting
+  identities the OLD normalizer produced until each repository's config
+  happened to change.  The memo is therefore emptied every time this file
+  is loaded (the top-level form after the definitions below).
 
 The key is the checkout ROOT, not the shared git directory, so each
 linked worktree has its own entry.  That costs one lookup per worktree
@@ -496,8 +509,14 @@ and IDENTITY may be nil.")
 
 (defun workspace-bookmark-clear-identity-cache ()
   "Forget every memoised repository identity.
-Needed only after a change the memo cannot see, such as a new
-`url.*.insteadOf' rule in the global gitconfig."
+
+Each memoised identity is revalidated against the modification time of
+its repository's own git config, so `git remote add', `set-url' and
+`remove' are picked up without this command.  It is needed only after a
+change the memo cannot see: a `url.*.insteadOf' rule (or anything else
+`git remote get-url' honours) added to the global, XDG or system
+gitconfig, to an included config file, or to `config.worktree'.  Loading
+this module clears the memo too."
   (interactive)
   (clrhash workspace-bookmark--identity-memo))
 
@@ -519,6 +538,12 @@ is memoised like any other."
       (let ((identity (workspace-bookmark--root-identity root)))
         (puthash root (cons stamp identity) workspace-bookmark--identity-memo)
         identity))))
+#+end_src
+
+#+begin_src emacs-lisp
+;; Every load starts with an empty memo: a reload may have changed the
+;; normalizer whose output the memo holds.
+(workspace-bookmark-clear-identity-cache)
 #+end_src
 
 * Seam 1 — stamp on ~bookmark-make-record~
@@ -600,21 +625,36 @@ Two spellings need care:
 Anything other than two or three lines (a checkout path containing a
 newline, say) is refused rather than parsed.
 
+For a DIRECTORY location the same call also asks a fourth question:
+=HEAD:./=, the object id of DIR's own tree in HEAD.  That is the bounded
+"does git know this directory?" check (see "The repository-relative path"
+below): git resolves one tree entry per path component and prints one
+line, however large the subtree.  If DIR is not in HEAD — or there is no
+HEAD — =rev-parse= exits non-zero and the whole position is nil.  With
+the fourth argument the prefix line is no longer last, so it survives
+the runner's trim and exactly FOUR lines come back.
+
 #+begin_src emacs-lisp
-(defun workspace-bookmark--checkout-position (dir)
-  "Return (ROOT GIT-COMMON-DIR PREFIX) for directory DIR, or nil.
+(defun workspace-bookmark--checkout-position (dir &optional committed)
+  "Return (ROOT GIT-COMMON-DIR PREFIX [TREE]) for directory DIR, or nil.
 
 ROOT is the checkout root as a directory name, GIT-COMMON-DIR the
 absolute shared git directory, and PREFIX DIR's path relative to ROOT as
 git spells it (\"sub/dir/\", or \"\" at the root).  One git subprocess.
-Nil when DIR is in no work tree."
-  (let* ((out (workspace-bookmark--git
-               dir "rev-parse" "--show-toplevel" "--git-common-dir" "--show-prefix"))
+Nil when DIR is in no work tree.
+
+With COMMITTED non-nil, also return TREE, the object id of DIR's tree in
+HEAD, and return nil when DIR is not in HEAD or there is no HEAD.  The
+cost is bounded by DIR's depth, not by the size of its subtree."
+  (let* ((out (apply #'workspace-bookmark--git
+                     dir "rev-parse" "--show-toplevel" "--git-common-dir" "--show-prefix"
+                     (and committed '("HEAD:./"))))
          (lines (and out (split-string out "\n"))))
-    (when (memq (length lines) '(2 3))
-      (list (file-name-as-directory (nth 0 lines))
-            (expand-file-name (nth 1 lines) dir)
-            (or (nth 2 lines) "")))))
+    (when (memq (length lines) (if committed '(4) '(2 3)))
+      (append (list (file-name-as-directory (nth 0 lines))
+                    (expand-file-name (nth 1 lines) dir)
+                    (or (nth 2 lines) ""))
+              (and committed (list (nth 3 lines)))))))
 #+end_src
 
 ** The repository-relative path
@@ -639,6 +679,11 @@ directory.  Three flags are load-bearing:
   =glob[1].txt= returns BOTH.  Literal pathspecs return exactly one.
 - =--=: a file named =-v= is a path, not an option.
 
+During a merge conflict the index holds the path once per STAGE (base,
+ours, theirs), and =ls-files= prints it once for each.  The reported names
+are deduplicated before the "exactly one path" rule is applied, so a file
+bookmarked mid-merge, which is when people bookmark, is still stamped.
+
 The basename rather than the absolute name, because it is the question
 git is built for: the runner has already put =default-directory= in the
 file's directory.  (Measured: an absolute name through the =/tmp= →
@@ -648,10 +693,28 @@ nothing to depend on.)
 *Directories.*  =ls-files= is the WRONG question for a directory — it
 lists every tracked file beneath it, not the directory's own path.  The
 git-native answer is =--show-prefix= from inside it, which
-=--checkout-position= already has.  "Tracked", for a directory, means
-the same thing it means for a file in spirit: git knows about it, i.e.
-=ls-files= reports AT LEAST ONE file under it.  An empty or wholly
-untracked directory is unstamped.
+=--checkout-position= already has.
+
+"Tracked", for a directory, means git knows it: it is a tree in HEAD.
+That is asked in the SAME =rev-parse= (=HEAD:./=), so a directory record
+costs ONE subprocess and its cost does not depend on how many files it
+holds.  An earlier revision asked =ls-files -- .= for "at least one
+tracked file under it", which prints the entire subtree just to test it
+for emptiness — measured by the architect at 39 ms and 2.6 MB of output
+for the root of a 50,000-file repository, and the root is the common
+case (a Dired or =magit-status= buffer on a checkout root).  =ls-files=
+has no way to stop at the first match, so the check moved to HEAD.
+
+- *The root* is a tree in HEAD whenever there is a HEAD, so it is
+  tracked by definition and pays nothing extra.  An unborn repository
+  (no commit yet) has no HEAD, and its root is unstamped.
+- *The cost of asking HEAD rather than the index*: a NEW directory whose
+  files are staged but never committed is unstamped until its first
+  commit.  That degrades (the record keeps its absolute =filename=); it
+  never stamps a wrong path.  Files inside it are still stamped, because
+  files are asked of the index.
+- An empty or wholly untracked directory is not in HEAD, so it is
+  unstamped, exactly as before.
 
 *The repository root* has an empty prefix.  It is stored as =./=, not as
 =""=:
@@ -690,12 +753,14 @@ POSITION is (ROOT GIT-COMMON-DIR PREFIX) from
 LOCATION (LOCATION itself, when it is a directory).  A file's relpath is
 what `git ls-files --full-name' reports for it.  A directory's is its
 PREFIX (`workspace-bookmark--root-relpath' at the root), and only when
-git tracks at least one file beneath it.  The result must re-anchor on
-ROOT to the same file as LOCATION, or nil is returned."
+POSITION carries the directory's HEAD tree (see
+`workspace-bookmark--checkout-position').  Merge-conflict stages are
+collapsed, so a conflicted file still has one relpath.  The result must
+re-anchor on ROOT to the same file as LOCATION, or nil is returned."
   (let* ((root (nth 0 position))
          (relpath
           (if (file-directory-p location)
-              (and (workspace-bookmark--git location "ls-files" "-z" "--" ".")
+              (and (nth 3 position)
                    (let ((prefix (nth 2 position)))
                      (if (string-empty-p prefix)
                          workspace-bookmark--root-relpath
@@ -707,6 +772,7 @@ ROOT to the same file as LOCATION, or nil is returned."
                                   (file-name-nondirectory location))
                                  "")
                              "\0" t)))
+              (setq reported (delete-dups reported))
               (and (= 1 (length reported)) (car reported))))))
     (and relpath
          (file-equal-p (expand-file-name relpath root) location)
@@ -718,10 +784,12 @@ ROOT to the same file as LOCATION, or nil is returned."
 The sole producer of the identity/relpath pair
 (=register/shape/portable-bookmark-coordinates=).  The order of the
 questions is chosen for the hot path: place the location (one
-subprocess), then ask whether git tracks it (one more), and only then
-ask for identity — which, through the memo, is usually free.  A file
-outside any repository costs one subprocess; an untracked one costs two
-and never reaches the remote lookup.
+subprocess), then ask whether git tracks it (one more for a file; for a
+directory the placing call has already answered), and only then ask for
+identity — which, through the memo, is usually free.  A file outside any
+repository costs one subprocess; an untracked file costs two and never
+reaches the remote lookup; a directory, at any depth and of any size,
+costs one.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--coordinates (location)
@@ -732,10 +800,11 @@ or when its repository has no usable remote.  LOCATION must already
 have passed `workspace-bookmark--record-location'."
   (let* ((coding-system-for-read 'utf-8-unix)
          (coding-system-for-write 'utf-8-unix)
-         (dir (if (file-directory-p location)
+         (directory-p (file-directory-p location))
+         (dir (if directory-p
                   (file-name-as-directory location)
                 (file-name-directory location)))
-         (position (workspace-bookmark--checkout-position dir))
+         (position (workspace-bookmark--checkout-position dir directory-p))
          (relpath (and position (workspace-bookmark--relpath location position)))
          (identity (and relpath
                         (workspace-bookmark--memoised-identity

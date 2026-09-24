@@ -174,8 +174,14 @@ and IDENTITY may be nil.")
 
 (defun workspace-bookmark-clear-identity-cache ()
   "Forget every memoised repository identity.
-Needed only after a change the memo cannot see, such as a new
-`url.*.insteadOf' rule in the global gitconfig."
+
+Each memoised identity is revalidated against the modification time of
+its repository's own git config, so `git remote add', `set-url' and
+`remove' are picked up without this command.  It is needed only after a
+change the memo cannot see: a `url.*.insteadOf' rule (or anything else
+`git remote get-url' honours) added to the global, XDG or system
+gitconfig, to an included config file, or to `config.worktree'.  Loading
+this module clears the memo too."
   (interactive)
   (clrhash workspace-bookmark--identity-memo))
 
@@ -198,6 +204,10 @@ is memoised like any other."
         (puthash root (cons stamp identity) workspace-bookmark--identity-memo)
         identity))))
 
+;; Every load starts with an empty memo: a reload may have changed the
+;; normalizer whose output the memo holds.
+(workspace-bookmark-clear-identity-cache)
+
 (defun workspace-bookmark--record-location (record)
   "Return the single local file or directory RECORD refers to, or nil.
 
@@ -219,20 +229,26 @@ string).  Runs no subprocess."
                 (file-exists-p location)
                 location)))))
 
-(defun workspace-bookmark--checkout-position (dir)
-  "Return (ROOT GIT-COMMON-DIR PREFIX) for directory DIR, or nil.
+(defun workspace-bookmark--checkout-position (dir &optional committed)
+  "Return (ROOT GIT-COMMON-DIR PREFIX [TREE]) for directory DIR, or nil.
 
 ROOT is the checkout root as a directory name, GIT-COMMON-DIR the
 absolute shared git directory, and PREFIX DIR's path relative to ROOT as
 git spells it (\"sub/dir/\", or \"\" at the root).  One git subprocess.
-Nil when DIR is in no work tree."
-  (let* ((out (workspace-bookmark--git
-               dir "rev-parse" "--show-toplevel" "--git-common-dir" "--show-prefix"))
+Nil when DIR is in no work tree.
+
+With COMMITTED non-nil, also return TREE, the object id of DIR's tree in
+HEAD, and return nil when DIR is not in HEAD or there is no HEAD.  The
+cost is bounded by DIR's depth, not by the size of its subtree."
+  (let* ((out (apply #'workspace-bookmark--git
+                     dir "rev-parse" "--show-toplevel" "--git-common-dir" "--show-prefix"
+                     (and committed '("HEAD:./"))))
          (lines (and out (split-string out "\n"))))
-    (when (memq (length lines) '(2 3))
-      (list (file-name-as-directory (nth 0 lines))
-            (expand-file-name (nth 1 lines) dir)
-            (or (nth 2 lines) "")))))
+    (when (memq (length lines) (if committed '(4) '(2 3)))
+      (append (list (file-name-as-directory (nth 0 lines))
+                    (expand-file-name (nth 1 lines) dir)
+                    (or (nth 2 lines) ""))
+              (and committed (list (nth 3 lines)))))))
 
 (defconst workspace-bookmark--root-relpath "./"
   "The relpath stamped for the repository root itself.
@@ -247,12 +263,14 @@ POSITION is (ROOT GIT-COMMON-DIR PREFIX) from
 LOCATION (LOCATION itself, when it is a directory).  A file's relpath is
 what `git ls-files --full-name' reports for it.  A directory's is its
 PREFIX (`workspace-bookmark--root-relpath' at the root), and only when
-git tracks at least one file beneath it.  The result must re-anchor on
-ROOT to the same file as LOCATION, or nil is returned."
+POSITION carries the directory's HEAD tree (see
+`workspace-bookmark--checkout-position').  Merge-conflict stages are
+collapsed, so a conflicted file still has one relpath.  The result must
+re-anchor on ROOT to the same file as LOCATION, or nil is returned."
   (let* ((root (nth 0 position))
          (relpath
           (if (file-directory-p location)
-              (and (workspace-bookmark--git location "ls-files" "-z" "--" ".")
+              (and (nth 3 position)
                    (let ((prefix (nth 2 position)))
                      (if (string-empty-p prefix)
                          workspace-bookmark--root-relpath
@@ -264,6 +282,7 @@ ROOT to the same file as LOCATION, or nil is returned."
                                   (file-name-nondirectory location))
                                  "")
                              "\0" t)))
+              (setq reported (delete-dups reported))
               (and (= 1 (length reported)) (car reported))))))
     (and relpath
          (file-equal-p (expand-file-name relpath root) location)
@@ -277,10 +296,11 @@ or when its repository has no usable remote.  LOCATION must already
 have passed `workspace-bookmark--record-location'."
   (let* ((coding-system-for-read 'utf-8-unix)
          (coding-system-for-write 'utf-8-unix)
-         (dir (if (file-directory-p location)
+         (directory-p (file-directory-p location))
+         (dir (if directory-p
                   (file-name-as-directory location)
                 (file-name-directory location)))
-         (position (workspace-bookmark--checkout-position dir))
+         (position (workspace-bookmark--checkout-position dir directory-p))
          (relpath (and position (workspace-bookmark--relpath location position)))
          (identity (and relpath
                         (workspace-bookmark--memoised-identity
