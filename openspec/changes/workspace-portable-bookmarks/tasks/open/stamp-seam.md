@@ -2,7 +2,7 @@
 name: stamp-seam
 description: Stamp identity and repo-relative path onto new bookmark records via bookmark-make-record advice, Tier 1 only
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: feature
 on_critical_path: true
 cycle: cycle-1789935943
@@ -109,3 +109,47 @@ directory, or something a third-party mode defines.
 - specs/portable-bookmarks/spec.md § 'Portable coordinates stamped at bookmark creation'
 - design.md § D1 'Two advice seams, nothing else'
 - design.md § D4 'Tier 1 records only'
+
+## Amendments (2026-09-24, user decisions DD-7, DD-8, DD-9)
+
+These SUPERSEDE the steps above where they conflict. Full text:
+`.orchestrator/state.json` → `design_decisions` (DD-7, DD-8, DD-9).
+
+A. **Relpath comes from git, not string arithmetic (DD-8).** Step 2's
+   `file-relative-name` + "reject if it starts with `..`" is replaced by asking
+   git: `git ls-files --full-name` for the location. A location outside the repo
+   yields nothing, so the `..` guard is no longer needed; drop it rather than keep
+   it as belt-and-braces. Step 5's unit case "a record whose relpath would escape
+   the root is not stamped" becomes "a location git does not report is not
+   stamped".
+
+B. **Untracked locations are not stamped (DD-9 / OD-1).** When git reports no
+   tracked path for the location, the record is returned unchanged:
+   non-portable, absolute `filename`, exactly today's behaviour. No fallback
+   path computation is introduced. Add a behavioral spec: bookmark an untracked
+   file inside a repo with a remote → record carries no coordinates.
+
+C. **Property names are `defconst`, not `defcustom` (DD-9 / OD-2).** Convert
+   `workspace-bookmark-repo-property` and `workspace-bookmark-relpath-property`
+   to `defconst`. They are an on-disk format, not a preference. Pin 2 (named in
+   one place) still holds.
+
+D. **Stamp-format version property (DD-9 / OD-3).** Add a third stamped
+   property, named by a `defconst` alongside the other two (e.g.
+   `workspace-bookmark-format-property` → `workspace-bookmark-format`), whose
+   value is the integer format version, `1`, itself held in a `defconst`.
+   "Both or neither" becomes **all three or none**: stamping writes all three
+   or none. Extend the behavioral stamp and round-trip specs to assert the
+   version survives `bookmark-write-file` / `bookmark-load`.
+
+E. **Memoise repo identity per repository root (DD-7).** Stamping runs on
+   `bookmark-make-record`, which workspaces' own layout save calls for EVERY
+   live buffer on EVERY save, including the idle-tick autosave. Identity must
+   be computed at most once per repository root per session; only the
+   per-location git calls may repeat. Add a spec showing a second stamp in the
+   same repo does not re-query the remote.
+
+F. **Workspaces' layout records get stamped too, deliberately.** `layouts.el`
+   calls `bookmark-make-record` for every buffer. Those records are stamped the
+   same as a user's bookmarks. Do not try to detect or exclude the caller
+   (user decision on ask-cycle-1789935943-4).

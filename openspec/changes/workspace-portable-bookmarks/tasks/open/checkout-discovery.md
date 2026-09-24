@@ -2,7 +2,7 @@
 name: checkout-discovery
 description: Enumerate the checkouts in view via git and classify each as canonical, workspace-owned, or other
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: feature
 on_critical_path: true
 cycle: cycle-1789935943
