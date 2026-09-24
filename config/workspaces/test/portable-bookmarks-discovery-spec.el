@@ -328,7 +328,34 @@
       (expect (workspace-bookmark--canonical-checkout sm) :to-be nil)
       ;; git reports the submodule's git dir as its "main worktree"; it is
       ;; not a checkout and must not be listed as one.
-      (expect (workspace-bookmark--checkouts-of sm) :to-be nil))))
+      (expect (workspace-bookmark--checkouts-of sm) :to-be nil)))
+
+  (it "is nil when core.worktree puts the main work tree somewhere else"
+    ;; The one layout where both signals AGREE and are both wrong: git's
+    ;; main-worktree slot is the common dir's parent D, but D's files live
+    ;; in the core.worktree directory.
+    (let* ((d (workspace-bookmark-fixtures-make-repo
+               :remote portable-bookmarks-discovery-spec--remote))
+           (real (workspace-bookmark-fixtures-temp-dir "wsbm-coreworktree-"))
+           (wt (workspace-bookmark-fixtures-add-worktree
+                d (expand-file-name
+                   "wt" (workspace-bookmark-fixtures-temp-dir "wsbm-cw-wt-"))
+                :branch "wt")))
+      (copy-file (expand-file-name "README.md" d)
+                 (expand-file-name "README.md" real))
+      (workspace-bookmark-fixtures-git d "config" "core.worktree"
+                                       (directory-file-name real))
+      ;; Preconditions: the two signals agree on D, and D is a main
+      ;; worktree by the cheap structural test ...
+      (expect (plist-get (car (workspace-bookmark--worktree-entries wt)) :path)
+              :to-equal (directory-file-name d))
+      (expect (file-directory-p (expand-file-name ".git" d)) :to-be-truthy)
+      ;; ... yet git's own top level for D is the core.worktree directory.
+      (expect (file-name-as-directory
+               (workspace-bookmark-fixtures-git d "rev-parse" "--show-toplevel"))
+              :to-equal real)
+      (expect (workspace-bookmark--canonical-checkout wt) :to-be nil)
+      (expect (workspace-bookmark--canonical-checkout d) :to-be nil))))
 
 
 ;;; Behavioral — the safety rule against a full clone inside a workspace
@@ -351,6 +378,40 @@
       ;; ... but it belongs to a workspace, so it is not canonical ...
       (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
       ;; ... and the only in-view checkout of the identity yields nothing.
+      (portable-bookmarks-discovery-spec--hermetic
+        (expect (workspace-bookmark--canonical-for-identity
+                 portable-bookmarks-discovery-spec--identity)
+                :to-be nil))))
+
+  (it "never offers it when the home is registered with its letter case flipped"
+    ;; macOS disks are case-insensitive by default, and
+    ;; `read-directory-name' accepts a typed spelling whose case differs
+    ;; from the disk's; `workspace--make' keeps it.  The in-view child then
+    ;; carries the home's case while git reports the on-disk case, and a
+    ;; string-based containment test misses the clone.
+    (let* ((origin (workspace-bookmark-fixtures-make-repo))
+           (real-home (workspace-bookmark-fixtures-temp-dir "wsbm-case-"))
+           (flipped (upcase real-home))
+           (clone (file-name-as-directory (expand-file-name "repo" real-home))))
+      (assume (and (not (equal flipped real-home))
+                   (file-directory-p flipped)
+                   (file-equal-p flipped real-home))
+              "temp filesystem is case-sensitive; the case-flip layout cannot exist here")
+      (workspace-bookmark-fixtures-register-workspace "wsbm-disc-case" flipped)
+      (workspace-bookmark-fixtures-git real-home "clone" "--quiet" origin clone)
+      (workspace-bookmark-fixtures-git clone "remote" "set-url" "origin"
+                                       portable-bookmarks-discovery-spec--remote)
+      ;; The in-view spelling carries the home's flipped case; git's
+      ;; spelling of the same clone carries the on-disk case.
+      (expect (workspace-bookmark--home-checkouts flipped)
+              :to-equal (list (expand-file-name "repo/" flipped)))
+      (expect (workspace-bookmark--canonical-checkout clone) :to-equal clone)
+      (expect (string-prefix-p flipped clone) :to-be nil)
+      ;; Both spellings classify workspace-owned ...
+      (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
+      (expect (workspace-bookmark--classify (expand-file-name "repo/" flipped))
+              :to-be 'workspace-owned)
+      ;; ... so the safety rule refuses the clone.
       (portable-bookmarks-discovery-spec--hermetic
         (expect (workspace-bookmark--canonical-for-identity
                  portable-bookmarks-discovery-spec--identity)

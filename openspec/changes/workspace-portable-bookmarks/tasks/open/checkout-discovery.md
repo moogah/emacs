@@ -157,6 +157,18 @@ git-worktrees candidate seam.
 - **Latent fixture hazard, found by leaking a temp dir.** `workspace-bookmark-fixtures-teardown` deletes its temp dirs behind `(when (file-directory-p dir) …)`. Buttercup spies stay active through `after-each`, so a spec that spies on `file-directory-p` makes teardown silently skip every deletion. My remote-path spec did this. I moved it into its own `describe` with no fixture scope and confirmed zero leftovers with a private TMPDIR. A one-line hardening of the fixture (delete without the guard, inside `ignore-errors`) would make this impossible. Out of scope here.
 - **Process note (possible interference with the parallel task).** While finding the leak I ran `rm -rf $TMPDIR/wsbm-*` once, at about 14:54 local time. If the parallel `stamp-seam` run had fixture directories live at that moment, they were deleted, and a spurious fixture failure in its log around that time would come from this. After that I attributed leftovers only with a private TMPDIR.
 
+### Revision 1 (architect on-touch findings 1 and 4)
+
+- **Finding 1 (blocking): containment now compares file identity, not strings.** `--path-within-p` truenames the checkout, then walks it and each parent directory up to the filesystem root, testing `file-equal-p` against the home. `file-equal-p` compares inode and device, so letter case, `~`, a trailing slash and symlinked prefixes cannot matter. This replaces `file-in-directory-p`, which truenames both sides but then compares path components with `string-equal`. On this case-insensitive Mac, a home registered with a different letter case therefore missed its own full clone. Ownership-first ordering then turned that miss into a `canonical` verdict, and the safety rule was broken. That supersedes the case-sensitivity caveat in the pressure-point-5 bullet above.
+  - New spec: the home is registered as the `upcase` of the fixture's real, truenamed path. The spec asserts that both the in-view spelling and git's spelling of the clone classify `workspace-owned`, and that `--canonical-for-identity` returns nil. It is guarded by `assume`, which reports it as pending with a message if the temp filesystem is case-sensitive. It ran (not pending) here.
+  - Mutation check: with the old `file-in-directory-p` body swapped back in, this spec fails.
+  - Behaviour I kept: the path is truenamed, so a symlink inside a home that points to a clone elsewhere is still not owned by that home, exactly as before.
+- **Finding 4 (advisory): `--canonical-checkout` has a third condition.** `git rev-parse --show-toplevel`, run in the candidate, must be `file-equal-p` to the candidate. Otherwise the answer is nil. This catches `core.worktree`, where both signals agree on `D` while the work tree lives elsewhere. I added a row to the `.org` table.
+  - New spec: `core.worktree` is set on a fixture repository. The spec checks that both signals agree on `D` and that `D/.git` is a directory, then asserts nil from both the linked worktree and `D`. A linked worktree of such a repository ignores `core.worktree` (measured).
+  - Mutation check: with `--show-toplevel` forced to agree, this spec fails.
+  - Cost: one more subprocess, paid only after the two signals agree. A `--canonical-for-identity` match is now 5 subprocesses (it was 4).
+- Findings 2 and 3 (they live in the shared runner) are not addressed here, as instructed. Spec count is 46 → 48. No temp leftovers, checked with a private TMPDIR.
+
 ## Discoveries
 
 - discovery_id: disc-checkout-discovery-1

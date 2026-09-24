@@ -658,13 +658,17 @@ when git fails or DIR is in no repository, and never signals."
 ** The canonical checkout
 
 The repository's MAIN worktree, established by two independent signals
-that must agree:
+that must agree, and then confirmed against the candidate itself:
 
 1. =git rev-parse --path-format=absolute --git-common-dir= — the shared
    git directory.  When it is a directory literally named =.git=, its
    parent is the main worktree.
 2. The FIRST entry of =git worktree list --porcelain=, which git documents
    as the main worktree.  It must not be =bare=.
+3. =git rev-parse --show-toplevel=, run IN the candidate, must name the
+   candidate.  This catches the one layout where 1 and 2 agree and are
+   both wrong (see the =core.worktree= row below).  It costs one more
+   subprocess, paid only once 1 and 2 have agreed.
 
 =--path-format=absolute= is required, not cosmetic.  Asked in the main
 worktree, plain =--git-common-dir= answers =.git=, and from a
@@ -684,11 +688,18 @@ GUESS, and every one of them resolves to nil (measured, git 2.49):
 | bare repo stored as =D/.git= + worktrees | =D/.git=          | =D/.git=, =bare=    | =D=, which has no work tree  |
 | =git init --separate-git-dir G W=       | =G=               | =G= (not =W=!)      | the parent of =G=            |
 | submodule =S/m=                         | =S/.git/modules/m= | =S/.git/modules/m=  | =S/.git/modules=             |
+| =D/.git= with =core.worktree = T=       | =D/.git=          | =D=                 | =D= — but the work tree is =T= |
 
 The =D/.git= row is why the first signal alone is not enough: =D= even
 passes the classifier's cheap =.git=-is-a-directory test.  The last two
-rows are why the second signal alone is not enough: git reports its own
-git directory as the "main worktree".
+rows before it are why the second signal alone is not enough: git reports
+its own git directory as the "main worktree".  In the =core.worktree= row
+the two signals AGREE on =D=, because git's main-worktree slot is always
+the parent of the common dir and ignores =core.worktree= — while the
+repository's files live in =T=.  Re-anchoring a relpath under =D= would
+find nothing, or a stale copy.  Only the third check sees it: run in =D=,
+=--show-toplevel= answers =T=.  (A LINKED worktree of such a repository
+ignores =core.worktree= and is its own top level, measured on git 2.49.)
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--canonical-checkout (dir)
@@ -697,10 +708,12 @@ git directory as the "main worktree".
 The value is an absolute directory name with a trailing slash.  Two
 signals must agree: the parent of `git rev-parse --git-common-dir', which
 must be a directory named `.git', and the first, non-bare entry of `git
-worktree list --porcelain'.  When they disagree — a bare main repository,
-a `--separate-git-dir' layout, a submodule — or either is unavailable,
-the answer is nil: no canonical checkout is better than a guessed one.
-Never signals."
+worktree list --porcelain'.  The candidate must then be its own top
+level: `git rev-parse --show-toplevel' run in it names it.  When the
+signals disagree — a bare main repository, a `--separate-git-dir'
+layout, a submodule — or the candidate's work tree is elsewhere
+\(`core.worktree'), or any answer is unavailable, the answer is nil: no
+canonical checkout is better than a guessed one.  Never signals."
   (let ((common (workspace-bookmark--git
                  dir "rev-parse" "--path-format=absolute" "--git-common-dir")))
     (when (and common
@@ -716,7 +729,13 @@ Never signals."
                    (condition-case nil
                        (file-equal-p (plist-get first :path) candidate)
                      (error nil)))
-          (file-name-as-directory candidate))))))
+          (let ((top (workspace-bookmark--git
+                      candidate "rev-parse" "--show-toplevel")))
+            (when (and top
+                       (condition-case nil
+                           (file-equal-p top candidate)
+                         (error nil)))
+              (file-name-as-directory candidate))))))))
 #+end_src
 
 ** Classification
@@ -739,12 +758,30 @@ defect this capability exists to remove.  The price is conservative: a
 main worktree that sits inside a workspace home is never offered as
 canonical, and the resolver reports =no-clone= instead.  Nil over a guess.
 
-Containment uses =file-in-directory-p=, never string-prefix comparison.
-It truenames both sides, so a trailing slash, a =~= spelling and macOS's
-=/var= → =/private/var= symlink all compare correctly, and it compares
-whole path components, so =/a/ws-old= is not inside =/a/ws=.  It is still
-a case-sensitive comparison: on a case-insensitive filesystem a home
-registered as =~/Work/ws= does not contain =~/work/ws/x=.
+Containment is tested by FILE IDENTITY, never by comparing strings.
+The checkout path is truenamed, then it and each of its parent
+directories in turn is compared to the home with =file-equal-p=, which
+compares the file identity from =file-attributes= (inode and device), not
+the spelling.  A trailing slash, a =~= spelling, macOS's =/var= →
+=/private/var= symlink and — the case that matters — a difference in
+LETTER CASE on a case-insensitive filesystem all compare correctly, and
+because whole directories are compared, =/a/ws-old= is not inside =/a/ws=.
+
+String comparison is rejected even after truenaming.  =file-in-directory-p=
+(the first implementation) truenames both sides and then compares path
+components with =string-equal=, and =file-truename= does not fold case.
+On this Mac's case-insensitive disk a home registered as
+=/root/wsdir/myws= for the on-disk =/Root/Wsdir/myws= is reachable —
+=read-directory-name= accepts the typed case, and =workspace--make= keeps
+it — and =file-in-directory-p= then says the workspace's own full clone
+is NOT inside it.  Ownership-first classification turns that miss into a
+=canonical= verdict for git's (on-disk-case) spelling of the clone, and
+=--canonical-for-identity= would offer workspace A's clone to a user in
+workspace B.  =file-equal-p= says t for the same pair.
+
+The walk stops at the filesystem root.  A path that does not exist cannot
+be proven inside anything, so it is not; every caller passes existing
+checkouts.
 
 Remote paths are rejected before any filesystem call: =file-truename= on a
 TRAMP name would open a connection, and a remote home cannot own a local
@@ -753,13 +790,29 @@ checkout anyway.
 #+begin_src emacs-lisp
 (defun workspace-bookmark--path-within-p (path dir)
   "Return non-nil when PATH is DIR or lies inside it.
-Both must be local; spellings are reconciled with `file-in-directory-p',
-which truenames both sides.  Never signals."
+
+Both must be local and exist.  Containment is by file identity: PATH is
+truenamed, then it and each of its ancestors is compared to DIR with
+`file-equal-p', so differences of spelling — trailing slash, `~',
+symlinked prefixes, and letter case on a case-insensitive filesystem —
+do not matter.  Never signals."
   (and (stringp path) (stringp dir)
        (not (file-remote-p path))
        (not (file-remote-p dir))
        (condition-case nil
-           (file-in-directory-p path dir)
+           (let ((dir (expand-file-name dir))
+                 (current (directory-file-name
+                           (file-truename (expand-file-name path))))
+                 (previous nil)
+                 (found nil))
+             (when (file-directory-p dir)
+               (while (and (not found) (not (equal current previous)))
+                 (if (file-equal-p current dir)
+                     (setq found t)
+                   (setq previous current
+                         current (directory-file-name
+                                  (file-name-directory current))))))
+             found)
          (error nil))))
 
 (defun workspace-bookmark--owning-workspace (checkout)

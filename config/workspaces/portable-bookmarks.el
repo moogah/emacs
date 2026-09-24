@@ -265,10 +265,12 @@ when git fails or DIR is in no repository, and never signals."
 The value is an absolute directory name with a trailing slash.  Two
 signals must agree: the parent of `git rev-parse --git-common-dir', which
 must be a directory named `.git', and the first, non-bare entry of `git
-worktree list --porcelain'.  When they disagree — a bare main repository,
-a `--separate-git-dir' layout, a submodule — or either is unavailable,
-the answer is nil: no canonical checkout is better than a guessed one.
-Never signals."
+worktree list --porcelain'.  The candidate must then be its own top
+level: `git rev-parse --show-toplevel' run in it names it.  When the
+signals disagree — a bare main repository, a `--separate-git-dir'
+layout, a submodule — or the candidate's work tree is elsewhere
+\(`core.worktree'), or any answer is unavailable, the answer is nil: no
+canonical checkout is better than a guessed one.  Never signals."
   (let ((common (workspace-bookmark--git
                  dir "rev-parse" "--path-format=absolute" "--git-common-dir")))
     (when (and common
@@ -284,17 +286,39 @@ Never signals."
                    (condition-case nil
                        (file-equal-p (plist-get first :path) candidate)
                      (error nil)))
-          (file-name-as-directory candidate))))))
+          (let ((top (workspace-bookmark--git
+                      candidate "rev-parse" "--show-toplevel")))
+            (when (and top
+                       (condition-case nil
+                           (file-equal-p top candidate)
+                         (error nil)))
+              (file-name-as-directory candidate))))))))
 
 (defun workspace-bookmark--path-within-p (path dir)
   "Return non-nil when PATH is DIR or lies inside it.
-Both must be local; spellings are reconciled with `file-in-directory-p',
-which truenames both sides.  Never signals."
+
+Both must be local and exist.  Containment is by file identity: PATH is
+truenamed, then it and each of its ancestors is compared to DIR with
+`file-equal-p', so differences of spelling — trailing slash, `~',
+symlinked prefixes, and letter case on a case-insensitive filesystem —
+do not matter.  Never signals."
   (and (stringp path) (stringp dir)
        (not (file-remote-p path))
        (not (file-remote-p dir))
        (condition-case nil
-           (file-in-directory-p path dir)
+           (let ((dir (expand-file-name dir))
+                 (current (directory-file-name
+                           (file-truename (expand-file-name path))))
+                 (previous nil)
+                 (found nil))
+             (when (file-directory-p dir)
+               (while (and (not found) (not (equal current previous)))
+                 (if (file-equal-p current dir)
+                     (setq found t)
+                   (setq previous current
+                         current (directory-file-name
+                                  (file-name-directory current))))))
+             found)
          (error nil))))
 
 (defun workspace-bookmark--owning-workspace (checkout)
