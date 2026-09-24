@@ -57,11 +57,12 @@ loader line sits between =workspaces-mode.el= and
 
 ** Scaffold status
 
-This file is the module skeleton.  The two advice seams are installed and
-are deliberately PASS-THROUGH: the stamp seam returns the record it was
-given, and the jump seam calls straight through.  Later tasks
-(=stamp-seam=, =resolver-outcomes=, =jump-seam=) fill in the bodies
-without moving the seams.
+Both advice seams are installed.  The STAMP seam is live: a new bookmark
+record for a single tracked file or directory inside a repository that
+has a remote is stamped with the repository's identity, the location's
+repository-relative path, and the stamp-format version.  The JUMP seam is
+still deliberately PASS-THROUGH; later tasks (=resolver-outcomes=,
+=jump-seam=) fill in its body without moving it.
 
 * Header Block
 
@@ -74,6 +75,7 @@ without moving the seams.
 #+begin_src emacs-lisp
 (require 'cl-lib)
 (require 'subr-x)
+(require 'seq)
 (require 'bookmark)
 #+end_src
 
@@ -88,38 +90,63 @@ without moving the seams.
 
 * Stamped property names
 
-The two coordinates written into the user's bookmark file.  They are
+The three properties written into the user's bookmark file.  They are
 named here and ONLY here: these symbols end up serialised into
 =bookmark-default-file= on the user's disk, so renaming one later would
 orphan every existing stamp.  The indirection is cheap insurance against
 that.
 
-The pair is written and read together — a record carries BOTH coordinates
-or NEITHER (=register/shape/portable-bookmark-coordinates=).
+They are =defconst=, not =defcustom=.  The names are an ON-DISK FORMAT,
+not a preference: a user who customised one would silently orphan every
+record stamped under the old name, and two machines sharing a bookmark
+file with different settings would each read the other's stamps as
+unstamped.  Nothing about the format is the user's to choose.
+
+The three are written and read together — a record carries ALL THREE or
+NONE (=register/shape/portable-bookmark-coordinates=).  A record carrying
+some but not all is malformed and must resolve as =non-portable=, never
+to a guess.
+
+The format version exists so that a later change to what the coordinates
+MEAN (a different identity normalization, a different relpath convention)
+can be told apart from records stamped under this one, instead of being
+discovered as a wrong-file open.  A reader that does not recognise the
+version treats the record as unstamped.
 
 #+begin_src emacs-lisp
-(defcustom workspace-bookmark-repo-property 'workspace-bookmark-repo
+(defconst workspace-bookmark-repo-property 'workspace-bookmark-repo
   "Bookmark-record property holding the repository identity.
 The value stored under this property is the normalized remote URL of the
-repository the bookmarked file belongs to.
+repository the bookmarked location belongs to, for example
+\"github.com/moogah/emacs\".
 
 This symbol is serialised into the user's bookmark file.  Changing it
 orphans coordinates stamped under the previous name; records so orphaned
 degrade to the `non-portable' outcome and behave exactly as stock
-bookmarks do."
-  :type 'symbol
-  :group 'workspace-bookmark)
+bookmarks do.")
 
-(defcustom workspace-bookmark-relpath-property 'workspace-bookmark-relpath
-  "Bookmark-record property holding the repository-relative file path.
-The value stored under this property is the bookmarked file's path
-relative to the root of its checkout, so it can be re-anchored against a
-different checkout of the same repository.
+(defconst workspace-bookmark-relpath-property 'workspace-bookmark-relpath
+  "Bookmark-record property holding the repository-relative path.
+The value is the location's path relative to the root of its checkout,
+exactly as git spells it: \"lisp/foo.el\" for a file, \"lisp/\" (with a
+trailing slash) for a directory, and \"./\" for the repository root
+itself.  It can be re-anchored against any checkout of the same
+repository with `expand-file-name'.
 
 This symbol is serialised into the user's bookmark file; see
-`workspace-bookmark-repo-property' for the consequence of renaming it."
-  :type 'symbol
-  :group 'workspace-bookmark)
+`workspace-bookmark-repo-property' for the consequence of renaming it.")
+
+(defconst workspace-bookmark-format-property 'workspace-bookmark-format
+  "Bookmark-record property holding the stamp-format version.
+The value is `workspace-bookmark-format-version' at the time the record
+was stamped.  This symbol is serialised into the user's bookmark file;
+see `workspace-bookmark-repo-property'.")
+
+(defconst workspace-bookmark-format-version 1
+  "The stamp-format version this module writes.
+Bump it only when the MEANING of the stamped identity or relpath
+changes, so records stamped under an older meaning can be recognised
+rather than misread.")
 #+end_src
 
 * Git subprocess
@@ -408,16 +435,90 @@ and it keeps the "which repository" question anchored to the checkout
 works, because =remote.origin.url= lives in the shared config the worktree
 reads through.
 
+The second half of that question — "given a root, what is its identity?"
+— is its own function, because the stamp path already knows the root
+(it gets it from the same =rev-parse= that places the location) and asks
+through the memo below rather than through =--identity=.
+
 #+begin_src emacs-lisp
+(defun workspace-bookmark--root-identity (root)
+  "Return the normalized identity of the checkout whose root is ROOT, or nil.
+ROOT must already be a checkout root; see `workspace-bookmark--identity'
+for the version that finds it."
+  (workspace-bookmark--normalize-identity
+   (workspace-bookmark--remote-url root)))
+
 (defun workspace-bookmark--identity (dir)
   "Return the normalized identity of the repository containing DIR, or nil.
 
 Returns nil — never signals — when DIR is in no git repository, when that
 repository has no remote, or when the remote URL names no host."
   (let ((root (workspace-bookmark--repo-root dir)))
-    (and root
-         (workspace-bookmark--normalize-identity
-          (workspace-bookmark--remote-url root)))))
+    (and root (workspace-bookmark--root-identity root))))
+#+end_src
+
+** Memoised per repository root
+
+Stamping runs inside =bookmark-make-record=, and workspaces' own layout
+save calls =bookmark-make-record= for EVERY live buffer on EVERY save —
+including the idle-tick autosave.  Unmemoised, each of those records
+would pay one to three extra =git remote= subprocesses to rediscover an
+answer that almost never changes.  So identity is computed at most once
+per repository root, and only the per-location questions (where is this
+path, is it tracked) are asked each time.
+
+Two decisions about what the memo holds:
+
+- *A nil answer is memoised too.*  "No remote" is the normal case for 9
+  of 51 repositories here, and it is exactly the case that would
+  otherwise re-query on every save, forever.
+- *It is validated, not trusted.*  Each entry carries the modification
+  time of the repository's shared =config= file, which is where =git
+  remote add=, =git remote set-url= and =git remote remove= write.  The
+  stamp path already learns that file's location from the =rev-parse= it
+  runs anyway (=--git-common-dir=), so checking it costs one =stat= and no
+  subprocess.  Without this, re-pointing =origin= mid-session would keep
+  stamping the OLD identity into new, persisted records.  What it does
+  NOT see: =url.*.insteadOf= rewrites in a global or included gitconfig.
+  =M-x workspace-bookmark-clear-identity-cache= covers that.
+
+The key is the checkout ROOT, not the shared git directory, so each
+linked worktree has its own entry.  That costs one lookup per worktree
+per session and keeps the key identical to what =--show-toplevel=
+reports.
+
+#+begin_src emacs-lisp
+(defvar workspace-bookmark--identity-memo (make-hash-table :test #'equal)
+  "Memoised repository identities, keyed by checkout root.
+Each value is (STAMP . IDENTITY), where STAMP is the value
+`workspace-bookmark--config-stamp' returned when IDENTITY was computed
+and IDENTITY may be nil.")
+
+(defun workspace-bookmark-clear-identity-cache ()
+  "Forget every memoised repository identity.
+Needed only after a change the memo cannot see, such as a new
+`url.*.insteadOf' rule in the global gitconfig."
+  (interactive)
+  (clrhash workspace-bookmark--identity-memo))
+
+(defun workspace-bookmark--config-stamp (git-common-dir)
+  "Return the modification time of GIT-COMMON-DIR's config file, or nil."
+  (and git-common-dir
+       (file-attribute-modification-time
+        (file-attributes (expand-file-name "config" git-common-dir)))))
+
+(defun workspace-bookmark--memoised-identity (root git-common-dir)
+  "Return the identity of the checkout at ROOT, memoised per ROOT.
+GIT-COMMON-DIR is the repository's shared git directory; the memoised
+value is reused only while its config file is unchanged.  A nil identity
+is memoised like any other."
+  (let ((stamp (workspace-bookmark--config-stamp git-common-dir))
+        (hit (gethash root workspace-bookmark--identity-memo)))
+    (if (and hit (equal (car hit) stamp))
+        (cdr hit)
+      (let ((identity (workspace-bookmark--root-identity root)))
+        (puthash root (cons stamp identity) workspace-bookmark--identity-memo)
+        identity))))
 #+end_src
 
 * Seam 1 — stamp on ~bookmark-make-record~
@@ -429,20 +530,276 @@ failure to stamp must never prevent a bookmark from being created — hence
 the =condition-case= returning the ORIGINAL record
 (=register/boundary/bookmark-advice-seams= seam 1).
 
-Scaffold: pass-through.  No =condition-case= yet — there is no fallible
-work to guard, and a =condition-case= wrapped around a bare variable
-reference would read as protection that isn't there.  The guard arrives
-with the stamping body in =stamp-seam=.
+Every record =bookmark-make-record= builds passes through here — a
+user's =C-x r m=, and also workspaces' own layout save, which calls it
+for every live buffer.  Layout records are stamped exactly like a user's
+bookmarks, deliberately: the caller is not detected or excluded.
+
+** Which records are Tier 1
+
+The gate.  It answers "is this value even a path?" before anything
+treats it as one, and it answers WITHOUT running git, so a record it
+rejects costs no subprocess at all.
+
+- The =filename= must be a string and ABSOLUTE.  A relative value is not
+  a location this record can be said to have: the real bookmark file
+  here has four =tab-bookmark= records whose =filename= is the label
+  ="3 buffers"=, and =expand-file-name= would happily turn that into a
+  path under whatever =default-directory= happens to be.
+- It must be LOCAL.  A TRAMP name is rejected before any filesystem
+  call, for the reasons given under the git runner (a probe can signal,
+  hang on a password prompt, or run git on the remote host).
+- It must name something that EXISTS.
+- A =buffer= or =window= property holding anything but a string marks
+  a nested sub-record or a window tree — Tier 2 territory, where
+  rewriting naively would corrupt shared or circular structure.
+
+=filename= is often abbreviated (=bookmark-buffer-file-name= writes
+=~/…=), so the returned location is expanded.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--record-location (record)
+  "Return the single local file or directory RECORD refers to, or nil.
+
+RECORD is a bookmark record (NAME . ALIST).  Returns the expanded
+`filename' only when it is an absolute, local (non-TRAMP) path naming an
+existing file or directory, and RECORD carries no nested sub-record or
+window tree (a `buffer' or `window' property whose value is not a
+string).  Runs no subprocess."
+  (let ((filename (bookmark-prop-get record 'filename)))
+    (and (stringp filename)
+         (file-name-absolute-p filename)
+         (not (file-remote-p filename))
+         (not (seq-some (lambda (prop)
+                          (let ((value (bookmark-prop-get record prop)))
+                            (and value (not (stringp value)))))
+                        '(buffer window)))
+         (let ((location (expand-file-name filename)))
+           (and (not (file-remote-p location))
+                (file-exists-p location)
+                location)))))
+#+end_src
+
+** Where a location sits in its checkout
+
+One =rev-parse= answers three questions at once: the checkout root
+(=--show-toplevel=), the shared git directory whose =config= validates the
+identity memo (=--git-common-dir=), and the path from the root to the
+directory git ran in (=--show-prefix=).  git prints one per line, in
+argument order.
+
+Two spellings need care:
+
+- At the repository root the prefix is the EMPTY string.  The runner
+  trims its output, so the trailing empty line disappears and only two
+  lines come back.  Two lines therefore means "prefix is empty", not
+  "malformed".
+- =--git-common-dir= may be RELATIVE (=.git=, =../.git=) — relative to
+  the directory git ran in, which is DIR.  It is expanded against DIR.
+
+Anything other than two or three lines (a checkout path containing a
+newline, say) is refused rather than parsed.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--checkout-position (dir)
+  "Return (ROOT GIT-COMMON-DIR PREFIX) for directory DIR, or nil.
+
+ROOT is the checkout root as a directory name, GIT-COMMON-DIR the
+absolute shared git directory, and PREFIX DIR's path relative to ROOT as
+git spells it (\"sub/dir/\", or \"\" at the root).  One git subprocess.
+Nil when DIR is in no work tree."
+  (let* ((out (workspace-bookmark--git
+               dir "rev-parse" "--show-toplevel" "--git-common-dir" "--show-prefix"))
+         (lines (and out (split-string out "\n"))))
+    (when (memq (length lines) '(2 3))
+      (list (file-name-as-directory (nth 0 lines))
+            (expand-file-name (nth 1 lines) dir)
+            (or (nth 2 lines) "")))))
+#+end_src
+
+** The repository-relative path
+
+The relpath comes from GIT, never from string arithmetic on two paths.
+Asking git settles, in one move, the questions arithmetic gets wrong:
+symlinked temp directories (=/var= vs =/private/var=), case-insensitive
+filesystems, and whether the location is in this repository at all.
+
+*UNTRACKED MEANS UNSTAMPED.*  A location git does not report is returned
+as nil and the record is left exactly as stock Emacs made it — no
+fallback path computation.
+
+*Files.*  =git ls-files --full-name= on the file's BASENAME, run in its
+directory.  Three flags are load-bearing:
+
+- =-z=: without it git C-quotes any path with non-ASCII, ="= or =\=
+  (=café.txt= comes back as ="caf\303\251.txt"=, quotes included).
+  =-z= prints raw bytes, NUL-terminated.
+- =--literal-pathspecs=: pathspecs are GLOBS by default.  Measured: in a
+  repository tracking both =glob[1].txt= and =glob1.txt=, asking about
+  =glob[1].txt= returns BOTH.  Literal pathspecs return exactly one.
+- =--=: a file named =-v= is a path, not an option.
+
+The basename rather than the absolute name, because it is the question
+git is built for: the runner has already put =default-directory= in the
+file's directory.  (Measured: an absolute name through the =/tmp= →
+=/private/tmp= symlink also works with git 2.49, but the basename leaves
+nothing to depend on.)
+
+*Directories.*  =ls-files= is the WRONG question for a directory — it
+lists every tracked file beneath it, not the directory's own path.  The
+git-native answer is =--show-prefix= from inside it, which
+=--checkout-position= already has.  "Tracked", for a directory, means
+the same thing it means for a file in spirit: git knows about it, i.e.
+=ls-files= reports AT LEAST ONE file under it.  An empty or wholly
+untracked directory is unstamped.
+
+*The repository root* has an empty prefix.  It is stored as =./=, not as
+=""=:
+
+- all three properties must be present AND meaningful, and an empty
+  string is the value every emptiness check (=string-empty-p=,
+  =seq-empty-p=, a sloppy =(and relpath …)= in another language) reads
+  as "missing";
+- every directory relpath then ends in =/=, so file and directory
+  relpaths stay distinguishable by spelling alone;
+- it re-anchors with the same call as every other relpath:
+  =(expand-file-name "./" root)= is =root= itself, with its slash.
+
+*Verification.*  The relpath git reports is accepted only if, anchored
+back on the root, it names the SAME file as the location (=file-equal-p=
+compares the files, not the strings).  The runner trims whitespace, so a
+path with leading or trailing blanks could come back altered; this
+check turns any such corruption — or any git answer we misparsed — into
+"unstamped" instead of into a persisted wrong path.
+
+Output is decoded as UTF-8 regardless of locale: a GUI Emacs can start
+with a non-UTF-8 =default-process-coding-system=, and the raw =-z= bytes
+would then decode into a relpath naming nothing.
+
+#+begin_src emacs-lisp
+(defconst workspace-bookmark--root-relpath "./"
+  "The relpath stamped for the repository root itself.
+git spells the root's prefix as the empty string; see
+`workspace-bookmark-relpath-property' for why it is stored as \"./\".")
+
+(defun workspace-bookmark--relpath (location position)
+  "Return LOCATION's repository-relative path, or nil when git does not track it.
+
+POSITION is (ROOT GIT-COMMON-DIR PREFIX) from
+`workspace-bookmark--checkout-position' for the directory holding
+LOCATION (LOCATION itself, when it is a directory).  A file's relpath is
+what `git ls-files --full-name' reports for it.  A directory's is its
+PREFIX (`workspace-bookmark--root-relpath' at the root), and only when
+git tracks at least one file beneath it.  The result must re-anchor on
+ROOT to the same file as LOCATION, or nil is returned."
+  (let* ((root (nth 0 position))
+         (relpath
+          (if (file-directory-p location)
+              (and (workspace-bookmark--git location "ls-files" "-z" "--" ".")
+                   (let ((prefix (nth 2 position)))
+                     (if (string-empty-p prefix)
+                         workspace-bookmark--root-relpath
+                       prefix)))
+            (let ((reported (split-string
+                             (or (workspace-bookmark--git
+                                  location "--literal-pathspecs" "ls-files"
+                                  "-z" "--full-name" "--"
+                                  (file-name-nondirectory location))
+                                 "")
+                             "\0" t)))
+              (and (= 1 (length reported)) (car reported))))))
+    (and relpath
+         (file-equal-p (expand-file-name relpath root) location)
+         relpath)))
+#+end_src
+
+** Coordinates
+
+The sole producer of the identity/relpath pair
+(=register/shape/portable-bookmark-coordinates=).  The order of the
+questions is chosen for the hot path: place the location (one
+subprocess), then ask whether git tracks it (one more), and only then
+ask for identity — which, through the memo, is usually free.  A file
+outside any repository costs one subprocess; an untracked one costs two
+and never reaches the remote lookup.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--coordinates (location)
+  "Return (IDENTITY . RELPATH) for the local file or directory LOCATION, or nil.
+
+Nil when LOCATION is in no git work tree, when git does not track it,
+or when its repository has no usable remote.  LOCATION must already
+have passed `workspace-bookmark--record-location'."
+  (let* ((coding-system-for-read 'utf-8-unix)
+         (coding-system-for-write 'utf-8-unix)
+         (dir (if (file-directory-p location)
+                  (file-name-as-directory location)
+                (file-name-directory location)))
+         (position (workspace-bookmark--checkout-position dir))
+         (relpath (and position (workspace-bookmark--relpath location position)))
+         (identity (and relpath
+                        (workspace-bookmark--memoised-identity
+                         (nth 0 position) (nth 1 position)))))
+    (and identity (cons identity relpath))))
+#+end_src
+
+** Stamping
+
+The stamped record is built FRESH rather than by =bookmark-prop-set= on
+the record Emacs handed us.  That is what makes "all three or none" hold
+by construction: every fallible step (the gate, git, the memo) finishes
+before anything is built, and building is a single =cons= onto a copied
+list, so there is no state in which one property has been written and
+the next has not.  It also means the record we return on the error path
+really is the ORIGINAL, unmutated — and a handler that returned a shared
+or literal record is never written through.
+
+Every original property is kept, in order, with =filename= untouched: it
+is the absolute fallback every degraded outcome relies on and the reason
+a stock Emacs can still read the file.  Any stale copies of the three
+stamped properties are dropped before the fresh ones are appended, so a
+record can never carry two of one.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--with-coordinates (record coordinates)
+  "Return a new record: RECORD's name and properties plus COORDINATES.
+
+COORDINATES is (IDENTITY . RELPATH).  The three stamped properties are
+appended together after RECORD's own properties, replacing any earlier
+copies of them.  RECORD itself is not modified."
+  (let ((stamped (list (cons workspace-bookmark-repo-property (car coordinates))
+                       (cons workspace-bookmark-relpath-property (cdr coordinates))
+                       (cons workspace-bookmark-format-property
+                             workspace-bookmark-format-version))))
+    (cons (car record)
+          (append (seq-remove (lambda (prop)
+                                (and (consp prop) (assq (car prop) stamped)))
+                              (bookmark-get-bookmark-record record))
+                  stamped))))
+#+end_src
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--stamp-record (record)
   "Return RECORD with portable coordinates added, or RECORD unchanged.
 
-Intended as `:filter-return' advice on `bookmark-make-record'.  Never
-prompts, never messages, never touches the bookmark name.  Any internal
-error must be swallowed and the original RECORD returned: failing to
+Intended as `:filter-return' advice on `bookmark-make-record'.  A record
+for a single tracked file or directory inside a repository with a remote
+comes back as a NEW record carrying all three stamped properties
+\(`workspace-bookmark-repo-property', `workspace-bookmark-relpath-property',
+`workspace-bookmark-format-property'); any other record comes back
+unchanged and `eq' to RECORD.
+
+Never prompts, never messages, never touches the bookmark name.  Any
+internal error is swallowed and the original RECORD returned: failing to
 stamp must not prevent a bookmark from being created."
-  record)
+  (condition-case nil
+      (let* ((location (workspace-bookmark--record-location record))
+             (coordinates (and location
+                               (workspace-bookmark--coordinates location))))
+        (if coordinates
+            (workspace-bookmark--with-coordinates record coordinates)
+          record))
+    (error record)))
 #+end_src
 
 * Seam 2 — substitute on ~bookmark-handle-bookmark~

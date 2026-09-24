@@ -6,10 +6,11 @@
 ;; a real repository with a linked worktree, a registry entry and an
 ;; isolated bookmark file.
 ;;
-;; Everything asserted here is scaffolding.  The stamp and jump seams are
-;; deliberately pass-through at this point, so the seam specs assert only
-;; that the advice EXISTS and that a pass-through record survives it
-;; unchanged — behaviour arrives with the later tasks.
+;; Everything asserted here is scaffolding: that the advice EXISTS, that
+;; the stamped property names are pinned, and that a record the stamp seam
+;; cannot locate survives it unchanged.  Stamping behaviour itself is
+;; specified in portable-bookmarks-stamp-spec.el; the jump seam is still
+;; pass-through.
 
 (require 'buttercup)
 (require 'cl-lib)
@@ -32,10 +33,23 @@
     ;; sibling (data-model.el -> workspace-data-model, and so on).
     (expect (featurep 'workspace-portable-bookmarks) :to-be-truthy))
 
-  (it "names the two stamped properties in exactly one place"
+  (it "names the three stamped properties in exactly one place"
+    ;; These symbols are serialised into the user's bookmark file, so the
+    ;; literal values are part of the on-disk format.
     (expect workspace-bookmark-repo-property :to-equal 'workspace-bookmark-repo)
     (expect workspace-bookmark-relpath-property
-            :to-equal 'workspace-bookmark-relpath))
+            :to-equal 'workspace-bookmark-relpath)
+    (expect workspace-bookmark-format-property
+            :to-equal 'workspace-bookmark-format)
+    (expect workspace-bookmark-format-version :to-equal 1))
+
+  (it "makes the on-disk names constants, not user options"
+    ;; DD-9 / OD-2: a customised name would orphan every existing stamp.
+    (dolist (var '(workspace-bookmark-repo-property
+                   workspace-bookmark-relpath-property
+                   workspace-bookmark-format-property
+                   workspace-bookmark-format-version))
+      (expect (cons var (custom-variable-p var)) :to-equal (list var))))
 
   (it "installs advice on both bookmark seams"
     (expect (advice-member-p #'workspace-bookmark--stamp-record
@@ -74,8 +88,12 @@
                              'bookmark-make-record)
             :to-be-truthy))
 
-  (it "leaves records unchanged while the stamp seam is a stub"
-    (let ((record '(("filename" . "/tmp/x.el"))))
+  (it "returns a record it cannot locate unchanged and eq"
+    ;; The seam's pass-through arm: no single existing location, no stamp,
+    ;; and the very same object back.
+    (dolist (record (list '(("filename" . "/tmp/x.el"))
+                          '("gone" (filename . "/nonexistent/wsbm/x.el"))
+                          '("tabs" (filename . "3 buffers"))))
       (expect (workspace-bookmark--stamp-record record) :to-be record))))
 
 (describe "portable-bookmarks fixtures"
