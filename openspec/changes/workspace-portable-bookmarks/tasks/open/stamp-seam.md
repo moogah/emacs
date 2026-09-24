@@ -2,7 +2,7 @@
 name: stamp-seam
 description: Stamp identity and repo-relative path onto new bookmark records via bookmark-make-record advice, Tier 1 only
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 merge_commit: 23f0d3e7
 task_class: feature
 on_critical_path: true
