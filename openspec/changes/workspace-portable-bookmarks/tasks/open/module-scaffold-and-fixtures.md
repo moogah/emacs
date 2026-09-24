@@ -2,7 +2,8 @@
 name: module-scaffold-and-fixtures
 description: Create the portable-bookmarks module skeleton, load it from the package loader, and add Buttercup test fixtures
 change: workspace-portable-bookmarks
-status: ready
+status: done
+merge_commit: 294a09c9
 task_class: module-load
 on_critical_path: true
 cycle: cycle-1789935943

@@ -2,7 +2,8 @@
 name: repo-identity
 description: Derive a normalized repo identity from a checkout's remote URL, with no remote meaning no identity
 change: workspace-portable-bookmarks
-status: blocked
+status: done
+merge_commit: 0f513ca6
 task_class: feature
 on_critical_path: true
 cycle: cycle-1789935943
