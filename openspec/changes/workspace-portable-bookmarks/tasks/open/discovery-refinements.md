@@ -2,7 +2,7 @@
 name: discovery-refinements
 description: Discovery fixes before the resolver consumes it — .git-named external git dir, anchored workspace homes, sibling-worktree ambiguity, directory-only symlink ownership
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 merge_commit: 2ca7faeb
 task_class: bug
 on_critical_path: true
