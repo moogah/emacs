@@ -73,6 +73,7 @@ without moving the seams.
 
 #+begin_src emacs-lisp
 (require 'cl-lib)
+(require 'subr-x)
 (require 'bookmark)
 #+end_src
 
@@ -119,6 +120,245 @@ This symbol is serialised into the user's bookmark file; see
 `workspace-bookmark-repo-property' for the consequence of renaming it."
   :type 'symbol
   :group 'workspace-bookmark)
+#+end_src
+
+* Git subprocess
+
+Every git question this module asks goes through one runner.  Three of
+its properties are contractual
+(=register/boundary/git-derived-checkout-discovery= =subprocess_contract=):
+
+- =process-file=, never =shell-command-to-string=.  No shell means no
+  quoting, which matters concretely here: directory names on this machine
+  contain spaces (=~/src/Archived Repos/=).
+- =default-directory= is bound to the target directory for every
+  invocation, so git answers about the checkout we mean rather than about
+  wherever the current buffer happens to live.
+- Failure returns nil and NEVER signals.  These helpers run inside
+  =bookmark-make-record= and inside a bookmark jump; an error escaping
+  into the bookmark machinery would break a core Emacs interaction for a
+  peripheral feature.  A non-zero exit, a missing =git= executable, a
+  directory that has since been deleted, and empty output all collapse to
+  the same nil, and callers map nil to a degraded outcome.
+
+stderr is discarded rather than captured: git writes diagnostics there on
+exactly the failures we are deliberately ignoring, and folding them into
+stdout would turn a clean nil into a bogus "value".
+
+DIR may name a file rather than a directory — callers hand this helper
+bookmark =filename= values.  A non-directory is resolved to its parent
+directory, and anything that still is not an existing directory yields nil
+rather than letting =process-file= signal on an unusable
+=default-directory=.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--git (dir &rest args)
+  "Run git with ARGS in DIR and return its trimmed stdout, or nil.
+
+Returns nil — never signals — when DIR is not (and is not inside) an
+existing directory, when git exits non-zero, or when git produces no
+output.  If DIR names a file, git is run in the file's directory.
+stderr is discarded."
+  (let* ((path (and (stringp dir) (expand-file-name dir)))
+         (cwd (cond ((null path) nil)
+                    ((file-directory-p path) (file-name-as-directory path))
+                    (t (file-name-directory (directory-file-name path))))))
+    (when (and cwd (file-directory-p cwd))
+      (condition-case nil
+          (let ((default-directory cwd))
+            (with-temp-buffer
+              (when (eq 0 (apply #'process-file "git" nil '(t nil) nil args))
+                (let ((out (string-trim (buffer-string))))
+                  (unless (string-empty-p out) out)))))
+        (error nil)))))
+#+end_src
+
+* Repository identity
+
+** Where this checkout's root is
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--repo-root (dir)
+  "Return the root of the git checkout containing DIR, or nil.
+
+The value is an absolute directory name with a trailing slash.  Returns
+nil when DIR is in no git repository, and never signals."
+  (let ((root (workspace-bookmark--git dir "rev-parse" "--show-toplevel")))
+    (and root (file-name-as-directory (expand-file-name root)))))
+#+end_src
+
+** Which repository this is
+
+=origin= is preferred.  When there is no =origin= the FIRST remote git
+lists is used, so a checkout whose only remote is named =upstream= still
+has an identity instead of silently degrading to "no remote".  A
+repository with no remote at all returns nil, and that is the whole
+answer: NO REMOTE MEANS NO IDENTITY.  A path-based fallback would be
+meaningless on another machine, which is the one thing this capability
+exists to survive.  On this machine 9 of 51 repositories under =~/src=
+have no remote, so the nil branch is a normal case, not an edge case.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--remote-url (dir)
+  "Return the remote URL of the repository containing DIR, or nil.
+
+`origin' is preferred.  When the repository has no `origin', the first
+remote `git remote' lists is used.  Returns nil when the repository has
+no remote at all, or when DIR is in no repository."
+  (or (workspace-bookmark--git dir "config" "--get" "remote.origin.url")
+      (let ((first (car (split-string
+                         (or (workspace-bookmark--git dir "remote") "")
+                         "\n" t "[ \t\r]+"))))
+        (and first
+             (workspace-bookmark--git dir "config" "--get"
+                                      (concat "remote." first ".url"))))))
+#+end_src
+
+** Normalizing a remote URL to an identity
+
+The single canonical translation between git's several spellings of one
+remote and the single string persisted in
+=register/shape/portable-bookmark-coordinates=.  Inlining it at a second
+site is exactly the boundary-translation drift the register tier exists to
+catch, so every producer goes through this function.
+
+These must all normalize to =github.com/moogah/emacs=:
+
+: git@github.com:moogah/emacs.git
+: https://github.com/moogah/emacs
+: ssh://git@github.com/moogah/emacs.git
+
+*** The colon is two different things
+
+git's remote syntax has two forms, and the colon means something different
+in each:
+
+- With an explicit scheme (=ssh://=, =https://=, =git://=) the URL is
+  =scheme://[userinfo@]host[:PORT]/path= — a colon after the host
+  introduces a PORT.
+- Without a scheme, git reads the scp-like form =[userinfo@]host:path= —
+  the colon is the path separator and there is NO port.  In
+  =git@example.com:2222/team/repo.git= the =2222= is a directory name.
+
+The scheme therefore selects the branch EXCLUSIVELY: a URL that has a
+scheme but does not parse as one is nil, never retried as scp-like
+syntax.  Falling through would read =https://github.com= as scp-like,
+taking =https= for the host and =github.com= for the path — a WRONG
+identity rather than an absent one, which is the difference between a
+bookmark that degrades and a bookmark that resolves somewhere else.
+
+So the disambiguation has to happen BEFORE the scheme is stripped: a rule
+set that strips =scheme://= first and only then "converts the SSH
+=host:path= colon to =/=" cannot tell the two apart any more, and turns
+=ssh://git@example.com:2222/team/repo.git= into
+=example.com/2222/team/repo= — which does not match the HTTPS spelling of
+the same repository, defeating the whole point of normalizing.  A port is
+transport, not identity, so with a scheme present the port is DROPPED.
+
+*** Userinfo is stripped, and that is a privacy property too
+
+=https://TOKEN@github.com/moogah/emacs.git= is a real shape for a
+credential-embedded remote.  Since the identity is written into the user's
+bookmark file on disk, keeping userinfo would persist a secret into a file
+this capability had no business writing secrets into.  Everything before
+the =@= goes, password form included.
+
+*** Host is downcased, path is not
+
+Hosts are case-insensitive, so downcasing the host is free.  Paths are NOT
+downcased even though the major forges treat them case-insensitively,
+because the two failure modes are not symmetric: keeping path case can at
+worst make two spellings of ONE repository look like two (which degrades
+to an unstamped or non-portable bookmark — safe), while downcasing can
+make two DIFFERENT repositories on a case-sensitive host collide, which
+would open the wrong file (=register/invariant/no-silent-wrong-file-open=).
+
+*** No host, no identity
+
+Anything that does not yield an explicit =host/path= returns nil.  This is
+load-bearing, not merely tidy: a local remote (=/srv/git/repo.git=,
+=file:///srv/git/repo.git=, =../sibling=) names a location on THIS
+machine, so it is no more portable than the absolute filename the bookmark
+already carries.  The two regexps below reject those by construction — a
+local absolute path cannot start a host, and a relative path has no colon
+before its first slash.
+
+#+begin_src emacs-lisp
+(defconst workspace-bookmark--scheme-prefix-re
+  "\\`[a-zA-Z][a-zA-Z0-9+.-]*://"
+  "Match the leading SCHEME:// of a remote URL.
+Which branch of `workspace-bookmark--normalize-identity' applies is
+decided by this alone.  A URL that has a scheme but does not parse is
+nil, never retried as scp-like syntax: \"https://github.com\" read as
+scp-like would yield the host \"https\".")
+
+(defconst workspace-bookmark--scheme-url-re
+  "\\`[a-zA-Z][a-zA-Z0-9+.-]*://\\(?:[^/@]*@\\)?\\([^/:]*\\)\\(?::[0-9]*\\)?/+\\(.*\\)\\'"
+  "Match a remote URL carrying an explicit scheme.
+Group 1 is the host, group 2 the path.  Any userinfo and any :PORT are
+matched and discarded.  A `file://' URL has an empty host and is
+therefore rejected downstream.")
+
+(defconst workspace-bookmark--scp-url-re
+  "\\`\\(?:[^/@]*@\\)?\\([^/:]+\\):\\(.*\\)\\'"
+  "Match git's scp-like remote syntax, [USERINFO@]HOST:PATH.
+Group 1 is the host, group 2 the path.  There is no port in this form:
+git reads everything after the colon as the path.")
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--normalize-identity (url)
+  "Return the normalized repository identity of URL, or nil.
+
+The identity is HOST/PATH, with the scheme, any userinfo, any port, a
+trailing \".git\" and any trailing slash removed, and the host — but not
+the path — downcased.  The SSH, HTTPS and ssh:// spellings of one
+repository therefore compare `equal'.
+
+Returns nil for anything that does not name a host: local paths,
+`file://' URLs, and malformed input."
+  (when (stringp url)
+    (let ((url (string-trim url))
+          host path)
+      (cond
+       ((string-match-p workspace-bookmark--scheme-prefix-re url)
+        (when (string-match workspace-bookmark--scheme-url-re url)
+          (setq host (match-string 1 url)
+                path (match-string 2 url))))
+       ((string-match workspace-bookmark--scp-url-re url)
+        (setq host (match-string 1 url)
+              path (match-string 2 url))))
+      (when (and host path)
+        (setq host (downcase host))
+        (setq path (replace-regexp-in-string "\\`/+" "" path))
+        (setq path (replace-regexp-in-string "/+\\'" "" path))
+        (when (string-suffix-p ".git" path)
+          (setq path (substring path 0 -4)))
+        (setq path (replace-regexp-in-string "/+\\'" "" path))
+        (unless (or (string-empty-p host) (string-empty-p path))
+          (concat host "/" path))))))
+#+end_src
+
+** The composed question
+
+=workspace-bookmark--identity= is the one entry point callers use.  The
+remote is looked up at the REPOSITORY ROOT rather than at DIR: the root is
+already known by then, it is guaranteed to exist and to be a directory,
+and it keeps the "which repository" question anchored to the checkout
+=--show-toplevel= actually resolved.  For a linked worktree this still
+works, because =remote.origin.url= lives in the shared config the worktree
+reads through.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--identity (dir)
+  "Return the normalized identity of the repository containing DIR, or nil.
+
+Returns nil — never signals — when DIR is in no git repository, when that
+repository has no remote, or when the remote URL names no host."
+  (let ((root (workspace-bookmark--repo-root dir)))
+    (and root
+         (workspace-bookmark--normalize-identity
+          (workspace-bookmark--remote-url root)))))
 #+end_src
 
 * Seam 1 — stamp on ~bookmark-make-record~
