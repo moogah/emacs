@@ -10,6 +10,14 @@
 ;; The project sources (projectile / magit / project.el) are SPIED via
 ;; `cl-letf' — never really required — so the tests are deterministic and
 ;; do not depend on those packages being installed.
+;;
+;; The git-derived source (`jf/workspace--worktree-git-derived-candidates')
+;; is spied to nil in the unit block and exercised for real in the
+;; "git-derived repo candidates" block, which builds throwaway repositories
+;; with `portable-bookmarks-fixtures.el' and drives the real
+;; portable-bookmarks discovery helpers against a fresh workspace registry.
+;; Those specs assert only what the candidate list contains, so they do not
+;; pin how the helpers decide what is in view or who owns a checkout.
 
 (require 'buttercup)
 (require 'cl-lib)
@@ -26,6 +34,27 @@
 (load (expand-file-name "../integrations.el" git-worktrees-spec--this-dir))
 (load (expand-file-name "../git-worktrees.el" git-worktrees-spec--this-dir))
 
+;; The git-derived source reuses portable-bookmarks' discovery helpers when
+;; they are bound.  git-worktrees.el never loads that module, so the spec
+;; does, together with the real-git fixtures its own suite uses.
+(load (expand-file-name "portable-bookmarks-fixtures.el"
+                        git-worktrees-spec--this-dir))
+(load (expand-file-name "../portable-bookmarks.el"
+                        git-worktrees-spec--this-dir))
+
+(defvar jf/emacs-dir)
+(defvar projectile-known-projects)
+
+;; `workspace--registered-names' is owned by tabs.el, which the test harness
+;; loads through init.el.  When this file runs outside the harness, supply
+;; the same registry walk (as portable-bookmarks-discovery-spec.el does).
+(unless (fboundp 'workspace--registered-names)
+  (defun workspace--registered-names ()
+    "Return the list of workspace names currently in the registry."
+    (let (names)
+      (maphash (lambda (k _v) (push k names)) workspace--registry)
+      (nreverse names))))
+
 (describe "workspace git-worktrees repo-candidate seam"
 
   ;; By default, treat every probed directory as a real git repo so the
@@ -33,7 +62,12 @@
   ;; tests override this to exercise the non-git exclusion.
   (before-each
     (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
-            (lambda (dir) dir)))
+            (lambda (dir) dir))
+    ;; Keep these unit specs to the project sources: the git-derived
+    ;; source would otherwise see whatever checkouts the running Emacs
+    ;; has in view.  It is exercised for real in its own block below.
+    (spy-on 'jf/workspace--worktree-git-derived-candidates
+            :and-return-value nil))
 
   (describe "jf/workspace--worktree-repo-candidates"
 
@@ -89,6 +123,132 @@
       (expect (jf/workspace--worktree-read-repo)
               :to-equal (expand-file-name "/repos/floor/"))
       (expect 'read-directory-name :to-have-been-called))))
+
+(defvar git-worktrees-spec--saved-registry nil
+  "The real `workspace--registry', set aside for the duration of a spec.")
+
+(defun git-worktrees-spec--only-features (features)
+  "Return a `featurep' replacement hiding projectile and magit.
+FEATURES lists which of those two to report as loaded; every other
+feature answers as the real `featurep' does."
+  (let ((real (symbol-function 'featurep)))
+    (lambda (feature &optional subfeature)
+      (if (memq feature '(projectile magit))
+          (and (memq feature features) t)
+        (funcall real feature subfeature)))))
+
+(defmacro git-worktrees-spec--with-sources (features &rest body)
+  "Run BODY with only FEATURES of projectile/magit loaded and no project.el.
+`project-known-project-roots' is unbound for BODY."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'featurep)
+              (git-worktrees-spec--only-features ,features))
+             ((symbol-function 'project-known-project-roots) nil))
+     ,@body))
+
+(describe "git-derived repo candidates"
+  ;; Real git: REPO is a canonical checkout; workspace A's home holds a
+  ;; linked worktree of it, which is what puts REPO in view.  OTHER is a
+  ;; second canonical repository in view of no workspace — the kind of
+  ;; repository only projectile would report.
+  :var (repo other home-a linked)
+
+  (before-each
+    (setq git-worktrees-spec--saved-registry workspace--registry
+          workspace--registry (make-hash-table :test 'equal))
+    (workspace-bookmark-fixtures-setup)
+    (setq repo (workspace-bookmark-fixtures-make-repo
+                :remote "git@example.com:fixtures/gw-candidates.git"
+                :prefix "gw-cand-repo-")
+          other (workspace-bookmark-fixtures-make-repo
+                 :prefix "gw-cand-other-")
+          home-a (workspace-bookmark-fixtures-make-workspace "gw-cand-a")
+          linked (file-name-as-directory
+                  (workspace-bookmark-fixtures-add-worktree
+                   repo (expand-file-name "gw-candidates" home-a)
+                   :branch "gw-cand-a"))))
+
+  (after-each
+    (workspace-bookmark-fixtures-teardown)
+    (setq workspace--registry git-worktrees-spec--saved-registry
+          git-worktrees-spec--saved-registry nil))
+
+  (it "includes the repositories of checkouts in view with no project source"
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources nil
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo)))))
+
+  (it "is not empty with projectile unloaded"
+    ;; project.el present and knowing nothing; magit and projectile absent.
+    (let ((jf/emacs-dir nil))
+      (cl-letf (((symbol-function 'featurep)
+                 (git-worktrees-spec--only-features nil))
+                ((symbol-function 'project-known-project-roots)
+                 (lambda () nil)))
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo)))))
+
+  (it "places git-derived candidates before projectile's"
+    (let ((jf/emacs-dir nil)
+          (projectile-known-projects (list other)))
+      (git-worktrees-spec--with-sources '(projectile)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo other)))))
+
+  (it "lists a repository known to git and to projectile once"
+    ;; Projectile spells the root without its trailing slash.
+    (let ((jf/emacs-dir nil)
+          (projectile-known-projects
+           (list (directory-file-name repo) other)))
+      (git-worktrees-spec--with-sources '(projectile)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo other)))))
+
+  (it "still excludes directories that are not git repositories"
+    (let* ((jf/emacs-dir nil)
+           (plain (workspace-bookmark-fixtures-temp-dir "gw-cand-plain-"))
+           (projectile-known-projects (list plain)))
+      (git-worktrees-spec--with-sources '(projectile)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo)))))
+
+  (it "does not offer a workspace-owned checkout as a source"
+    ;; Workspace B's home holds a full clone of REPO: a canonical-looking
+    ;; checkout that a workspace owns.  Neither it nor A's linked worktree
+    ;; may be offered — only REPO itself.
+    (let* ((jf/emacs-dir nil)
+           (home-b (workspace-bookmark-fixtures-make-workspace "gw-cand-b"))
+           (clone (file-name-as-directory
+                   (expand-file-name "gw-clone" home-b))))
+      (workspace-bookmark-fixtures-git home-b "clone" "--quiet" repo "gw-clone")
+      (git-worktrees-spec--with-sources nil
+        (let ((result (jf/workspace--worktree-repo-candidates)))
+          (expect result :to-equal (list repo))
+          (expect (member linked result) :to-be nil)
+          (expect (member clone result) :to-be nil)))))
+
+  (describe "with portable-bookmarks not loaded"
+
+    (it "takes candidates from the other sources and signals nothing"
+      (let ((jf/emacs-dir nil)
+            (projectile-known-projects (list other))
+            (raised nil)
+            (result nil))
+        (git-worktrees-spec--with-sources '(projectile)
+          (cl-letf (((symbol-function 'workspace-bookmark--checkouts-in-view)
+                     nil)
+                    ((symbol-function 'workspace-bookmark--checkouts-of) nil)
+                    ((symbol-function 'workspace-bookmark--classify) nil))
+            (expect (fboundp 'workspace-bookmark--checkouts-in-view)
+                    :to-be nil)
+            (condition-case err
+                (setq result (jf/workspace--worktree-repo-candidates))
+              (error (setq raised err)))
+            (expect raised :to-be nil)
+            (expect result :to-equal (list other))
+            (expect (jf/workspace--worktree-git-derived-candidates)
+                    :to-be nil)))))))
 
 (describe "jf/workspace--worktree-sanitize-branch"
 

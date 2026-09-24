@@ -23,10 +23,42 @@ straight-overridden package.
 ** Repo-source seam
 
 =jf/workspace--worktree-repo-candidates= is the "leverage where
-valuable, without a hard dependency" seam (design.md D1, D2).  It
-consumes only candidate *lists* from projectile / magit / project.el —
-never their workflows — and each source is guarded by
-=boundp=/=fboundp=/=featurep=, so none is required.  A
+valuable, without a hard dependency" seam (design.md D1, D2).  Its
+sources, in order:
+
+1. *Git-derived discovery* (primary) — the repositories of the checkouts
+   already in view (the current workspace's worktrees, other registered
+   workspaces' worktrees, and =jf/emacs-dir=), expanded via git to every
+   sibling checkout and kept only when they classify =canonical=.
+2. =projectile-known-projects= (when projectile is loaded).
+3. =(magit-list-repos)= (when magit is loaded).
+4. =project-known-project-roots= (when project.el is available).
+
+Git-derived discovery comes first because it answers "which repositories
+are cloned here?" from the filesystem, with no registration and no
+configuration.  Projectile only reports repositories that have been
+registered with it, so a projectile-first candidate set differed between
+machines for reasons unrelated to what is actually cloned; it is now one
+optional legacy source among others.  (=magit-repository-directories= is
+unset in this config, so in practice the seam used to be projectile-only.)
+
+The git-derived source reuses the =portable-bookmarks= discovery helpers
+(=workspace-bookmark--checkouts-in-view=, =--checkouts-of=,
+=--classify=) through an =fboundp= guard at *call* time.  This module
+never =require=s portable-bookmarks — a magit-dependent module must not
+depend on a bookmark module — so when portable-bookmarks is not loaded
+the git-derived source simply contributes nothing and the other sources
+behave exactly as before.
+
+Only =canonical= checkouts are offered: a source for a *new* worktree
+should be a repository's main worktree, never another workspace's
+worktree of it (chaining checkouts would make the ownership of a branch
+ambiguous — the same safety rule the bookmark resolver applies).
+
+Every source consumes only candidate *lists* — never a workflow — and
+each is guarded, so none is required.  The merged list is de-duped on
+*expanded absolute* directory names (trailing slash normalised, since
+git-derived candidates always carry one) and filtered to real git repositories.  A
 =read-directory-name= floor (in =jf/workspace--worktree-read-repo=)
 guarantees a repo in *no* list is still reachable, which is why no
 source is a hard dependency.
@@ -41,27 +73,63 @@ source is a hard dependency.
 
 #+begin_src emacs-lisp
 (require 'cl-lib)
+(require 'seq)
 #+end_src
 
 * Repo-candidate Helper
 
-Collects repository roots from any of the (optionally present) project
-sources, merges and de-dupes them on *expanded absolute* paths, then
-keeps only those that are actual git repositories.  Pure and
-list-returning — it never prompts, so it is directly unit-testable.
+Collects repository roots from git-derived discovery and from any of the
+(optionally present) project sources, merges and de-dupes them on
+*expanded absolute* paths, then keeps only those that are actual git
+repositories.  Pure and list-returning — it never prompts, so it is
+directly unit-testable.
+
+The git-derived source is its own function so it can be reasoned about
+(and spied) in isolation.  Its =portable-bookmarks= calls are guarded
+with =fboundp= at call time — git-worktrees loads *before*
+portable-bookmarks in =workspaces.org=, and must keep working when that
+module is never loaded at all.  No =declare-function= is used: the guard,
+not the byte-compiler, is the contract.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-git-derived-candidates ()
+  "Return the canonical checkouts of the repositories in view, or nil.
+Asks `workspace-bookmark--checkouts-in-view' for the checkouts already
+in view, expands each to every checkout of its repository with
+`workspace-bookmark--checkouts-of', and keeps only those that
+`workspace-bookmark--classify' calls `canonical' — so a workspace-owned
+checkout is never offered as a worktree source.  Those helpers belong to
+the portable-bookmarks module, which this module does not require: when
+any of them is unbound the result is nil.  Never signals: the helpers
+themselves never do."
+  (when (and (fboundp 'workspace-bookmark--checkouts-in-view)
+             (fboundp 'workspace-bookmark--checkouts-of)
+             (fboundp 'workspace-bookmark--classify))
+    (seq-filter
+     (lambda (checkout)
+       (eq 'canonical (funcall 'workspace-bookmark--classify checkout)))
+     (delete-dups
+      (seq-mapcat (lambda (checkout)
+                    (funcall 'workspace-bookmark--checkouts-of checkout))
+                  (funcall 'workspace-bookmark--checkouts-in-view))))))
+#+end_src
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-repo-candidates ()
-  "Return a de-duped list of git-repo roots from available project sources.
-Collects candidate directories from `projectile-known-projects'
-\(when projectile is loaded), `(magit-list-repos)' (when magit is
-loaded), and `project-known-project-roots' (when project.el is
-available).  Each source is guarded so none is required.  Paths are
-expanded to absolute form and de-duped with `delete-dups', then
-filtered to directories that are actual git repositories (via
-`locate-dominating-file' on \".git\", or `magit-toplevel' when magit
-is loaded).  Returns the surviving list; does not prompt."
-  (let ((raw '()))
+  "Return a de-duped list of git-repo roots from available sources.
+Git-derived candidates come first
+\(`jf/workspace--worktree-git-derived-candidates': the canonical
+checkouts of the repositories already in view).  Then, each only when
+available, `projectile-known-projects' (projectile loaded),
+`(magit-list-repos)' (magit loaded) and `project-known-project-roots'
+\(project.el available).  Each source is guarded so none is required.
+Paths are expanded to absolute directory names (trailing slash, so a
+source's spelling of a root with or without one does not matter) and
+de-duped with `delete-dups', keeping the first occurrence, then
+filtered to directories that are actual git repositories (via `locate-dominating-file' on \".git\", or
+`magit-toplevel' when magit is loaded).  Returns the surviving list;
+does not prompt."
+  (let ((raw (copy-sequence (jf/workspace--worktree-git-derived-candidates))))
     (when (and (featurep 'projectile)
                (boundp 'projectile-known-projects))
       (setq raw (append raw projectile-known-projects)))
@@ -70,7 +138,8 @@ is loaded).  Returns the surviving list; does not prompt."
     (when (fboundp 'project-known-project-roots)
       (setq raw (append raw (project-known-project-roots))))
     (let ((expanded (delete-dups
-                     (mapcar (lambda (d) (expand-file-name d))
+                     (mapcar (lambda (d)
+                               (file-name-as-directory (expand-file-name d)))
                              (delq nil raw)))))
       (seq-filter #'jf/workspace--worktree-git-repo-p expanded))))
 #+end_src
