@@ -2,7 +2,8 @@
 name: wave3-review-fixes
 description: Close wave-3 review/architect findings — fail-closed same-file identity, symlinked workspace children, and a hardened git runner
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
+merge_commit: 9c8b2309
 task_class: bug
 on_critical_path: true
 cycle: cycle-1789935943
