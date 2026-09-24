@@ -56,9 +56,11 @@ worktree of it (chaining checkouts would make the ownership of a branch
 ambiguous — the same safety rule the bookmark resolver applies).
 
 Every source consumes only candidate *lists* — never a workflow — and
-each is guarded, so none is required.  The merged list is de-duped on
-*expanded absolute* directory names (trailing slash normalised, since
-git-derived candidates always carry one) and filtered to real git repositories.  A
+each is guarded, so none is required; a source that signals is
+reported with a warning and contributes nothing.  The merged list is
+de-duped on each candidate's *truename* directory (so a symlinked
+spelling of a repo git reports resolved is listed once, in the first
+spelling seen) and filtered to real git repositories.  A
 =read-directory-name= floor (in =jf/workspace--worktree-read-repo=)
 guarantees a repo in *no* list is still reachable, which is why no
 source is a hard dependency.
@@ -91,6 +93,46 @@ portable-bookmarks in =workspaces.org=, and must keep working when that
 module is never loaded at all.  No =declare-function= is used: the guard,
 not the byte-compiler, is the contract.
 
+A source that is *present but broken* must degrade the same way as an
+absent one: the helpers are another module's internals, and a bug there
+must not abort the add-worktree command before it reaches its
+=read-directory-name= floor.  So the call is wrapped in an error
+barrier that displays one warning (the failure is reported, not hidden)
+and contributes nothing.
+
+De-duplication is keyed on each candidate's *truename*: git reports
+resolved paths (on macOS a temp repo is =/private/var/...=), while a
+legacy source may have recorded the same repository through a symlinked
+prefix (=/var/...=).  The first occurrence's spelling is the one offered,
+so the git-derived spelling wins.  Remote (TRAMP) entries are keyed on
+their expanded name, never resolved, so building the list touches no
+network.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-dedupe-dirs (dirs)
+  "Return DIRS as absolute directory names, without duplicates.
+Each entry is expanded and given a trailing slash.  Two entries are
+duplicates when they name the same directory: local entries are
+compared by `file-truename', so spellings through a symlinked prefix
+collapse; remote entries are compared by their expanded name.  The
+first occurrence's spelling is kept, in order.  nil entries are
+dropped."
+  (let ((seen (make-hash-table :test #'equal))
+        (out '()))
+    (dolist (d dirs)
+      (when d
+        (let* ((dir (file-name-as-directory (expand-file-name d)))
+               (key (if (file-remote-p dir)
+                        dir
+                      (condition-case nil
+                          (file-name-as-directory (file-truename dir))
+                        (error dir)))))
+          (unless (gethash key seen)
+            (puthash key t seen)
+            (push dir out)))))
+    (nreverse out)))
+#+end_src
+
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-git-derived-candidates ()
   "Return the canonical checkouts of the repositories in view, or nil.
@@ -100,18 +142,28 @@ in view, expands each to every checkout of its repository with
 `workspace-bookmark--classify' calls `canonical' — so a workspace-owned
 checkout is never offered as a worktree source.  Those helpers belong to
 the portable-bookmarks module, which this module does not require: when
-any of them is unbound the result is nil.  Never signals: the helpers
-themselves never do."
+any of them is unbound the result is nil.  Never signals: if a helper
+signals, one warning naming the error is displayed and the result is
+nil, so the other sources and the `read-directory-name' floor still
+work."
   (when (and (fboundp 'workspace-bookmark--checkouts-in-view)
              (fboundp 'workspace-bookmark--checkouts-of)
              (fboundp 'workspace-bookmark--classify))
-    (seq-filter
-     (lambda (checkout)
-       (eq 'canonical (funcall 'workspace-bookmark--classify checkout)))
-     (delete-dups
-      (seq-mapcat (lambda (checkout)
-                    (funcall 'workspace-bookmark--checkouts-of checkout))
-                  (funcall 'workspace-bookmark--checkouts-in-view))))))
+    (condition-case err
+        (seq-filter
+         (lambda (checkout)
+           (eq 'canonical (funcall 'workspace-bookmark--classify checkout)))
+         (delete-dups
+          (seq-mapcat (lambda (checkout)
+                        (funcall 'workspace-bookmark--checkouts-of checkout))
+                      (funcall 'workspace-bookmark--checkouts-in-view))))
+      (error
+       (display-warning
+        'workspace-git-worktrees
+        (format "Git-derived repo candidates unavailable (portable-bookmarks discovery failed): %s"
+                (error-message-string err))
+        :warning)
+       nil))))
 #+end_src
 
 #+begin_src emacs-lisp
@@ -123,10 +175,10 @@ checkouts of the repositories already in view).  Then, each only when
 available, `projectile-known-projects' (projectile loaded),
 `(magit-list-repos)' (magit loaded) and `project-known-project-roots'
 \(project.el available).  Each source is guarded so none is required.
-Paths are expanded to absolute directory names (trailing slash, so a
-source's spelling of a root with or without one does not matter) and
-de-duped with `delete-dups', keeping the first occurrence, then
-filtered to directories that are actual git repositories (via `locate-dominating-file' on \".git\", or
+Paths are expanded to absolute directory names and de-duped by
+`jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
+spelling kept), then filtered to directories that are actual git
+repositories (via `locate-dominating-file' on \".git\", or
 `magit-toplevel' when magit is loaded).  Returns the surviving list;
 does not prompt."
   (let ((raw (copy-sequence (jf/workspace--worktree-git-derived-candidates))))
@@ -137,11 +189,8 @@ does not prompt."
       (setq raw (append raw (magit-list-repos))))
     (when (fboundp 'project-known-project-roots)
       (setq raw (append raw (project-known-project-roots))))
-    (let ((expanded (delete-dups
-                     (mapcar (lambda (d)
-                               (file-name-as-directory (expand-file-name d)))
-                             (delq nil raw)))))
-      (seq-filter #'jf/workspace--worktree-git-repo-p expanded))))
+    (seq-filter #'jf/workspace--worktree-git-repo-p
+                (jf/workspace--worktree-dedupe-dirs raw))))
 #+end_src
 
 A small predicate isolates the "is this an actual git repo?" test so it

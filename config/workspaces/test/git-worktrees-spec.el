@@ -228,6 +228,54 @@ feature answers as the real `featurep' does."
           (expect (member linked result) :to-be nil)
           (expect (member clone result) :to-be nil)))))
 
+  (it "lists a repository once when projectile spells it via a symlinked prefix"
+    ;; Git reports the resolved path (/private/var/... on macOS); projectile
+    ;; recorded the same repository through the /var symlink.
+    (let ((alias (and (string-prefix-p "/private/var/" repo)
+                      (substring repo (length "/private")))))
+      (assume (and alias
+                   (file-directory-p alias)
+                   (equal (file-truename alias) repo))
+              "temp dir is not reached through the /var -> /private/var symlink")
+      (let ((jf/emacs-dir nil)
+            (projectile-known-projects (list alias other)))
+        (git-worktrees-spec--with-sources '(projectile)
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo other))))))
+
+  (describe "when a portable-bookmarks helper signals"
+
+    (before-each
+      (spy-on 'workspace-bookmark--checkouts-in-view :and-call-fake
+              (lambda () (error "Simulated discovery failure")))
+      (spy-on 'display-warning))
+
+    (it "warns once and still takes candidates from the other sources"
+      (let ((jf/emacs-dir nil)
+            (projectile-known-projects (list other))
+            (raised nil)
+            (result nil))
+        (git-worktrees-spec--with-sources '(projectile)
+          (condition-case err
+              (setq result (jf/workspace--worktree-repo-candidates))
+            (error (setq raised err))))
+        (expect raised :to-be nil)
+        (expect result :to-equal (list other))
+        (expect 'display-warning :to-have-been-called-times 1)
+        (expect (nth 1 (spy-calls-args-for 'display-warning 0))
+                :to-match "Simulated discovery failure")))
+
+    (it "still reaches the read-directory-name floor"
+      (spy-on 'completing-read :and-return-value "/does/not/exist/")
+      (spy-on 'read-directory-name :and-return-value other)
+      (let ((jf/emacs-dir nil)
+            (projectile-known-projects (list other)))
+        (git-worktrees-spec--with-sources '(projectile)
+          (expect (jf/workspace--worktree-read-repo) :to-equal other)))
+      (expect (nth 1 (spy-calls-args-for 'completing-read 0))
+              :to-equal (list other))
+      (expect 'read-directory-name :to-have-been-called)))
+
   (describe "with portable-bookmarks not loaded"
 
     (it "takes candidates from the other sources and signals nothing"

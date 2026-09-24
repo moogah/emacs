@@ -180,6 +180,49 @@ B. A parallel task (`discovery-refinements`) is changing what "in view"
   body (a `setq` inside the lambda did not happen). I used an explicit
   `condition-case` instead.
 
+### Revision 1 (architect on-touch findings 3 and 4)
+
+- **Finding 3: error barrier.** The body of
+  `jf/workspace--worktree-git-derived-candidates` is now wrapped in
+  `condition-case`. If a bound portable-bookmarks helper signals, the source
+  shows one warning (type `workspace-git-worktrees`, level `:warning`, message
+  "Git-derived repo candidates unavailable (portable-bookmarks discovery
+  failed): <error>") and returns nil. The legacy sources and the
+  `read-directory-name` floor are therefore still reached. The warning is
+  shown once per failing call, not once per session. The docstring no longer
+  relies on the helpers' never-signals promise. This supersedes my earlier
+  note that I had deliberately left out a `condition-case`.
+- **Finding 4: de-duplication by truename.** A new
+  `jf/workspace--worktree-dedupe-dirs` keys each candidate on its
+  `file-truename` directory name. Remote (TRAMP) entries are keyed on their
+  expanded name and never resolved, so no network is touched, and a
+  `file-truename` error falls back to the expanded name. Order is kept and
+  the first occurrence's spelling is the one offered, so the git-derived
+  spelling wins. This supersedes the earlier note that symlinked spellings
+  were out of scope.
+- **Classification is unchanged.** Legacy sources are still not filtered to
+  canonical checkouts, pending the user decision on finding 5. The `.org`
+  prose "Only =canonical= checkouts are offered" is also left as it was for
+  that decision.
+- **New specs (3):**
+  - "when a portable-bookmarks helper signals": the list still comes from
+    projectile, exactly one warning names the error, and nothing propagates.
+  - The same failure still reaches the `read-directory-name` floor, and
+    `completing-read` is offered the projectile candidate.
+  - "lists a repository once when projectile spells it via a symlinked
+    prefix": uses the fixture's real `/private/var/...` path and its `/var/...`
+    alias, with no symlink created. On systems where the temp dir is not
+    reached through that symlink, the spec is skipped with `assume`. It ran
+    (not skipped) here.
+- **Revert proofs.** For each fix I changed the `.org`, re-tangled, ran
+  `./bin/run-tests.sh -d config/workspaces`, then restored the file
+  (byte-identical `.el` confirmed with `cmp`):
+  - Barrier removed (plain seq-filter body): both "helper signals" specs fail.
+  - Truename key replaced by the expanded name: the symlinked-prefix spec
+    fails.
+- **Verification.** `./bin/run-tests.sh -d config/workspaces`: 524 ran, 524
+  passed.
+
 ## Discoveries
 
 - discovery_id: disc-worktree-candidates-git-first-1
