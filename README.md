@@ -106,105 +106,87 @@ This configuration uses a **three-tier architecture** similar to how operating s
 ### Architecture
 
 ```
-~/emacs/          - Development (main branch)
-                    Active development, potentially unstable
+~/emacs/            - Development (main + feature branches)
+                      Active development, potentially unstable
 
-~/emacs-testing/  - Testing (feature branches)
-                    Experiments and new features
+~/emacs-<feature>/  - Testing (feature-branch worktrees)
+                      Experiments and new features
 
-~/emacs-stable/   - Production (release tags)
-                    Vetted releases for daily use
-                    Host OS points here for primary Emacs
+~/.emacs.d/         - Production (checked out at a release tag, locked)
+                      Vetted releases for daily use
+                      Emacs.app loads this by default
 ```
 
-### Current Release Structure
+### Release Labels
 
-**Release Candidates** - Tested features, needs production validation
-- `v0.2.0-rc1` - GPTEL reorganization, worktree support (current)
+Releases use Ubuntu-style **date-based labels**: `YY.MM`, the year and
+month the release was cut.
 
-**Stable Releases** - Thoroughly tested, production-ready
-- `v0.1.0-beta` - Initial working configuration
+| Tag        | Meaning                                         |
+|------------|-------------------------------------------------|
+| `26.09`    | First release cut in September 2026             |
+| `26.09.1`  | Second release in the same month (point release) |
+| `26.09.2`  | Third release in the same month, and so on      |
 
-**Development** - Active work on main branch
+- Tags are annotated and cut from `main` only.
+- There is no separate release-candidate stage: production runs the tag
+  directly, and rolling back means checking out the previous tag.
+- The label records *when* a release was cut, not how big it is.
+- Tags before September 2026 (`v0.1.0-beta`, `v0.2.0-rc1`, `v0.2.0-rc2`)
+  predate this scheme and are kept as history.
 
-### Setting Up Production Worktree
-
-The `emacs-stable` worktree is already configured at `v0.2.0-rc1`:
+List releases and see what production is running:
 
 ```bash
-# Already created:
-# git worktree add ~/emacs-stable -b stable/v0.2.0-rc1 v0.2.0-rc1
-
-# Verify:
-cd ~/emacs-stable
-git log --oneline --decorate -1
+git tag -l --sort=-creatordate | head      # newest releases first
+git -C ~/.emacs.d describe --tags          # production's current release
 ```
 
-Configure your host OS to use this worktree:
-- macOS: Point app to `~/emacs-stable/bin/emacs-isolated.sh`
-- Terminal alias: `alias emacs='~/emacs-stable/bin/emacs-isolated.sh'`
-
-### Updating Production to New Release
-
-When a new stable release is ready:
+### Cutting a Release
 
 ```bash
-cd ~/emacs-stable
+cd ~/emacs
+git checkout main && git pull --ff-only    # release from an up-to-date main
+./bin/run-tests.sh --report                # confirm the suite state
 
-# Switch to new release tag
-git fetch origin
-git checkout v0.3.0  # or v0.2.0 when RC is promoted
-
-# Or update to newer RC
-git checkout v0.3.0-rc1
+TAG=$(date +%y.%m)                         # e.g. 26.09
+git tag -l "$TAG*"                         # already used this month? use $TAG.1, $TAG.2, ...
+git tag -a "$TAG" -m "$TAG: short summary of what changed"
+git push origin "$TAG"
 ```
 
-### Creating New Releases
+### Publishing to Production
 
-**From main branch:**
-
-1. **Tag Release Candidate** after testing new features:
-   ```bash
-   cd ~/emacs
-   git tag -a v0.3.0-rc1 -m "Release candidate description"
-   ```
-
-2. **Test in Production** - Switch stable worktree to RC:
-   ```bash
-   cd ~/emacs-stable
-   git checkout v0.3.0-rc1
-   ```
-
-3. **Promote to Stable** after thorough testing:
-   ```bash
-   cd ~/emacs
-   git tag -a v0.3.0 -m "Stable release description"
-   ```
-
-4. **Update Production** to stable:
-   ```bash
-   cd ~/emacs-stable
-   git checkout v0.3.0
-   ```
-
-### Release Workflow
-
+```bash
+cd ~/.emacs.d
+git status --short                         # must show no tracked changes
+git checkout 26.09                         # detached HEAD at the release tag
+git submodule update --init                # if the release adds submodules
+git describe --tags                        # confirm: 26.09
 ```
-Development Cycle:
-main → rc1 → test → rc2 → test → stable → production
 
-Example:
-v0.3.0-rc1  Test in emacs-stable for 1 week
-v0.3.0-rc2  Fix issues, test another week
-v0.3.0      Promote to stable, update production
+On first launch straight.el installs or rebuilds any packages the new
+release needs, in `~/.emacs.d/runtime/straight/`.
+
+The production worktree stays locked so `git worktree prune` and similar
+commands leave it alone:
+
+```bash
+git worktree lock ~/.emacs.d --reason "Production"
+```
+
+### Rolling Back
+
+```bash
+cd ~/.emacs.d
+git checkout <previous-tag>                # e.g. 26.06
 ```
 
 ### Benefits
 
 ✅ **Isolation** - Development never breaks production
-✅ **Testing** - RC releases validated before stable
-✅ **Rollback** - Easy to revert to previous release
-✅ **Confidence** - Production uses only vetted code
+✅ **Rollback** - Easy to revert to the previous release tag
+✅ **Legibility** - A tag name tells you how old production is
 ✅ **Flexibility** - Experiment freely in dev/testing
 
 ## Directory Structure

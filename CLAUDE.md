@@ -294,9 +294,9 @@ git worktree add ~/emacs-feature-name -b feature-name
 ./bin/invalidate-runtime.sh                           # Force rebuild
 git worktree lock ~/.emacs.d --reason "Production"   # Protect production
 
-# Release management
-git tag -a v0.3.0-rc1 -m "Description"
-cd ~/.emacs.d && git checkout v0.3.0-rc1
+# Release management (date-based YY.MM tags, cut from main; see README)
+git tag -a 26.09 -m "26.09: Description"   # 2nd release same month: 26.09.1
+cd ~/.emacs.d && git checkout 26.09
 ```
 
 ## Development Workflow
