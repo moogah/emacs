@@ -3,13 +3,25 @@
 (require 'cl-lib)
 (require 'seq)
 
+(defvar jf/workspace--worktree-warning-state nil
+  "Whether a discovery warning may be shown.
+nil outside a candidate collection: every failure is reported.
+`jf/workspace--worktree-repo-candidates' binds it to `collecting', and
+the first warning inside that collection sets it to `warned', which
+suppresses the rest.")
+
 (defun jf/workspace--worktree-warn-discovery (what err)
-  "Display one warning that WHAT failed with ERR."
-  (display-warning
-   'workspace-git-worktrees
-   (format "%s unavailable (portable-bookmarks discovery failed): %s"
-           what (error-message-string err))
-   :warning))
+  "Display a warning that WHAT failed with ERR.
+Within one candidate collection only the first failure is shown; see
+`jf/workspace--worktree-warning-state'."
+  (unless (eq jf/workspace--worktree-warning-state 'warned)
+    (when (eq jf/workspace--worktree-warning-state 'collecting)
+      (setq jf/workspace--worktree-warning-state 'warned))
+    (display-warning
+     'workspace-git-worktrees
+     (format "%s unavailable (portable-bookmarks discovery failed): %s"
+             what (error-message-string err))
+     :warning)))
 
 (defun jf/workspace--worktree-dedupe-dirs (dirs)
   "Return DIRS as absolute directory names, without duplicates.
@@ -35,62 +47,62 @@ dropped."
     (nreverse out)))
 
 (defun jf/workspace--worktree-git-derived-candidates ()
-  "Return every checkout of the repositories in view, or nil.
-Asks `workspace-bookmark--checkouts-in-view' for the checkouts already
-in view and expands each to every checkout of its repository with
-`workspace-bookmark--checkouts-of'.  The result is NOT yet classified;
-`jf/workspace--worktree-canonical-only' does that for every source.
-Those helpers belong to the portable-bookmarks module, which this module
-does not require.  When any of them, or `workspace-bookmark--classify',
-is unbound, the result is nil.  Never signals: if a helper signals, one
-warning naming the error is displayed and the result is nil."
-  (when (and (fboundp 'workspace-bookmark--checkouts-in-view)
-             (fboundp 'workspace-bookmark--checkouts-of)
-             (fboundp 'workspace-bookmark--classify))
+  "Return the canonical checkouts of the repositories in view, or nil.
+Calls `workspace-bookmark-canonical-checkouts-in-view' with no argument:
+the checkouts already in view, each resolved to its repository's main
+worktree, which is kept only when portable-bookmarks' one canonical
+predicate admits it.  That public function is the only portable-bookmarks
+symbol this module calls, and the module is never required.  When it is
+unbound, the result is nil.  Never signals: if it signals, a warning
+naming the error is displayed and the result is nil."
+  (when (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
     (condition-case err
-        (delete-dups
-         (seq-mapcat (lambda (checkout)
-                       (funcall 'workspace-bookmark--checkouts-of checkout))
-                     (funcall 'workspace-bookmark--checkouts-in-view)))
+        (funcall 'workspace-bookmark-canonical-checkouts-in-view)
       (error
        (jf/workspace--worktree-warn-discovery "Git-derived repo candidates" err)
        nil))))
 
 (defun jf/workspace--worktree-canonical-only (dirs)
-  "Return the members of DIRS classified `canonical'.
-Classification is by `workspace-bookmark--classify'.  When the classifier is unbound (portable-bookmarks not loaded), DIRS is
-returned unchanged.  Never signals: if the classifier signals, one
-warning naming the error is displayed and the result is nil, so nothing
-unchecked is offered and the caller's floor prompt still works."
-  (if (not (fboundp 'workspace-bookmark--classify))
-      dirs
+  "Return the canonical checkouts of the repositories of DIRS.
+Calls `workspace-bookmark-canonical-checkouts-in-view' with DIRS, so a
+candidate from another source is admitted by the same predicate as the
+git-derived ones; a directory in DIRS that is a checkout of a repository
+yields that repository's main worktree only when the predicate admits
+it.  DIRS nil yields nil.  When the function is unbound (portable-bookmarks
+not loaded), DIRS is returned unchanged.  Never signals: if it signals,
+a warning naming the error is displayed and the result is nil, so
+nothing unchecked is offered and the caller's floor prompt still
+works."
+  (cond
+   ((null dirs) nil)
+   ((not (fboundp 'workspace-bookmark-canonical-checkouts-in-view)) dirs)
+   (t
     (condition-case err
-        (seq-filter
-         (lambda (dir)
-           (eq 'canonical (funcall 'workspace-bookmark--classify dir)))
-         dirs)
+        (funcall 'workspace-bookmark-canonical-checkouts-in-view dirs)
       (error
        (jf/workspace--worktree-warn-discovery "Repo candidate classification" err)
-       nil))))
+       nil)))))
 
 (defun jf/workspace--worktree-repo-candidates ()
   "Return the canonical git-repo roots offered as worktree sources.
 The sources, in order, are the git-derived candidates
-\(`jf/workspace--worktree-git-derived-candidates') and then
-`(magit-list-repos)' when magit is loaded.  Projectile and project.el
+\(`jf/workspace--worktree-git-derived-candidates', canonical already)
+and then `(magit-list-repos)' when magit is loaded, classified by
+`jf/workspace--worktree-canonical-only'.  Projectile and project.el
 lists are deliberately not consulted.  Paths are de-duped by
 `jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
 spelling kept) and filtered to actual git repositories (via
 `locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
-loaded).  Every survivor is then classified by
-`jf/workspace--worktree-canonical-only'.  Returns the list; does not
-prompt."
-  (let ((raw (copy-sequence (jf/workspace--worktree-git-derived-candidates))))
-    (when (and (featurep 'magit) (fboundp 'magit-list-repos))
-      (setq raw (append raw (magit-list-repos))))
-    (jf/workspace--worktree-canonical-only
-     (seq-filter #'jf/workspace--worktree-git-repo-p
-                 (jf/workspace--worktree-dedupe-dirs raw)))))
+loaded).  At most one discovery warning is shown per call.  Returns the
+list; does not prompt."
+  (let* ((jf/workspace--worktree-warning-state 'collecting)
+         (git-derived (jf/workspace--worktree-git-derived-candidates))
+         (magit (and (featurep 'magit) (fboundp 'magit-list-repos)
+                     (jf/workspace--worktree-canonical-only
+                      (magit-list-repos)))))
+    (seq-filter #'jf/workspace--worktree-git-repo-p
+                (jf/workspace--worktree-dedupe-dirs
+                 (append git-derived magit)))))
 
 (defun jf/workspace--worktree-git-repo-p (dir)
   "Return non-nil when DIR is the root (or inside) a git repository.

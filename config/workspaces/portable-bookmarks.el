@@ -496,13 +496,35 @@ when git fails or DIR is in no repository, and never signals."
                          (file-name-as-directory (expand-file-name path)))))
                 (workspace-bookmark--worktree-entries dir))))
 
+(defconst workspace-bookmark--os-artifact-names
+  '(".DS_Store" ".localized" "Icon\r" "Thumbs.db" "ehthumbs.db"
+    "desktop.ini" ".directory")
+  "Basenames of files an OS or sync client writes into any directory.
+A tracked path with one of these basenames is no evidence that a
+directory holds the work tree, because the file may have been written
+there by something other than git.  Compared ignoring letter case.
+AppleDouble files (a basename starting \"._\") are artifacts too; see
+`workspace-bookmark--os-artifact-p'.")
+
+(defun workspace-bookmark--os-artifact-p (path)
+  "Return non-nil when PATH's basename names an OS or sync-client artifact.
+See `workspace-bookmark--os-artifact-names'; any basename starting
+\"._\" (a macOS AppleDouble file) also counts."
+  (let ((base (file-name-nondirectory path)))
+    (or (string-prefix-p "._" base)
+        (and (member-ignore-case base workspace-bookmark--os-artifact-names)
+             t))))
+
 (defun workspace-bookmark--holds-tracked-file-p (dir)
   "Return non-nil when DIR holds at least one path git tracks there.
 
 Runs `git ls-files -z' in DIR and returns t at the first listed path
-that exists under DIR.  Nil when git fails, lists nothing, or none of
-the listed paths exists — the shape of a directory that holds only a
-git directory.  Never signals."
+that exists under DIR.  A listed path whose basename is an OS or
+sync-client artifact (`workspace-bookmark--os-artifact-p') is skipped:
+Finder and friends write those into any directory, the husk of a
+`.git'-named git directory included.  Nil when git fails, lists
+nothing, or no other listed path exists — the shape of a directory that
+holds only a git directory.  Never signals."
   (let ((out (workspace-bookmark--git dir "ls-files" "-z")))
     (when out
       (condition-case nil
@@ -511,10 +533,11 @@ git directory.  Never signals."
                 (start 0)
                 (found nil))
             (while (and (not found) (< start (length out)))
-              (let ((end (or (string-search "\0" out start) (length out))))
+              (let* ((end (or (string-search "\0" out start) (length out)))
+                     (path (substring out start end)))
                 (when (and (> end start)
-                           (file-attributes
-                            (concat root (substring out start end))))
+                           (not (workspace-bookmark--os-artifact-p path))
+                           (file-attributes (concat root path)))
                   (setq found t))
                 (setq start (1+ end))))
             found)
@@ -561,7 +584,8 @@ checkout is better than a guessed one.  Never signals."
 (defun workspace-bookmark--path-within-p (path dir)
   "Return non-nil when PATH is DIR or lies inside it.
 
-Both must be local and exist; DIR must be a directory.  Containment is
+Both must be local and exist (a missing PATH is inside nothing); DIR
+must be a directory.  Containment is
 by file identity: PATH is truenamed, then it and each of its ancestors
 is compared to DIR with `workspace-bookmark--same-file-p', so
 differences of spelling — trailing slash, `~', symlinked prefixes, and
@@ -575,7 +599,8 @@ neither do DIR's timestamps changing during the walk.  Never signals."
                            (file-truename (expand-file-name path))))
                  (previous nil)
                  (found nil))
-             (when (file-directory-p (expand-file-name dir))
+             (when (and (file-exists-p (expand-file-name path))
+                        (file-directory-p (expand-file-name dir)))
                (while (and (not found) (not (equal current previous)))
                  (if (workspace-bookmark--same-file-p current dir)
                      (setq found t)
@@ -585,15 +610,44 @@ neither do DIR's timestamps changing during the walk.  Never signals."
              found)
          (error nil))))
 
+(defun workspace-bookmark--same-repository-worktree-p (home checkout)
+  "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
+HOME must be its own top level (`git rev-parse --show-toplevel' run in it
+names it), and its shared git directory must be CHECKOUT's, by
+`workspace-bookmark--same-file-p'.  CHECKOUT's shared git directory is
+its `.git' directory when it has one; otherwise git is asked.  One
+subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
+  (let* ((out (workspace-bookmark--git
+               home "rev-parse" "--path-format=absolute"
+               "--show-toplevel" "--git-common-dir"))
+         (lines (and out (split-string out "\n"))))
+    (and (= 2 (length lines))
+         (workspace-bookmark--same-file-p (nth 0 lines) home)
+         (workspace-bookmark--same-file-p
+          (nth 1 lines)
+          (let ((dotgit (expand-file-name ".git" checkout)))
+            (if (file-directory-p dotgit)
+                dotgit
+              (workspace-bookmark--git
+               checkout "rev-parse" "--path-format=absolute"
+               "--git-common-dir")))))))
+
 (defun workspace-bookmark--owning-workspace (checkout)
   "Return the name of a registered workspace that owns CHECKOUT, or nil.
-A workspace owns CHECKOUT when CHECKOUT is its `:home' or really lies
-inside it, by file identity (see `workspace-bookmark--path-within-p').
-Symbolic links confer nothing: a clone linked into a home from outside
-it is not owned.  Never signals."
+A workspace owns CHECKOUT when CHECKOUT is its `:home', really lies
+inside it, or really contains it, by file identity (see
+`workspace-bookmark--path-within-p').  A contained home owns CHECKOUT
+only when it is not itself a worktree of CHECKOUT's repository (see
+`workspace-bookmark--same-repository-worktree-p'), and only a home
+that exists owns anything.  Symbolic links confer nothing: a clone
+linked into a home from outside it is not owned, and neither is a clone
+holding a link to a home.  Never signals."
   (seq-find (lambda (name)
-              (workspace-bookmark--path-within-p
-               checkout (workspace-bookmark--workspace-home name)))
+              (let ((home (workspace-bookmark--workspace-home name)))
+                (or (workspace-bookmark--path-within-p checkout home)
+                    (and (workspace-bookmark--path-within-p home checkout)
+                         (not (workspace-bookmark--same-repository-worktree-p
+                               home checkout))))))
             (workspace-bookmark--registered-names)))
 
 (defun workspace-bookmark--classify (checkout)
@@ -602,8 +656,12 @@ it is not owned.  Never signals."
 `workspace-owned' when a registered workspace owns CHECKOUT (see
 `workspace-bookmark--owning-workspace'); otherwise `canonical' when
 its `.git' is a directory (a main worktree); otherwise `other'.  Ownership is tested FIRST: a full clone
-inside a workspace home is workspace-owned, never canonical.  A remote
-or non-string CHECKOUT is `other'.  Never signals."
+inside a workspace home, or containing one, is workspace-owned, never
+canonical.  A remote or non-string CHECKOUT is `other'.
+
+`canonical' here is structural only, and NOT sufficient to offer
+CHECKOUT as a repository's canonical checkout: see
+`workspace-bookmark--offerable-canonical-p'.  Never signals."
   (condition-case nil
       (cond
        ((not (and (stringp checkout) (not (file-remote-p checkout))))
@@ -642,13 +700,18 @@ is nil, remote, or not an existing directory.  Never signals."
 
 The candidates are those of `workspace-bookmark--home-checkouts' — the
 home itself when it is a checkout, then its immediate children — and
-the value keeps their order.  Each is an absolute directory name with a
-trailing slash.  Returns nil when IDENTITY or WORKSPACE-NAME is nil,
-when the workspace is not registered, or when nothing matches.  Never
-signals."
+the value keeps their order.  A candidate that is not its own checkout
+root (a child whose `.git' git does not accept, which git resolves to
+the repository enclosing it) is dropped.  Each is an absolute directory
+name with a trailing slash.  Returns nil when IDENTITY or
+WORKSPACE-NAME is nil, when the workspace is not registered, or when
+nothing matches.  Never signals."
   (when (and identity workspace-name)
     (seq-filter (lambda (checkout)
-                  (equal identity (workspace-bookmark--identity checkout)))
+                  (let ((root (workspace-bookmark--repo-root checkout)))
+                    (and (workspace-bookmark--same-file-p root checkout)
+                         (equal identity
+                                (workspace-bookmark--root-identity root)))))
                 (workspace-bookmark--home-checkouts
                  (workspace-bookmark--workspace-home workspace-name)))))
 
@@ -688,25 +751,87 @@ home, when that is a checkout, and its home's checkout children (see
            (not (file-remote-p config))
            (list (file-name-as-directory (expand-file-name config))))))))
 
-(defun workspace-bookmark--canonical-for-identity (identity)
-  "Return the canonical checkout of IDENTITY, or nil.
+(defun workspace-bookmark--offerable-canonical-p (dir)
+  "Return non-nil when DIR may be offered as its repository's canonical checkout.
 
-Searches the checkouts in view (see `workspace-bookmark--checkouts-in-view')
-for one whose identity is IDENTITY, asks git for that repository's main
-worktree, and returns it ONLY when it classifies `canonical'.  A
-workspace-owned or `other' checkout is never returned.  Returns nil when
-IDENTITY is nil, when no checkout of it is in view, or when no in-view
-repository of it has a main worktree that passes.  Never signals."
+DIR must classify `canonical' (`workspace-bookmark--classify': no
+registered workspace owns it and its `.git' is a directory) AND be, by
+file identity, the main worktree `workspace-bookmark--canonical-checkout'
+finds for DIR's own repository.  Neither condition is sufficient alone.
+This is the ONLY test that may admit a checkout as canonical.  Never
+signals."
+  (and (stringp dir)
+       (eq 'canonical (workspace-bookmark--classify dir))
+       (workspace-bookmark--same-file-p
+        dir (workspace-bookmark--canonical-checkout dir))))
+
+(defun workspace-bookmark--canonical-checkouts-among (checkouts)
+  "Return the canonical checkouts of the repositories of CHECKOUTS.
+
+For each of CHECKOUTS, in order, the main-worktree entry git lists for
+its repository is a candidate; candidates are de-duplicated by file
+identity (first occurrence kept) and only those that pass
+`workspace-bookmark--offerable-canonical-p' are returned.  Each is an
+absolute directory name with a trailing slash.  Never signals."
+  (seq-filter
+   #'workspace-bookmark--offerable-canonical-p
+   (seq-uniq (delq nil (mapcar (lambda (checkout)
+                                 (car (workspace-bookmark--checkouts-of
+                                       checkout)))
+                               checkouts))
+             #'workspace-bookmark--same-file-p)))
+
+(defun workspace-bookmark--canonical-checkouts-for-identity (identity)
+  "Return every distinct canonical checkout of IDENTITY, or nil.
+
+Searches the checkouts in view (`workspace-bookmark--checkouts-in-view')
+for those whose identity is IDENTITY, and returns the canonical
+checkouts of their repositories that pass
+`workspace-bookmark--offerable-canonical-p', de-duplicated by file
+identity, in order of first appearance.  A workspace-owned or `other'
+checkout is never returned.  Nil when IDENTITY is nil, when no checkout
+of it is in view, or when none passes.  Never signals."
   (when identity
-    (seq-some (lambda (checkout)
-                (when (equal identity (workspace-bookmark--identity checkout))
-                  (let ((canonical
-                         (workspace-bookmark--canonical-checkout checkout)))
-                    (and canonical
-                         (eq 'canonical
-                             (workspace-bookmark--classify canonical))
-                         canonical))))
-              (workspace-bookmark--checkouts-in-view))))
+    (workspace-bookmark--canonical-checkouts-among
+     (seq-filter (lambda (checkout)
+                   (equal identity (workspace-bookmark--identity checkout)))
+                 (workspace-bookmark--checkouts-in-view)))))
+
+(defun workspace-bookmark--canonical-for-identity (identity)
+  "Return THE canonical checkout of IDENTITY, or nil.
+
+The value is the checkout only when it is UNIQUE among
+`workspace-bookmark--canonical-checkouts-for-identity'.  Nil when there
+is none, and nil when there are several — separate main clones of one
+repository, and picking one would pick by workspace or registry order.
+Call the plural to tell the two apart.  A workspace-owned or `other'
+checkout is never returned.  Never signals."
+  (let ((all (workspace-bookmark--canonical-checkouts-for-identity identity)))
+    (and all (null (cdr all)) (car all))))
+
+(cl-defun workspace-bookmark-canonical-checkouts-in-view
+    (&optional (checkouts nil checkouts-given))
+  "Return the canonical checkouts of the repositories in view.
+
+With no argument, the repositories in view are those of the checkouts
+in view (`workspace-bookmark--checkouts-in-view'): the current
+workspace's, then every other registered workspace's, then
+`jf/emacs-dir'.  With CHECKOUTS, a list of directories, they are the
+repositories of CHECKOUTS instead; CHECKOUTS nil yields nil.
+
+Each element is its repository's main worktree and passed
+`workspace-bookmark--offerable-canonical-p': never a workspace-owned
+checkout, a linked worktree, or a directory that is not a main
+worktree.  The value is in order of first appearance, de-duplicated by
+file identity, each an absolute directory name with a trailing slash.
+
+This is a CROSS-MODULE INTERFACE, called from git-worktrees.el behind a
+call-time `fboundp' guard; its name, calling convention and meaning are
+stable.  Never signals in normal operation."
+  (workspace-bookmark--canonical-checkouts-among
+   (if checkouts-given
+       checkouts
+     (workspace-bookmark--checkouts-in-view))))
 
 (defun workspace-bookmark-install-advice ()
   "Install the two portable-bookmark advice seams.  Idempotent."
