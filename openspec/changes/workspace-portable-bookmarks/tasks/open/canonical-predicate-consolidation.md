@@ -14,7 +14,7 @@ relations:
   - blocked-by:worktree-candidates-git-first
   - blocks:resolver-outcomes
 discovered_from: [discovery-refinements, worktree-candidates-git-first]
-discovered_by: [architect, reviewer]
+discovered_by: [architect, reviewer, user]
 discovered_class: duplication
 reconciled_into: null
 ---
@@ -56,7 +56,24 @@ Three independent findings converge on one shape problem:
 4. Guard (reviewer note): a child of an anchored home whose `.git` is an EMPTY
    directory is not a checkout root. It already fails closed; add the one-line
    guard and a spec.
-5. Keep every existing spec in both suites green. Show that each new spec fails with its
+5. **A home inside a checkout makes that checkout workspace-owned** (user
+   decision 2026-09-25, ask 10). A workspace anchored at a SUBDIRECTORY of a main
+   clone (e.g. `~/emacs/config`) is working in that clone, so the clone
+   classifies `workspace-owned` and is never offered as canonical. Add the
+   ownership test alongside the existing "checkout inside a home" walk: owned if
+   the checkout is inside a home, IS a home, OR CONTAINS a home. Still compare
+   with `--same-file-p`, and still ignore symlinks (DD-11). Spec it with the real
+   anchor constructor.
+6. **Two separate main clones of one identity are AMBIGUOUS** (user decision
+   2026-09-25, ask 11). `--canonical-for-identity` must not pick silently when the
+   checkouts in view yield more than one distinct canonical checkout for an
+   identity, whether by current-workspace order or by registry order. Add
+   `workspace-bookmark--canonical-checkouts-for-identity` (plural, every
+   distinct canonical checkout). The singular returns the checkout only when it
+   is unique, and nil when there are none or several, mirroring
+   `--workspace-checkout(s)` from discovery-refinements part C. Do NOT add a
+   resolution outcome: resolver-outcomes maps ambiguity.
+7. Keep every existing spec in both suites green. Show that each new spec fails with its
    change reverted.
 
 ## Verification
