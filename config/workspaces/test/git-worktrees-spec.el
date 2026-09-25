@@ -84,14 +84,16 @@ lists are EMPTY unless BODY binds them."
 (describe "workspace git-worktrees repo-candidate seam"
 
   ;; By default every probed directory is a real git repo, the git-derived
-  ;; source is empty, and every candidate classifies `canonical', so these
-  ;; specs isolate source merging.  Individual specs override each.
+  ;; source is empty, and portable-bookmarks' public classifier admits
+  ;; every candidate it is handed, so these specs isolate source merging.
+  ;; Individual specs override each.
   (before-each
     (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
             (lambda (dir) dir))
     (spy-on 'jf/workspace--worktree-git-derived-candidates
             :and-return-value nil)
-    (spy-on 'workspace-bookmark--classify :and-return-value 'canonical))
+    (spy-on 'workspace-bookmark-canonical-checkouts-in-view
+            :and-call-fake (lambda (&optional dirs) dirs)))
 
   (describe "jf/workspace--worktree-repo-candidates"
 
@@ -132,12 +134,9 @@ lists are EMPTY unless BODY binds them."
                     :to-equal nil)))))
 
     (it "offers only the candidates the classifier calls canonical"
-      (spy-on 'workspace-bookmark--classify :and-call-fake
-              (lambda (dir)
-                (pcase dir
-                  ("/repos/main/" 'canonical)
-                  ("/repos/owned/" 'workspace-owned)
-                  (_ 'other))))
+      (spy-on 'workspace-bookmark-canonical-checkouts-in-view :and-call-fake
+              (lambda (&optional dirs)
+                (seq-filter (lambda (dir) (equal dir "/repos/main/")) dirs)))
       (git-worktrees-spec--with-sources '(magit)
           '("/repos/owned/" "/repos/main/" "/repos/other/")
         (expect (jf/workspace--worktree-repo-candidates)
@@ -145,7 +144,9 @@ lists are EMPTY unless BODY binds them."
 
     (it "passes magit candidates through when the classifier is unbound"
       (git-worktrees-spec--with-sources '(magit) '("/repos/a/" "/repos/b/")
-        (cl-letf (((symbol-function 'workspace-bookmark--classify) nil))
+        (cl-letf (((symbol-function
+                    'workspace-bookmark-canonical-checkouts-in-view)
+                   nil))
           (expect (jf/workspace--worktree-repo-candidates)
                   :to-equal '("/repos/a/" "/repos/b/"))))))
 
@@ -284,7 +285,9 @@ lists are EMPTY unless BODY binds them."
     ;; and magit's list is offered unfiltered, owned checkout included.
     (let ((jf/emacs-dir nil))
       (git-worktrees-spec--with-sources '(magit) (list linked other)
-        (cl-letf (((symbol-function 'workspace-bookmark--classify) nil))
+        (cl-letf (((symbol-function
+                    'workspace-bookmark-canonical-checkouts-in-view)
+                   nil))
           (expect (jf/workspace--worktree-repo-candidates)
                   :to-equal (list linked other))))))
 
@@ -336,6 +339,42 @@ lists are EMPTY unless BODY binds them."
         (expect (nth 1 (spy-calls-args-for 'display-warning 0))
                 :to-match "Simulated classify failure"))))
 
+  (describe "a husk left by a `.git'-named git directory"
+    ;; canonical-predicate-consolidation (architect F2 on
+    ;; discovery-refinements).  SEP's git directory was moved to
+    ;; HUSK/.git, so git names HUSK, a directory holding only `.git', as
+    ;; the main worktree.  `--classify' alone called it canonical, and
+    ;; this picker offered it.
+    :var (husk)
+
+    (before-each
+      (let ((sep (workspace-bookmark-fixtures-make-repo
+                  :remote "git@example.com:fixtures/gw-husk.git"
+                  :prefix "gw-cand-sep-"))
+            (home-h (workspace-bookmark-fixtures-make-workspace "gw-cand-h")))
+        (setq husk (file-name-as-directory
+                    (expand-file-name
+                     "husk" (workspace-bookmark-fixtures-temp-dir
+                             "gw-cand-store-"))))
+        (make-directory husk)
+        (workspace-bookmark-fixtures-git
+         sep "init" "--quiet"
+         (concat "--separate-git-dir=" (expand-file-name ".git" husk)))
+        (workspace-bookmark-fixtures-add-worktree
+         sep (expand-file-name "sep" home-h) :branch "h")))
+
+    (it "is not offered from the git-derived source"
+      (let ((jf/emacs-dir nil))
+        (git-worktrees-spec--with-sources nil nil
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo)))))
+
+    (it "is not offered when magit reports it"
+      (let ((jf/emacs-dir nil))
+        (git-worktrees-spec--with-sources '(magit) (list husk other)
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo other))))))
+
   (describe "with portable-bookmarks not loaded"
 
     (it "takes candidates from magit and signals nothing"
@@ -343,11 +382,10 @@ lists are EMPTY unless BODY binds them."
             (raised nil)
             (result nil))
         (git-worktrees-spec--with-sources '(magit) (list other)
-          (cl-letf (((symbol-function 'workspace-bookmark--checkouts-in-view)
-                     nil)
-                    ((symbol-function 'workspace-bookmark--checkouts-of) nil)
-                    ((symbol-function 'workspace-bookmark--classify) nil))
-            (expect (fboundp 'workspace-bookmark--checkouts-in-view)
+          (cl-letf (((symbol-function
+                      'workspace-bookmark-canonical-checkouts-in-view)
+                     nil))
+            (expect (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
                     :to-be nil)
             (condition-case err
                 (setq result (jf/workspace--worktree-repo-candidates))
@@ -356,6 +394,42 @@ lists are EMPTY unless BODY binds them."
             (expect result :to-equal (list other))
             (expect (jf/workspace--worktree-git-derived-candidates)
                     :to-be nil)))))))
+
+(describe "git-worktrees.el's portable-bookmarks surface"
+
+  (it "names no private portable-bookmarks function in its code"
+    ;; Docstrings and comments may mention them; code may not.  The one
+    ;; permitted surface is `workspace-bookmark-canonical-checkouts-in-view'.
+    (let ((file (expand-file-name "../git-worktrees.el"
+                                  git-worktrees-spec--this-dir))
+          (private nil)
+          (public nil))
+      (with-temp-buffer
+        (insert-file-contents file)
+        (goto-char (point-min))
+        (condition-case nil
+            (while t
+              (let ((walk nil))
+                (setq walk
+                      (lambda (form)
+                        (cond
+                         ((symbolp form)
+                          (let ((name (symbol-name form)))
+                            (cond
+                             ((string-prefix-p "workspace-bookmark--" name)
+                              (push form private))
+                             ((string-prefix-p "workspace-bookmark-" name)
+                              (push form public)))))
+                         ((consp form)
+                          (while (consp form)
+                            (funcall walk (car form))
+                            (setq form (cdr form)))
+                          (when form (funcall walk form))))))
+                (funcall walk (read (current-buffer)))))
+          (end-of-file nil)))
+      (expect private :to-be nil)
+      (expect (delete-dups public)
+              :to-equal '(workspace-bookmark-canonical-checkouts-in-view)))))
 
 (describe "jf/workspace--worktree-sanitize-branch"
 

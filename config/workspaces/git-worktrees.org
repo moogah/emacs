@@ -28,8 +28,8 @@ exactly two sources, in order:
 
 1. *Git-derived discovery* (primary): the checkouts already in view
    (the current workspace's worktrees, other registered workspaces'
-   worktrees, and =jf/emacs-dir=), expanded via git to every checkout of
-   their repositories.
+   worktrees, and =jf/emacs-dir=), each resolved via git to its
+   repository's main worktree.
 2. =(magit-list-repos)=, when magit is loaded.  It is driven by
    =magit-repository-directories=, which is unset in this config, so
    *today the candidate list is git-derived only*.
@@ -47,17 +47,32 @@ source for a *new* worktree must never be another workspace's worktree
 or clone of a repository: chaining checkouts makes the ownership of a
 branch ambiguous, and purging the owning workspace would delete the
 new worktree's repository.  This is the same safety rule the bookmark
-resolver applies.
+resolver applies, and it is applied by the SAME predicate: the one that
+also refuses the husk left by a =.git=-named git directory kept outside
+its work tree.
 
-Discovery and classification reuse the =portable-bookmarks= helpers
-(=workspace-bookmark--checkouts-in-view=, =--checkouts-of=,
-=--classify=) through =fboundp= guards checked at *call* time.  This
-module never =require=s portable-bookmarks, because a magit-dependent
-module must not depend on a bookmark module.  When portable-bookmarks is
-not loaded, the git-derived source contributes nothing and magit's
-candidates pass through unclassified.  When a helper is loaded but
-signals, one warning is shown and that step contributes nothing (a
-failed classification offers nothing rather than something unchecked).
+** Cross-module interface
+
+Discovery and classification both come from ONE public function of the
+=portable-bookmarks= module, =workspace-bookmark-canonical-checkouts-in-view=:
+
+- called with no argument, it returns the canonical checkouts of the
+  repositories in view (the git-derived source);
+- called with a list of directories, it returns the canonical checkouts
+  of THEIR repositories (how magit's candidates are classified).
+
+That function is the ONLY portable-bookmarks symbol this module may
+call; no =workspace-bookmark--= (private) function is named here.
+portable-bookmarks documents it as a cross-module interface with a
+stability promise: its name, calling convention and meaning change only
+together with this file.  The call is guarded with =fboundp= at *call*
+time, and this module never =require=s portable-bookmarks, because a
+magit-dependent module must not depend on a bookmark module.  When
+portable-bookmarks is not loaded, the git-derived source contributes
+nothing and magit's candidates pass through unclassified.  When the
+function is loaded but signals, a warning is shown (at most one per
+candidate collection) and that step contributes nothing: a failed
+classification offers nothing rather than something unchecked.
 
 The merged list is de-duped on each candidate's *truename* directory
 (so a symlinked spelling of a repository git reports resolved is listed
@@ -82,31 +97,47 @@ no source is a hard dependency.
 
 * Repo-candidate Helper
 
-Collects repository roots from git-derived discovery and from magit's
-repository list (when magit is loaded), de-dupes them, keeps only actual
-git repositories, and then keeps only =canonical= checkouts.  Pure and
-list-returning: it never prompts, so it is directly unit-testable.
+Collects the canonical checkouts from git-derived discovery and from
+magit's repository list (when magit is loaded; its entries are
+classified by the same public function), de-dupes them, and keeps only
+actual git repositories.  Pure and list-returning: it never prompts, so
+it is directly unit-testable.
 
-The portable-bookmarks calls are guarded with =fboundp= at call time.
+The portable-bookmarks call is guarded with =fboundp= at call time.
 git-worktrees loads *before* portable-bookmarks in =workspaces.org=, and
 must keep working when that module is never loaded at all.  No
 =declare-function= is used: the guard, not the byte-compiler, is the
 contract.
 
-A helper that is *present but broken* must not abort the add-worktree
-command before it reaches its =read-directory-name= floor, because the
-helpers are another module's internals.  Each call is therefore wrapped
-in an error barrier that shows one warning (reporting the failure, not
-hiding it) and contributes nothing.
+A function that is *present but broken* must not abort the add-worktree
+command before it reaches its =read-directory-name= floor, because it
+is another module's code.  Each call is therefore wrapped in an error
+barrier that reports the failure (a warning, not silence) and
+contributes nothing.  The two calls (in-view discovery, then magit's
+list) usually fail for the same reason, so one candidate collection
+shows at most ONE warning, naming the first failure.  Outside a
+collection every failure is reported.
 
 #+begin_src emacs-lisp
+(defvar jf/workspace--worktree-warning-state nil
+  "Whether a discovery warning may be shown.
+nil outside a candidate collection: every failure is reported.
+`jf/workspace--worktree-repo-candidates' binds it to `collecting', and
+the first warning inside that collection sets it to `warned', which
+suppresses the rest.")
+
 (defun jf/workspace--worktree-warn-discovery (what err)
-  "Display one warning that WHAT failed with ERR."
-  (display-warning
-   'workspace-git-worktrees
-   (format "%s unavailable (portable-bookmarks discovery failed): %s"
-           what (error-message-string err))
-   :warning))
+  "Display a warning that WHAT failed with ERR.
+Within one candidate collection only the first failure is shown; see
+`jf/workspace--worktree-warning-state'."
+  (unless (eq jf/workspace--worktree-warning-state 'warned)
+    (when (eq jf/workspace--worktree-warning-state 'collecting)
+      (setq jf/workspace--worktree-warning-state 'warned))
+    (display-warning
+     'workspace-git-worktrees
+     (format "%s unavailable (portable-bookmarks discovery failed): %s"
+             what (error-message-string err))
+     :warning)))
 #+end_src
 
 De-duplication is keyed on each candidate's *truename*.  Git reports
@@ -144,23 +175,17 @@ dropped."
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-git-derived-candidates ()
-  "Return every checkout of the repositories in view, or nil.
-Asks `workspace-bookmark--checkouts-in-view' for the checkouts already
-in view and expands each to every checkout of its repository with
-`workspace-bookmark--checkouts-of'.  The result is NOT yet classified;
-`jf/workspace--worktree-canonical-only' does that for every source.
-Those helpers belong to the portable-bookmarks module, which this module
-does not require.  When any of them, or `workspace-bookmark--classify',
-is unbound, the result is nil.  Never signals: if a helper signals, one
-warning naming the error is displayed and the result is nil."
-  (when (and (fboundp 'workspace-bookmark--checkouts-in-view)
-             (fboundp 'workspace-bookmark--checkouts-of)
-             (fboundp 'workspace-bookmark--classify))
+  "Return the canonical checkouts of the repositories in view, or nil.
+Calls `workspace-bookmark-canonical-checkouts-in-view' with no argument:
+the checkouts already in view, each resolved to its repository's main
+worktree, which is kept only when portable-bookmarks' one canonical
+predicate admits it.  That public function is the only portable-bookmarks
+symbol this module calls, and the module is never required.  When it is
+unbound, the result is nil.  Never signals: if it signals, a warning
+naming the error is displayed and the result is nil."
+  (when (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
     (condition-case err
-        (delete-dups
-         (seq-mapcat (lambda (checkout)
-                       (funcall 'workspace-bookmark--checkouts-of checkout))
-                     (funcall 'workspace-bookmark--checkouts-in-view)))
+        (funcall 'workspace-bookmark-canonical-checkouts-in-view)
       (error
        (jf/workspace--worktree-warn-discovery "Git-derived repo candidates" err)
        nil))))
@@ -168,42 +193,48 @@ warning naming the error is displayed and the result is nil."
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-canonical-only (dirs)
-  "Return the members of DIRS classified `canonical'.
-Classification is by `workspace-bookmark--classify'.  When the classifier is unbound (portable-bookmarks not loaded), DIRS is
-returned unchanged.  Never signals: if the classifier signals, one
-warning naming the error is displayed and the result is nil, so nothing
-unchecked is offered and the caller's floor prompt still works."
-  (if (not (fboundp 'workspace-bookmark--classify))
-      dirs
+  "Return the canonical checkouts of the repositories of DIRS.
+Calls `workspace-bookmark-canonical-checkouts-in-view' with DIRS, so a
+candidate from another source is admitted by the same predicate as the
+git-derived ones; a directory in DIRS that is a checkout of a repository
+yields that repository's main worktree only when the predicate admits
+it.  DIRS nil yields nil.  When the function is unbound (portable-bookmarks
+not loaded), DIRS is returned unchanged.  Never signals: if it signals,
+a warning naming the error is displayed and the result is nil, so
+nothing unchecked is offered and the caller's floor prompt still
+works."
+  (cond
+   ((null dirs) nil)
+   ((not (fboundp 'workspace-bookmark-canonical-checkouts-in-view)) dirs)
+   (t
     (condition-case err
-        (seq-filter
-         (lambda (dir)
-           (eq 'canonical (funcall 'workspace-bookmark--classify dir)))
-         dirs)
+        (funcall 'workspace-bookmark-canonical-checkouts-in-view dirs)
       (error
        (jf/workspace--worktree-warn-discovery "Repo candidate classification" err)
-       nil))))
+       nil)))))
 #+end_src
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-repo-candidates ()
   "Return the canonical git-repo roots offered as worktree sources.
 The sources, in order, are the git-derived candidates
-\(`jf/workspace--worktree-git-derived-candidates') and then
-`(magit-list-repos)' when magit is loaded.  Projectile and project.el
+\(`jf/workspace--worktree-git-derived-candidates', canonical already)
+and then `(magit-list-repos)' when magit is loaded, classified by
+`jf/workspace--worktree-canonical-only'.  Projectile and project.el
 lists are deliberately not consulted.  Paths are de-duped by
 `jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
 spelling kept) and filtered to actual git repositories (via
 `locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
-loaded).  Every survivor is then classified by
-`jf/workspace--worktree-canonical-only'.  Returns the list; does not
-prompt."
-  (let ((raw (copy-sequence (jf/workspace--worktree-git-derived-candidates))))
-    (when (and (featurep 'magit) (fboundp 'magit-list-repos))
-      (setq raw (append raw (magit-list-repos))))
-    (jf/workspace--worktree-canonical-only
-     (seq-filter #'jf/workspace--worktree-git-repo-p
-                 (jf/workspace--worktree-dedupe-dirs raw)))))
+loaded).  At most one discovery warning is shown per call.  Returns the
+list; does not prompt."
+  (let* ((jf/workspace--worktree-warning-state 'collecting)
+         (git-derived (jf/workspace--worktree-git-derived-candidates))
+         (magit (and (featurep 'magit) (fboundp 'magit-list-repos)
+                     (jf/workspace--worktree-canonical-only
+                      (magit-list-repos)))))
+    (seq-filter #'jf/workspace--worktree-git-repo-p
+                (jf/workspace--worktree-dedupe-dirs
+                 (append git-derived magit)))))
 #+end_src
 
 A small predicate isolates the "is this an actual git repo?" test so it
