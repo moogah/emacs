@@ -1421,7 +1421,9 @@ Three symbols, tested in THIS order — ownership before structure:
 1. =workspace-owned= — the checkout really lies within some registered
    workspace's =:home=, or is that home (an anchored workspace), or
    really CONTAINS that home (a workspace anchored at a subdirectory of
-   the checkout).  Symbolic links confer nothing (see "Symbolic links
+   the checkout — unless the home is another worktree of the same
+   repository).  Only a home that exists counts.  Symbolic links confer
+   nothing (see "Symbolic links
    are ignored" below).
 2. =canonical= — =.git= is a directory.  A linked worktree's =.git= is a
    FILE (=~/.emacs.d/.git= on this machine is a 54-byte file); a main
@@ -1462,6 +1464,31 @@ repository whose work tree is =$HOME= (a "dotfiles" repository with a
 real =~/.git= directory) contains every home under =~=, so it is never
 offered; that is the rule as decided, not a side effect.
 
+*One exception: a home that is another worktree of the SAME repository.*
+The rule exists because a workspace anchored inside a clone is working
+in that clone's files.  A linked worktree kept INSIDE its own main clone
+— =<main>/.worktrees/feat=, Claude Code's =<main>/.claude/worktrees/x= —
+is not: a workspace anchored there works in its own tree, on its own
+branch, and nobody is working in the main clone.  So a home that
+spatially lies within the checkout confers ownership only when it is
+NOT a checkout root of the checkout's own repository.  The test runs
+only when containment already holds: one =rev-parse= in the home asks
+for its top level and its shared git directory, and the home is the
+same repository's worktree when its top level IS the home and its
+shared git directory is, by =--same-file-p=, the checkout's (the
+checkout's =.git= directory itself for a main worktree, which costs no
+subprocess; git is asked only for a checkout whose =.git= is a file).
+A plain subdirectory home is not its own top level (git answers with
+the enclosing clone), and the nested repository
+=workspace--new-anchor-existing= creates in a subdirectory has a
+different shared git directory, so both still own the clone.
+
+*Only a home that exists confers ownership.*  A registered home can
+have been deleted (a broken workspace, =workspace--broken-p=).  A path
+that no longer exists lies in no directory (see the containment walk
+below), so a deleted home owns nothing — neither what it used to
+contain nor what used to contain it.
+
 Containment is tested by FILE IDENTITY, never by comparing strings.
 The checkout path is truenamed, then it and each of its parent
 directories in turn is compared to the home with
@@ -1488,8 +1515,12 @@ is NOT inside it.  Ownership-first classification turns that miss into a
 workspace B.  Comparing file identity says t for the same pair.
 
 The walk stops at the filesystem root.  A path that does not exist cannot
-be proven inside anything, so it is not; every caller passes existing
-checkouts.
+be proven inside anything, so it is not: =--path-within-p= requires BOTH
+arguments to exist.  That matters since ownership is asked in both
+directions — the reverse direction passes a registered HOME as the path,
+and a home can have been deleted.  (Before the existence test, a deleted
+home under a clone still owned the clone, because the walk truenames and
+climbs a missing path as readily as a real one.)
 
 Remote paths are rejected before any filesystem call: =file-truename= on a
 TRAMP name would open a connection, and a remote home cannot own a local
@@ -1527,7 +1558,8 @@ in view, and =--workspace-checkout= never answers with it.
 (defun workspace-bookmark--path-within-p (path dir)
   "Return non-nil when PATH is DIR or lies inside it.
 
-Both must be local and exist; DIR must be a directory.  Containment is
+Both must be local and exist (a missing PATH is inside nothing); DIR
+must be a directory.  Containment is
 by file identity: PATH is truenamed, then it and each of its ancestors
 is compared to DIR with `workspace-bookmark--same-file-p', so
 differences of spelling — trailing slash, `~', symlinked prefixes, and
@@ -1541,7 +1573,8 @@ neither do DIR's timestamps changing during the walk.  Never signals."
                            (file-truename (expand-file-name path))))
                  (previous nil)
                  (found nil))
-             (when (file-directory-p (expand-file-name dir))
+             (when (and (file-exists-p (expand-file-name path))
+                        (file-directory-p (expand-file-name dir)))
                (while (and (not found) (not (equal current previous)))
                  (if (workspace-bookmark--same-file-p current dir)
                      (setq found t)
@@ -1551,17 +1584,44 @@ neither do DIR's timestamps changing during the walk.  Never signals."
              found)
          (error nil))))
 
+(defun workspace-bookmark--same-repository-worktree-p (home checkout)
+  "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
+HOME must be its own top level (`git rev-parse --show-toplevel' run in it
+names it), and its shared git directory must be CHECKOUT's, by
+`workspace-bookmark--same-file-p'.  CHECKOUT's shared git directory is
+its `.git' directory when it has one; otherwise git is asked.  One
+subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
+  (let* ((out (workspace-bookmark--git
+               home "rev-parse" "--path-format=absolute"
+               "--show-toplevel" "--git-common-dir"))
+         (lines (and out (split-string out "\n"))))
+    (and (= 2 (length lines))
+         (workspace-bookmark--same-file-p (nth 0 lines) home)
+         (workspace-bookmark--same-file-p
+          (nth 1 lines)
+          (let ((dotgit (expand-file-name ".git" checkout)))
+            (if (file-directory-p dotgit)
+                dotgit
+              (workspace-bookmark--git
+               checkout "rev-parse" "--path-format=absolute"
+               "--git-common-dir")))))))
+
 (defun workspace-bookmark--owning-workspace (checkout)
   "Return the name of a registered workspace that owns CHECKOUT, or nil.
 A workspace owns CHECKOUT when CHECKOUT is its `:home', really lies
 inside it, or really contains it, by file identity (see
-`workspace-bookmark--path-within-p').  Symbolic links confer nothing: a
-clone linked into a home from outside it is not owned, and neither is a
-clone holding a link to a home.  Never signals."
+`workspace-bookmark--path-within-p').  A contained home owns CHECKOUT
+only when it is not itself a worktree of CHECKOUT's repository (see
+`workspace-bookmark--same-repository-worktree-p'), and only a home
+that exists owns anything.  Symbolic links confer nothing: a clone
+linked into a home from outside it is not owned, and neither is a clone
+holding a link to a home.  Never signals."
   (seq-find (lambda (name)
               (let ((home (workspace-bookmark--workspace-home name)))
                 (or (workspace-bookmark--path-within-p checkout home)
-                    (workspace-bookmark--path-within-p home checkout))))
+                    (and (workspace-bookmark--path-within-p home checkout)
+                         (not (workspace-bookmark--same-repository-worktree-p
+                               home checkout))))))
             (workspace-bookmark--registered-names)))
 
 (defun workspace-bookmark--classify (checkout)

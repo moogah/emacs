@@ -223,6 +223,61 @@ Three independent findings converge on one shape problem:
   externalised as finding 4 of discovery-refinements. The spec only uses it
   to build the layout the user decision is about.
 
+### Revision 1
+
+Fix scope from the architect's on-touch audit of 532e9bb0
+(`findings/on-touch-canonical-predicate-consolidation.md`).
+
+- **Finding 1 (spec-signal).** This corrects step 5 to the user's stated
+  intent. The rationale was "working in that clone". A home that is
+  itself ANOTHER WORKTREE OF THE SAME REPOSITORY, nested inside the main
+  clone (`<main>/.worktrees/feat`, `<main>/.claude/worktrees/x`), works
+  in its own tree. The reverse-containment clause in `--owning-workspace`
+  therefore now also requires
+  `(not (--same-repository-worktree-p home checkout))`. That helper holds
+  when two things are true:
+  - the home is its own top level;
+  - its `--git-common-dir` is `--same-file-p` to the checkout's.
+
+  The checkout's common dir is taken as its `.git` directory when it has
+  one, so no subprocess is needed. Git is asked only when the checkout's
+  `.git` is a file. The whole check runs only when spatial containment
+  already holds: one `rev-parse` in the home, and one more only for a
+  checkout whose `.git` is a file. Two cases still own the clone:
+  - A plain subdirectory home: git's top level for it is the enclosing
+    clone, not the home.
+  - The nested repository that anchor case 3 `git init`s: its common dir
+    is different.
+
+  The worktree spec registers the home with the fixtures, not with
+  `workspace-new`. `workspace--new-anchor-existing` misreads a linked
+  worktree as a non-repository and scaffolds it: `git init`, add and
+  commit on its branch. That is the anchor bug already externalised as
+  discovery-refinements finding 4.
+- **Finding 2 (advisory).** `--path-within-p` now requires PATH to exist,
+  as well as DIR, so a deleted (broken) workspace home owns nothing. The
+  org sentence at the containment walk now matches the code and explains
+  why.
+- **Finding 3 (advisory).** The magit linked-worktree → main-worktree
+  replacement is KEPT. `git-worktrees.org` § "Cross-module interface" now
+  says so plainly. A new picker-level spec isolates it: magit lists only a
+  linked worktree whose main is not in view, and the picker offers that
+  main.
+- **Revert proofs.** For each change I applied one mutation to the `.org`,
+  re-tangled, and ran `./bin/run-tests.sh -d config/workspaces` (571
+  specs). I then restored the files byte-for-byte.
+  - The same-repository exemption removed: 2 failed. One is the
+    nested-worktree spec. The other is the plain-subdirectory control,
+    because the nested worktree's workspace became the owner instead.
+  - The top-level check in `--same-repository-worktree-p` removed: 1
+    failed, the plain-subdirectory control. Git answers for the enclosing
+    clone, so without the check a plain subdirectory home would stop
+    owning it.
+  - The PATH existence test removed: 1 failed, the deleted-home spec.
+  - magit entries kept only when they are themselves canonical (the old
+    semantics, no replacement): 1 failed, the new picker-level
+    replacement spec.
+
 ## Discoveries
 
 - discovery_id: disc-canonical-predicate-consolidation-1
@@ -317,3 +372,58 @@ Three independent findings converge on one shape problem:
     Record the ambiguity rule next to canonical_safety_rule. resolver-outcomes
     must call the plural to tell "none" from "several", as it must for
     `--workspace-checkouts`.
+
+- discovery_id: disc-canonical-predicate-consolidation-5
+  class: interface-drift
+  description: |
+    Supersedes the pin 3 recommendation in disc-3. The magit
+    linked-worktree → main-worktree replacement is KEPT (architect on-touch
+    finding 3), and is now stated in git-worktrees.org and pinned by a
+    picker-level spec.
+  affected_register_entry: register/boundary/workspace-git-worktrees-consumer
+  recommendation: |
+    Replace pin 3 with the architect's drafted wording; status stays
+    confirmed:
+      3. =SOFT REPO-SOURCE SELECTION, ONE ADMISSION TEST=:
+      =jf/workspace--worktree-repo-candidates= merges two sources, in order:
+      - the git-derived source, =(workspace-bookmark-canonical-checkouts-in-view)=;
+      - =(magit-list-repos)= when magit is loaded, passed through
+        =(workspace-bookmark-canonical-checkouts-in-view DIRS)=.
+      Projectile and project.el are not consulted. portable-bookmarks'
+      single predicate admits every candidate. A magit-listed LINKED
+      worktree contributes its repository's MAIN worktree, which magit need
+      not list. The new worktree is created off main either way, and only
+      the default directory name follows the main worktree.
+      The public function is the ONLY portable-bookmarks symbol named. It
+      is called under a call-time =fboundp= guard and never =require=d.
+      When it is unbound, the git-derived source contributes nothing and
+      magit's list passes through unclassified. When it signals, a warning
+      is shown (at most one per candidate collection) and that source
+      contributes nothing.
+      The merged list is de-duped by truename (first spelling kept) and
+      filtered to real git repositories. The =read-directory-name= floor
+      and free-form entry (=jf/workspace--worktree-read-repo=) are
+      unchanged.
+    Add canonical-predicate-consolidation to cited_by_tasks.
+
+- discovery_id: disc-canonical-predicate-consolidation-6
+  class: invariant-gap
+  description: |
+    Two changes to ownership:
+    - Reverse ownership (a home inside a checkout) is narrowed. A home
+      that is a checkout root of the SAME repository (same git common
+      dir, and the home is its own top level) confers no ownership on the
+      checkout containing it (architect finding 1).
+    - A registered home that no longer exists confers no ownership in
+      either direction, because --path-within-p now requires both
+      arguments to exist (architect finding 2).
+  affected_register_entry: register/vocabulary/checkout-classification
+  recommendation: |
+    Amend `members[workspace-owned]`:
+      "... or CONTAINS an existing registered :home that is not itself a
+      worktree of the checkout's repository ..."
+    Do NOT add the drafted known limitation "a linked worktree nested in
+    main, anchored as a home, owns main"; this revision removes it. Keep
+    the limitation "a home under an untracked/ignored subdirectory owns
+    the clone"; that is the decision as worded.
+

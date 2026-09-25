@@ -1360,6 +1360,58 @@ HOME-A or HOME-B (B's own worktree included)."
           (expect (workspace-bookmark-canonical-checkouts-in-view)
                   :not :to-contain main))))))
 
+(describe "A workspace home that is a worktree nested inside its own main clone"
+  ;; Architect on-touch finding 1 on canonical-predicate-consolidation.  A
+  ;; linked worktree kept INSIDE its main clone (`.worktrees/feat', Claude
+  ;; Code's `.claude/worktrees/x') works in its own tree, not in the main
+  ;; clone's, so anchoring a workspace there does not make main owned.
+  :var (main feat)
+
+  (before-each
+    (portable-bookmarks-discovery-spec--setup)
+    (setq main (portable-bookmarks-discovery-spec--clone-into
+                (expand-file-name "main" (workspace-bookmark-fixtures-temp-dir
+                                          "wsbm-nested-wt-"))))
+    (make-directory (expand-file-name ".worktrees" main))
+    (setq feat (workspace-bookmark-fixtures-add-worktree
+                main (expand-file-name ".worktrees/feat" main) :branch "feat"))
+    (workspace-bookmark-fixtures-add-worktree
+     main (expand-file-name
+           "wt" (workspace-bookmark-fixtures-make-workspace "wsbm-nested-z"))
+     :branch "z")
+    (workspace-bookmark-fixtures-make-workspace "wsbm-nested-feat" feat))
+
+  (after-each (portable-bookmarks-discovery-spec--teardown))
+
+  (it "leaves the main clone canonical and offered to other workspaces"
+    ;; Precondition: the home really lies inside MAIN.
+    (expect (workspace-bookmark--path-within-p feat main) :to-be-truthy)
+    (expect (workspace-bookmark--owning-workspace main) :to-be nil)
+    (expect (workspace-bookmark--classify main) :to-be 'canonical)
+    (expect (workspace-bookmark--classify feat) :to-be 'workspace-owned)
+    (portable-bookmarks-discovery-spec--hermetic
+      (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+                 (lambda () "wsbm-nested-z")))
+        (expect (workspace-bookmark--canonical-for-identity
+                 portable-bookmarks-discovery-spec--identity)
+                :to-equal main)
+        (expect (workspace-bookmark-canonical-checkouts-in-view)
+                :to-equal (list main)))))
+
+  (it "still lets a plain subdirectory home own the main clone"
+    (let ((pkg (file-name-as-directory (expand-file-name "pkg" main))))
+      (make-directory pkg)
+      (workspace-bookmark-fixtures-make-workspace "wsbm-nested-pkg" pkg)
+      (expect (workspace-bookmark--owning-workspace main)
+              :to-equal "wsbm-nested-pkg")
+      (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
+      (portable-bookmarks-discovery-spec--hermetic
+        (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
+                   (lambda () "wsbm-nested-z")))
+          (expect (workspace-bookmark--canonical-for-identity
+                   portable-bookmarks-discovery-spec--identity)
+                  :to-be nil))))))
+
 (describe "Ownership of a clone by a home inside it goes no further"
   ;; The widening withdraws only clones that really contain a home.
   :var (outer main home-b)
@@ -1384,6 +1436,18 @@ HOME-A or HOME-B (B's own worktree included)."
       (expect (workspace-bookmark--classify main) :to-be 'canonical)
       (portable-bookmarks-discovery-spec--expect-offered-main-only
        main sibling home-b)))
+
+  (it "does not own a clone because of a registered home that no longer exists"
+    ;; Architect on-touch finding 2: a broken workspace's deleted home.
+    (let ((gone (file-name-as-directory (expand-file-name "gone-home" main))))
+      (make-directory gone)
+      (workspace-bookmark-fixtures-make-workspace "wsbm-disc-gone" gone)
+      (delete-directory gone)
+      (expect (file-exists-p gone) :to-be nil)
+      (expect (workspace-bookmark--path-within-p gone main) :to-be nil)
+      (expect (workspace-bookmark--classify main) :to-be 'canonical)
+      (portable-bookmarks-discovery-spec--expect-offered-main-only
+       main gone home-b)))
 
   (it "does not own a clone that holds a symbolic link to a home"
     (let ((home-a (workspace-bookmark-fixtures-make-workspace "wsbm-disc-link-a")))

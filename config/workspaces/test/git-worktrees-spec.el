@@ -339,6 +339,27 @@ lists are EMPTY unless BODY binds them."
         (expect (nth 1 (spy-calls-args-for 'display-warning 0))
                 :to-match "Simulated classify failure"))))
 
+  (it "offers the main clone of a linked worktree only magit lists"
+    ;; Architect on-touch finding 3: magit's entry is REPLACED by its
+    ;; repository's main worktree, which magit does not list and which is
+    ;; not in view.
+    (let* ((main3 (workspace-bookmark-fixtures-make-repo
+                   :remote "git@example.com:fixtures/gw-magit-only.git"
+                   :prefix "gw-cand-main3-"))
+           (linked3 (file-name-as-directory
+                     (workspace-bookmark-fixtures-add-worktree
+                      main3 (expand-file-name
+                             "feature" (workspace-bookmark-fixtures-temp-dir
+                                        "gw-cand-linked3-"))
+                      :branch "feature")))
+           (jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources nil nil
+        (expect (jf/workspace--worktree-repo-candidates)
+                :not :to-contain main3))
+      (git-worktrees-spec--with-sources '(magit) (list linked3)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo main3)))))
+
   (describe "a husk left by a `.git'-named git directory"
     ;; canonical-predicate-consolidation (architect F2 on
     ;; discovery-refinements).  SEP's git directory was moved to

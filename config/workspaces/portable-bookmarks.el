@@ -584,7 +584,8 @@ checkout is better than a guessed one.  Never signals."
 (defun workspace-bookmark--path-within-p (path dir)
   "Return non-nil when PATH is DIR or lies inside it.
 
-Both must be local and exist; DIR must be a directory.  Containment is
+Both must be local and exist (a missing PATH is inside nothing); DIR
+must be a directory.  Containment is
 by file identity: PATH is truenamed, then it and each of its ancestors
 is compared to DIR with `workspace-bookmark--same-file-p', so
 differences of spelling — trailing slash, `~', symlinked prefixes, and
@@ -598,7 +599,8 @@ neither do DIR's timestamps changing during the walk.  Never signals."
                            (file-truename (expand-file-name path))))
                  (previous nil)
                  (found nil))
-             (when (file-directory-p (expand-file-name dir))
+             (when (and (file-exists-p (expand-file-name path))
+                        (file-directory-p (expand-file-name dir)))
                (while (and (not found) (not (equal current previous)))
                  (if (workspace-bookmark--same-file-p current dir)
                      (setq found t)
@@ -608,17 +610,44 @@ neither do DIR's timestamps changing during the walk.  Never signals."
              found)
          (error nil))))
 
+(defun workspace-bookmark--same-repository-worktree-p (home checkout)
+  "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
+HOME must be its own top level (`git rev-parse --show-toplevel' run in it
+names it), and its shared git directory must be CHECKOUT's, by
+`workspace-bookmark--same-file-p'.  CHECKOUT's shared git directory is
+its `.git' directory when it has one; otherwise git is asked.  One
+subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
+  (let* ((out (workspace-bookmark--git
+               home "rev-parse" "--path-format=absolute"
+               "--show-toplevel" "--git-common-dir"))
+         (lines (and out (split-string out "\n"))))
+    (and (= 2 (length lines))
+         (workspace-bookmark--same-file-p (nth 0 lines) home)
+         (workspace-bookmark--same-file-p
+          (nth 1 lines)
+          (let ((dotgit (expand-file-name ".git" checkout)))
+            (if (file-directory-p dotgit)
+                dotgit
+              (workspace-bookmark--git
+               checkout "rev-parse" "--path-format=absolute"
+               "--git-common-dir")))))))
+
 (defun workspace-bookmark--owning-workspace (checkout)
   "Return the name of a registered workspace that owns CHECKOUT, or nil.
 A workspace owns CHECKOUT when CHECKOUT is its `:home', really lies
 inside it, or really contains it, by file identity (see
-`workspace-bookmark--path-within-p').  Symbolic links confer nothing: a
-clone linked into a home from outside it is not owned, and neither is a
-clone holding a link to a home.  Never signals."
+`workspace-bookmark--path-within-p').  A contained home owns CHECKOUT
+only when it is not itself a worktree of CHECKOUT's repository (see
+`workspace-bookmark--same-repository-worktree-p'), and only a home
+that exists owns anything.  Symbolic links confer nothing: a clone
+linked into a home from outside it is not owned, and neither is a clone
+holding a link to a home.  Never signals."
   (seq-find (lambda (name)
               (let ((home (workspace-bookmark--workspace-home name)))
                 (or (workspace-bookmark--path-within-p checkout home)
-                    (workspace-bookmark--path-within-p home checkout))))
+                    (and (workspace-bookmark--path-within-p home checkout)
+                         (not (workspace-bookmark--same-repository-worktree-p
+                               home checkout))))))
             (workspace-bookmark--registered-names)))
 
 (defun workspace-bookmark--classify (checkout)

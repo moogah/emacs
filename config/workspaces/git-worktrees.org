@@ -61,6 +61,17 @@ Discovery and classification both come from ONE public function of the
 - called with a list of directories, it returns the canonical checkouts
   of THEIR repositories (how magit's candidates are classified).
 
+*A magit entry is REPLACED by its repository's main worktree.*  A
+directory magit lists that is a LINKED worktree contributes its
+repository's main worktree, even when magit does not list that main
+worktree, and provided the main worktree passes the same canonical
+predicate (owned by no workspace, a real main worktree); otherwise the
+entry contributes nothing.  This is deliberate: =jf/workspace--add-worktree=
+creates the new worktree off the main branch of the shared repository,
+so the result is the same from either directory, and the git-derived
+source already resolves in-view worktrees the same way.  Only the
+default directory name (=<home>/<basename>=) follows the main worktree.
+
 That function is the ONLY portable-bookmarks symbol this module may
 call; no =workspace-bookmark--= (private) function is named here.
 portable-bookmarks documents it as a cross-module interface with a
