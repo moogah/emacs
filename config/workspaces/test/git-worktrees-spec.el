@@ -1,15 +1,24 @@
 ;;; git-worktrees-spec.el --- Tests for workspace git-worktrees integration -*- lexical-binding: t; -*-
 
 ;; Covers the repo-candidate seam of the git-worktrees consumer module
-;; (`jf/workspace--worktree-repo-candidates'): it merges distinct repos
-;; from multiple loaded project sources, de-dupes cross-source
-;; duplicates on expanded paths, excludes non-git directories, and the
-;; read-repo helper's `read-directory-name' floor reaches a repo present
-;; in no source.
+;; (`jf/workspace--worktree-repo-candidates').  It merges git-derived
+;; discovery and magit's repository list (git-derived first), de-dupes on
+;; truename, excludes non-git directories, offers only canonical checkouts,
+;; and never consults projectile or project.el.  The read-repo helper's
+;; free-form entry and `read-directory-name' floor reach a repo that no
+;; source suggests.
 ;;
-;; The project sources (projectile / magit / project.el) are SPIED via
-;; `cl-letf' — never really required — so the tests are deterministic and
-;; do not depend on those packages being installed.
+;; Magit's list, and the ignored projectile / project.el lists, are STUBBED
+;; via `cl-letf' (magit, projectile and project.el are never really
+;; required), so the tests are deterministic and do not depend on those
+;; packages being installed.
+;;
+;; The unit block spies the git-derived source and the classifier.  The
+;; "git-derived repo candidates" block builds throwaway repositories with
+;; `portable-bookmarks-fixtures.el' and drives the real portable-bookmarks
+;; discovery helpers against a fresh workspace registry.  Those specs assert
+;; only what the candidate list contains, so they do not pin how the helpers
+;; decide what is in view or who owns a checkout.
 
 (require 'buttercup)
 (require 'cl-lib)
@@ -26,69 +35,327 @@
 (load (expand-file-name "../integrations.el" git-worktrees-spec--this-dir))
 (load (expand-file-name "../git-worktrees.el" git-worktrees-spec--this-dir))
 
+;; The git-derived source and the classifier reuse portable-bookmarks'
+;; discovery helpers when they are bound.  git-worktrees.el never loads that
+;; module, so the spec does, together with the real-git fixtures its own
+;; suite uses.
+(load (expand-file-name "portable-bookmarks-fixtures.el"
+                        git-worktrees-spec--this-dir))
+(load (expand-file-name "../portable-bookmarks.el"
+                        git-worktrees-spec--this-dir))
+
+(defvar jf/emacs-dir)
+(defvar projectile-known-projects)
+
+;; `workspace--registered-names' is owned by tabs.el, which the test harness
+;; loads through init.el.  When this file runs outside the harness, supply
+;; the same registry walk (as portable-bookmarks-discovery-spec.el does).
+(unless (fboundp 'workspace--registered-names)
+  (defun workspace--registered-names ()
+    "Return the list of workspace names currently in the registry."
+    (let (names)
+      (maphash (lambda (k _v) (push k names)) workspace--registry)
+      (nreverse names))))
+
+(defun git-worktrees-spec--only-features (features)
+  "Return a `featurep' replacement for projectile, magit and project.
+FEATURES lists which of those to report as loaded; every other feature
+answers as the real `featurep' does."
+  (let ((real (symbol-function 'featurep)))
+    (lambda (feature &optional subfeature)
+      (if (memq feature '(projectile magit project))
+          (and (memq feature features) t)
+        (funcall real feature subfeature)))))
+
+(defmacro git-worktrees-spec--with-sources (features magit-repos &rest body)
+  "Run BODY with only FEATURES of projectile/magit/project loaded.
+`magit-list-repos' returns MAGIT-REPOS.  Projectile's and project.el's
+lists are EMPTY unless BODY binds them."
+  (declare (indent 2))
+  `(cl-letf (((symbol-function 'featurep)
+              (git-worktrees-spec--only-features ,features))
+             ((symbol-function 'magit-list-repos)
+              (let ((repos ,magit-repos)) (lambda () repos)))
+             ((symbol-function 'project-known-project-roots)
+              (lambda () nil)))
+     (let ((projectile-known-projects nil))
+       ,@body)))
+
 (describe "workspace git-worktrees repo-candidate seam"
 
-  ;; By default, treat every probed directory as a real git repo so the
-  ;; source-merging tests are not filtered by the git check. Individual
-  ;; tests override this to exercise the non-git exclusion.
+  ;; By default every probed directory is a real git repo, the git-derived
+  ;; source is empty, and every candidate classifies `canonical', so these
+  ;; specs isolate source merging.  Individual specs override each.
   (before-each
     (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
-            (lambda (dir) dir)))
+            (lambda (dir) dir))
+    (spy-on 'jf/workspace--worktree-git-derived-candidates
+            :and-return-value nil)
+    (spy-on 'workspace-bookmark--classify :and-return-value 'canonical))
 
   (describe "jf/workspace--worktree-repo-candidates"
 
-    (it "merges distinct repos from multiple loaded sources"
-      ;; projectile + project.el both present, disjoint repo sets.
-      (cl-letf (((symbol-function 'featurep)
-                 (lambda (f) (memq f '(projectile))))
-                ((symbol-function 'project-known-project-roots)
-                 (lambda () '("/repos/proj-c/")))
-                (projectile-known-projects '("/repos/proj-a/" "/repos/proj-b/")))
-        (let ((result (jf/workspace--worktree-repo-candidates)))
-          (expect (sort (copy-sequence result) #'string<)
-                  :to-equal '("/repos/proj-a/" "/repos/proj-b/" "/repos/proj-c/")))))
+    (it "merges git-derived and magit candidates, git-derived first"
+      (spy-on 'jf/workspace--worktree-git-derived-candidates
+              :and-return-value '("/repos/git-a/"))
+      (git-worktrees-spec--with-sources '(magit) '("/repos/magit-b/")
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal '("/repos/git-a/" "/repos/magit-b/"))))
 
-    (it "de-dupes a repo that appears in more than one source"
-      ;; projectile and project.el name the SAME repo.
-      (cl-letf (((symbol-function 'featurep)
-                 (lambda (f) (memq f '(projectile))))
-                ((symbol-function 'project-known-project-roots)
-                 (lambda () '("/repos/shared/")))
-                (projectile-known-projects '("/repos/shared/" "/repos/only-a/")))
-        (let ((result (jf/workspace--worktree-repo-candidates)))
-          (expect (sort (copy-sequence result) #'string<)
-                  :to-equal '("/repos/only-a/" "/repos/shared/"))
-          (expect (length result) :to-equal 2))))
+    (it "de-dupes a repo that appears in both sources"
+      ;; Magit spells the shared root without its trailing slash.
+      (spy-on 'jf/workspace--worktree-git-derived-candidates
+              :and-return-value '("/repos/shared/"))
+      (git-worktrees-spec--with-sources '(magit)
+          '("/repos/shared" "/repos/only-magit/")
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal '("/repos/shared/" "/repos/only-magit/"))))
 
     (it "excludes directories that are not git repositories"
-      ;; Re-spy the git predicate: only /repos/real/ qualifies.
       (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
               (lambda (dir) (string-prefix-p "/repos/real/" dir)))
-      (cl-letf (((symbol-function 'featurep)
-                 (lambda (f) (memq f '(projectile))))
-                ((symbol-function 'project-known-project-roots) (lambda () nil))
-                (projectile-known-projects '("/repos/real/" "/tmp/not-a-repo/")))
-        (let ((result (jf/workspace--worktree-repo-candidates)))
-          (expect result :to-equal '("/repos/real/")))))
+      (git-worktrees-spec--with-sources '(magit)
+          '("/repos/real/" "/tmp/not-a-repo/")
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal '("/repos/real/"))))
 
     (it "returns nil when no source is present"
-      (cl-letf (((symbol-function 'featurep) (lambda (_f) nil))
-                ((symbol-function 'fboundp)
-                 (lambda (s) (not (eq s 'project-known-project-roots)))))
-        (expect (jf/workspace--worktree-repo-candidates) :to-equal nil))))
+      (git-worktrees-spec--with-sources nil '("/repos/unused/")
+        (expect (jf/workspace--worktree-repo-candidates) :to-equal nil)))
+
+    (it "ignores projectile and project.el even when loaded and populated"
+      (git-worktrees-spec--with-sources '(projectile magit project) nil
+        (let ((projectile-known-projects '("/repos/projectile/")))
+          (cl-letf (((symbol-function 'project-known-project-roots)
+                     (lambda () '("/repos/project-el/"))))
+            (expect (jf/workspace--worktree-repo-candidates)
+                    :to-equal nil)))))
+
+    (it "offers only the candidates the classifier calls canonical"
+      (spy-on 'workspace-bookmark--classify :and-call-fake
+              (lambda (dir)
+                (pcase dir
+                  ("/repos/main/" 'canonical)
+                  ("/repos/owned/" 'workspace-owned)
+                  (_ 'other))))
+      (git-worktrees-spec--with-sources '(magit)
+          '("/repos/owned/" "/repos/main/" "/repos/other/")
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal '("/repos/main/"))))
+
+    (it "passes magit candidates through when the classifier is unbound"
+      (git-worktrees-spec--with-sources '(magit) '("/repos/a/" "/repos/b/")
+        (cl-letf (((symbol-function 'workspace-bookmark--classify) nil))
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal '("/repos/a/" "/repos/b/"))))))
 
   (describe "jf/workspace--worktree-read-repo"
 
     (it "reaches a free-form repo via the read-directory-name floor"
-      ;; No project sources; the completing-read returns a path that is
-      ;; not an existing directory, so the read-directory-name floor
-      ;; supplies the final answer.
+      ;; No candidates; the completing-read returns a path that is not an
+      ;; existing directory, so the read-directory-name floor supplies the
+      ;; final answer.
       (spy-on 'jf/workspace--worktree-repo-candidates :and-return-value nil)
       (spy-on 'completing-read :and-return-value "/does/not/exist/")
       (spy-on 'read-directory-name :and-return-value "/repos/floor/")
       (expect (jf/workspace--worktree-read-repo)
               :to-equal (expand-file-name "/repos/floor/"))
-      (expect 'read-directory-name :to-have-been-called))))
+      (expect 'read-directory-name :to-have-been-called))
+
+    (it "accepts a typed path to a repo that no source suggests"
+      ;; require-match is nil, so a directory missing from the candidates
+      ;; is returned as typed, without the floor prompt.
+      (let ((typed (file-name-as-directory temporary-file-directory)))
+        (spy-on 'jf/workspace--worktree-repo-candidates
+                :and-return-value '("/repos/suggested/"))
+        (spy-on 'completing-read :and-return-value typed)
+        (spy-on 'read-directory-name)
+        (expect (jf/workspace--worktree-read-repo)
+                :to-equal (expand-file-name typed))
+        (expect (nth 3 (spy-calls-args-for 'completing-read 0)) :to-be nil)
+        (expect 'read-directory-name :not :to-have-been-called)))))
+
+(defvar git-worktrees-spec--saved-registry nil
+  "The real `workspace--registry', set aside for the duration of a spec.")
+
+(describe "git-derived repo candidates"
+  ;; Real git: REPO is a canonical checkout; workspace A's home holds a
+  ;; linked worktree of it, which is what puts REPO in view.  OTHER is a
+  ;; second canonical repository in view of no workspace, the kind of
+  ;; repository only magit's list would report.
+  :var (repo other home-a linked)
+
+  (before-each
+    (setq git-worktrees-spec--saved-registry workspace--registry
+          workspace--registry (make-hash-table :test 'equal))
+    (workspace-bookmark-fixtures-setup)
+    (setq repo (workspace-bookmark-fixtures-make-repo
+                :remote "git@example.com:fixtures/gw-candidates.git"
+                :prefix "gw-cand-repo-")
+          other (workspace-bookmark-fixtures-make-repo
+                 :prefix "gw-cand-other-")
+          home-a (workspace-bookmark-fixtures-make-workspace "gw-cand-a")
+          linked (file-name-as-directory
+                  (workspace-bookmark-fixtures-add-worktree
+                   repo (expand-file-name "gw-candidates" home-a)
+                   :branch "gw-cand-a"))))
+
+  (after-each
+    (workspace-bookmark-fixtures-teardown)
+    (setq workspace--registry git-worktrees-spec--saved-registry
+          git-worktrees-spec--saved-registry nil))
+
+  (it "includes the repositories of checkouts in view with no other source"
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources nil nil
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo)))))
+
+  (it "ignores projectile and project.el even when loaded and populated"
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources '(projectile project) nil
+        (let ((projectile-known-projects (list other)))
+          (cl-letf (((symbol-function 'project-known-project-roots)
+                     (lambda () (list other))))
+            (expect (jf/workspace--worktree-repo-candidates)
+                    :to-equal (list repo)))))))
+
+  (it "places git-derived candidates before magit's"
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources '(magit) (list other)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo other)))))
+
+  (it "lists a repository known to git and to magit once"
+    ;; Magit spells the root without its trailing slash.
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources '(magit)
+          (list (directory-file-name repo) other)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo other)))))
+
+  (it "lists a repository once when magit spells it via a symlinked prefix"
+    ;; Git reports the resolved path (/private/var/... on macOS); magit's
+    ;; list names the same repository through the /var symlink.
+    (let ((alias (and (string-prefix-p "/private/var/" repo)
+                      (substring repo (length "/private")))))
+      (assume (and alias
+                   (file-directory-p alias)
+                   (equal (file-truename alias) repo))
+              "temp dir is not reached through the /var -> /private/var symlink")
+      (let ((jf/emacs-dir nil))
+        (git-worktrees-spec--with-sources '(magit) (list alias other)
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo other))))))
+
+  (it "still excludes directories that are not git repositories"
+    (let ((jf/emacs-dir nil)
+          (plain (workspace-bookmark-fixtures-temp-dir "gw-cand-plain-")))
+      (git-worktrees-spec--with-sources '(magit) (list plain)
+        (expect (jf/workspace--worktree-repo-candidates)
+                :to-equal (list repo)))))
+
+  (describe "workspace-owned checkouts"
+    ;; Workspace B's home holds a full clone of REPO: a checkout with a
+    ;; `.git' directory that a workspace owns.  A's linked worktree is
+    ;; owned too.  Neither may be offered, whichever source names it.
+    :var (clone)
+
+    (before-each
+      (let ((home-b (workspace-bookmark-fixtures-make-workspace "gw-cand-b")))
+        (workspace-bookmark-fixtures-git home-b "clone" "--quiet" repo "gw-clone")
+        (setq clone (file-name-as-directory
+                     (expand-file-name "gw-clone" home-b)))))
+
+    (it "are not offered from the git-derived source"
+      (let ((jf/emacs-dir nil))
+        (git-worktrees-spec--with-sources nil nil
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo)))))
+
+    (it "are not offered when magit reports them"
+      (let ((jf/emacs-dir nil))
+        (git-worktrees-spec--with-sources '(magit) (list linked clone other)
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo other))))))
+
+  (it "passes magit candidates through when the classifier is unbound"
+    ;; Without the classifier the git-derived source contributes nothing,
+    ;; and magit's list is offered unfiltered, owned checkout included.
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources '(magit) (list linked other)
+        (cl-letf (((symbol-function 'workspace-bookmark--classify) nil))
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list linked other))))))
+
+  (describe "when a portable-bookmarks helper signals"
+
+    (before-each (spy-on 'display-warning))
+
+    (it "warns once and still takes candidates from magit"
+      (spy-on 'workspace-bookmark--checkouts-in-view :and-call-fake
+              (lambda () (error "Simulated discovery failure")))
+      (let ((jf/emacs-dir nil)
+            (raised nil)
+            (result nil))
+        (git-worktrees-spec--with-sources '(magit) (list other)
+          (condition-case err
+              (setq result (jf/workspace--worktree-repo-candidates))
+            (error (setq raised err))))
+        (expect raised :to-be nil)
+        (expect result :to-equal (list other))
+        (expect 'display-warning :to-have-been-called-times 1)
+        (expect (nth 1 (spy-calls-args-for 'display-warning 0))
+                :to-match "Simulated discovery failure")))
+
+    (it "still reaches the read-directory-name floor"
+      (spy-on 'workspace-bookmark--checkouts-in-view :and-call-fake
+              (lambda () (error "Simulated discovery failure")))
+      (spy-on 'completing-read :and-return-value "/does/not/exist/")
+      (spy-on 'read-directory-name :and-return-value other)
+      (let ((jf/emacs-dir nil))
+        (git-worktrees-spec--with-sources '(magit) (list other)
+          (expect (jf/workspace--worktree-read-repo) :to-equal other)))
+      (expect (nth 1 (spy-calls-args-for 'completing-read 0))
+              :to-equal (list other))
+      (expect 'read-directory-name :to-have-been-called))
+
+    (it "offers nothing unchecked and warns once when the classifier signals"
+      (spy-on 'workspace-bookmark--classify :and-call-fake
+              (lambda (_dir) (error "Simulated classify failure")))
+      (let ((jf/emacs-dir nil)
+            (raised nil)
+            (result 'unset))
+        (git-worktrees-spec--with-sources '(magit) (list linked other)
+          (condition-case err
+              (setq result (jf/workspace--worktree-repo-candidates))
+            (error (setq raised err))))
+        (expect raised :to-be nil)
+        (expect result :to-be nil)
+        (expect 'display-warning :to-have-been-called-times 1)
+        (expect (nth 1 (spy-calls-args-for 'display-warning 0))
+                :to-match "Simulated classify failure"))))
+
+  (describe "with portable-bookmarks not loaded"
+
+    (it "takes candidates from magit and signals nothing"
+      (let ((jf/emacs-dir nil)
+            (raised nil)
+            (result nil))
+        (git-worktrees-spec--with-sources '(magit) (list other)
+          (cl-letf (((symbol-function 'workspace-bookmark--checkouts-in-view)
+                     nil)
+                    ((symbol-function 'workspace-bookmark--checkouts-of) nil)
+                    ((symbol-function 'workspace-bookmark--classify) nil))
+            (expect (fboundp 'workspace-bookmark--checkouts-in-view)
+                    :to-be nil)
+            (condition-case err
+                (setq result (jf/workspace--worktree-repo-candidates))
+              (error (setq raised err)))
+            (expect raised :to-be nil)
+            (expect result :to-equal (list other))
+            (expect (jf/workspace--worktree-git-derived-candidates)
+                    :to-be nil)))))))
 
 (describe "jf/workspace--worktree-sanitize-branch"
 

@@ -23,13 +23,49 @@ straight-overridden package.
 ** Repo-source seam
 
 =jf/workspace--worktree-repo-candidates= is the "leverage where
-valuable, without a hard dependency" seam (design.md D1, D2).  It
-consumes only candidate *lists* from projectile / magit / project.el —
-never their workflows — and each source is guarded by
-=boundp=/=fboundp=/=featurep=, so none is required.  A
-=read-directory-name= floor (in =jf/workspace--worktree-read-repo=)
-guarantees a repo in *no* list is still reachable, which is why no
-source is a hard dependency.
+valuable, without a hard dependency" seam (design.md D1, D2).  It has
+exactly two sources, in order:
+
+1. *Git-derived discovery* (primary): the checkouts already in view
+   (the current workspace's worktrees, other registered workspaces'
+   worktrees, and =jf/emacs-dir=), expanded via git to every checkout of
+   their repositories.
+2. =(magit-list-repos)=, when magit is loaded.  It is driven by
+   =magit-repository-directories=, which is unset in this config, so
+   *today the candidate list is git-derived only*.
+
+=projectile-known-projects= and =project-known-project-roots= are
+deliberately *not* consulted, even when projectile or project.el is
+loaded and populated.  The user judged them unreliable (2026-09-25).
+They report only repositories someone registered with them, so their
+lists differ between machines for reasons unrelated to what is actually
+cloned, and they may name another workspace's checkout.
+
+*Every* candidate, from either source, is classified, and only
+=canonical= checkouts (a repository's main worktree) are offered.  A
+source for a *new* worktree must never be another workspace's worktree
+or clone of a repository: chaining checkouts makes the ownership of a
+branch ambiguous, and purging the owning workspace would delete the
+new worktree's repository.  This is the same safety rule the bookmark
+resolver applies.
+
+Discovery and classification reuse the =portable-bookmarks= helpers
+(=workspace-bookmark--checkouts-in-view=, =--checkouts-of=,
+=--classify=) through =fboundp= guards checked at *call* time.  This
+module never =require=s portable-bookmarks, because a magit-dependent
+module must not depend on a bookmark module.  When portable-bookmarks is
+not loaded, the git-derived source contributes nothing and magit's
+candidates pass through unclassified.  When a helper is loaded but
+signals, one warning is shown and that step contributes nothing (a
+failed classification offers nothing rather than something unchecked).
+
+The merged list is de-duped on each candidate's *truename* directory
+(so a symlinked spelling of a repository git reports resolved is listed
+once, in the first spelling seen) and filtered to real git repositories.
+The =read-directory-name= floor and free-form entry in
+=jf/workspace--worktree-read-repo= are unchanged, so a repository that
+no source suggests is still reachable by typing its path.  That is why
+no source is a hard dependency.
 
 * Header Block
 
@@ -41,38 +77,133 @@ source is a hard dependency.
 
 #+begin_src emacs-lisp
 (require 'cl-lib)
+(require 'seq)
 #+end_src
 
 * Repo-candidate Helper
 
-Collects repository roots from any of the (optionally present) project
-sources, merges and de-dupes them on *expanded absolute* paths, then
-keeps only those that are actual git repositories.  Pure and
-list-returning — it never prompts, so it is directly unit-testable.
+Collects repository roots from git-derived discovery and from magit's
+repository list (when magit is loaded), de-dupes them, keeps only actual
+git repositories, and then keeps only =canonical= checkouts.  Pure and
+list-returning: it never prompts, so it is directly unit-testable.
+
+The portable-bookmarks calls are guarded with =fboundp= at call time.
+git-worktrees loads *before* portable-bookmarks in =workspaces.org=, and
+must keep working when that module is never loaded at all.  No
+=declare-function= is used: the guard, not the byte-compiler, is the
+contract.
+
+A helper that is *present but broken* must not abort the add-worktree
+command before it reaches its =read-directory-name= floor, because the
+helpers are another module's internals.  Each call is therefore wrapped
+in an error barrier that shows one warning (reporting the failure, not
+hiding it) and contributes nothing.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-warn-discovery (what err)
+  "Display one warning that WHAT failed with ERR."
+  (display-warning
+   'workspace-git-worktrees
+   (format "%s unavailable (portable-bookmarks discovery failed): %s"
+           what (error-message-string err))
+   :warning))
+#+end_src
+
+De-duplication is keyed on each candidate's *truename*.  Git reports
+resolved paths (on macOS a temp repository is =/private/var/...=), while
+another source may have recorded the same repository through a symlinked
+prefix (=/var/...=).  The first occurrence's spelling is the one
+offered, so the git-derived spelling wins.  Remote (TRAMP) entries are
+keyed on their expanded name and never resolved, so building the list
+touches no network.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-dedupe-dirs (dirs)
+  "Return DIRS as absolute directory names, without duplicates.
+Each entry is expanded and given a trailing slash.  Two entries are
+duplicates when they name the same directory: local entries are
+compared by `file-truename', so spellings through a symlinked prefix
+collapse; remote entries are compared by their expanded name.  The
+first occurrence's spelling is kept, in order.  nil entries are
+dropped."
+  (let ((seen (make-hash-table :test #'equal))
+        (out '()))
+    (dolist (d dirs)
+      (when d
+        (let* ((dir (file-name-as-directory (expand-file-name d)))
+               (key (if (file-remote-p dir)
+                        dir
+                      (condition-case nil
+                          (file-name-as-directory (file-truename dir))
+                        (error dir)))))
+          (unless (gethash key seen)
+            (puthash key t seen)
+            (push dir out)))))
+    (nreverse out)))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-git-derived-candidates ()
+  "Return every checkout of the repositories in view, or nil.
+Asks `workspace-bookmark--checkouts-in-view' for the checkouts already
+in view and expands each to every checkout of its repository with
+`workspace-bookmark--checkouts-of'.  The result is NOT yet classified;
+`jf/workspace--worktree-canonical-only' does that for every source.
+Those helpers belong to the portable-bookmarks module, which this module
+does not require.  When any of them, or `workspace-bookmark--classify',
+is unbound, the result is nil.  Never signals: if a helper signals, one
+warning naming the error is displayed and the result is nil."
+  (when (and (fboundp 'workspace-bookmark--checkouts-in-view)
+             (fboundp 'workspace-bookmark--checkouts-of)
+             (fboundp 'workspace-bookmark--classify))
+    (condition-case err
+        (delete-dups
+         (seq-mapcat (lambda (checkout)
+                       (funcall 'workspace-bookmark--checkouts-of checkout))
+                     (funcall 'workspace-bookmark--checkouts-in-view)))
+      (error
+       (jf/workspace--worktree-warn-discovery "Git-derived repo candidates" err)
+       nil))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-canonical-only (dirs)
+  "Return the members of DIRS classified `canonical'.
+Classification is by `workspace-bookmark--classify'.  When the classifier is unbound (portable-bookmarks not loaded), DIRS is
+returned unchanged.  Never signals: if the classifier signals, one
+warning naming the error is displayed and the result is nil, so nothing
+unchecked is offered and the caller's floor prompt still works."
+  (if (not (fboundp 'workspace-bookmark--classify))
+      dirs
+    (condition-case err
+        (seq-filter
+         (lambda (dir)
+           (eq 'canonical (funcall 'workspace-bookmark--classify dir)))
+         dirs)
+      (error
+       (jf/workspace--worktree-warn-discovery "Repo candidate classification" err)
+       nil))))
+#+end_src
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-repo-candidates ()
-  "Return a de-duped list of git-repo roots from available project sources.
-Collects candidate directories from `projectile-known-projects'
-\(when projectile is loaded), `(magit-list-repos)' (when magit is
-loaded), and `project-known-project-roots' (when project.el is
-available).  Each source is guarded so none is required.  Paths are
-expanded to absolute form and de-duped with `delete-dups', then
-filtered to directories that are actual git repositories (via
-`locate-dominating-file' on \".git\", or `magit-toplevel' when magit
-is loaded).  Returns the surviving list; does not prompt."
-  (let ((raw '()))
-    (when (and (featurep 'projectile)
-               (boundp 'projectile-known-projects))
-      (setq raw (append raw projectile-known-projects)))
+  "Return the canonical git-repo roots offered as worktree sources.
+The sources, in order, are the git-derived candidates
+\(`jf/workspace--worktree-git-derived-candidates') and then
+`(magit-list-repos)' when magit is loaded.  Projectile and project.el
+lists are deliberately not consulted.  Paths are de-duped by
+`jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
+spelling kept) and filtered to actual git repositories (via
+`locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
+loaded).  Every survivor is then classified by
+`jf/workspace--worktree-canonical-only'.  Returns the list; does not
+prompt."
+  (let ((raw (copy-sequence (jf/workspace--worktree-git-derived-candidates))))
     (when (and (featurep 'magit) (fboundp 'magit-list-repos))
       (setq raw (append raw (magit-list-repos))))
-    (when (fboundp 'project-known-project-roots)
-      (setq raw (append raw (project-known-project-roots))))
-    (let ((expanded (delete-dups
-                     (mapcar (lambda (d) (expand-file-name d))
-                             (delq nil raw)))))
-      (seq-filter #'jf/workspace--worktree-git-repo-p expanded))))
+    (jf/workspace--worktree-canonical-only
+     (seq-filter #'jf/workspace--worktree-git-repo-p
+                 (jf/workspace--worktree-dedupe-dirs raw)))))
 #+end_src
 
 A small predicate isolates the "is this an actual git repo?" test so it
