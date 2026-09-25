@@ -2,7 +2,7 @@
 name: canonical-predicate-consolidation
 description: One shared "real canonical checkout" predicate and one public in-view entry point for both portable-bookmarks and git-worktrees; close the OS-artifact husk gap
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 merge_commit: e433c5c9
 task_class: refactor
 on_critical_path: true
