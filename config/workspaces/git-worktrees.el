@@ -3,6 +3,14 @@
 (require 'cl-lib)
 (require 'seq)
 
+(defun jf/workspace--worktree-warn-discovery (what err)
+  "Display one warning that WHAT failed with ERR."
+  (display-warning
+   'workspace-git-worktrees
+   (format "%s unavailable (portable-bookmarks discovery failed): %s"
+           what (error-message-string err))
+   :warning))
+
 (defun jf/workspace--worktree-dedupe-dirs (dirs)
   "Return DIRS as absolute directory names, without duplicates.
 Each entry is expanded and given a trailing slash.  Two entries are
@@ -27,60 +35,62 @@ dropped."
     (nreverse out)))
 
 (defun jf/workspace--worktree-git-derived-candidates ()
-  "Return the canonical checkouts of the repositories in view, or nil.
+  "Return every checkout of the repositories in view, or nil.
 Asks `workspace-bookmark--checkouts-in-view' for the checkouts already
-in view, expands each to every checkout of its repository with
-`workspace-bookmark--checkouts-of', and keeps only those that
-`workspace-bookmark--classify' calls `canonical' — so a workspace-owned
-checkout is never offered as a worktree source.  Those helpers belong to
-the portable-bookmarks module, which this module does not require: when
-any of them is unbound the result is nil.  Never signals: if a helper
-signals, one warning naming the error is displayed and the result is
-nil, so the other sources and the `read-directory-name' floor still
-work."
+in view and expands each to every checkout of its repository with
+`workspace-bookmark--checkouts-of'.  The result is NOT yet classified;
+`jf/workspace--worktree-canonical-only' does that for every source.
+Those helpers belong to the portable-bookmarks module, which this module
+does not require.  When any of them, or `workspace-bookmark--classify',
+is unbound, the result is nil.  Never signals: if a helper signals, one
+warning naming the error is displayed and the result is nil."
   (when (and (fboundp 'workspace-bookmark--checkouts-in-view)
              (fboundp 'workspace-bookmark--checkouts-of)
              (fboundp 'workspace-bookmark--classify))
     (condition-case err
-        (seq-filter
-         (lambda (checkout)
-           (eq 'canonical (funcall 'workspace-bookmark--classify checkout)))
-         (delete-dups
-          (seq-mapcat (lambda (checkout)
-                        (funcall 'workspace-bookmark--checkouts-of checkout))
-                      (funcall 'workspace-bookmark--checkouts-in-view))))
+        (delete-dups
+         (seq-mapcat (lambda (checkout)
+                       (funcall 'workspace-bookmark--checkouts-of checkout))
+                     (funcall 'workspace-bookmark--checkouts-in-view)))
       (error
-       (display-warning
-        'workspace-git-worktrees
-        (format "Git-derived repo candidates unavailable (portable-bookmarks discovery failed): %s"
-                (error-message-string err))
-        :warning)
+       (jf/workspace--worktree-warn-discovery "Git-derived repo candidates" err)
+       nil))))
+
+(defun jf/workspace--worktree-canonical-only (dirs)
+  "Return the members of DIRS classified `canonical'.
+Classification is by `workspace-bookmark--classify'.  When the classifier is unbound (portable-bookmarks not loaded), DIRS is
+returned unchanged.  Never signals: if the classifier signals, one
+warning naming the error is displayed and the result is nil, so nothing
+unchecked is offered and the caller's floor prompt still works."
+  (if (not (fboundp 'workspace-bookmark--classify))
+      dirs
+    (condition-case err
+        (seq-filter
+         (lambda (dir)
+           (eq 'canonical (funcall 'workspace-bookmark--classify dir)))
+         dirs)
+      (error
+       (jf/workspace--worktree-warn-discovery "Repo candidate classification" err)
        nil))))
 
 (defun jf/workspace--worktree-repo-candidates ()
-  "Return a de-duped list of git-repo roots from available sources.
-Git-derived candidates come first
-\(`jf/workspace--worktree-git-derived-candidates': the canonical
-checkouts of the repositories already in view).  Then, each only when
-available, `projectile-known-projects' (projectile loaded),
-`(magit-list-repos)' (magit loaded) and `project-known-project-roots'
-\(project.el available).  Each source is guarded so none is required.
-Paths are expanded to absolute directory names and de-duped by
+  "Return the canonical git-repo roots offered as worktree sources.
+The sources, in order, are the git-derived candidates
+\(`jf/workspace--worktree-git-derived-candidates') and then
+`(magit-list-repos)' when magit is loaded.  Projectile and project.el
+lists are deliberately not consulted.  Paths are de-duped by
 `jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
-spelling kept), then filtered to directories that are actual git
-repositories (via `locate-dominating-file' on \".git\", or
-`magit-toplevel' when magit is loaded).  Returns the surviving list;
-does not prompt."
+spelling kept) and filtered to actual git repositories (via
+`locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
+loaded).  Every survivor is then classified by
+`jf/workspace--worktree-canonical-only'.  Returns the list; does not
+prompt."
   (let ((raw (copy-sequence (jf/workspace--worktree-git-derived-candidates))))
-    (when (and (featurep 'projectile)
-               (boundp 'projectile-known-projects))
-      (setq raw (append raw projectile-known-projects)))
     (when (and (featurep 'magit) (fboundp 'magit-list-repos))
       (setq raw (append raw (magit-list-repos))))
-    (when (fboundp 'project-known-project-roots)
-      (setq raw (append raw (project-known-project-roots))))
-    (seq-filter #'jf/workspace--worktree-git-repo-p
-                (jf/workspace--worktree-dedupe-dirs raw))))
+    (jf/workspace--worktree-canonical-only
+     (seq-filter #'jf/workspace--worktree-git-repo-p
+                 (jf/workspace--worktree-dedupe-dirs raw)))))
 
 (defun jf/workspace--worktree-git-repo-p (dir)
   "Return non-nil when DIR is the root (or inside) a git repository.
