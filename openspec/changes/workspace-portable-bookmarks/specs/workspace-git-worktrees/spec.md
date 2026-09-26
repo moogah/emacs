@@ -6,33 +6,39 @@ When prompting the user to "select a repo already cloned locally", the capabilit
 already in view (the current workspace's worktrees, the worktrees of other
 registered workspaces, and the configuration repository the running Emacs was
 loaded from), together with the sibling checkouts git reports for each of them —
-and SHALL then merge in candidates from whichever project subsystems happen to be
-loaded: `magit-list-repos` (when magit is loaded),
-`project-known-project-roots` (when project.el is available), and
-`projectile-known-projects` (when projectile is loaded). Candidates SHALL be
-merged and de-duplicated, filtered to directories that are actual git
-repositories, and the capability SHALL always fall back to a free-form
-`read-directory-name` prompt so a repo absent from every source can still be
-chosen.
+and SHALL then add candidates from `magit-list-repos` when magit is loaded. No
+other project subsystem is consulted: projectile and project.el are NOT sources.
+Every candidate from every source SHALL pass one admission predicate — it is
+offered only when it is a canonical checkout (a repository's main worktree) that
+no registered workspace owns; a magit-listed linked worktree contributes its
+repository's main worktree in its place. Candidates SHALL be de-duplicated, and
+the capability SHALL always fall back to a free-form `read-directory-name`
+prompt so a repo absent from every source can still be chosen.
 
 No project subsystem is a minimum requirement. The capability SHALL NOT
-hard-require projectile, magit, or project.el; it consumes only their candidate
-lists, never their workflows, and SHALL function with none of them loaded — in
-which case git-derived discovery plus the `read-directory-name` floor are the
-whole candidate set. Projectile in particular SHALL be treated as one optional
-legacy source among others rather than as the baseline, because it only reports
-repositories that have been registered with it, which makes candidate sets differ
-between machines for reasons unrelated to what is actually cloned.
+hard-require magit; it consumes only its candidate list, never its workflows,
+and SHALL function without it — in which case git-derived discovery plus the
+`read-directory-name` floor are the whole candidate set. Projectile was dropped
+as a source because it only reports repositories that have been registered with
+it, which makes candidate sets differ between machines for reasons unrelated to
+what is actually cloned.
 
 #### Scenario: Git-derived candidates need no configuration
 - **WHEN** no project subsystem is loaded and no scanning configuration exists
 - **THEN** the candidate list still includes the repositories of the checkouts in
   view, discovered via git
 
-#### Scenario: Candidates merge from loaded sources
-- **WHEN** projectile and magit are both loaded and each knows a distinct repo
-- **THEN** the repo selection candidates include repos from both sources
-- **AND** duplicates appearing in more than one source are listed once
+#### Scenario: A magit-listed linked worktree contributes its main worktree
+- **WHEN** magit lists a linked worktree of a repository
+- **THEN** the candidate offered is that repository's main worktree, listed once
+
+#### Scenario: A workspace-owned checkout is never offered
+- **WHEN** a checkout lies inside a registered workspace's home
+- **THEN** it is not offered as a worktree source, whichever source reported it
+
+#### Scenario: Remote magit entries are dropped without a connection
+- **WHEN** magit lists a repository on a remote (TRAMP) path
+- **THEN** it is dropped from the candidates and no connection is attempted
 
 #### Scenario: Non-git candidates are excluded
 - **WHEN** a known project directory is not a git repository
@@ -42,7 +48,6 @@ between machines for reasons unrelated to what is actually cloned.
 - **WHEN** no project subsystem is loaded, or the desired repo is in no list
 - **THEN** the user can still specify a repo via `read-directory-name`
 
-#### Scenario: Projectile absent does not shrink discovery
-- **WHEN** projectile is not loaded
-- **THEN** the candidate list is still populated from git-derived discovery and
-  any other loaded sources
+#### Scenario: Magit absent does not shrink discovery
+- **WHEN** magit is not loaded
+- **THEN** the candidate list is still populated from git-derived discovery

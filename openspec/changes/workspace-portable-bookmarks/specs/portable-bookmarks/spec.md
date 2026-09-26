@@ -2,10 +2,14 @@
 
 ### Requirement: Portable coordinates stamped at bookmark creation
 
-When a bookmark record is created for a location inside a git repository, the capability SHALL stamp two additional properties onto that record: the
+When a bookmark record is created for a location inside a git repository, the capability SHALL stamp three additional properties onto that record: the
 repository's *identity* (its remote URL, normalized so that the SSH and HTTPS
-forms of one repository yield the same identity) and the location's path
-relative to the repository root. The record's existing absolute `filename`
+forms of one repository yield the same identity), the location's path
+relative to the repository root as git spells it, and a stamp-format version
+(currently `1`). The three SHALL be stamped all together or not at all; a
+record carrying coordinates with a missing or unknown format version SHALL be
+treated as non-portable. A location git does not track (untracked or ignored)
+SHALL be left unstamped. The record's existing absolute `filename`
 property SHALL be left unchanged, so the record remains valid for a stock Emacs
 and for sessions where this capability is not loaded.
 
@@ -103,14 +107,28 @@ silently open a location the user did not ask for:
 2. `not-on-branch` — the checkout exists but the location does not exist within
    it; the capability SHALL report this and SHALL NOT visit the missing path as
    a new empty buffer.
-3. `missing-repo` — the current workspace holds no checkout of the repository;
-   the capability SHALL offer the user a bounded choice: add a worktree of that
-   repository to the current workspace, open the repository's canonical checkout
-   read-only, or cancel.
-4. `no-clone` — no checkout of the repository is in view on this machine; the
+3. `missing-repo` — the current workspace holds no checkout of the repository
+   but exactly one canonical checkout is in view; the capability SHALL offer the
+   user a bounded choice: add a worktree of that repository to the current
+   workspace, open the repository's canonical checkout read-only, or cancel.
+   When the canonical checkout does not contain the location either, the
+   outcome carries no path and the read-only choice SHALL NOT be offered.
+4. `ambiguous` — the current workspace holds two or more checkouts of the
+   repository, or it holds none and two or more canonical checkouts are in view;
+   the capability SHALL report the candidates and SHALL NOT choose among them or
+   open anything.
+5. `no-clone` — no checkout of the repository is in view on this machine; the
    capability SHALL report this and SHALL NOT open anything.
-5. `non-portable` — the record carries no portable coordinates; the record's
-   stored absolute location is used.
+6. `non-portable` — the record carries no portable coordinates (or coordinates
+   this version does not understand); the record's stored absolute location is
+   used.
+
+The resolution result SHALL carry the keys `:outcome`, `:path`, `:identity`,
+`:relpath`, `:candidates` and `:checkout`. Confinement of the repo-relative path
+SHALL be lexical: a path that is absolute, contains a `..` segment, or contains
+a NUL SHALL be refused as `non-portable`; any other path resolves to
+`<checkout>/<relpath>` by its spelling, whatever symbolic links along it point
+at.
 
 Opening a canonical checkout under `missing-repo` SHALL be read-only and SHALL
 be visibly marked as such, so a lookup cannot become an unnoticed edit of the
@@ -131,6 +149,11 @@ wrong checkout. Cancelling SHALL open nothing.
 - **WHEN** the user chooses to view the canonical checkout
 - **THEN** the buffer is read-only and visibly indicates that it is the
   canonical checkout rather than a workspace checkout
+
+#### Scenario: Two checkouts in one workspace are reported, not chosen
+- **WHEN** the current workspace holds two worktrees of the bookmark's repository
+- **THEN** the user is told which candidates were found
+- **AND** nothing is opened
 
 #### Scenario: Cancel opens nothing
 - **WHEN** the user cancels at the `missing-repo` choice

@@ -125,10 +125,12 @@ Everything needed comes from git, starting from checkouts already in view:
 
 | Question | Command |
 |---|---|
-| Which repository is this? | `git config --get remote.origin.url` |
-| Where is its canonical checkout? | `git rev-parse --git-common-dir` |
+| Which repository is this? | `git remote get-url origin` |
+| Where is this checkout's root, and its common dir? | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir` |
 | What other checkouts exist? | `git worktree list --porcelain` |
-| Where is this checkout's root? | `git rev-parse --show-toplevel` |
+| Which path does git track this file under? | `git ls-files -z --full-name -- <file>` |
+
+(Amended at cycle-2 plan to the commands the implementation actually runs.)
 
 Checkouts in view: the current workspace's worktrees, the worktrees of other
 registered workspaces (from the registry), and the configuration repository the
@@ -148,8 +150,12 @@ adding a magit dependency here.
 
 Each discovered checkout is classified:
 
-- **canonical** — the repository's main worktree. Cheap test: `.git` is a
-  directory, not a file (on this machine `~/.emacs.d/.git` is a 54-byte file).
+- **canonical** — the repository's main worktree: git's own common dir IS its
+  git dir. The `.git`-is-a-directory test is a structural pre-filter only (a
+  bare repo in `.git`, `--separate-git-dir` and `core.worktree` layouts all
+  defeat it). Whether a canonical checkout may be OFFERED is decided by one
+  predicate, `workspace-bookmark--offerable-canonical-p`, shared with the
+  worktree picker.
 - **workspace-owned** — its root lies inside a registered workspace's `:home`.
 - **other** — a linked worktree belonging to no workspace (the legacy
   `~/emacs-*` checkouts).
@@ -161,8 +167,13 @@ stale branches and would make the read-only view a lottery.
 
 ### D7: Outcomes are a closed set, evaluated in order
 
-`resolved`, `not-on-branch`, `missing-repo`, `no-clone`, `non-portable` — as
-specified. Mirrors the existing closed-set discipline in
+`resolved`, `not-on-branch`, `missing-repo`, `ambiguous`, `no-clone`,
+`non-portable` — as specified (six; `ambiguous` was added when two checkouts of
+one repository inside a workspace, or two canonical clones, turned out to need
+reporting rather than a silent pick). Confinement of the repo-relative path is
+lexical only: `..`, absolute and NUL-bearing paths are refused; everything else
+resolves by spelling, and links inside the checkout are followed by Emacs as
+usual. Mirrors the existing closed-set discipline in
 `workspace--valid-reincarnation-steps`, where adding a step is a deliberate
 change rather than an accident.
 

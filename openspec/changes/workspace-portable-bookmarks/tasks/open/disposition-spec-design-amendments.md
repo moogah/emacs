@@ -2,7 +2,7 @@
 name: disposition-spec-design-amendments
 description: Amend the two delta specs and design.md to the decided design (DD-9, DD-12, DD-14, DD-16) before any sync or archive; user confirms the ready-to-apply edits
 change: workspace-portable-bookmarks
-status: blocked
+status: done
 task_class: doc
 on_critical_path: false
 cycle: cycle-1790453714
@@ -18,8 +18,10 @@ relations:
 discovered_from: arch-cycle-1789935943-eoc-01
 discovered_by: architect
 discovered_class: interface-drift
-blocker_note: user confirmation of the edits below (ask 17); blocks `opsx-sync` / `opsx-archive` of this change, NOT the cycle-2 code tasks
+blocker_note: null
 created_at: 2026-09-26T14:00:00-04:00
+review_mode: inline
+completed_at: 2026-09-26T21:10:00+00:00
 ---
 
 > Disposition task created by cycle-1789935943 integrate from the end-of-cycle architect
@@ -73,3 +75,7 @@ Syncing to `openspec/specs/` (that is `opsx-sync`, after this lands). Any code c
 ## Context
 - `.orchestrator/cycles/cycle-1789935943/findings/end-of-cycle-1789935943.md` § Finding 1
 - design decisions DD-9, DD-12, DD-14, DD-16 (`state.json` → `design_decisions`)
+
+## Observations
+
+Applied inline at cycle-2 plan (cycle-1790453714) under the user's standing rule of 2026-09-26: doc corrections where the code is right and the doc is stale are applied, listed, not asked. All five edits landed as written; edit 2 also records the nil-path missing-repo case (ask 16, same rule). Verification greps return nothing; `ambiguous` present. D5's command table was checked against portable-bookmarks.el:139-144, :291, :330, :528 before editing.
