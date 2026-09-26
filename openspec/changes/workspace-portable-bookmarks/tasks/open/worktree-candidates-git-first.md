@@ -2,7 +2,7 @@
 name: worktree-candidates-git-first
 description: Reorder the git-worktrees repo-candidate seam to put git-derived discovery first and demote projectile to optional legacy
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 merge_commit: 4605ed0b
 task_class: contract
 on_critical_path: true
