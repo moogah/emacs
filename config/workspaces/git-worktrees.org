@@ -31,8 +31,9 @@ exactly two sources, in order:
    worktrees, and =jf/emacs-dir=), each resolved via git to its
    repository's main worktree.
 2. =(magit-list-repos)=, when magit is loaded.  It is driven by
-   =magit-repository-directories=, which is unset in this config, so
-   *today the candidate list is git-derived only*.
+   =magit-repository-directories=, which this config sets to the
+   repositories directly under =~/src= (when =~/src= exists), so magit
+   supplies the repositories not yet checked out in any workspace.
 
 =projectile-known-projects= and =project-known-project-roots= are
 deliberately *not* consulted, even when projectile or project.el is
@@ -155,32 +156,40 @@ De-duplication is keyed on each candidate's *truename*.  Git reports
 resolved paths (on macOS a temp repository is =/private/var/...=), while
 another source may have recorded the same repository through a symlinked
 prefix (=/var/...=).  The first occurrence's spelling is the one
-offered, so the git-derived spelling wins.  Remote (TRAMP) entries are
-keyed on their expanded name and never resolved, so building the list
-touches no network.
+offered, so the git-derived spelling wins.
+
+Remote (TRAMP) entries are DROPPED here, before anything else is asked
+of them.  They could never be offered anyway: discovery and
+classification are local-only, so a remote entry is never canonical.
+Keeping one would hand it to the git-repository filter below, whose
+probe opens a connection; on an unreachable host that signals
+=file-error= out of =jf/workspace--worktree-repo-candidates=, and the
+"Source git repo:" prompt and its =read-directory-name= floor are never
+reached.  The only question put to an entry before it is dropped is
+=file-remote-p= (without its CONNECTED argument), which is answered from
+the name alone, so building the list touches no network.
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-dedupe-dirs (dirs)
-  "Return DIRS as absolute directory names, without duplicates.
+  "Return the local DIRS as absolute directory names, without duplicates.
 Each entry is expanded and given a trailing slash.  Two entries are
-duplicates when they name the same directory: local entries are
-compared by `file-truename', so spellings through a symlinked prefix
-collapse; remote entries are compared by their expanded name.  The
-first occurrence's spelling is kept, in order.  nil entries are
-dropped."
+duplicates when they name the same directory, compared by
+`file-truename', so spellings through a symlinked prefix collapse.  The
+first occurrence's spelling is kept, in order.  nil entries and remote
+\(TRAMP) entries are dropped; a remote entry is asked only
+`file-remote-p', so nothing here touches the network."
   (let ((seen (make-hash-table :test #'equal))
         (out '()))
     (dolist (d dirs)
-      (when d
-        (let* ((dir (file-name-as-directory (expand-file-name d)))
-               (key (if (file-remote-p dir)
-                        dir
-                      (condition-case nil
-                          (file-name-as-directory (file-truename dir))
-                        (error dir)))))
-          (unless (gethash key seen)
-            (puthash key t seen)
-            (push dir out)))))
+      (when (and d (not (file-remote-p d)))
+        (let ((dir (file-name-as-directory (expand-file-name d))))
+          (unless (file-remote-p dir)
+            (let ((key (condition-case nil
+                           (file-name-as-directory (file-truename dir))
+                         (error dir))))
+              (unless (gethash key seen)
+                (puthash key t seen)
+                (push dir out)))))))
     (nreverse out)))
 #+end_src
 
@@ -234,7 +243,7 @@ and then `(magit-list-repos)' when magit is loaded, classified by
 `jf/workspace--worktree-canonical-only'.  Projectile and project.el
 lists are deliberately not consulted.  Paths are de-duped by
 `jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
-spelling kept) and filtered to actual git repositories (via
+spelling kept, remote entries dropped unprobed) and filtered to actual git repositories (via
 `locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
 loaded).  At most one discovery warning is shown per call.  Returns the
 list; does not prompt."
