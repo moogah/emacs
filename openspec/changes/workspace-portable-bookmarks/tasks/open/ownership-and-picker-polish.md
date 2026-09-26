@@ -1,8 +1,8 @@
 ---
 name: ownership-and-picker-polish
-description: Small follow-ups from the wave-4 reviews — remote magit entries never touch the network, prose drift, and (pending user decisions) ownership-by-tracked-content and anchored repos in the worktree picker
+description: Small follow-ups from the wave-4 reviews — remote magit entries never touch the network, and prose drift
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: bug
 on_critical_path: false
 cycle: cycle-1789935943
@@ -10,7 +10,6 @@ cites_register_entries:
   - register/vocabulary/checkout-classification
   - register/boundary/workspace-git-worktrees-consumer
 relations:
-  - blocked-by:user-asks-12-14
 discovered_from: [worktree-candidates-git-first, canonical-predicate-consolidation]
 discovered_by: reviewer
 discovered_class: invariant-gap
@@ -31,7 +30,13 @@ reconciled_into: null
 2. **Prose drift** (consolidation review): portable-bookmarks.org ~1822 still says
    classification "runs no subprocess". Correct it.
 
-## Pending user decisions (see state asks 12 and 14)
+## Deferred by the user (NOT in scope)
 
-3. Ownership by TRACKED CONTENT instead of location (ask 12).
-4. Anchored repos in the worktree picker (ask 14).
+Ownership by tracked content (ask 12) and anchored repos in the picker (ask 14)
+were deferred on 2026-09-26 until the user has used the feature. See
+`.tasks/portable-bookmarks-ownership-refinements-after-use.md`. Do not implement
+them here.
+
+## Verification
+- Tangle both .org files; no .el drift.
+- `./bin/run-tests.sh -d config/workspaces` all green; full-suite NO-REGRESSION.

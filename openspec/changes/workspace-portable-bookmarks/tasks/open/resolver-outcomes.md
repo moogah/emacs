@@ -2,7 +2,7 @@
 name: resolver-outcomes
 description: Implement the closed set of resolution outcomes as a pure decision function over coordinates plus workspace context
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: feature
 on_critical_path: true
 cycle: cycle-1789935943
@@ -102,3 +102,43 @@ interaction. A peripheral feature must not be able to break bookmark jumps.
 - specs/portable-bookmarks/spec.md § 'Closed set of resolution outcomes'
 - design.md § D7 'Outcomes are a closed set, evaluated in order'
 - design.md § D11 'Testing approach'
+
+## Amendments (2026-09-26, after waves 3–4; these SUPERSEDE the steps above where they conflict)
+
+A. **Six outcomes, not five (user decision, ask 13).** Add `ambiguous` to the
+   closed set: `(resolved not-on-branch missing-repo no-clone non-portable
+   ambiguous)`. It means that discovery found MORE THAN ONE candidate and will
+   not choose. `:path` is nil, and a new `:candidates` key lists them. The
+   meaning matches `not-on-branch`: it MUST be reported and NOTHING is
+   opened. The plist becomes `(:outcome :path :identity :relpath :candidates)`,
+   with `:candidates` nil except for `ambiguous`.
+B. **Use the PLURAL discovery functions, so ambiguity is never lost.** They are
+   `workspace-bookmark--workspace-checkouts (identity workspace-name)` and
+   `workspace-bookmark--canonical-checkouts-for-identity (identity)`. Order, first match wins:
+   1. no coordinates, fewer than all three stamped properties, or a format
+      version this module does not know → `non-portable`, with `:path` = the
+      stored absolute filename. (The stamp is ALL THREE OR NONE: repo, relpath,
+      format. Format version 1 is the only one known.)
+   2. the workspace holds exactly ONE checkout of the identity: relpath exists → `resolved`;
+      relpath missing → `not-on-branch`.
+   3. the workspace holds TWO OR MORE → `ambiguous` (`:candidates` = those checkouts).
+   4. the workspace holds none, and exactly ONE canonical checkout is in view →
+      `missing-repo`, with `:path` = the candidate under it.
+   5. the workspace holds none, and TWO OR MORE canonical checkouts → `ambiguous`.
+   6. nothing in view → `no-clone`.
+C. **Relpath forms.** The repository root is stored as `"./"`
+   (`workspace-bookmark--root-relpath`). Directory relpaths come from
+   `git rev-parse --show-prefix`, with a trailing slash. A relpath may begin or
+   end with whitespace and is stored verbatim. Re-anchor each form correctly,
+   and never let a relpath escape its checkout (for example `..`, or an absolute
+   path in a hand-edited record) → degrade to `non-portable`.
+D. **Stale stamps are a documented limitation, NOT checked here (user decision,
+   ask 5).** `bookmark-relocate` changes `filename` without re-stamping. Do not
+   add a consistency check. Say so in the org prose, and point to
+   `.tasks/portable-bookmarks-stale-stamp-detection.md`.
+E. **The ONLY outcome that uses the stored absolute filename is `non-portable`**
+   (`register/invariant/no-silent-wrong-file-open`). `missing-repo`'s `:path` is a
+   candidate for the caller to offer, never something the resolver acts on.
+F. **Placement.** New `* Resolution` section in portable-bookmarks.org,
+   between `* Checkout discovery` and `* Advice installation`. Seam 2 stays
+   pass-through; wiring it is `jump-seam`, deferred to cycle 2.
