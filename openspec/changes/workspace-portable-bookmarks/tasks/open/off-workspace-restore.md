@@ -21,6 +21,9 @@ relations:
 
 ## Implementation steps
 
+> Cycle 1 (cycle-1789935943): step 1 corrected — the singular discovery helper is being
+> deleted (audit eoc-02); use the plural. See `.orchestrator/cycles/cycle-1789935943/reconciliations/boundary-git-derived-checkout-discovery.md`.
+
 1. Add `workspace-bookmark--establish-workspace (identity)` called by the jump
    seam when `(workspace--current-name)` returns nil for a *stamped* record:
    - build candidates from `(workspace--registered-names)` — the registry, NOT
@@ -29,7 +32,8 @@ relations:
      `workspace--broken-p` (the package refuses to switch to or restore them and
      signals a `user-error` naming `workspace-re-anchor` / `workspace-purge`);
    - order candidates so workspaces that already hold a checkout of IDENTITY come
-     first (use `workspace-bookmark--workspace-checkout`), since those resolve
+     first (use `workspace-bookmark--workspace-checkouts`: non-empty means the workspace
+     holds one or more), since those resolve
      immediately while the rest lead straight into `missing-repo`. Annotate or
      group them so the ordering is legible, not accidental;
    - prompt with `completing-read` (`require-match`), then call
@@ -123,3 +127,17 @@ a small frame).
 - specs/portable-bookmarks/spec.md § 'Workspace context is established before resolution'
 - design.md § D8 'Off-workspace jumps restore, they do not merely switch'
 - design.md § D9 'Restore-then-jump replaces the selected window and is not remembered'
+
+## Cycle 1 updates (cycle-1789935943)
+
+### Cited register entries
+- `register/invariant/bookmark-jump-not-captured-as-working-state`: unexercised this cycle (status unchanged); this task owns its enforcement (`portable-bookmarks-off-workspace-spec.el`, the anti-save predicate). Audit finding eoc-03 records it as deferred to cycle 2.
+- `register/boundary/portable-bookmarks-consumer`: speculated → confirmed. The permitted core surface now lists `workspace--home` and `jf/emacs-dir` besides registered-names / current-name / registry / broken-p / restore / anti-save-predicates; the module's ONE public symbol reachable from git-worktrees is `workspace-bookmark-canonical-checkouts-in-view` (fboundp at call time, DD-10). Stay inside that list. See `.orchestrator/cycles/cycle-1789935943/reconciliations/boundary-portable-bookmarks-consumer.md`.
+- `register/vocabulary/bookmark-resolution-outcome`: speculated → reconciled (six members). **Implication**: after restore, `ambiguous` is possible; report `:candidates` and open nothing, like the seam.
+
+### User-resolved decisions
+- DD-1 (unified switch/restore semantics) and DD-2 (FILE bookmarks resolve within the current workspace; WORKSPACE/LAYOUT bookmarks switch): unchanged; this task is the FILE-kind off-workspace path.
+- DD-4: layout-level commands notify ONCE; per-buffer lookups stay silent. **Implication**: one prompt, one message.
+
+### Related follow-ups
+- `discovery-identity-memo-and-cost-contract` (audit eoc-06): candidate ordering calls discovery once per registered workspace; do not add a second pass, and do not pin spawn counts in this task's specs.

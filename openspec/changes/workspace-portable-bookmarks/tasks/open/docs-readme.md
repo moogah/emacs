@@ -20,6 +20,9 @@ relations:
 
 ## Implementation steps
 
+> Cycle 1 (cycle-1789935943): the outcome table corrected to six outcomes (DD-14); see
+> `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-bookmark-resolution-outcome.md`.
+
 1. Add a `* Portable bookmarks` section to `config/workspaces/docs/README.org`,
    placed after `* Buffer reincarnation` (both concern bookmark records, and the
    reader benefits from meeting the two bookmark systems together). Follow the
@@ -34,9 +37,10 @@ relations:
      identity (normalized remote URL) and a repo-relative path; the absolute
      `filename` is kept, so the file still loads in a stock Emacs and unstamped
      bookmarks keep working.
-   - **The outcome table** — `resolved`, `not-on-branch`, `missing-repo`,
+   - **The outcome table** — `resolved`, `not-on-branch`, `ambiguous`, `missing-repo`,
      `no-clone`, `non-portable`, each with what the user sees. State plainly that
-     the main checkout is never a silent fallback.
+     the main checkout is never a silent fallback, and that when two checkouts of
+     one repo are in view nothing is chosen for you (`ambiguous`).
    - **Off-workspace jumps** — the prompt lists saved workspaces from the registry
      (not just live tabs), the chosen one is restored, the file opens in the
      selected window, and the perturbation is deliberately *not* saved as the
@@ -100,3 +104,17 @@ should be able to confirm that without reading the code.
 - design.md § D7, § D8, § D9
 - design.md § Context (the dev/production bookmark-file split and
   `bookmark-save-flag`)
+
+## Cycle 1 updates (cycle-1789935943)
+
+### Cited register entries
+- `register/vocabulary/bookmark-resolution-outcome`: speculated → reconciled (six members). Document also: a bookmark reached through a tracked symlink resolves to that spelling inside the checkout (DD-16); a hand-edited stamp with `..` or an absolute path is treated as unstamped.
+- `register/vocabulary/checkout-classification`: speculated → reconciled. Document the three words a user will meet — workspace-owned, canonical, other — and that a workspace whose home IS a checkout, or sits inside one, owns it (DD-12/13). See `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-checkout-classification.md`.
+
+### User-resolved decisions
+- Ask 5: stale stamps after `bookmark-relocate` are a documented limitation. **Implication**: one sentence in the README, pointing at the limitation, not at a fix.
+- DD-15: `magit-repository-directories` is `~/src` (depth 1) when it exists, so the worktree picker offers repos not yet in any workspace. **Implication**: mention where picker candidates come from (git-derived in-view checkouts, then magit).
+
+### Related
+- `disposition-spec-design-amendments` (audit eoc-01) corrects the delta specs/design.md to the same six-outcome, three-property design; write the README against the decided design, not the current spec text.
+- Blocked by `missing-repo-choice` and `off-workspace-restore` (unchanged): the README describes their behaviour.

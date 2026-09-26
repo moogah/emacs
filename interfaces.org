@@ -2079,8 +2079,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/shape/portable-bookmark-coordinates
    tier: shape
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): RECONCILED.
+     Both speculated axes were settled by =stamp-seam= — THREE flat
+     properties, literal symbols =workspace-bookmark-repo= /
+     =workspace-bookmark-relpath= / =workspace-bookmark-format=, no nesting
+     (portable-bookmarks.el:13-45). Reconciled with DD-7 (identity memo),
+     DD-8 (relpath from git, not string arithmetic), DD-9 (defconst names,
+     format version 1, all three or none, untracked left unstamped). Read
+     side confirmed by =resolver-outcomes= (ac50b041): confinement is
+     LEXICAL (DD-16). The stamp-seam on-touch's proposed pin 5 (staleness
+     check against filename) was WITHDRAWN by the user (ask 5): stamps are
+     trusted; see known_limitations. Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/shape-portable-bookmark-coordinates.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from proposal "Stamp portable coordinates at bookmark
      creation" + design D3/D4 + tasks =module-scaffold-and-fixtures= (step 3,
@@ -2089,54 +2102,91 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      property SYMBOLS written into the bookmark record, and (b) whether the
      pair lives as two flat properties or one nested plist.
    load_bearing: true
-   title: Portable bookmark coordinates — the two properties stamped onto a bookmark record
+   title: Portable bookmark coordinates — the three properties stamped onto a bookmark record
    purpose: |
      The on-disk contract of this whole capability. A bookmark record is an
-     open bag of properties =(NAME . ALIST)=; this shape pins the two the
+     open bag of properties =(NAME . ALIST)=; this shape pins the three the
      capability ADDS, and pins what it must NOT touch.
 
-     This is a PERSISTED shape, not an in-memory one: it is written into
-     =bookmark-default-file= by =bookmark-write-file= and read back by
-     =bookmark-load=, potentially by a stock Emacs that has never loaded this
-     module. Renaming either property after records exist in the wild
-     silently downgrades every stamped bookmark to =non-portable= with no
-     error and no warning — the shape's field names are therefore as
-     load-bearing as its field meanings.
+     This is a PERSISTED shape, not an in-memory one, and it is persisted in
+     TWO PLACES: =bookmark-default-file= (written by =bookmark-write-file=,
+     read back by =bookmark-load=, potentially by a stock Emacs that has
+     never loaded this module) AND the workspaces state file, via the layout
+     records =layouts.el= captures through =bookmark-make-record= (ask 4).
+     Renaming any property after records exist in the wild silently
+     downgrades every stamped bookmark to =non-portable= with no error and
+     no warning — the shape's field names are therefore as load-bearing as
+     its field meanings.
 
-     Three pins:
+     Five pins:
 
-     1. =ADDITIVE ONLY=: the record's existing =filename= property is left
-        exactly as Emacs wrote it. It is the absolute fallback every degraded
-        outcome relies on and the reason a stock Emacs still reads the file.
-        No other existing property is added, removed, or rewritten.
-     2. =NAMED IN ONE PLACE=: both property symbols are defined as
-        module-level variables (=workspace-bookmark-repo=,
-        =workspace-bookmark-relpath= in the task's suggestion) and every
-        read/write goes through those variables — never a quoted literal at a
-        call site. This is what makes a later rename a single-edit operation
-        instead of a grep hunt across producer, resolver, and tests.
-     3. =BOTH OR NEITHER=: a record carries both coordinates or neither.
-        A record with an identity and no relpath (or the reverse) is
-        malformed and MUST resolve to =non-portable=, not to a guess.
+     1. =ADDITIVE ONLY=: =filename= and every existing property are kept, in
+        order, with the same values; the stamped record is a NEW record
+        (=workspace-bookmark--with-coordinates=, portable-bookmarks.el:360)
+        and the input record is never mutated. Unstampable records come back
+        =eq=. Verified against a stock-Emacs round trip.
+     2. =NAMED IN ONE PLACE, AS CONSTANTS=:
+        =workspace-bookmark-repo-property=, =-relpath-property=,
+        =-format-property= and =workspace-bookmark-format-version= are
+        =defconst=s (portable-bookmarks.el:13-45); never a =defcustom= (DD-9:
+        the names are an on-disk format, not a preference). Every read and
+        write goes through them; portable-bookmarks-spec.el pins the literal
+        values and =(custom-variable-p VAR)= = nil for all four.
+     3. =ALL THREE OR NONE=: by construction on the write side
+        (portable-bookmarks.el:389-396 — a fresh record is built only after
+        every fallible step has succeeded) and by rule on the read side:
+        =workspace-bookmark--stamped-coordinates= (portable-bookmarks.el:880)
+        accepts only a non-empty string identity, a version in
+        =workspace-bookmark--known-format-versions=, and a relpath passing
+        =workspace-bookmark--confined-relpath-p= (:866); anything else is
+        =non-portable= before any git runs.
+     4. =VERSIONED MEANING=: =workspace-bookmark-format= = 1. Bump it when
+        the MEANING of identity or relpath changes (a normalizer change that
+        could merge two previously distinct identities; a change to how the
+        relpath is derived). The resolver treats any other version as
+        =non-portable=.
+     5. =READ-SIDE CONFINEMENT IS LEXICAL= (DD-16): a relpath that is
+        absolute (=file-name-absolute-p=), has any component exactly =..=,
+        or holds NUL is refused (=non-portable=). Nothing else is refused: a
+        relpath that leaves the checkout only through a symbolic link
+        resolves by its spelling.
 
    fields:
-     - name: "<workspace-bookmark-repo> (symbol held in a module variable)"
+     - name: workspace-bookmark-repo   # literal symbol; held in workspace-bookmark-repo-property
        type: string
        required: true
        description: |
-         The repository's normalized identity, e.g. =github.com/moogah/emacs=.
-         Produced by =workspace-bookmark--identity=; the normalization contract
-         lives in =register/boundary/git-derived-checkout-discovery=. Absent
-         when the repository has no remote (9 of 51 repos in ~/src) — in which
-         case the record is left entirely unstamped.
-     - name: "<workspace-bookmark-relpath> (symbol held in a module variable)"
+         The repository's normalized identity, e.g. =github.com/moogah/emacs=:
+         =workspace-bookmark--normalize-identity= of =git remote get-url
+         origin= (else the sole remote). Never empty, and NEVER carries
+         userinfo — the value is persisted, so a credential-bearing remote
+         (=https://TOKEN@host/...=) is stripped before it can reach disk
+         (disc-repo-identity-4). No usable remote => the record is left
+         entirely unstamped. The normalization contract lives in
+         =register/boundary/git-derived-checkout-discovery=.
+     - name: workspace-bookmark-relpath   # literal symbol; held in workspace-bookmark-relpath-property
        type: string
        required: true
        description: |
-         The location's path relative to the repository root, as produced by
-         =file-relative-name= against =workspace-bookmark--repo-root=. Must
-         not escape the root: a relpath beginning =..= is rejected and the
-         record left unstamped.
+         VERBATIM git spelling, decoded as UTF-8: for a file, the single path
+         =git --literal-pathspecs ls-files -z --full-name -- BASENAME=
+         reports (run in the file's directory; conflict stages collapsed);
+         for a directory, =rev-parse --show-prefix= ("sub/"), and only when
+         the directory is in HEAD (=rev-parse HEAD:./=,
+         portable-bookmarks.el:286-293); for the work-tree root, "./".
+         Directory relpaths end in "/", files never do — the slash is the
+         record's KIND. Leading/trailing whitespace is part of the value and
+         is persisted verbatim. Accepted at stamp time only if it re-anchors
+         to the location by file identity (=--same-file-p=). Re-anchor in
+         any checkout with =(expand-file-name RELPATH CHECKOUT)=. No =..=
+         guard exists on the write side or is needed: git reports nothing
+         outside the work tree (DD-8); the read-side guard is pin 5.
+     - name: workspace-bookmark-format   # literal symbol; held in workspace-bookmark-format-property
+       type: integer
+       required: true
+       description: |
+         Stamp-format version at stamp time:
+         =workspace-bookmark-format-version= (1). See pin 4.
      - name: filename
        type: string
        required: true
@@ -2148,54 +2198,82 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    canonical_constructor:
      file: config/workspaces/portable-bookmarks.org
-     function: workspace-bookmark--coordinates
+     function: workspace-bookmark--coordinates   # portable-bookmarks.el:341
      note: |
        =(location) -> (identity . relpath) | nil=. The SOLE producer of the
-       pair. The stamp advice writes it with =bookmark-prop-set=; nothing
-       else may construct coordinates.
+       pair. =workspace-bookmark--with-coordinates=
+       (portable-bookmarks.el:360) builds the fresh stamped record from it;
+       nothing calls =bookmark-prop-set= (reconciled: the plan text said the
+       advice "writes it with bookmark-prop-set" — it does not;
+       disc-stamp-seam-4).
+
+   canonical_reader:
+     file: config/workspaces/portable-bookmarks.org
+     function: workspace-bookmark--stamped-coordinates   # portable-bookmarks.el:880
+     note: |
+       =(record) -> (identity . relpath) | nil=. The ONLY reader of the
+       three properties; the resolver never touches them directly.
 
    producers:
      - file: config/workspaces/portable-bookmarks.org
-       function: workspace-bookmark--coordinates
+       function: workspace-bookmark--stamp-record   # portable-bookmarks.el:376
        via: ":filter-return advice on bookmark-make-record (see register/boundary/bookmark-advice-seams)"
 
    consumers:
      - file: config/workspaces/portable-bookmarks.org
-       function: workspace-bookmark--resolve
-       note: reads both properties; malformed pair -> non-portable
+       function: workspace-bookmark--resolve   # portable-bookmarks.el:992, via the canonical reader
+       note: any subset of the three, an unknown version or a lexical escape -> non-portable
      - file: config/workspaces/portable-bookmarks.org
        function: "the bookmark-handle-bookmark advice"
-       note: reads to decide pass-through vs substitution
+       note: pass-through at 20944160 (portable-bookmarks.el:398-405); reads nothing until jump-seam (cycle 2)
      - external: stock Emacs bookmark.el
        note: |
-         Reads the record and IGNORES both properties. The round-trip
+         Reads the record and IGNORES all three properties. The round-trip
          (=bookmark-write-file= then =bookmark-load=) preserving them
          unmodified is the property that makes this design additive; it is
-         asserted behaviorally in portable-bookmarks-stamp-spec.el.
+         asserted behaviorally in portable-bookmarks-stamp-spec.el:220.
 
    tier_1_boundary: |
-     Only records whose location is a SINGLE file or directory are stamped.
-     =workspace-bookmark--record-location= is the gate and must answer "is
-     this value even a path?" before treating it as one. Concrete negative
-     corpus on this machine: four =tab-bookmark= records whose =filename= is
-     the LABEL ="3 buffers"=, carrying nested bookmark records, window trees,
-     and =#N=/#N#= shared structure that is in places genuinely circular.
-     Those MUST come back nil from the gate. Nested/window records are Tier
-     2/3 and explicitly out of scope for this slice.
+     Gate =workspace-bookmark--record-location= (portable-bookmarks.el:257,
+     no subprocess): =filename= is a string, absolute (=~= counts), local,
+     exists, and the record has no non-string buffer/window property.
+     Concrete negative corpus on this machine: four =tab-bookmark= records
+     whose =filename= is the LABEL ="3 buffers"=, carrying nested bookmark
+     records, window trees, and =#N=/#N#= shared structure — those come back
+     nil from the gate. Past the gate only git-TRACKED locations are stamped
+     (DD-9): untracked, ignored, =.git/= and paths in no work tree come back
+     =eq=. Nested/window records are Tier 2/3 and explicitly out of scope
+     for this slice.
+
+   known_limitations: |
+     STALE STAMPS (user decision, ask 5): =bookmark-relocate= /
+     =bookmark-set-filename= / a hand edit rewrite =filename= and leave the
+     triple; the resolver TRUSTS the triple. Detection on read is
+     .tasks/portable-bookmarks-stale-stamp-detection.md. A directory
+     bookmarked through a tracked directory LINK is stamped with the
+     target's relpath (git runs in the physical directory); harmless.
+     Identity memo: a nil config stamp is never a memo hit
+     (disc-wave3-review-fixes-3).
 
    validator: |
      Structural (no scaffolding in this project; per .claude/orchestrator/config.yaml):
-     1. grep -n 'workspace-bookmark-repo\|workspace-bookmark-relpath' \
+     1. grep -n 'workspace-bookmark-\(repo\|relpath\|format\)' \
           config/workspaces/portable-bookmarks.el
-        -> every hit is either the defvar/defcustom itself or a reference to
-        the variable; ZERO quoted-literal property names at call sites.
-     2. The stamp path never calls bookmark-prop-set on 'filename.
-     3. Round-trip spec: write + reload + assert both properties survive byte-identical.
-     4. Malformed-pair spec: a record with identity but no relpath resolves non-portable.
+        -> defconsts, docstrings and constant references only; ZERO
+        quoted-literal property names at call sites.
+     2. The module never calls bookmark-prop-set or bookmark-set-filename
+        (grep: zero hits at 20944160).
+     3. Round-trip spec: bookmark-write-file + bookmark-load; the record is
+        `equal` (portable-bookmarks-stamp-spec.el:220).
+     4. Resolver spec: any strict subset of the three, an unknown version, a
+        non-string, or a "..", absolute or NUL relpath resolves non-portable
+        (portable-bookmarks-resolver-spec.el:405-436, :654-722).
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-stamp-spec.el
      - config/workspaces/test/portable-bookmarks-resolver-spec.el
+     - config/workspaces/test/portable-bookmarks-spec.el
+     - config/workspaces/test/portable-bookmarks-fixtures.el
 
    related_entries:
      - register/boundary/bookmark-advice-seams
@@ -2207,8 +2285,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - module-scaffold-and-fixtures
      - repo-identity
      - stamp-seam
+     - wave3-review-fixes
+     - resolver-outcomes
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
+   reconciled_in: cycle-1789935943
    #+end_src
 
 * Vocabulary
@@ -3393,8 +3474,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/bookmark-resolution-outcome
    tier: vocabulary
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): RECONCILED.
+     SIX outcomes (DD-14 added =ambiguous=; portable-bookmarks.el:836-837); a
+     =:checkout= key on every plist (resolver-outcomes fix, ac50b041);
+     confinement LEXICAL (DD-16). The nested missing-repo ACTION set REMAINS
+     SPECULATED: =missing-repo-choice= is deferred to cycle 2, and
+     ask-cycle-1789935943-16 (missing-repo may carry a nil =:path=; the
+     action set narrows accordingly) is OPEN — the missing-repo member and
+     the nested set below are drafted per its proposed disposition and are
+     PENDING USER CONFIRMATION. Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-bookmark-resolution-outcome.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from specs/portable-bookmarks/spec.md § "Closed set of
      resolution outcomes" + design D7 + tasks =resolver-outcomes= (step 1,
@@ -3407,56 +3499,76 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    title: Bookmark resolution outcomes (closed, ORDERED) and the missing-repo action set
    purpose: |
      The safety vocabulary of this capability. Resolution answers exactly one
-     of five outcomes, and the ordering is part of the contract because the
-     predicates overlap: a workspace can hold a checkout AND a canonical
-     checkout can be in view, and only first-match-wins keeps the answer
-     deterministic.
+     of SIX outcomes (DD-14), and the ordering is part of the contract
+     because the predicates overlap: a workspace can hold a checkout AND a
+     canonical checkout can be in view, and only first-match-wins keeps the
+     answer deterministic. The order table is =portable-bookmarks.org=
+     § "The decision".
 
-     The motivating failure mode this vocabulary closes is a SIXTH outcome
+     The motivating failure mode this vocabulary closes is a SEVENTH outcome
      arriving by accident — a new branch in the resolver that returns a stray
      symbol, or a caller that treats an unknown symbol as "just open the
      stored path". That is precisely the silent wrong-file open the whole
      capability exists to remove. The defconst plus a closed-set predicate
-     makes a sixth outcome a deliberate two-place change.
+     makes a new outcome a deliberate two-place change; =ambiguous= was
+     added exactly that way (DD-14).
 
      Mirrors the existing closed-set discipline in
      =workspace--valid-reincarnation-steps= (=layouts.el=) and
      =register/vocabulary/buffer-reincarnation-fallback-chain=.
 
-     PRODUCER DISCIPLINE: =workspace-bookmark--resolve= is a DECISION
-     FUNCTION. It may run git queries; it MUST NOT open a buffer, prompt, or
-     message. Interactive policy belongs to the jump seam and the prompt
-     tasks. This is what keeps the awkward outcomes unit-testable.
+     PRODUCER DISCIPLINE: =workspace-bookmark--resolve=
+     (portable-bookmarks.el:992) is a DECISION FUNCTION. It may run git
+     queries; it MUST NOT open a buffer, prompt, or message. Interactive
+     policy belongs to the jump seam and the prompt tasks. This is what keeps
+     the awkward outcomes unit-testable.
 
    ordered: true
+   result_shape: |
+     =(:outcome O :path P :identity I :relpath R :candidates C :checkout K)=
+     — ALWAYS six keys, built only by =workspace-bookmark--outcome=
+     (portable-bookmarks.el:849), which signals on a symbol outside
+     =workspace-bookmark--valid-outcomes= (:856). =:candidates= is non-nil
+     only for =ambiguous=; =:checkout= is non-nil only for =resolved=,
+     =not-on-branch= and =missing-repo=. Consumers compare =:path= and
+     =:checkout= by FILE IDENTITY, never by string: a workspace checkout
+     carries the registry's spelling, the canonical checkout git's truename
+     (end-of-cycle finding 7; portable-bookmarks-resolver-spec.el:541
+     already does).
    members:
      - value: non-portable
        order: 1
        description: |
-         The record carries no portable coordinates — never stamped, stamped
-         by an older property naming, or a malformed half-pair (identity
-         without relpath or vice versa; see
-         =register/shape/portable-bookmark-coordinates= "BOTH OR NEITHER").
-         =:path= is the record's stored absolute filename; today's behaviour
-         exactly. This is the ONLY outcome permitted to use the stored
-         absolute path.
+         Not a record; or the stamp is not all three of repo / relpath /
+         format 1 (=register/shape/portable-bookmark-coordinates= "ALL THREE
+         OR NONE"); or the relpath escapes LEXICALLY (absolute, a =..=
+         component, NUL). =:path= is the record's stored absolute
+         =filename= — the ONLY outcome permitted to use it; =:identity= and
+         =:relpath= nil. Decided before any git runs. A VALID stamp never
+         resolves non-portable: an on-disk (link) escape is NOT non-portable
+         (DD-16).
        producer:
          file: config/workspaces/portable-bookmarks.org
          function: workspace-bookmark--resolve
      - value: resolved
        order: 2
        description: |
-         The current workspace holds a checkout of the identity AND the
-         relpath exists inside it. =:path= is that absolute path. The only
-         outcome that opens anything without asking.
+         WORKSPACE-NAME holds exactly ONE checkout of the identity and
+         something of the relpath's KIND (trailing "/" = directory) exists
+         at =<checkout>/<relpath>= by spelling — presence and kind are asked
+         of the filesystem, which follows links
+         (portable-bookmarks.el:932-934). =:path= is that spelling;
+         =:checkout= the checkout. The only outcome that opens anything
+         without asking.
        producer:
          file: config/workspaces/portable-bookmarks.org
          function: workspace-bookmark--resolve
      - value: not-on-branch
-       order: 3
+       order: 2
        description: |
-         The checkout exists; the relpath does not exist within it (renamed,
-         deleted, or absent on this branch). =:path= is nil. MUST be reported
+         That one checkout lacks the relpath, or the kind there differs, or
+         the link there dangles (renamed, deleted, or absent on this
+         branch). =:path= nil; =:checkout= the checkout. MUST be reported
          and MUST NOT be visited. The subtle member: Emacs's own
          =bookmark-default-handler= would happily =find-file= a nonexistent
          path and hand the user a fresh empty buffer, which is a quiet
@@ -3465,26 +3577,41 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        producer:
          file: config/workspaces/portable-bookmarks.org
          function: workspace-bookmark--resolve
+     - value: ambiguous
+       order: 3 and 5
+       description: |
+         The workspace holds 2+ checkouts of the identity (order 3), or holds
+         none and 2+ DISTINCT canonical checkouts are in view (order 5; ask
+         11). =:candidates= lists them in discovery order; =:path= and
+         =:checkout= nil. Reported; nothing opened; nothing chosen (DD-14:
+         "report and open nothing").
+       producer:
+         file: config/workspaces/portable-bookmarks.org
+         function: workspace-bookmark--resolve
      - value: missing-repo
        order: 4
        description: |
-         The current workspace holds no checkout of the identity, but a
-         canonical checkout IS in view. =:path= is the CANDIDATE path under
-         the canonical checkout — offered, never acted on. The caller presents
-         the bounded action set below.
+         The workspace holds none; exactly one canonical checkout is in view.
+         =:checkout= = that canonical checkout (the target of
+         =add-worktree=). =:path= = =<checkout>/<relpath>= when something of
+         the relpath's kind is present there, ELSE NIL — the canonical
+         checkout may lack the relpath (a file that exists only on the
+         workspace branch where it was bookmarked). A CANDIDATE to offer,
+         never acted on; with =:path= nil only =add-worktree= (and =cancel=)
+         are offerable. PENDING USER CONFIRMATION (ask-cycle-1789935943-16,
+         open): drafted per the proposed disposition.
        producer:
          file: config/workspaces/portable-bookmarks.org
          function: workspace-bookmark--resolve
        consumer:
          file: config/workspaces/portable-bookmarks.org
-         function: workspace-bookmark--offer-missing-repo
+         function: "workspace-bookmark--offer-missing-repo (planned: missing-repo-choice, cycle 2)"
      - value: no-clone
-       order: 5
+       order: 6
        description: |
-         No checkout of the identity is in view on this machine. =:path= nil.
-         Reported; nothing opened. Also the terminal mapping for a discovery
-         helper that signalled while an identity WAS known (see
-         error_mapping).
+         Nothing in view, or a discovery error once the identity is known
+         (see error_mapping). =:path= and =:checkout= nil. Reported; nothing
+         opened.
        producer:
          file: config/workspaces/portable-bookmarks.org
          function: workspace-bookmark--resolve
@@ -3492,21 +3619,30 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    nested_vocabulary:
      name: missing-repo action
      closed: true
+     status: speculated
      speculated_note: |
-       Membership is the SPECULATED part of this entry — design.md Open
-       Questions asks whether this prompt and the off-workspace
-       workspace-picker are one question. If implementation merges them, this
-       nested set gains workspace candidates and the entry is re-stated at
-       integrate.
+       STILL SPECULATED at cycle-1789935943 integrate: =missing-repo-choice=
+       is deferred to cycle 2 and ask-cycle-1789935943-16 is OPEN. Two rules
+       are carried from the resolver-outcomes on-touch and the end-of-cycle
+       audit, PENDING USER CONFIRMATION: (1) =view-canonical-read-only= is
+       offered ONLY when =:path= is non-nil; (2) =add-worktree= targets
+       =:checkout= and never re-runs discovery. The plan-time question —
+       whether this prompt and the off-workspace workspace-picker are one
+       "where should this open?" question — stays open until
+       missing-repo-choice / off-workspace-restore land; if they merge, this
+       nested set gains workspace candidates and is re-stated then.
      members:
        - add-worktree: |
-           Add a worktree of the repository to the current workspace, then
-           resolve again. The only member that mutates the filesystem.
+           Add a worktree of the repository at =:checkout= to the current
+           workspace, then resolve again. The only member that mutates the
+           filesystem. Never re-runs discovery. Offerable whether or not
+           =:path= is nil.
        - view-canonical-read-only: |
            Open =:path= under the canonical checkout in =view-mode= with a
-           VISIBLE marker that this is the canonical checkout, not a workspace
-           checkout. Read-only-ness is a hard requirement, not a courtesy: a
-           lookup must not become an unnoticed edit of main.
+           VISIBLE marker that this is the canonical checkout, not a
+           workspace checkout. Read-only-ness is a hard requirement, not a
+           courtesy: a lookup must not become an unnoticed edit of main.
+           Offered ONLY when =:path= is non-nil (pending ask 16).
        - cancel: |
            Open nothing. Signal nothing. An explicit no-op is a legitimate
            answer and MUST NOT be reported as an error.
@@ -3517,23 +3653,33 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        identity known    -> no-clone
        identity unknown  -> non-portable
      A jump must not break because git misbehaved; this code runs inside a
-     core Emacs interaction on behalf of a peripheral feature.
+     core Emacs interaction on behalf of a peripheral feature. Verified by
+     probe and by portable-bookmarks-resolver-spec.el:594-652; =quit=
+     propagates by design (C-g is not an error).
 
    validator: |
      Structural (no scaffolding in this project):
-     1. A defconst =workspace-bookmark--valid-outcomes= exists listing exactly
-        the five members, and a spec asserts every =:outcome= returned across
-        the whole resolver suite satisfies the closed-set predicate.
-     2. grep -n 'find-file\|switch-to-buffer\|completing-read\|message' inside
-        the body of =workspace-bookmark--resolve= -> zero hits (producer
-        discipline).
-     3. At least one spec per member, and the ordering asserted by a case
-        where two predicates hold at once (workspace checkout present AND
-        canonical in view -> resolved, not missing-repo).
+     1. A defconst =workspace-bookmark--valid-outcomes= exists listing
+        exactly the SIX members (portable-bookmarks.el:836-837);
+        portable-bookmarks-resolver-spec.el:831-855 asserts every plist
+        returned across the file is in the set, has six keys, and that every
+        member is covered.
+     2. grep -n 'find-file\|switch-to-buffer\|completing-read\|message\|display-buffer\|read-'
+        over portable-bookmarks.el:836-1042 (the resolver section) -> zero
+        hits; resolver-spec.el:91-139 traps 15 interaction functions
+        (producer discipline).
+     3. At least one spec per member; the ordering asserted where two
+        predicates hold at once (resolver-spec.el:233: workspace checkout
+        present AND canonical in view -> resolved, not missing-repo);
+        ambiguous asserted from BOTH the workspace and the canonical side
+        (:317, :329, :782, :796).
+     4. =workspace-bookmark--resolve-anchored='s default arm signals
+        (portable-bookmarks.el:959); no arm returns a location it did not
+        anchor.
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-resolver-spec.el
-     - config/workspaces/test/portable-bookmarks-missing-repo-spec.el
+     - "config/workspaces/test/portable-bookmarks-missing-repo-spec.el (planned: missing-repo-choice, cycle 2)"
 
    related_entries:
      - register/vocabulary/checkout-classification
@@ -3548,6 +3694,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - docs-readme
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
+   reconciled_in: cycle-1789935943
    #+end_src
 
 ** checkout-classification
@@ -3558,8 +3705,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/vocabulary/checkout-classification
    tier: vocabulary
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): RECONCILED.
+     The speculated question is answered: the two canonical signals DO
+     disagree in practice — for bare, bare-in-.git, --separate-git-dir
+     (non-.git name) and submodules (each -> nil); they agree and are BOTH
+     WRONG for core.worktree (caught by check 3) and for the two .git-named
+     husks (caught by check 4). Ownership reconciled with DD-11 (symlinks
+     confer nothing), ask 10 (a contained home owns), DD-13 (except a
+     same-repository worktree home; nested worktree homes confer nothing),
+     and "existing homes only" (165d44b6). The git-worktrees
+     --classify-alone route is CLOSED: one admission predicate
+     (canonical-predicate-consolidation, e433c5c9). Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-checkout-classification.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from specs/portable-bookmarks/spec.md § "Checkout
      classification and canonical-checkout safety" + design D6 + task
@@ -3591,68 +3751,137 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    members:
      - value: canonical
        description: |
-         The repository's MAIN worktree. Two independent signals, and the
-         classifier prefers the direct question:
-           (a) =git rev-parse --git-common-dir= -> the parent of that =.git=
-               directory. Preferred: it is the direct question.
-           (b) the FIRST entry of =git worktree list --porcelain=, which git
-               documents as the main worktree.
-         Cheap structural test used by the classifier itself:
-         =(file-directory-p (expand-file-name ".git" checkout))= — a linked
-         worktree's =.git= is a FILE, a main worktree's =.git= is a DIRECTORY.
+         STRUCTURAL ONLY: =.git= is a directory and no workspace owns it
+         (=workspace-bookmark--classify=, portable-bookmarks.el:653,
+         :668-674). Necessary, NOT sufficient, for an offer (see
+         canonical_safety_rule). The main-worktree query is
+         =workspace-bookmark--canonical-checkout= (portable-bookmarks.el:546),
+         FOUR checks all required:
+           (1) =rev-parse --path-format=absolute --git-common-dir= is an
+               absolute directory literally named =.git=; the candidate is
+               its parent;
+           (2) the FIRST =worktree list --porcelain= entry is non-bare and
+               =--same-file-p= to it;
+           (3) =rev-parse --show-toplevel= run IN the candidate names it
+               (core.worktree);
+           (4) at least one =ls-files -z= path exists under it, skipping
+               OS/sync-client artifacts (=workspace-bookmark--os-artifact-names=,
+               case-insensitive; =._*=).
+         Disagreement between the signals yields nil, deliberately:
+         submodule and --separate-git-dir checkouts are never canonical.
+         Residuals: a husk holding a stale copy of the tree, or a tracked
+         file under an unlisted artifact name written by another program.
        producer:
          file: config/workspaces/portable-bookmarks.org
-         function: workspace-bookmark--canonical-checkout
+         function: workspace-bookmark--classify   # structural test; the query is workspace-bookmark--canonical-checkout
      - value: workspace-owned
        description: |
-         The checkout's root lies inside some registered workspace's =:home=.
-         Containment is tested with =file-in-directory-p= (or an equivalent
-         built on =file-equal-p= over successive parents) — NOT with
-         =string-prefix-p=, which mis-answers on symlinks, on trailing-slash
-         mismatches, and on sibling directories sharing a name prefix
-         (=/a/ws= vs =/a/ws-old=). Walks =(workspace--registered-names)=.
+         A registered, EXISTING home IS the checkout, contains it, or lies
+         inside it — by FILE IDENTITY (=workspace-bookmark--path-within-p=,
+         portable-bookmarks.el:584, walks truenamed ancestors comparing
+         device+inode through =workspace-bookmark--same-file-p=, :96) —
+         EXCEPT that a contained home that is itself a worktree of the
+         checkout's own repository
+         (=workspace-bookmark--same-repository-worktree-p=, :613, decided by
+         git: 1-2 subprocesses per contained home) confers nothing (DD-13).
+         Symbolic links confer nothing in either direction (DD-11). Tested
+         FIRST (precedence). Never =string-prefix-p=, =file-in-directory-p=
+         or =file-equal-p= (the last compares timestamps and fails open
+         under a concurrent writer; validator 2).
        producer:
          file: config/workspaces/portable-bookmarks.org
-         function: workspace-bookmark--classify
+         function: workspace-bookmark--classify   # via workspace-bookmark--owning-workspace, portable-bookmarks.el:635
      - value: other
        description: |
-         A linked worktree belonging to no registered workspace — the legacy
-         =~/emacs-*= checkouts. Usable as a discovery source; never canonical.
+         Everything else — a linked worktree no workspace owns (the legacy
+         =~/emacs-*= checkouts), a remote or non-string input, any error.
+         Usable as a discovery source; never canonical.
        producer:
          file: config/workspaces/portable-bookmarks.org
          function: workspace-bookmark--classify
 
+   precedence: |
+     Ownership before structure; required by the negative rule, not chosen.
+     A full clone inside a registered home is a main worktree by git's
+     account and MUST classify workspace-owned, never canonical
+     (disc-checkout-discovery-1).
+
    canonical_safety_rule: |
-     =workspace-bookmark--canonical-for-identity= returns a checkout ONLY if
-     that checkout classifies =canonical=. If the repository's main worktree
-     is not in view, the correct answer is NO canonical checkout (which the
-     resolver maps to =no-clone=) — never "the closest thing in view".
+     =workspace-bookmark--offerable-canonical-p= (portable-bookmarks.el:754)
+     is the ONLY admission test: DIR classifies =canonical= AND is
+     =--same-file-p= to =--canonical-checkout= of DIR (:764-766). Each half
+     is necessary, not sufficient (classify alone admits husks /
+     core.worktree / bare-in-.git; =--canonical-checkout= alone admits a
+     workspace's full clone). Every offer path goes through
+     =workspace-bookmark--canonical-checkouts-among= (:768): the plural
+     =--canonical-checkouts-for-identity= (:784), the public
+     =workspace-bookmark-canonical-checkouts-in-view= (:812), and through it
+     both git-worktrees sources. If no main worktree passes, the correct
+     answer is NO canonical checkout (which the resolver maps to
+     =no-clone=) — never "the closest thing in view".
+
+   ambiguity_rule: |
+     Two or more DISTINCT canonical checkouts of one identity are ambiguous
+     (ask 11): =--canonical-checkouts-for-identity= returns all of them,
+     the current workspace's first then registry order; the resolver maps
+     that to =ambiguous=. Two worktrees of ONE repository are not ambiguous
+     (they share a main worktree).
+
+   known_limitations: |
+     - A clone linked into a home, or holding a link to a home, is not owned
+       (DD-11); a main clone symlinked into a home may therefore be offered
+       to other workspaces as canonical. Add a worktree; do not link a clone in.
+     - A repository at $HOME with a real ~/.git contains every home under
+       ~/emacs-workspaces, so it is always owned (by the first registered
+       workspace) and never offered; it owns nothing else.
+     - A home under an untracked/ignored subdirectory of a clone owns that
+       clone (the decision as worded, ask 10).
+     - Ownership by tracked content, and anchored repos in the picker:
+       deferred (.tasks/portable-bookmarks-ownership-refinements-after-use.md).
 
    validator: |
      Structural (no scaffolding in this project):
-     1. A behavioral spec builds a repo with (i) a worktree inside a
-        registered fake workspace :home and (ii) a worktree outside any
-        workspace, and asserts NEITHER is returned by
-        =--canonical-for-identity=.
-     2. grep -n 'string-prefix-p' in the classify function body -> zero hits.
-     3. A spec asserts the =.git=-is-a-file case classifies non-canonical
-        (the ~/.emacs.d shape).
+     1. discovery-spec builds owned + stale worktrees; neither is returned
+        (portable-bookmarks-discovery-spec.el:262, :1020).
+     2. grep 'string-prefix-p\|file-in-directory-p\|file-equal-p' over
+        --path-within-p / --owning-workspace / --classify -> zero hits
+        (discovery-spec.el:1079 spies file-in-directory-p).
+     3. .git-is-a-file classifies non-canonical (the ~/.emacs.d shape;
+        discovery-spec.el:202).
+     4. Specs pin nil for the --separate-git-dir husk, the symlinked-.git
+        husk, a husk with an untracked file, and a husk with a TRACKED
+        .DS_Store (discovery-spec.el:400-515).
+     5. Case-flipped home spelling still owns (:539); anchored-at-main never
+        offered (:584).
+     6. grep "workspace-bookmark--canonical-checkout\b\|(workspace-bookmark--classify"
+        over config/workspaces/*.el finds calls only inside
+        --offerable-canonical-p (verified: portable-bookmarks.el:764, :766).
+     7. A nested same-repo worktree home leaves main canonical (:1386); a
+        missing home owns nothing (:1440).
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-discovery-spec.el
-     - config/workspaces/test/portable-bookmarks-missing-repo-spec.el
+     - config/workspaces/test/git-worktrees-spec.el
+     - "config/workspaces/test/portable-bookmarks-missing-repo-spec.el (planned: missing-repo-choice, cycle 2)"
 
    related_entries:
      - register/boundary/git-derived-checkout-discovery
      - register/vocabulary/bookmark-resolution-outcome
      - register/invariant/no-silent-wrong-file-open
      - register/invariant/registry-name-equals-basename
+     - register/boundary/workspace-git-worktrees-consumer
 
    cited_by_tasks:
      - checkout-discovery
      - missing-repo-choice
+     - wave3-review-fixes
+     - discovery-refinements
+     - worktree-candidates-git-first
+     - canonical-predicate-consolidation
+     - ownership-and-picker-polish
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
+   reconciled_in: cycle-1789935943
    #+end_src
 
 * Boundary
@@ -6020,6 +6249,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: confirmed
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): STAYS
+     CONFIRMED; pins 2 and 3 AMENDED by worktree-candidates-git-first,
+     canonical-predicate-consolidation and ownership-and-picker-polish
+     (spec delta "Soft repo-source selection", BREAKING: projectile demoted
+     then REMOVED as a source, DD-12; magit linked worktrees replaced by
+     their main worktree, DD-13; one admission predicate). DD-15
+     (b32523b8): =magit-repository-directories= = (("~/src" . 1)) when
+     ~/src exists (config/major-modes/magit.el:16-22), so magit's list is
+     now populated on this machine and the picker's cost is live
+     (end-of-cycle finding 6). Pins 1, 4, 5 unchanged. Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/boundary-workspace-git-worktrees-consumer.md
+
      cycle-20260612-164043 (add-workspace-git-worktrees) integrate:
      created CONFIRMED from the merged, clean-reviewed shapes in
      =config/workspaces/git-worktrees.el= (tasks
@@ -6040,20 +6281,53 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         error). Removing the single =jf/load-module= line for
         =config/workspaces/git-worktrees.el= in =workspaces.org= leaves
         workspaces fully functional.
-     2. =MAGIT IS THE GIT BACKEND=: all git operations go through magit
-        plumbing — =magit-worktree-branch= (create on new branch),
+     2. =MAGIT IS THE GIT BACKEND= for every git operation THIS module
+        performs — =magit-worktree-branch= (create on new branch),
         =magit-worktree-delete= (remove), =magit-list-worktrees= (enumerate
-        + resolve source repo), =magit-main-branch= (main detection),
-        =magit-branch-merged-p= + =magit-branch-delete= (GUARDED, merged-only,
-        never force). Every magit call is bound to the right repo via
+        its own children + resolve source repo), =magit-main-branch= (main
+        detection), =magit-branch-merged-p= + =magit-branch-delete=
+        (GUARDED, merged-only, never force). git-worktrees.el makes NO
+        non-magit git call (grep process-file/call-process/shell-command:
+        zero). Read-only candidate DISCOVERY is delegated to
+        portable-bookmarks' runner through the public function (amended
+        cycle-1789935943); that is the discovery module's subprocess, not a
+        second backend here. Every magit call is bound to the right repo via
         =register/invariant/git-worktree-default-directory-binding=.
-     3. =SOFT REPO-SOURCE SELECTION=: =jf/workspace--worktree-repo-candidates=
-        consumes only candidate LISTS from =projectile-known-projects=,
-        =(magit-list-repos)=, =project-known-project-roots= — each guarded
-        by =featurep=/=boundp=/=fboundp=, never their workflows — de-duped on
-        expanded absolute paths, filtered to real git repos, with a
-        =read-directory-name= floor (=jf/workspace--worktree-read-repo=) so
-        none is required.
+     3. =SOFT REPO-SOURCE SELECTION, ONE ADMISSION TEST= (amended
+        cycle-1789935943; DD-12, DD-13): =jf/workspace--worktree-repo-candidates=
+        (git-worktrees.el:93; pure, never prompts) merges, in order:
+        (a) the git-derived source,
+            =(workspace-bookmark-canonical-checkouts-in-view)=
+            (=jf/workspace--worktree-git-derived-candidates=, :65-67);
+        (b) =(magit-list-repos)= when magit is loaded, first stripped of
+            remote (TRAMP) and non-string entries by
+            =jf/workspace--worktree-local-only= (:26; =file-remote-p= on the
+            NAME only — no connection, so building the list never touches
+            the network and the floor is always reachable), then passed
+            through =(workspace-bookmark-canonical-checkouts-in-view DIRS)=
+            (=jf/workspace--worktree-canonical-only=, :85-88).
+        Projectile and project.el are NOT consulted (DD-12;
+        git-worktrees-spec.el:128 pins it). portable-bookmarks' single
+        predicate (=workspace-bookmark--offerable-canonical-p=) is the
+        admission test for EVERY candidate: a magit-listed LINKED worktree
+        contributes its repository's MAIN worktree, which magit need not
+        list (the new worktree is created off main either way; only the
+        default directory name follows the main worktree); a
+        workspace-owned checkout or a husk contributes nothing. The public
+        function is the ONLY portable-bookmarks symbol named, =fboundp=-
+        guarded at CALL time, never =require='d (DD-10). Unbound: the
+        git-derived source is nil and magit's list passes through
+        UNCLASSIFIED; signalling: one warning per collection
+        (=jf/workspace--worktree-warning-state=, :6) and that source
+        contributes nothing. The merged list is de-duped by truename
+        (=jf/workspace--worktree-dedupe-dirs=, :49; first spelling kept —
+        needed across the two calls) and filtered by
+        =jf/workspace--worktree-git-repo-p= (:111-113); both are the
+        unbound-passthrough path's FLOOR, not the admission test
+        (end-of-cycle finding 8: do not take =--git-repo-p= for the safety
+        test). The =read-directory-name= floor and free-form entry
+        (=jf/workspace--worktree-read-repo=, require-match nil) are
+        unchanged (known bug: .tasks/worktree-read-repo-empty-input.md).
      4. =NO PERSISTED GIT STATE=: repo/branch/worktree-set are DERIVED on
         demand from disk + git; the workspace plist gains no =:repo=/=:branch=
         slot (the closed serialize allow-list cannot leak them).
@@ -6066,24 +6340,43 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    producer_side:
      file: config/workspaces/git-worktrees.org
      functions:
-       - jf/workspace--worktree-repo-candidates  # () -> list of expanded git-repo dirs; pure, no prompt
+       - jf/workspace--worktree-repo-candidates  # () -> list of expanded git-repo dirs; pure, no prompt (git-worktrees.el:93)
        - jf/workspace--worktree-read-repo         # () -> one repo dir; the SOLE prompting fn (floor included)
        - jf/workspace--add-worktree               # (payload) -> ok|(failed . reason); :menu surface
        - jf/workspace--worktree-on-purge          # (payload) -> ok|skipped|(failed . reason); :on-purge surface
        - jf/workspace--worktree-children          # (home) -> list of (:dir :branch :source) for child worktrees
+       - jf/workspace--worktree-warn-discovery    # added cycle-1789935943: one warning per collection
+       - jf/workspace--worktree-local-only        # added cycle-1789935943: drop remote/non-string entries unprobed (:26)
+       - jf/workspace--worktree-dedupe-dirs       # added cycle-1789935943: truename de-dupe, first spelling kept (:49)
+       - jf/workspace--worktree-git-derived-candidates  # added cycle-1789935943: source (a) (:65-67)
+       - jf/workspace--worktree-canonical-only    # added cycle-1789935943: source (b) admission (:85-88)
      attaches_via: "(with-eval-after-load 'workspaces (with-eval-after-load 'magit (workspace-register-integration 'git-worktree :label \"git worktree\" :menu (cons \"w\" #'jf/workspace--add-worktree) :on-purge #'jf/workspace--worktree-on-purge)))"
+
+   environment_note: |
+     =magit-repository-directories= is set in config/major-modes/magit.org
+     (DD-15, b32523b8; magit.el:16-22), not here; the picker's cost is
+     linear in its size (~4 spawns per magit entry at 20944160; the target
+     is <= 2 on a warm memo — =register/boundary/git-derived-checkout-discovery=
+     cost_contract).
 
    directionality:
      permitted: |
        This module (the CONSUMER side) MAY name magit and git symbols
        freely. It attaches via =workspace-register-integration=, exactly
        as gptel does — the PERMITTED direction of
-       =register/boundary/gptel-sessions-workspace-consult=.
+       =register/boundary/gptel-sessions-workspace-consult=. It MAY name
+       exactly one portable-bookmarks symbol, the public
+       =workspace-bookmark-canonical-checkouts-in-view=, quoted and
+       fboundp-guarded (git-worktrees-spec.el:525-560 pins that no
+       =workspace-bookmark--= name appears in the tangled file).
      forbidden: |
        Workspaces CORE (=data-model=/=integrations=/=workspaces=/=tabs=/
        =workspaces-transient= .el) MUST NOT name magit/git symbols. Verified
        cycle-7 by =verify-change=: the only core hit is the loader path
        STRING "git-worktrees.el", not a live symbol.
+
+   test_corpus:
+     - config/workspaces/test/git-worktrees-spec.el
 
    related_entries:
      - register/boundary/workspace-integration-registry
@@ -6092,13 +6385,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - register/vocabulary/workspace-integration-outcome
      - register/invariant/workspaces-transient-deferred-require
      - register/invariant/git-worktree-default-directory-binding
+     - register/boundary/git-derived-checkout-discovery
+     - register/vocabulary/checkout-classification
+     - register/boundary/portable-bookmarks-consumer
 
    cited_by_tasks:
      - git-worktrees-module-scaffold
      - add-worktree-command
      - on-purge-teardown-handler
+     - worktree-candidates-git-first
+     - canonical-predicate-consolidation
+     - ownership-and-picker-polish
    discovered_from: add-workspace-git-worktrees
    discovered_by: architect
+   reconciled_in: cycle-1789935943
    #+end_src
 
 ** work-root-activation-seam
@@ -6751,8 +7051,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/portable-bookmarks-consumer
    tier: boundary
-   status: speculated
+   status: confirmed
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): CONFIRMED.
+     All four pins and both directionality clauses hold (module-scaffold
+     on-touch CONFIRMS; re-verified end-of-cycle) — three field edits only
+     (validator 2, the permitted list, a new sibling_consumer field;
+     end-of-cycle finding 5). The speculated feature-symbol mismatch is the
+     package convention, not a one-off (disc-module-scaffold-and-fixtures-1:
+     data-model.el -> workspace-data-model, git-worktrees.el ->
+     workspace-git-worktrees; 9 of the 12 modules in config/workspaces/
+     rename, the other 3 have basenames that are already prefixed). Loader
+     line: workspaces.el:62, after workspaces-mode (:56), before
+     workspaces-transient (:66); git-worktrees loads at :49, BEFORE this
+     module, which is why the sibling call is guarded at call time (DD-10).
+     Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/boundary-portable-bookmarks-consumer.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from design D10 (module placement and load order) + proposal
      "New module" + task =module-scaffold-and-fixtures=. The THIRD consumer
@@ -6778,16 +7093,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      2. =LOAD ORDER=: after =tabs.el= (owns =workspace--registry= and
         =workspace--current-name=) and after =persistence.el= (defines
         =workspace-restore=), therefore inserted between the existing
-        =workspaces-mode.el= (workspaces.org:135) and
-        =workspaces-transient.el= (workspaces.org:140) loader lines.
+        =workspaces-mode.el= and =workspaces-transient.el= loader lines
+        (confirmed: workspaces.el:56 / :62 / :66).
      3. =NO MAGIT, NO PROJECTILE=: git is reached by subprocess
-        (=process-file=), never through magit. This is what keeps bookmark
-        resolution from inheriting =git-worktrees='s hard magit dependency —
-        see =register/boundary/workspace-git-worktrees-consumer= pin 2, which
-        is the OPPOSITE choice made deliberately for a different module.
+        (=process-file=), never through magit. DD-6 recorded the durable
+        reason: magit is a porcelain over the git CLI and would not remove a
+        single subprocess, so it would be a dependency bought for
+        convenience wrappers alone — not merely "avoids inheriting
+        =git-worktrees='s hard magit dependency". See
+        =register/boundary/workspace-git-worktrees-consumer= pin 2, which is
+        the OPPOSITE choice made deliberately for a different module.
      4. =DROPPABLE=: removing the single =jf/load-module= line removes the
         advice and returns behaviour to stock. Stamped records keep their
-        absolute =filename= and keep working. Rollback is one line.
+        absolute =filename= and keep working. Rollback is one line. (The
+        git-worktrees picker then loses its git-derived source and passes
+        magit's list through unclassified — see sibling_consumer.)
 
    directionality:
      permitted: |
@@ -6795,11 +7115,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        workspaces registry internals: =workspace--registered-names=,
        =workspace--current-name=, =workspace--registry=,
        =workspace--broken-p=, =workspace-restore=,
-       =workspace-anti-save-predicates=.
+       =workspace-anti-save-predicates=, and (added cycle-1789935943
+       integrate) =workspace--home= (data-model) and =jf/emacs-dir= (the
+       configuration checkout in view). Registry access is
+       fboundp/boundp-guarded (portable-bookmarks.el:409-432).
 
        Design accepts the registry-internals coupling explicitly for this
        slice ("a published accessor would be the clean follow-up if 1c needs
-       the same data").
+       the same data"). The fixtures want that accessor too
+       (disc-module-scaffold-and-fixtures-3: portable-bookmarks-fixtures.el
+       re-defvars =workspace--registry= defensively); when it lands, its
+       first two consumers should be this module's resolution and the
+       fixtures file.
      forbidden: |
        (a) Workspaces CORE (=data-model= / =integrations= / =workspaces= /
            =tabs= / =persistence= / =layouts= / =workspaces-mode= /
@@ -6814,6 +7141,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    producer_side:
      file: config/workspaces/portable-bookmarks.org
      tangles_to: config/workspaces/portable-bookmarks.el
+     feature: workspace-portable-bookmarks   # the package convention, confirmed
      symbol_prefix: "workspace-bookmark- (public) / workspace-bookmark-- (internal)"
      symbol_prefix_note: |
        Matches the =workspace--= style of the core modules. NOT the older
@@ -6826,6 +7154,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        This is the boundary's notable asymmetry with
        =register/boundary/workspace-git-worktrees-consumer=.
 
+   sibling_consumer: |
+     git-worktrees.el calls ONE public symbol,
+     =workspace-bookmark-canonical-checkouts-in-view=, at two sites
+     (git-worktrees.el:67, :88), =fboundp=-guarded at CALL time (:65, :85),
+     barriered, never =require='d, no =declare-function= (DD-10). This
+     module never names git-worktrees. Every =workspace-bookmark--= symbol
+     stays private (tripwire: git-worktrees-spec.el:525-560 reads the
+     tangled file and asserts it names no private portable-bookmarks
+     function). The full surface is
+     =register/boundary/git-derived-checkout-discovery= cross_module_surface.
+
    known_overlap:
      with: jf/workspace--worktree-children (config/workspaces/git-worktrees.org)
      nature: |
@@ -6833,25 +7172,36 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        =magit-list-worktrees=; this module does it via =git worktree list
        --porcelain= as a subprocess. Two enumerations of one fact.
      disposition: |
-       ACCEPTED DELIBERATELY for this slice to avoid a magit dependency.
-       Flagged for later unification once the cold path lands. The Architect
-       should NOT report this as duplication (signal class 4) during this
-       change — it is a recorded, reasoned decision, not drift. Re-open it if
-       a THIRD enumeration appears.
+       ACCEPTED DELIBERATELY for this slice to avoid a magit dependency
+       (DD-6 keeps this disposition: unification would require allowing
+       magit, which is declined). Flagged for later unification once the
+       cold path lands. The Architect should NOT report this as duplication
+       (signal class 4) during this change — it is a recorded, reasoned
+       decision, not drift. Re-open it if a THIRD enumeration appears
+       (checked at cycle-1789935943 end-of-cycle: NEGATIVE — the
+       =worktree list --porcelain= calls in discovery-spec.el are fixture
+       assertions, not a third enumerator).
 
    validator: |
      Structural (no scaffolding in this project):
      1. grep -n 'magit\|projectile' config/workspaces/portable-bookmarks.el
-        -> zero hits.
+        -> zero hits (verified at 20944160).
      2. grep -rn 'workspace-bookmark' config/workspaces/*.el
-        -> hits ONLY in portable-bookmarks.el (plus the loader path string in
-        workspaces.el, which is a string not a symbol).
+        -> hits ONLY in portable-bookmarks.el and, in git-worktrees.el, ONLY
+        the public symbol =workspace-bookmark-canonical-checkouts-in-view=
+        (six hits at 20944160: git-worktrees.el:58, 65, 67, 74, 85, 88; never
+        a =--= name; pinned by git-worktrees-spec.el:525-560). The loader
+        path string in workspaces.el does not match this pattern and yields
+        no hit.
      3. The loader line in workspaces.org sits strictly after
-        workspaces-mode.el and strictly before workspaces-transient.el.
-     4. grep -n 'portable-bookmarks' init.org -> zero hits.
+        workspaces-mode.el and strictly before workspaces-transient.el
+        (verified: workspaces.el:56 / :62 / :66).
+     4. grep -n 'portable-bookmarks' init.org -> zero hits (verified).
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-spec.el
+     - config/workspaces/test/portable-bookmarks-fixtures.el
+     - config/workspaces/test/git-worktrees-spec.el
 
    related_entries:
      - register/boundary/workspace-git-worktrees-consumer
@@ -6863,8 +7213,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    cited_by_tasks:
      - module-scaffold-and-fixtures
      - off-workspace-restore
+     - canonical-predicate-consolidation
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
+   confirmed_in: cycle-1789935943
    #+end_src
 
 ** bookmark-advice-seams
@@ -6877,6 +7229,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: speculated
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): PARTIAL —
+     SEAM 1 LIVE and CONFIRMED (stamp-seam 9f28f931, wave3-review-fixes;
+     verified by the on-touch architect with real git and a stock-Emacs
+     round trip). SEAM 2 is installed as =:around= (combinator SETTLED, see
+     purpose) and PASS-THROUGH (portable-bookmarks.el:398-405); =jump-seam=
+     is deferred to cycle 2, so the entry STAYS SPECULATED and seam 2's
+     clauses are UNEXERCISED. The stamp-seam on-touch's cost_contract is
+     corrected below: the directory check is now BOUNDED (=rev-parse
+     HEAD:./=, portable-bookmarks.el:286-293), and the memo stamp is the
+     repository config only (user-level gitconfig NOT added; M-x
+     workspace-bookmark-clear-identity-cache and a reload clear it,
+     :220-231, :255). Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/boundary-bookmark-advice-seams.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from design D1/D2 + tasks =stamp-seam= and =jump-seam=.
      Both seam functions VERIFIED against the running Emacs at plan time
@@ -6892,12 +7258,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      of points is the whole architecture. Both are additive and both degrade
      to today's behaviour on any failure.
 
-     SEAM 1 — STAMP. =:filter-return= advice on =bookmark-make-record=.
-     Receives the record Emacs just built; returns it either stamped or
-     byte-identical. MUST NOT prompt, MUST NOT message, MUST NOT alter the
-     bookmark name the user chose. Whole body wrapped in =condition-case=
-     returning the ORIGINAL record: a failure to stamp must never prevent a
-     bookmark from being created.
+     SEAM 1 — STAMP. =:filter-return= advice on =bookmark-make-record=
+     (=workspace-bookmark--stamp-record=, portable-bookmarks.el:376;
+     installed at :1047). Receives the record Emacs just built; returns it
+     either stamped or byte-identical. MUST NOT prompt, MUST NOT message,
+     MUST NOT alter the bookmark name the user chose. Whole body wrapped in
+     =condition-case= returning the ORIGINAL record (:389-396): a failure to
+     stamp must never prevent a bookmark from being created.
+     CALLERS (confirmed cycle-1789935943): every bookmark creation AND
+     =layouts.el='s per-window-leaf capture (=workspace--serialize-buffer=)
+     on the synchronous tab-switch autosave, the idle tick, kill-emacs and
+     explicit saves. Layout records are stamped deliberately (ask 4); seam 1
+     never detects or excludes its caller. RETURN SHAPE: an unstampable
+     record comes back =eq=; a stamped record is a NEW record (original
+     properties first, in order, then the three stamped properties); the
+     input record is never mutated.
 
      SEAM 2 — SUBSTITUTE. Advice on =bookmark-handle-bookmark=
      (bookmark.el:1339). Chosen because =bookmark--jump-via= calls it, and
@@ -6906,6 +7281,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      completion front-ends such as =consult-bookmark=. Advising
      =bookmark-jump= instead would silently miss the others — a coverage hole
      that would look like "it works" in the common case.
+     COMBINATOR: =:around= (=workspace-bookmark--handle-bookmark-advice=,
+     portable-bookmarks.el:398; installed at :1049), forced by
+     =register/invariant/no-silent-wrong-file-open= — =:filter-args= can
+     substitute the record but cannot decline to call through, and both the
+     cancel path ("open nothing AND signal nothing") and the not-on-branch
+     path ("MUST NOT be visited") require declining
+     (disc-module-scaffold-and-fixtures-2). At 20944160 the body is exactly
+     =(apply orig-fn bookmark-name-or-record args)=; =jump-seam= (cycle 2)
+     supplies the resolve-and-substitute body.
 
      ARGUMENT NORMALIZATION: the seam-2 parameter is
      =BOOKMARK-NAME-OR-RECORD= and may be a STRING NAME or a record.
@@ -6927,6 +7311,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        why_rejected: |
          misses bookmark-jump-other-window, bookmark-jump-other-frame, and
          every completion front-end that goes through bookmark--jump-via.
+     - alternative: ":filter-args on bookmark-handle-bookmark (seam 2)"
+       why_rejected: |
+         cannot decline to call through, so neither a silent cancel nor a
+         reported-not-visited not-on-branch is expressible (settled
+         cycle-1789935943; see COMBINATOR).
+
+   cost_contract: |
+     Seam 1, measured at 20944160 (probe, warm memo): 0 spawns for a gate
+     rejection (no/relative/nonexistent filename, labels such as "3
+     buffers", nested buffer/window values, TRAMP); 1 for a local path in no
+     work tree; 2 for a tracked FILE (rev-parse + ls-files); 1 for a tracked
+     DIRECTORY or the root (one rev-parse with HEAD:./; bounded by depth,
+     not subtree); +1..2 once per checkout root per memo generation (git
+     remote). ~17-50 ms per stamped record here; on the tab-switch path the
+     cost is paid once per visible in-repo window (ask 6: accepted; revisit
+     lazy export-time coordinates when slice 2 is planned). Memo
+     (=workspace-bookmark--memoised-identity=, portable-bookmarks.el:239):
+     per checkout root, keyed on the shared git config's mtime; a nil
+     identity is memoised; a nil stamp is never a hit; cleared on load and
+     by M-x workspace-bookmark-clear-identity-cache. Any change adding a
+     spawn to seam 1 must amend this field. Seam 2: no cost until jump-seam
+     (the resolve path's cost is
+     =register/boundary/git-derived-checkout-discovery= cost_contract).
 
    upstream_contract_risk: |
      =bookmark-handle-bookmark= is NOT a documented extension point; its
@@ -6937,46 +7344,59 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      isolation, so an upstream change surfaces as a test failure rather than
      as silent pass-through.
 
-     Observed at plan time, worth confirming at integrate: seam 2's host
-     function has its own =bookmark-error-no-filename= recovery arm that
-     offers an interactive RELOCATE prompt, and that arm is gated on
-     =(stringp bookmark-name-or-record)=. Passing a substituted RECORD
-     therefore suppresses that prompt. For this capability that is the
-     DESIRED direction (=not-on-branch= must not become a relocate offer),
-     but it is a behaviour change on the degraded path and should be an
-     explicit assertion, not an accident.
+     Observed at plan time, STILL TO CONFIRM AT JUMP-SEAM (cycle 2): seam 2's
+     host function has its own =bookmark-error-no-filename= recovery arm
+     that offers an interactive RELOCATE prompt, and that arm is gated on
+     =(stringp bookmark-name-or-record)= — unchanged in bookmark.el 30.2 at
+     20944160. Passing a substituted RECORD therefore suppresses that
+     prompt. For this capability that is the DESIRED direction
+     (=not-on-branch= must not become a relocate offer), but it is a
+     behaviour change on the degraded path and must be an explicit
+     assertion once seam 2 does work, not an accident.
 
    degradation_contract: |
      Both seams wrap their bodies in =condition-case= and fall through to the
      ORIGINAL argument on any internal error. Consequence, and the point:
      a failure affecting ONE bookmark cannot affect other bookmarks or the
-     bookmark file as a whole.
+     bookmark file as a whole. (Seam 1: confirmed,
+     portable-bookmarks-stamp-spec.el:463. Seam 2: the docstring promises
+     it; the body is pass-through until jump-seam.)
 
    producer_side:
      file: config/workspaces/portable-bookmarks.org
      functions:
-       - "the :filter-return advice on bookmark-make-record (seam 1)"
-       - "the advice on bookmark-handle-bookmark (seam 2)"
+       - "workspace-bookmark--stamp-record — the :filter-return advice on bookmark-make-record (seam 1; portable-bookmarks.el:376)"
+       - "workspace-bookmark--handle-bookmark-advice — the :around advice on bookmark-handle-bookmark (seam 2; portable-bookmarks.el:398, pass-through)"
      install_and_remove: |
-       Advice installation AND matching removal are both defined, so the
-       module can be reloaded during development without stacking advice.
+       Advice installation AND matching removal are both defined
+       (portable-bookmarks.el:1047-1050 installs), so the module can be
+       reloaded during development without stacking advice
+       (portable-bookmarks-spec.el pins idempotent installation).
 
    validator: |
      Structural (no scaffolding in this project):
-     1. grep -n 'advice-add' config/workspaces/portable-bookmarks.el -> exactly
-        two seams, on bookmark-make-record and bookmark-handle-bookmark; NOT
-        on bookmark-jump, NOT on find-file.
+     1. grep -n 'advice-add' config/workspaces/portable-bookmarks.el ->
+        exactly two seams, on bookmark-make-record (:filter-return) and
+        bookmark-handle-bookmark (:around); NOT on bookmark-jump, NOT on
+        find-file (verified portable-bookmarks.el:1047-1050;
+        portable-bookmarks-spec.el:54-72).
      2. grep -n "bookmark-prop-set.*'handler\|:handler" -> the module never
-        sets a handler property.
-     3. Both advice bodies contain a condition-case whose handler returns the
-        original argument.
-     4. A behavioral spec drives bookmark-jump-other-window (not just
-        bookmark-jump) and asserts resolution happened — proving the choke
-        point.
+        sets a handler property (verified: no bookmark-prop-set at all).
+     3. Seam 1's body is one condition-case returning the ORIGINAL record
+        (portable-bookmarks.el:389-396). Seam 2: while pass-through, exactly
+        (apply orig-fn bookmark-name-or-record args); once it does work the
+        same condition-case rule applies (validator to be re-armed by
+        jump-seam).
+     4. (planned: jump-seam, cycle 2) A behavioral spec drives
+        bookmark-jump-other-window (not just bookmark-jump) and asserts
+        resolution happened — proving the choke point.
+     5. portable-bookmarks-stamp-spec.el:539-687 asserts the cost_contract
+        counts with spies on workspace-bookmark--git.
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-stamp-spec.el
-     - config/workspaces/test/portable-bookmarks-jump-spec.el
+     - config/workspaces/test/portable-bookmarks-spec.el
+     - "config/workspaces/test/portable-bookmarks-jump-spec.el (planned: jump-seam, cycle 2)"
 
    related_entries:
      - register/shape/portable-bookmark-coordinates
@@ -6988,6 +7408,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    cited_by_tasks:
      - stamp-seam
      - jump-seam
+     - module-scaffold-and-fixtures
+     - wave3-review-fixes
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
    #+end_src
@@ -7000,8 +7422,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/boundary/git-derived-checkout-discovery
    tier: boundary
-   status: speculated
+   status: reconciled
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): RECONCILED.
+     The architecture is confirmed (git-only, configuration-free, one
+     runner, one normalizer, no magit/projectile/cache/scanning). The
+     normalization edge cases named at plan (ports, non-forge hosts, path
+     case) are pinned by portable-bookmarks-identity-spec.el; credential
+     stripping too. STILL OWED: the corpus pass over this machine's real
+     remote-URL spellings (the user chose to run it REDACTED; not confirmed
+     as run) — until then =.GIT=, interior =//= (now collapsed) and IPv6
+     literals are decided by the unit table only, so this note is NARROWED,
+     not lifted. Reconciled with DD-10 (soft call), DD-11 (symlinks
+     ignored), DD-12 (git-derived + magit only), DD-13 (same-repo worktree
+     homes). The two singular discovery functions have no production caller
+     (end-of-cycle finding 2; follow-up). Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/boundary-git-derived-checkout-discovery.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from design D3/D5 + specs/portable-bookmarks/spec.md
      § "Discovery without configuration" + tasks =repo-identity=,
@@ -7017,98 +7454,224 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      configuration is the point: resolution behaviour must not differ between
      machines because of registration state.
 
-     THE FOUR QUESTIONS AND THEIR COMMANDS (design D5):
-       which repository is this?            git config --get remote.origin.url
-       where is its canonical checkout?     git rev-parse --git-common-dir
-       what other checkouts exist?          git worktree list --porcelain
-       where is this checkout's root?       git rev-parse --show-toplevel
+     THE QUESTIONS AND THEIR COMMANDS (replaces the design D5 table;
+     design.md is out of date — end-of-cycle finding 1):
+       which repository?           git remote get-url origin (else the SOLE
+                                   remote; `git config --get remote.origin.url`
+                                   REJECTED: no insteadOf expansion, wrong
+                                   multi-URL pick; magit itself uses get-url)
+       root / common dir / prefix  git rev-parse --path-format=absolute
+                                   --show-toplevel --git-common-dir --show-prefix
+                                   [HEAD:./]   (git >= 2.31; older git -> nil
+                                   -> no-clone, never a signal)
+       what other checkouts?       git worktree list --porcelain (first entry
+                                   = main; -z NOT used, it needs git >= 2.36)
+       this file's relpath?        git --literal-pathspecs ls-files -z
+                                   --full-name -- BASENAME (in the file's dir)
+       does it hold the tree?      git ls-files -z (run in the candidate; one
+                                   existing non-artifact path suffices)
+       is it its own top level?    git rev-parse --show-toplevel (run in the
+                                   candidate)
 
-     CHECKOUTS IN VIEW = the current workspace's worktrees + the worktrees of
-     other REGISTERED workspaces + the configuration repository the running
-     Emacs was loaded from. No directory scanning, no cache, no machine-local
-     configuration in this slice.
+     CHECKOUTS IN VIEW (=workspace-bookmark--checkouts-in-view=,
+     portable-bookmarks.el:732): for the current workspace, then every other
+     registered workspace: its =:home= when the home is itself a checkout
+     (anchored / scaffolded homes, ask 7), then the home's IMMEDIATE children
+     that are real directories containing =.git= (symlinks skipped, DD-11);
+     then =jf/emacs-dir= (:740). Enumerating a registered home's children is
+     enumeration of a registered layout, not scanning; recursion or listing
+     any other directory is scanning and out of scope. No cache, no
+     machine-local configuration in this slice.
 
-     IDENTITY NORMALIZATION is part of this boundary because it is the
-     translation between git's several URL spellings and the single string
-     stored in =register/shape/portable-bookmark-coordinates=. The mapping
-     MUST be a single canonical function — inlining it at a second site is
-     exactly the boundary-translation drift this tier exists to catch.
-     Rules: strip =scheme://= and any =user@=; convert the SSH =host:path=
-     colon to =/=; drop a trailing =.git= and any trailing slash; downcase
-     the HOST portion only (path case is significant on many forges); nil for
-     anything that does not yield a =host/path= shape.
-     These three MUST agree on =github.com/moogah/emacs=:
+     IDENTITY NORMALIZATION (=workspace-bookmark--normalize-identity=,
+     portable-bookmarks.el:167 — THE one normalizer) is part of this
+     boundary because it is the translation between git's several URL
+     spellings and the single string stored in
+     =register/shape/portable-bookmark-coordinates=. Inlining it at a second
+     site is exactly the boundary-translation drift this tier exists to
+     catch. Rules are BRANCH-FIRST, not strip-first (disc-repo-identity-1/2):
+       1. If the URL begins SCHEME://, parse scheme://[userinfo@]host[:PORT]/path
+          and DISCARD userinfo and PORT (transport is not identity). A URL
+          that has a scheme but does not parse is nil — NEVER retried as
+          scp-like syntax (the fall-through cond mints `https/github.com`).
+       2. Otherwise, if a colon precedes the first slash, parse the scp-like
+          [userinfo@]host:path — there is NO port in this form.
+       3. Otherwise nil.
+     Then: downcase the HOST only (path case is significant on many forges),
+     strip a trailing slash then a trailing =.git=, collapse interior =//=,
+     reject an empty host or empty path. An identity REQUIRES an explicit
+     host (a scheme, or an scp-like colon before the first slash): local
+     absolute paths, relative paths and file:// URLs yield nil
+     (disc-repo-identity-3). Userinfo is stripped in every form, so a
+     credential never reaches the persisted record (disc-repo-identity-4).
+     These MUST agree on =github.com/moogah/emacs=:
        git@github.com:moogah/emacs.git
        https://github.com/moogah/emacs
        ssh://git@github.com/moogah/emacs.git
+     and the port pair on =example.com/team/repo=:
+       ssh://git@example.com:2222/team/repo.git
+       https://example.com/team/repo.git
+     while the scp spelling =git@example.com:2222/team/repo.git= is
+     =example.com/2222/team/repo= (git's own reading; no port in scp form).
 
      NO REMOTE MEANS NO IDENTITY. A path-based identity would be meaningless
      on another machine. On this machine 9 of 51 repositories under =~/src=
      have no remote — a normal case that must degrade cleanly, not an edge
-     case.
+     case. A non-portable remote (local path, file://) is, for this
+     capability's purposes, no remote.
 
    subprocess_contract: |
-     =process-file=, NEVER =shell-command-to-string=. No shell means no
-     quoting, which matters concretely here: directory names in this
-     environment contain spaces (=~/src/Archived Repos/=).
-     =default-directory= is bound to the target directory for every
-     invocation — the same discipline
-     =register/invariant/git-worktree-default-directory-binding= pins for
-     magit calls, applied to raw git.
-     Non-zero exit returns nil. NEVER signals. Callers map nil to a degraded
-     outcome (see =register/vocabulary/bookmark-resolution-outcome=
-     error_mapping).
+     ONE runner, =workspace-bookmark--git= (portable-bookmarks.el:59; the
+     single =process-file= call site is :91). =process-file=, NEVER a shell
+     (=shell-command-to-string=): no shell means no quoting, which matters
+     concretely here — directory names in this environment contain spaces
+     (=~/src/Archived Repos/=). =default-directory= is bound to DIR (or to
+     the directory of an EXISTING file; a missing DIR yields nil and is
+     never resolved to its parent — the parent fallback turned a trimmed
+     toplevel into another repository's identity, checkout-discovery
+     on-touch finding 2). The 18 GIT_* variables in
+     =workspace-bookmark--git-unset-environment= (:47) are removed for every
+     call, so an inherited GIT_DIR / GIT_WORK_TREE cannot redirect the
+     answer. OUTPUT: only git's final "\n" is removed (whitespace inside or
+     at the end of a path is kept). Non-zero exit, no output, nil /
+     non-string / REMOTE DIR -> nil. NEVER signals: the whole body is inside
+     =condition-case=, and =file-remote-p= is tested (:78, :80) before any
+     file-name-handler dispatch, so TRAMP can neither signal nor prompt
+     (repo-identity on-touch finding 1). LOCAL PATHS ONLY: a remote
+     checkout's identity re-anchored against a local one is a wrong-file
+     answer. Path-returning callers use -z or multi-line output and verify
+     re-anchoring by file identity. Same discipline as
+     =register/invariant/git-worktree-default-directory-binding=, applied
+     to raw git. Callers map nil to a degraded outcome (see
+     =register/vocabulary/bookmark-resolution-outcome= error_mapping).
 
    porcelain_parsing: |
-     =git worktree list --porcelain= is parsed, NOT the human-readable form,
-     which is column-aligned and lossy. Porcelain shape: one =worktree
-     <path>= line per entry, blank-line separated; git documents the FIRST
-     entry as the main worktree.
+     =git worktree list --porcelain= is parsed
+     (=workspace-bookmark--parse-worktree-porcelain=,
+     portable-bookmarks.el:446), NOT the human-readable form, which is
+     column-aligned and lossy. Porcelain shape: one =worktree <path>= line
+     per entry, blank-line separated, with bare / prunable / locked /
+     detached flag lines; git documents the FIRST entry as the main
+     worktree. A USABLE checkout is non-bare, non-prunable, exists, and
+     holds a =.git= entry; locked and detached entries are kept. The first
+     entry may be a git DIRECTORY for submodule / --separate-git-dir
+     layouts, so =--checkouts-of= (:482) is NOT reflexive
+     (disc-checkout-discovery-5).
+
+   functions: |
+     --git (:59), --same-file-p (:96; device+inode; file-equal-p rejected),
+     --repo-root (:120), --remote-url (:128), --normalize-identity (:167;
+     THE one normalizer), --root-identity, --identity, --memoised-identity
+     (:239; per checkout root, keyed on the shared config's mtime; stamp
+     path only today — end-of-cycle finding 6), --checkout-position,
+     --relpath (:308), --checkout-dir-p, --parse-worktree-porcelain (:446),
+     --worktree-entries, --checkouts-of (:482), --os-artifact-p,
+     --holds-tracked-file-p (:518), --canonical-checkout (:546),
+     --path-within-p (:584), --same-repository-worktree-p (:613),
+     --owning-workspace (:635), --classify (:653), --home-checkouts,
+     --workspace-checkouts (:698; PLURAL; drops a child that is not its own
+     root), --checkouts-in-view (:732), --offerable-canonical-p (:754),
+     --canonical-checkouts-among (:768), --canonical-checkouts-for-identity
+     (:784; PLURAL), and the PUBLIC workspace-bookmark-canonical-checkouts-in-view
+     (:812). Discovery returns LISTS; uniqueness is the consumer's decision
+     (nil no longer collapses "none" and "several"). The singulars
+     --workspace-checkout (:718) and --canonical-for-identity (:800) have no
+     production caller (end-of-cycle finding 2: delete in a follow-up).
+
+   cross_module_surface: |
+     ONE public function:
+     =(workspace-bookmark-canonical-checkouts-in-view &optional CHECKOUTS)=,
+     portable-bookmarks.el:812, cl-defun with supplied-p. No argument: the
+     canonical checkouts of the repositories of =--checkouts-in-view=, in
+     view order. CHECKOUTS given: the same for that list; an explicit nil
+     yields nil. Each element passed =--offerable-canonical-p=; a linked
+     worktree in CHECKOUTS contributes its repository's MAIN worktree, which
+     may lie outside the view. Results are absolute, slash-ended,
+     de-duplicated by file identity, first appearance kept. Never signals in
+     normal operation (no barrier of its own; the consumer barriers).
+     STABILITY: name, calling convention and meaning change only together
+     with git-worktrees.org; tripwires git-worktrees-spec.el § "git-derived
+     repo candidates" and § "names no private portable-bookmarks function"
+     (:525-560). The three-function private surface that
+     worktree-candidates-git-first first used (--checkouts-in-view /
+     --checkouts-of / --classify) is GONE
+     (disc-canonical-predicate-consolidation-2).
 
    second_consumer:
      file: config/workspaces/git-worktrees.org
-     function: jf/workspace--worktree-repo-candidates
+     functions:
+       - jf/workspace--worktree-git-derived-candidates   # git-worktrees.el:65-67
+       - jf/workspace--worktree-canonical-only           # git-worktrees.el:85-88
      nature: |
-       The =worktree-candidates-git-first= task makes this boundary the
-       PRIMARY candidate source for the git-worktrees repo picker, demoting
-       =projectile-known-projects= to one optional legacy source among
-       others. This is the BREAKING (spec-level) part of the change and it
-       AMENDS pin 3 of the already-=confirmed=
-       =register/boundary/workspace-git-worktrees-consumer=.
+       This boundary is the PRIMARY candidate source for the git-worktrees
+       repo picker, and its predicate admits magit's list too; projectile
+       and project.el are NOT consulted (DD-12). This is the BREAKING
+       (spec-level) part of the change and it AMENDS pins 2 and 3 of the
+       =confirmed= =register/boundary/workspace-git-worktrees-consumer=.
+     consumer_filter: |
+       None: every element already passed --offerable-canonical-p. The
+       post-filters in git-worktrees.el:111-113 (truename dedupe,
+       --git-repo-p) are the unbound-passthrough path's floor, not the
+       admission test (end-of-cycle finding 8).
      constraint: |
-       The =read-directory-name= floor
-       (=jf/workspace--worktree-read-repo=) is UNCHANGED. Merge-and-dedupe on
-       expanded absolute paths, filtered to real git repos, is UNCHANGED.
-       Only the ORDER and the "minimum source" claim change.
+       The =read-directory-name= floor (=jf/workspace--worktree-read-repo=)
+       and free-form entry are UNCHANGED.
      dependency_direction: |
-       git-worktrees must NOT require portable-bookmarks (that would make a
-       magit-dependent module depend on a bookmark module). Whichever way the
-       shared helper is placed, the dependency must not flow
-       git-worktrees -> portable-bookmarks. If the helper needs to be shared,
-       it belongs in a third place or is duplicated deliberately — an
-       implementation decision this entry expects to be RESOLVED, not assumed.
+       RESOLVED (DD-10, worktree-candidates-git-first): git-worktrees does
+       NOT require portable-bookmarks. Soft, call-time =fboundp= =funcall= of
+       the one public symbol (git-worktrees.el:65, :85); no =require=, no
+       =declare-function=, no third module, no duplicated enumerator. Load
+       order is irrelevant (git-worktrees loads first, workspaces.el:49 vs
+       :62): when the module is absent the git-derived source contributes
+       nothing and magit's list passes through unclassified.
+
+   cost_contract: |
+     (new; end-of-cycle finding 6) --classify spawns 0 (plus 1-2 per
+     contained home via --same-repository-worktree-p); identity 2-3 per
+     checkout (NOT memoised on the resolve/picker path today —
+     --canonical-checkouts-for-identity calls --identity per in-view
+     checkout, portable-bookmarks.el:796-797; --workspace-checkouts calls
+     --repo-root + --root-identity per home child, :711-714); --checkouts-of
+     1 per candidate; --canonical-checkout up to 4 per distinct main
+     worktree. Measured at 20944160: resolved 2 spawns / ~30 ms; missing-repo
+     10 / ~160 ms with 3 checkouts in view; the picker ~4 spawns per magit
+     entry (21 / ~600 ms for 5 entries). All costs are linear in
+     candidates; DD-15 (magit-repository-directories = ~/src, ~51 repos)
+     made the picker's cost live. Target after finding 6: <= 2 per
+     candidate on a warm memo, by routing discovery through
+     --memoised-identity and memoising --canonical-checkout per common dir
+     within one call.
 
    out_of_scope_cold_path: |
      Declared clone roots / directory scanning (replacing projectile for
      CREATING worktrees) belongs to the git-worktrees candidate seam and is
      DEFERRED. An implementation that adds scanning here is scope creep
-     against this entry.
+     against this entry. (DD-15 restores picker suggestions through magit's
+     own =magit-repository-directories=, which is magit's scan, not this
+     boundary's.)
 
    validator: |
      Structural (no scaffolding in this project):
      1. grep -n 'shell-command-to-string' config/workspaces/portable-bookmarks.el
-        -> zero hits.
-     2. Exactly ONE function normalizes a remote URL to an identity; grep for
-        a second site doing scheme/.git stripping.
-     3. A behavioral spec asserts the SSH / HTTPS / ssh:// triple agree.
+        -> zero hits (verified at 20944160).
+     2. Exactly ONE function normalizes a remote URL to an identity; no
+        second scheme/.git stripping site anywhere in config/ (verified).
+     3. A behavioral spec asserts the SSH / HTTPS / ssh:// triple agree
+        (portable-bookmarks-identity-spec.el:40, :231).
      4. A behavioral spec asserts a repo whose only remote is named
         =upstream= still yields an identity (origin-preferred, not
-        origin-required).
-     5. Every git call site binds default-directory.
+        origin-required; identity-spec.el:173, :253).
+     5. Exactly one process-file call site (portable-bookmarks.el:91),
+        default-directory bound, environment scrubbed
+        (identity-spec.el:392).
+     6. (owed; end-of-cycle finding 6) a spec bounds picker spawns per magit
+        entry on a warm memo.
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-identity-spec.el
      - config/workspaces/test/portable-bookmarks-discovery-spec.el
+     - config/workspaces/test/portable-bookmarks-stamp-spec.el
+     - config/workspaces/test/portable-bookmarks-resolver-spec.el
      - config/workspaces/test/git-worktrees-spec.el
 
    related_entries:
@@ -7122,8 +7685,14 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - repo-identity
      - checkout-discovery
      - worktree-candidates-git-first
+     - wave3-review-fixes
+     - discovery-refinements
+     - canonical-predicate-consolidation
+     - ownership-and-picker-polish
+     - resolver-outcomes
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
+   reconciled_in: cycle-1789935943
    #+end_src
 
 * Invariant
@@ -10092,6 +10661,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): UNEXERCISED
+     — status unchanged. Seam 2 is pass-through (portable-bookmarks.el:398-405);
+     no substituted record is constructed anywhere; grep
+     copy-tree/copy-alist/copy-sequence over portable-bookmarks.el -> zero
+     hits. The enforcing task is =jump-seam= (cycle 2), which must be the
+     first task of its wave with an on-touch on this entry (end-of-cycle
+     finding 3). The related WRITE-side property already holds and is
+     tested: seam 1 never mutates its input record
+     (portable-bookmarks-stamp-spec.el:463) and the resolver never touches a
+     record's properties (it reads through the canonical reader,
+     =workspace-bookmark--stamped-coordinates=, :880). Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/invariant-stored-record-never-mutated-by-jump.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from design D2 + specs § "Jump-time resolution on a copy" +
      task =jump-seam= step 3. The enabling behaviour was VERIFIED in
@@ -10135,7 +10717,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    enforcement_mechanism:
      kind: test + structural
      location: |
-       config/workspaces/test/portable-bookmarks-jump-spec.el — the
+       config/workspaces/test/portable-bookmarks-jump-spec.el (PLANNED:
+       jump-seam, cycle 2 — the file does not exist at 20944160) — the
        behavioral "stamped in worktree A, jumped from worktree B" spec
        asserts the opened buffer is B's copy AND that the stored record's
        filename is STILL A's path. That second assertion is the regression
@@ -10166,6 +10749,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        gap; the behavioral spec alone does not.
 
    validator: |
+     0. The enforcement spec file named above exists (it does NOT at
+        20944160; the register must not read as enforced while it is merely
+        unexercised — end-of-cycle finding 3).
      1. grep -n 'copy-tree' config/workspaces/portable-bookmarks.el -> present;
         grep -n 'copy-alist\|copy-sequence' in the same substitution path ->
         absent.
@@ -10203,6 +10789,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): the DECISION
+     half is live and confirmed (resolver-outcomes, ac50b041): pure decision
+     function, closed six-member set, no permissive arm
+     (portable-bookmarks.el:959 signals). The ACTOR half (jump seam,
+     missing-repo prompt, off-workspace flow) is deferred to cycle 2
+     (jump-seam / missing-repo-choice / off-workspace-restore), so the entry
+     STAYS SPECULATED and the actor clauses are UNEXERCISED; seam 2 is
+     pass-through at 20944160 (:398-405). The resolver-outcomes on-touch's
+     blocking finding (an on-disk symlink escape sent a VALID stamp to
+     non-portable = the stored path = possibly another workspace's file)
+     was closed by DD-16 option (b): confinement is LEXICAL, links resolve
+     by their in-checkout spelling. Statement, prohibition 4, residuals and
+     validators reconciled below. Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/invariant-no-silent-wrong-file-open.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from the proposal's "Why" + specs § "Closed set of resolution
      outcomes" + design D6/D7. This is the change's RAISON D'ETRE expressed
@@ -10212,8 +10813,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    title: No resolution path opens a location the user did not ask for
    statement: |
      Exactly one outcome — =resolved= — may open a location without asking.
-     Every other outcome MUST report, prompt, or do nothing. Concretely, four
-     prohibitions, each closing a distinct silent-wrong-file route:
+     =not-on-branch=, =ambiguous= and =no-clone= MUST report and open
+     nothing; =missing-repo= offers; =non-portable= is stock behaviour.
+     Every other outcome MUST report, prompt, or do nothing. Concretely,
+     four prohibitions, each closing a distinct silent-wrong-file route:
 
      1. =not-on-branch= MUST NOT be visited. No =find-file= (and no
         =find-file-noselect=) on a path that does not exist. Emacs's own
@@ -10228,6 +10831,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         and only because for that outcome it IS today's correct answer. In
         particular the empty-registry and user-quit fallbacks go to
         "read-only canonical, or cancel" — never through to the absolute path.
+        =non-portable= is reached ONLY by a record whose stamp is absent,
+        partial, of an unknown version, or LEXICALLY escaping (absolute,
+        a =..= component, NUL). A VALID stamp never degrades to
+        non-portable: a relpath that leaves the chosen checkout only
+        through a symbolic link resolves to its in-checkout SPELLING
+        (DD-16), which is the checkout's own file, never another
+        workspace's copy — the =:path= of =resolved= / =missing-repo= is
+        spelled inside =:checkout=; where a link on that branch points is
+        the branch's business.
 
      Cancelling MUST open nothing AND signal nothing: an explicit no-op is a
      legitimate answer, not an error.
@@ -10250,7 +10862,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        - taking the nearest worktree in view as canonical (route 3) — which
          lands in ANOTHER workspace, the original bug verbatim;
        - falling back to the stored absolute path "because we have one"
-         (route 4) — which is the original bug with extra steps.
+         (route 4) — which is the original bug with extra steps, and which
+         a file-identity confinement check would have re-opened for VALID
+         stamps reached through a link (closed by DD-16).
 
      Each is the =silent-fail-on-default-path= shape this project has already
      paid for once (see
@@ -10258,35 +10872,53 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      requirement on the canonical view closes the last variant: a quick
      lookup that becomes an unnoticed edit of main.
 
+   known_residuals: |
+     (a) Stale stamps after bookmark-relocate / a hand edit follow the OLD
+         relpath (user decision, ask 5;
+         .tasks/portable-bookmarks-stale-stamp-detection.md — that task is
+         also the place to route a stamp inconsistent with its record to a
+         reported outcome).
+     (b) A TAMPERED stamp (lexical escape) opens the stored filename, as
+         stock Emacs would for that record. Accepted: whoever writes the
+         stamp writes filename too.
+
    enforcement_mechanism:
      kind: test + structural
      location: |
        Split across specs by outcome:
-       - portable-bookmarks-resolver-spec.el — the decision function returns
-         the right outcome and never performs I/O.
-       - portable-bookmarks-jump-spec.el — =not-on-branch= creates NO buffer
-         (assert no buffer visits the missing path afterwards; asserting
-         "no error" is not sufficient).
-       - portable-bookmarks-missing-repo-spec.el — cancel opens nothing and
-         signals nothing; the read-only view is =view-mode= and marked.
-       - portable-bookmarks-off-workspace-spec.el — empty registry offers the
+       - portable-bookmarks-resolver-spec.el (LIVE at 20944160) — the
+         decision function returns the right outcome and never performs
+         I/O; the anchoring dispatch's default arm signals (:636); a VALID
+         stamp through an escaping link resolves by spelling (:503-582).
+       - portable-bookmarks-jump-spec.el (PLANNED: jump-seam, cycle 2) —
+         =not-on-branch= creates NO buffer (assert no buffer visits the
+         missing path afterwards; asserting "no error" is not sufficient).
+       - portable-bookmarks-missing-repo-spec.el (PLANNED:
+         missing-repo-choice, cycle 2) — cancel opens nothing and signals
+         nothing; the read-only view is =view-mode= and marked.
+       - portable-bookmarks-off-workspace-spec.el (PLANNED:
+         off-workspace-restore, cycle 2) — empty registry offers the
          bounded fallback and never opens the stored absolute path.
 
      enforcement_locus_check: |
        Where is this enforced? NOT in one place — and that is the entry's
        main risk. The resolver decides the outcome; the jump seam, the
        missing-repo prompt, and the off-workspace flow each act on it. The
-       invariant is only as strong as the weakest of those three actors.
+       invariant is only as strong as the weakest of those three actors —
+       and at 20944160 none of the three actors exists yet, so the
+       invariant is vacuously true on the actor side.
 
-       Mitigation, and the structural half of the enforcement: the resolver
-       is a PURE DECISION FUNCTION (no =find-file=, =switch-to-buffer=,
-       =completing-read=, or =message= in its body — see
+       Mitigation, and the structural half of the enforcement (LIVE): the
+       resolver is a PURE DECISION FUNCTION (no =find-file=,
+       =switch-to-buffer=, =completing-read=, or =message= in its body — see
        =register/vocabulary/bookmark-resolution-outcome= producer discipline)
        and every actor dispatches on the closed outcome set rather than on
        ad-hoc conditions. A =pcase= over
        =workspace-bookmark--valid-outcomes= with no permissive default arm is
        the shape that makes a missed case a loud error instead of a
-       fallthrough-open.
+       fallthrough-open; =workspace-bookmark--resolve-anchored=
+       (portable-bookmarks.el:948-959) has that shape: its =_= arm signals
+       and the barrier maps the signal to =no-clone=.
 
        Does the enforcement prevent silent-fail? The specific vector to watch
        is a =t= / =_= catch-all arm in any outcome dispatch whose body opens
@@ -10294,14 +10926,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        greps for it.
 
    validator: |
+     0. The three PLANNED enforcement spec files above exist (none does at
+        20944160 — end-of-cycle finding 3); until they do, validators 3 and
+        4 are unexercised.
      1. No outcome dispatch has a permissive default arm that opens a
-        location. A catch-all arm must error or no-op, never open.
-     2. grep -n 'find-file\|find-file-noselect' in the not-on-branch and
-        no-clone paths -> zero hits.
-     3. The canonical read-only view sets view-mode AND writes a visible
-        marker.
-     4. A spec asserts NO BUFFER visits the missing path after a
-        not-on-branch jump — not merely that no error was signalled.
+        location. A catch-all arm must error or no-op, never open. Concrete
+        site: =workspace-bookmark--resolve-anchored='s default arm signals
+        (portable-bookmarks.el:959; portable-bookmarks-resolver-spec.el:636).
+     2. grep -n 'find-file\|find-file-noselect' in the resolver section
+        (portable-bookmarks.el:836-1042) -> zero hits (verified).
+     3. (planned: missing-repo-choice) The canonical read-only view sets
+        view-mode AND writes a visible marker.
+     4. (planned: jump-seam) A spec asserts NO BUFFER visits the missing
+        path after a not-on-branch jump — not merely that no error was
+        signalled.
+     5. A VALID stamp resolved in a second workspace through an escaping
+        link yields that workspace's spelling, never the stored filename
+        (portable-bookmarks-resolver-spec.el:503-582).
 
    design_anchor:
      section: design.md §D6, §D7
@@ -10335,6 +10976,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1789935943 integrate (2026-09-26, against 20944160): UNEXERCISED
+     — status unchanged. The module names no
+     =workspace-anti-save-predicates= and adds no predicate (grep: zero hits
+     in portable-bookmarks.el); the three consult sites are unchanged
+     (persistence.el:301, :317; workspaces-mode.el:35). The enforcing task
+     is =off-workspace-restore= (cycle 2). The timing hazard (deferred
+     =window-state-put=) is unchanged. Note:
+     .orchestrator/cycles/cycle-1789935943/reconciliations/invariant-bookmark-jump-not-captured-as-working-state.md
+
      cycle-1789935943 (workspace-portable-bookmarks) plan, forward-mode:
      populated from design D9 + task =off-workspace-restore= step 5. The
      suppression mechanism is SPECULATED: design says "hook into
@@ -10392,10 +11042,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    enforcement_mechanism:
      kind: test
      location: |
-       config/workspaces/test/portable-bookmarks-off-workspace-spec.el —
-       the behavioral spec captures the workspace's =:working-state= before a
-       jump-triggered restore and asserts it is UNCHANGED afterwards, and
-       that =:saved-state= is likewise untouched.
+       config/workspaces/test/portable-bookmarks-off-workspace-spec.el
+       (PLANNED: off-workspace-restore, cycle 2 — the file does not exist at
+       20944160) — the behavioral spec captures the workspace's
+       =:working-state= before a jump-triggered restore and asserts it is
+       UNCHANGED afterwards, and that =:saved-state= is likewise untouched.
 
      enforcement_locus_check: |
        Where is this enforced? In an anti-save predicate registered on
@@ -10420,6 +11071,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        quit-out-of-jump.
 
    validator: |
+     0. The enforcement spec file named above exists (it does NOT at
+        20944160 — end-of-cycle finding 3).
      1. The module adds exactly one predicate to
         workspace-anti-save-predicates and removes it on unload.
      2. The suppression flag is reset on the normal, error, AND quit paths.

@@ -2,7 +2,7 @@
 name: jump-seam
 description: Substitute a resolved copy of the record at bookmark-handle-bookmark, never mutating the stored record
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: feature
 on_critical_path: true
 cycle: deferred
@@ -22,6 +22,9 @@ relations:
 
 ## Implementation steps
 
+> Cycle 1 (cycle-1789935943): step 2 corrected — the resolver returns SIX outcomes
+> (DD-14 added `ambiguous`) in a six-key plist; see `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-bookmark-resolution-outcome.md`.
+
 1. Install advice on `bookmark-handle-bookmark` (`bookmark.el:1339`). It is the
    choke point called by `bookmark--jump-via`, so it covers `bookmark-jump`,
    `bookmark-jump-other-window` and completion front-ends such as
@@ -29,8 +32,9 @@ relations:
 
 2. The advice receives `BOOKMARK-NAME-OR-RECORD`, which may be a string name or a
    record. Normalize with `bookmark-get-bookmark` so both forms are handled, then:
-   - call the resolver for the current workspace
-     (`(workspace--current-name)`); when that is nil, hand off to the
+   - call `(workspace-bookmark--resolve record (workspace--current-name))`; it returns
+     `(:outcome :path :identity :relpath :candidates :checkout)` and never signals
+     (only `quit` propagates); when that is nil, hand off to the
      off-workspace flow (task `off-workspace-restore`) — until that task lands,
      treat nil as `non-portable` and pass through unchanged.
    - `non-portable` → call through with the original argument untouched.
@@ -39,6 +43,8 @@ relations:
      `bookmark-prop-set`, and call through with the copy.
    - `missing-repo` → hand off to the prompt (task `missing-repo-choice`); until
      that lands, report and open nothing.
+   - `ambiguous` → report the `:candidates` (2+ checkouts of the identity in this
+     workspace, or 2+ canonical clones) and open nothing; nothing is chosen for the user.
    - `not-on-branch` / `no-clone` → report via `message` (or `user-error` if the
      jump must not continue) and do NOT call through. The key rule: never let
      Emacs visit a nonexistent path as a new empty buffer.
@@ -111,3 +117,22 @@ exists to remove.
 - specs/portable-bookmarks/spec.md § 'Jump-time resolution on a copy'
 - specs/portable-bookmarks/spec.md § 'Degradation and isolation'
 - design.md § D1, § D2
+
+## Cycle 1 updates (cycle-1789935943)
+
+### Cited register entries
+- `register/boundary/bookmark-advice-seams`: speculated → reconciled text, entry stays `speculated`. Seam 1 (stamp) is confirmed live; seam 2 is verified pass-through at 20944160 (`.el:398-405`) and is THIS task's to wire. See `.orchestrator/cycles/cycle-1789935943/reconciliations/boundary-bookmark-advice-seams.md`.
+- `register/invariant/stored-record-never-mutated-by-jump`: unexercised this cycle (status unchanged); this task owns its enforcement (`portable-bookmarks-jump-spec.el`, the `copy-tree` validator). Audit finding eoc-03 asks that jump-seam be the FIRST task of its cycle-2 wave and that the on-touch for this invariant fire on it.
+- `register/vocabulary/bookmark-resolution-outcome`: speculated → reconciled. Six members; `non-portable` is the only outcome that uses the stored `filename`; `resolved` is the only one that opens without asking. See `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-bookmark-resolution-outcome.md`.
+
+### User-resolved decisions
+- DD-14 (ask 13): `ambiguous` with `:candidates` — report, open nothing. **Implication**: one more non-visiting arm in step 2; add a behavioural spec (two worktrees of one repo inside the current workspace's home → no buffer).
+- DD-16 (ask 15): confinement is lexical; a relpath spelled inside the checkout resolves there whatever its links point at. **Implication**: none for the seam; substitute `:path` verbatim. Do not add a symlink check here.
+- Ask 5 (stale stamps after `bookmark-relocate`): documented limitation, not checked. **Implication**: the seam does not compare `filename` against the stamp; `.tasks/portable-bookmarks-stale-stamp-detection.md` owns that.
+
+### Open asks
+- ask 16 (`missing-repo` may carry nil `:path`): does not touch this task's arms; the hand-off passes the whole plist to `missing-repo-choice`.
+
+### Already-shipped inline fixes / related work
+- The resolver's own `condition-case` maps discovery errors to `no-clone`; the seam's step-5 barrier is the SECOND barrier (for the seam's own code), not the first.
+- Follow-up `discovery-identity-memo-and-cost-contract` (audit eoc-06) will change spawn counts on the resolve path; the jump spec should not pin spawn counts.

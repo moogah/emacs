@@ -21,6 +21,10 @@ relations:
 
 ## Implementation steps
 
+> Cycle 1 (cycle-1789935943): steps 2, 3 and 6 corrected for the merged resolver — the
+> plist carries `:checkout`, and `:path` may be nil for `missing-repo` (ask 16, pending
+> confirmation; see `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-bookmark-resolution-outcome.md`).
+
 1. Add `workspace-bookmark--offer-missing-repo (resolution)` invoked by the jump
    seam on the `missing-repo` outcome. Present a bounded choice — three options,
    no free-form input — naming the repository identity and the current workspace
@@ -40,12 +44,15 @@ relations:
    - call it only when it is `fboundp`, and omit the option from the choice when
      it is not;
    - build the payload the same way `integrations.el` does (`:name`, `:home`,
-     `:context`) for the current workspace;
+     `:context`) for the current workspace; the SOURCE repository is the resolution's
+     `:checkout` (the canonical checkout discovery chose) — never re-run discovery here;
    - on success, re-run the resolver and continue the jump; on a `failed`
      outcome, report the reason and open nothing.
 
-3. "View read-only": open the `:path` the resolver computed under the canonical
-   checkout, then make it unmistakable that this is not a workspace copy:
+3. "View read-only": offered ONLY when the resolution's `:path` is non-nil (the relpath
+   exists under the canonical checkout). When `:path` is nil the option is omitted and the
+   prompt says the file is absent there; the choice is then add-worktree or cancel. When
+   offered, open `:path`, then make it unmistakable that this is not a workspace copy:
    - `view-mode` on (read-only plus the standard view keymap);
    - a visible marker — set a buffer-local prefix/suffix in
      `mode-line-buffer-identification` (or equivalent) naming it as the canonical
@@ -75,6 +82,8 @@ relations:
      `(failed . REASON)`, the reason is reported and no buffer is opened.
    - **Unit**: assert no branch of the function opens the record's stored
      absolute path.
+   - **Unit**: with a resolution whose `:path` is nil and `:checkout` set, the option set
+     excludes "view read-only", and add-worktree targets `:checkout`.
 
 7. Tangle and validate.
 
@@ -117,3 +126,21 @@ discipline the outcomes themselves follow.
 - design.md § D7 'Outcomes are a closed set, evaluated in order'
 - design.md § 'Open Questions' (whether this prompt merges with the
   off-workspace prompt)
+
+## Cycle 1 updates (cycle-1789935943)
+
+### Cited register entries
+- `register/vocabulary/bookmark-resolution-outcome`: speculated → reconciled (six members; six keys; the nested missing-repo ACTION set stays speculated until this task lands). `add-worktree` targets `:checkout`; `view-canonical-read-only` only when `:path` is non-nil. See `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-bookmark-resolution-outcome.md`.
+- `register/vocabulary/checkout-classification`: speculated → reconciled. One admission predicate `workspace-bookmark--offerable-canonical-p`; anchored homes count as checkouts (DD-11/12/13). See `.orchestrator/cycles/cycle-1789935943/reconciliations/vocabulary-checkout-classification.md`.
+- `register/invariant/no-silent-wrong-file-open`: reconciled text (DD-16), entry stays `speculated` until the jump-side actors exist; this task is one of them. See `.orchestrator/cycles/cycle-1789935943/reconciliations/invariant-no-silent-wrong-file-open.md`.
+
+### User-resolved decisions
+- DD-12 / DD-13: worktree sources are git-derived + magit only; a magit linked worktree stands for its main worktree. **Implication**: `jf/workspace--add-worktree`'s source list is already classified; pass `:checkout` straight through.
+- Ask 5: stale stamps not checked. **Implication**: the read-only view may show a pre-relocation path; say nothing about it here.
+
+### Open asks
+- ask 16: confirm (a) nil `:path` for `missing-repo`, (b) read-only withheld when nil, (c) this task's text above. The defaults are written in; object to change them.
+
+### Related follow-ups
+- `discovery-cleanup-singulars-and-docstrings` (audit eoc-02) deletes the singular discovery helpers; if a one-arm "the unique checkout" helper is wanted here, add it in THIS task with its caller.
+- design.md § Open Questions (merge this prompt with the off-workspace prompt) is still open; `off-workspace-restore` step 3 reuses this bounded choice.
