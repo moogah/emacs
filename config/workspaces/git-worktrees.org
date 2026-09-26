@@ -158,16 +158,31 @@ another source may have recorded the same repository through a symlinked
 prefix (=/var/...=).  The first occurrence's spelling is the one
 offered, so the git-derived spelling wins.
 
-Remote (TRAMP) entries are DROPPED here, before anything else is asked
-of them.  They could never be offered anyway: discovery and
+Remote (TRAMP) entries are DROPPED as magit's list is read, before
+classification or anything else is asked of them
+(=jf/workspace--worktree-local-only=, below), and dropped again here as
+a backstop.  They could never be offered anyway: discovery and
 classification are local-only, so a remote entry is never canonical.
-Keeping one would hand it to the git-repository filter below, whose
-probe opens a connection; on an unreachable host that signals
-=file-error= out of =jf/workspace--worktree-repo-candidates=, and the
-"Source git repo:" prompt and its =read-directory-name= floor are never
-reached.  The only question put to an entry before it is dropped is
-=file-remote-p= (without its CONNECTED argument), which is answered from
-the name alone, so building the list touches no network.
+Dropping them at the source matters because classification lives in
+another module: whether it would touch a remote name is that module's
+business, and this one must not depend on it.  Keeping one would also
+hand it to the git-repository filter below, whose probe opens a
+connection; on an unreachable host that signals =file-error= out of
+=jf/workspace--worktree-repo-candidates=, and the "Source git repo:"
+prompt and its =read-directory-name= floor are never reached.  The only
+question put to an entry before it is dropped is =file-remote-p=
+(without its CONNECTED argument), which is answered from the name
+alone, so building the list touches no network.
+
+#+begin_src emacs-lisp
+(defun jf/workspace--worktree-local-only (dirs)
+  "Return the entries of DIRS that are local directory names.
+Non-strings and remote (TRAMP) names are dropped.  The only question
+asked of an entry is `file-remote-p' without its CONNECTED argument,
+which is answered from the name alone, so this touches no network."
+  (seq-filter (lambda (dir) (and (stringp dir) (not (file-remote-p dir))))
+              dirs))
+#+end_src
 
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-dedupe-dirs (dirs)
@@ -251,7 +266,8 @@ list; does not prompt."
          (git-derived (jf/workspace--worktree-git-derived-candidates))
          (magit (and (featurep 'magit) (fboundp 'magit-list-repos)
                      (jf/workspace--worktree-canonical-only
-                      (magit-list-repos)))))
+                      (jf/workspace--worktree-local-only
+                       (magit-list-repos))))))
     (seq-filter #'jf/workspace--worktree-git-repo-p
                 (jf/workspace--worktree-dedupe-dirs
                  (append git-derived magit)))))

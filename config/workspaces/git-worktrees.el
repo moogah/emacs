@@ -23,6 +23,14 @@ Within one candidate collection only the first failure is shown; see
              what (error-message-string err))
      :warning)))
 
+(defun jf/workspace--worktree-local-only (dirs)
+  "Return the entries of DIRS that are local directory names.
+Non-strings and remote (TRAMP) names are dropped.  The only question
+asked of an entry is `file-remote-p' without its CONNECTED argument,
+which is answered from the name alone, so this touches no network."
+  (seq-filter (lambda (dir) (and (stringp dir) (not (file-remote-p dir))))
+              dirs))
+
 (defun jf/workspace--worktree-dedupe-dirs (dirs)
   "Return the local DIRS as absolute directory names, without duplicates.
 Each entry is expanded and given a trailing slash.  Two entries are
@@ -98,7 +106,8 @@ list; does not prompt."
          (git-derived (jf/workspace--worktree-git-derived-candidates))
          (magit (and (featurep 'magit) (fboundp 'magit-list-repos)
                      (jf/workspace--worktree-canonical-only
-                      (magit-list-repos)))))
+                      (jf/workspace--worktree-local-only
+                       (magit-list-repos))))))
     (seq-filter #'jf/workspace--worktree-git-repo-p
                 (jf/workspace--worktree-dedupe-dirs
                  (append git-derived magit)))))

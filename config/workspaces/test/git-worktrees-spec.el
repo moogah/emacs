@@ -237,6 +237,29 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
       (expect (delete-dups (copy-sequence git-worktrees-spec--remote-ops))
               :to-equal '(file-remote-p))))
 
+  (it "never hands a remote entry to the classifier"
+    ;; ownership-and-picker-polish review: with portable-bookmarks loaded,
+    ;; magit's entries reach the classifier before de-duplication.  The
+    ;; classifier here touches the filesystem for every entry it is given,
+    ;; so a remote entry reaching it would trip the fake handler.
+    (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
+            (lambda (dir) dir))
+    (let ((classified nil))
+      (git-worktrees-spec--with-fake-remote
+        (git-worktrees-spec--with-sources '(magit)
+            '("/repos/local/" "/ssh:nohost.invalid:/a/")
+          (cl-letf (((symbol-function
+                      'workspace-bookmark-canonical-checkouts-in-view)
+                     (lambda (&optional checkouts)
+                       (setq classified checkouts)
+                       (mapc #'file-truename checkouts)
+                       checkouts)))
+            (expect (jf/workspace--worktree-repo-candidates)
+                    :to-equal '("/repos/local/"))))
+        (expect classified :to-equal '("/repos/local/"))
+        (expect (delete-dups (copy-sequence git-worktrees-spec--remote-ops))
+                :to-equal '(file-remote-p)))))
+
   (it "still reaches the prompt and its floor when classification passes it through"
     ;; The classifier is unbound (portable-bookmarks not loaded), so magit's
     ;; remote entry reaches de-duplication and the real git-repo filter.
