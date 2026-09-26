@@ -402,7 +402,7 @@ WORKSPACE and CANONICAL are the lists they return."
                      "wsbm-res-a")))
         (expect (plist-get result :outcome) :to-be 'not-on-branch))))
 
-  (describe "a relpath that would escape its checkout"
+  (describe "confinement of a relpath to its checkout (lexical only, DD-16)"
     (it "degrades `..' to non-portable, even when the target exists"
       (with-temp-file (expand-file-name "outside.txt" home-a) (insert "x"))
       (let ((result (portable-bookmarks-resolver-spec--no-discovery
@@ -435,7 +435,9 @@ WORKSPACE and CANONICAL are the lists they return."
           (expect (plist-get result :path)
                   :to-equal portable-bookmarks-resolver-spec--stored))))
 
-    (it "degrades a symbolic link out of the workspace's checkout to non-portable"
+    (it "resolves a symbolic link out of the workspace's checkout by its spelling"
+      ;; The spelling is inside the checkout; where the link points is the
+      ;; branch's business, exactly as visiting the path by hand.
       (let ((outside (workspace-bookmark-fixtures-temp-dir "wsbm-res-out-")))
         (with-temp-file (expand-file-name "secret.txt" outside) (insert "x"))
         (make-symbolic-link (directory-file-name outside)
@@ -445,11 +447,14 @@ WORKSPACE and CANONICAL are the lists they return."
                          (portable-bookmarks-resolver-spec--record
                           :relpath relpath)
                          "wsbm-res-a")))
-            (expect (plist-get result :outcome) :to-be 'non-portable)
+            (expect (plist-get result :outcome) :to-be 'resolved)
             (expect (plist-get result :path)
-                    :to-equal portable-bookmarks-resolver-spec--stored)))))
+                    :to-equal (expand-file-name relpath wt))
+            (expect (plist-get result :path)
+                    :not :to-equal portable-bookmarks-resolver-spec--stored)
+            (expect (plist-get result :checkout) :to-equal wt)))))
 
-    (it "degrades a symbolic link out of the canonical checkout to non-portable"
+    (it "offers a symbolic link out of the canonical checkout by its spelling"
       (let ((outside (workspace-bookmark-fixtures-temp-dir "wsbm-res-out-")))
         (with-temp-file (expand-file-name "secret.txt" outside) (insert "x"))
         (make-symbolic-link (directory-file-name outside)
@@ -458,7 +463,12 @@ WORKSPACE and CANONICAL are the lists they return."
                        (portable-bookmarks-resolver-spec--record
                         :relpath "link/secret.txt")
                        "wsbm-res-b")))
-          (expect (plist-get result :outcome) :to-be 'non-portable))))
+          (expect (plist-get result :outcome) :to-be 'missing-repo)
+          (expect (plist-get result :path)
+                  :to-equal (expand-file-name "link/secret.txt" repo))
+          (expect (plist-get result :path)
+                  :not :to-equal portable-bookmarks-resolver-spec--stored)
+          (expect (plist-get result :checkout) :to-equal repo))))
 
     (it "follows a symbolic link that stays inside the checkout"
       (make-symbolic-link "sub" (expand-file-name "inlink" wt))
@@ -479,6 +489,94 @@ WORKSPACE and CANONICAL are the lists they return."
                           "wsbm-res-a")
                          :outcome)
               :to-be 'not-on-branch))))
+
+
+;;; Behavioral — a valid stamp resolved from a SECOND workspace, through links
+
+;; The two reproductions from the on-touch audit of this task.  Each
+;; record is stamped by the real stamp seam in workspace A and resolved in
+;; workspace B, whose checkout reaches the relpath through a link that
+;; leaves the checkout.  The only acceptable answer is B's own spelling of
+;; the relpath (DD-16); the stored filename is A's copy, and returning it
+;; would be the defect this capability exists to remove.
+
+(describe "Resolution from a second workspace through links (DD-16)"
+  :var (repo home-a home-b wt-a wt-b)
+
+  (before-each
+    (portable-bookmarks-resolver-spec--setup)
+    (setq repo (workspace-bookmark-fixtures-make-repo
+                :remote portable-bookmarks-resolver-spec--remote))
+    (portable-bookmarks-resolver-spec--commit-file repo "sub/f.txt")
+    ;; A tracked link that points out of whichever checkout holds it.
+    (make-symbolic-link "../shared/x.txt" (expand-file-name "link-rel" repo))
+    (workspace-bookmark-fixtures-git repo "add" "--" "link-rel")
+    (workspace-bookmark-fixtures-git repo "commit" "--quiet" "-m" "link-rel")
+    (setq home-a (workspace-bookmark-fixtures-make-workspace "wsbm-res2-a")
+          home-b (workspace-bookmark-fixtures-make-workspace "wsbm-res2-b"))
+    (dolist (home (list home-a home-b))
+      (make-directory (expand-file-name "shared" home))
+      (with-temp-file (expand-file-name "shared/x.txt" home) (insert home)))
+    (setq wt-a (workspace-bookmark-fixtures-add-worktree
+                repo (expand-file-name "proj" home-a) :branch "a")
+          wt-b (workspace-bookmark-fixtures-add-worktree
+                repo (expand-file-name "proj" home-b) :branch "b")))
+
+  (after-each (portable-bookmarks-resolver-spec--teardown))
+
+  (it "resolves a tracked link that leaves the checkout to the second workspace's spelling"
+    (let* ((record (portable-bookmarks-resolver-spec--stamp
+                    (expand-file-name "link-rel" wt-a)))
+           (result (portable-bookmarks-resolver-spec--resolve
+                    record "wsbm-res2-b")))
+      (expect (bookmark-prop-get record workspace-bookmark-relpath-property)
+              :to-equal "link-rel")
+      (expect (plist-get result :outcome) :to-be 'resolved)
+      (expect (plist-get result :path)
+              :to-equal (expand-file-name "link-rel" wt-b))
+      (expect (plist-get result :path)
+              :not :to-equal (bookmark-prop-get record 'filename))
+      (expect (plist-get result :checkout) :to-equal wt-b)
+      ;; B's spelling is B's own link, which reaches B's shared file, not A's.
+      (expect (file-truename (plist-get result :path))
+              :to-equal (file-truename (expand-file-name "shared/x.txt" home-b)))))
+
+  (it "resolves a file whose parent is a link on the second workspace's branch to that spelling"
+    ;; Nothing in A is a link.  On B's branch `sub' is a link to a directory
+    ;; outside the checkout.
+    (workspace-bookmark-fixtures-git wt-b "rm" "--quiet" "-r" "--" "sub")
+    (make-directory (expand-file-name "vendor-sub" home-b))
+    (with-temp-file (expand-file-name "vendor-sub/f.txt" home-b) (insert "b"))
+    (make-symbolic-link "../vendor-sub" (expand-file-name "sub" wt-b))
+    (workspace-bookmark-fixtures-git wt-b "add" "--" "sub")
+    (workspace-bookmark-fixtures-git wt-b "commit" "--quiet" "-m" "sub is a link")
+    (let* ((record (portable-bookmarks-resolver-spec--stamp
+                    (expand-file-name "sub/f.txt" wt-a)))
+           (result (portable-bookmarks-resolver-spec--resolve
+                    record "wsbm-res2-b")))
+      (expect (bookmark-prop-get record workspace-bookmark-relpath-property)
+              :to-equal "sub/f.txt")
+      (expect (plist-get result :outcome) :to-be 'resolved)
+      (expect (plist-get result :path)
+              :to-equal (expand-file-name "sub/f.txt" wt-b))
+      (expect (plist-get result :path)
+              :not :to-equal (bookmark-prop-get record 'filename))
+      (expect (plist-get result :checkout) :to-equal wt-b)))
+
+  (it "spells a valid stamp under whichever checkout the asking workspace holds"
+    ;; Never non-portable, never the stored filename by way of a fallback:
+    ;; the answer is always RELPATH under the ASKING side's checkout.
+    (dolist (relpath (list "link-rel" "sub/f.txt"))
+      (let ((record (portable-bookmarks-resolver-spec--stamp
+                     (expand-file-name relpath wt-a))))
+        (dolist (side (list (cons "wsbm-res2-a" wt-a)
+                            (cons "wsbm-res2-b" wt-b)))
+          (let ((result (portable-bookmarks-resolver-spec--resolve
+                         record (car side))))
+            (expect (plist-get result :outcome) :to-be 'resolved)
+            (expect (plist-get result :path)
+                    :to-equal (expand-file-name relpath (cdr side)))
+            (expect (plist-get result :checkout) :to-equal (cdr side))))))))
 
 
 ;;; Unit — discovery mocked
@@ -502,7 +600,8 @@ WORKSPACE and CANONICAL are the lists they return."
                   :to-equal
                   (list :outcome 'no-clone :path nil
                         :identity portable-bookmarks-resolver-spec--identity
-                        :relpath "README.md" :candidates nil)))))
+                        :relpath "README.md" :candidates nil
+                        :checkout nil)))))
 
     (it "answers when workspace discovery signals, instead of propagating"
       (cl-letf (((symbol-function 'workspace-bookmark--workspace-checkouts)
@@ -527,12 +626,30 @@ WORKSPACE and CANONICAL are the lists they return."
 
     (it "answers when re-anchoring signals, instead of propagating"
       (portable-bookmarks-resolver-spec--with-discovery (list dir) nil
-        (cl-letf (((symbol-function 'workspace-bookmark--path-within-p)
+        (cl-letf (((symbol-function 'workspace-bookmark--anchor)
                    (lambda (&rest _) (error "Boom"))))
           (expect (plist-get (portable-bookmarks-resolver-spec--resolve
                               (portable-bookmarks-resolver-spec--record) "ws")
                              :outcome)
-                  :to-be 'no-clone)))))
+                  :to-be 'no-clone))))
+
+    (it "answers for an anchoring answer nobody wrote code for, never a location"
+      ;; The dispatch on the anchoring answer has no catch-all that returns
+      ;; a location: an unknown answer signals, and the barrier maps it.
+      (dolist (answer (list (list 'escapes)
+                            (cons 'present-elsewhere "/x/README.md")
+                            nil))
+        (dolist (setup (list (list (list dir) nil)
+                             (list nil (list dir))))
+          (portable-bookmarks-resolver-spec--with-discovery
+              (nth 0 setup) (nth 1 setup)
+            (cl-letf (((symbol-function 'workspace-bookmark--anchor)
+                       (lambda (&rest _) answer)))
+              (let ((result (portable-bookmarks-resolver-spec--resolve
+                             (portable-bookmarks-resolver-spec--record) "ws")))
+                (expect (plist-get result :outcome) :to-be 'no-clone)
+                (expect (plist-get result :path) :to-be nil)
+                (expect (plist-get result :checkout) :to-be nil))))))))
 
   (describe "non-portable"
     (it "answers for a record with no stamp, with the stored filename"
@@ -543,7 +660,8 @@ WORKSPACE and CANONICAL are the lists they return."
         (expect result
                 :to-equal
                 (list :outcome 'non-portable :path "/x/y.el"
-                      :identity nil :relpath nil :candidates nil))))
+                      :identity nil :relpath nil :candidates nil
+                      :checkout nil))))
 
     (it "answers for every record carrying only two of the three properties"
       (dolist (drop (list workspace-bookmark-repo-property
@@ -621,6 +739,45 @@ WORKSPACE and CANONICAL are the lists they return."
               (expect (plist-get result :path)
                       :not :to-equal (concat stored ".stored"))))))))
 
+  (describe "the :checkout key"
+    (it "names the workspace checkout for resolved and not-on-branch"
+      (portable-bookmarks-resolver-spec--with-discovery (list dir) nil
+        (expect (plist-get (portable-bookmarks-resolver-spec--resolve
+                            (portable-bookmarks-resolver-spec--record) "ws")
+                           :checkout)
+                :to-equal dir)
+        (expect (plist-get (portable-bookmarks-resolver-spec--resolve
+                            (portable-bookmarks-resolver-spec--record
+                             :relpath "absent.el")
+                            "ws")
+                           :checkout)
+                :to-equal dir)))
+
+    (it "names the canonical checkout for missing-repo, with or without a :path"
+      (portable-bookmarks-resolver-spec--with-discovery nil (list dir)
+        (let ((present (portable-bookmarks-resolver-spec--resolve
+                        (portable-bookmarks-resolver-spec--record) "ws"))
+              (absent (portable-bookmarks-resolver-spec--resolve
+                       (portable-bookmarks-resolver-spec--record
+                        :relpath "absent.el")
+                       "ws")))
+          (expect (plist-get present :outcome) :to-be 'missing-repo)
+          (expect (plist-get present :checkout) :to-equal dir)
+          (expect (plist-get absent :outcome) :to-be 'missing-repo)
+          (expect (plist-get absent :path) :to-be nil)
+          (expect (plist-get absent :checkout) :to-equal dir))))
+
+    (it "is nil for ambiguous and no-clone, and does not stand in for :candidates"
+      (dolist (setup (list (list (list dir dir) nil)
+                           (list nil (list dir dir))
+                           (list nil nil)))
+        (portable-bookmarks-resolver-spec--with-discovery
+            (nth 0 setup) (nth 1 setup)
+          (expect (plist-get (portable-bookmarks-resolver-spec--resolve
+                              (portable-bookmarks-resolver-spec--record) "ws")
+                             :checkout)
+                  :to-be nil)))))
+
   (describe "ambiguous"
     (it "answers for two workspace checkouts without asking canonical discovery"
       (cl-letf (((symbol-function 'workspace-bookmark--workspace-checkouts)
@@ -633,7 +790,8 @@ WORKSPACE and CANONICAL are the lists they return."
                 :to-equal
                 (list :outcome 'ambiguous :path nil
                       :identity portable-bookmarks-resolver-spec--identity
-                      :relpath "README.md" :candidates (list "/a/" "/b/")))))
+                      :relpath "README.md" :candidates (list "/a/" "/b/")
+                      :checkout nil))))
 
     (it "answers for two canonical checkouts"
       (portable-bookmarks-resolver-spec--with-discovery nil (list "/c1/" "/c2/")
@@ -642,6 +800,19 @@ WORKSPACE and CANONICAL are the lists they return."
           (expect (plist-get result :outcome) :to-be 'ambiguous)
           (expect (plist-get result :candidates)
                   :to-equal (list "/c1/" "/c2/"))))))
+
+  (describe "the anchoring helper"
+    (it "signals for a relpath that anchors outside the checkout, rather than answering"
+      ;; Unreachable through the resolver (confinement refuses `..' first);
+      ;; pinned so the helper's contract cannot quietly become an answer.
+      (expect (workspace-bookmark--anchor "../README.md" dir) :to-throw 'error)
+      (expect (workspace-bookmark--anchor "/nonexistent/wsbm-res/x" dir)
+              :to-throw 'error))
+
+    (it "anchors a hand-edited \".\" to the checkout itself, whose kind is a directory"
+      (expect (workspace-bookmark--anchor "." dir) :to-equal (list 'absent))
+      (expect (workspace-bookmark--anchor "./" dir)
+              :to-equal (cons 'present (file-name-as-directory dir)))))
 
   (describe "the outcome constructor"
     (it "refuses a symbol outside the closed set"
@@ -658,13 +829,21 @@ WORKSPACE and CANONICAL are the lists they return."
 ;;; The closed set, across this whole file
 
 (describe "Every outcome the resolver returned in this file"
-  (it "is a member of the closed set, in a five-key plist"
+  (it "is a member of the closed set, in a six-key plist"
     (expect portable-bookmarks-resolver-spec--results :not :to-be nil)
     (dolist (result portable-bookmarks-resolver-spec--results)
       (expect (workspace-bookmark--valid-outcome-p (plist-get result :outcome))
               :to-be t)
       (expect (seq-filter #'keywordp result)
-              :to-equal '(:outcome :path :identity :relpath :candidates))))
+              :to-equal '(:outcome :path :identity :relpath :candidates
+                          :checkout))))
+
+  (it "names a checkout exactly for resolved, not-on-branch and missing-repo"
+    (dolist (result portable-bookmarks-resolver-spec--results)
+      (let ((names (memq (plist-get result :outcome)
+                         '(resolved not-on-branch missing-repo))))
+        (expect (and (plist-get result :checkout) t)
+                :to-be (and names t)))))
 
   (it "covers every member of the closed set"
     (dolist (outcome workspace-bookmark--valid-outcomes)

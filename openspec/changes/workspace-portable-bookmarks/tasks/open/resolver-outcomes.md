@@ -260,6 +260,82 @@ These SUPERSEDE Amendment C's confinement rule where they conflict. Findings:
   resolver exists and the jump seam still does not call it. The discovery
   section was not edited, and Seam 2 is still pass-through.
 
+- **Fix pass (2026-09-26, on-touch finding 1 + DD-16).** Four code
+  changes, all in `* Resolution`: (1) `--anchor` no longer follows links
+  — the `--path-within-p` file-identity test and its `escapes` answer are
+  gone, and it answers `present` or `absent` by spelling; (2) the `_` arm
+  of `--resolve-anchored` signals (`Unknown anchoring answer`) and never
+  returns a location, so the barrier in `--resolve` maps it to
+  `no-clone`; `record` was dropped from `--resolve-anchored` and
+  `--resolve-coordinates`; (3) `--outcome` builds a SIX-key plist with
+  `:checkout`, filled by `--resolve-anchored` for `resolved`,
+  `not-on-branch` and `missing-repo` (present or absent path), nil
+  elsewhere; (4) prose and docstrings no longer say a link escape
+  "resolves non-portable to the stored path". A valid stamp can no
+  longer reach `non-portable` by any route.
+- **How each changed or new spec was shown to fail with its change
+  reverted (fix pass).** Same method as before, simplified: the spec
+  file loads the tangled module, then a small mutant `.el` of
+  REDEFINITIONS is loaded over it, then buttercup runs. The worktree
+  `.el` was never edited. Ten mutants, every one killed:
+  M1 = pre-fix `--anchor` (identity test, `escapes`) AND a catch-all
+  returning `non-portable`; M2 = the identity test alone (`escapes` now
+  signals); M3 = catch-all returns a `resolved` location; M3b =
+  catch-all returns `non-portable`; M4 = `--outcome` drops `:checkout`;
+  M5 = `:checkout` exists but is never set; M6 = `:checkout` set only
+  for a present path; M7 = `--anchor` without its outside-the-checkout
+  assertion; M7b = the assertion rejects the checkout itself; M9 = the
+  inner barrier catches only `quit`. Per spec:
+  - the two architect reproductions ("resolves a tracked link that
+    leaves the checkout to the second workspace's spelling", "resolves a
+    file whose parent is a link on the second workspace's branch") and
+    "spells a valid stamp under whichever checkout the asking workspace
+    holds": killed by M1, M2, M4 and M5.
+  - the rewritten symlink specs ("resolves a symbolic link out of the
+    workspace's checkout by its spelling", "offers a symbolic link out
+    of the canonical checkout by its spelling"): killed by M1, M2, M4,
+    M5. The `..`, absolute and NUL specs are unchanged and still pass.
+  - "answers for an anchoring answer nobody wrote code for, never a
+    location" (new; feeds `(escapes)`, a stray `present-elsewhere` cons
+    and nil into the dispatch): killed by M3, M3b and M9.
+  - "answers when re-anchoring signals" (its `cl-letf` repointed from
+    `--path-within-p` to `--anchor`): killed by M9.
+  - the `:checkout` describe (three specs): killed by M4, M5 and M6.
+  - closed set: "is a member of the closed set, in a six-key plist"
+    killed by M4; "names a checkout exactly for resolved, not-on-branch
+    and missing-repo" (new) killed by M4, M5, M6. The three full-plist
+    `:to-equal` assertions (no-clone, non-portable, ambiguous) killed by
+    M4.
+  - the anchoring helper (new, unit): "signals for a relpath that
+    anchors outside the checkout" killed by M7; "anchors a hand-edited
+    `.` to the checkout itself" killed by M7b.
+- **A choice the fix scope left open: `--anchor`'s lexical prefix
+  test.** It also produced `escapes`, and with the file-identity test
+  gone `escapes` had no home. Under DD-16 confinement lives in
+  `--confined-relpath-p` only, so `--anchor` now ASSERTS (signals)
+  instead of answering, and the barrier maps that to `no-clone` — an
+  outcome, never a location. A confined relpath cannot trip it except
+  the hand-edit `.`, which `expand-file-name` anchors to `<checkout>`
+  without the trailing slash; the assertion accepts the checkout
+  itself, and `.` then resolves `not-on-branch` by the kind check,
+  consistent with `sub/.` (the architect's informational note — it was
+  `non-portable` before). Git never writes either spelling.
+- **The barrier hides a signal from the anchoring dispatch** exactly
+  as it hides the closed-set guard's: a future stray anchoring answer
+  surfaces as `no-clone`, not as a visible error. The new unit spec
+  pins that it is `no-clone` and not a location, which is the
+  invariant's concern; whether such errors should be logged is
+  unchanged from the first pass.
+- **Fixture note for the second-workspace describe.** The canonical
+  clone lives in its own temp directory with no `shared/` sibling, so
+  `link-rel` DANGLES under it and answers `missing-repo` with `:path`
+  nil — correct (a dangling link is absent), but not the point of that
+  describe, so its loop spec covers the two workspaces only. The
+  canonical-side link case is "offers a symbolic link out of the
+  canonical checkout by its spelling".
+- **The task's verification grep** is unchanged after the fix: one hit,
+  the stamp-seam docstring; zero in the resolver section.
+
 ## Discoveries
 
 - discovery_id: disc-resolver-outcomes-1
@@ -341,3 +417,57 @@ These SUPERSEDE Amendment C's confinement rule where they conflict. Findings:
     invariant entry. When stale-stamp detection is taken up, the same
     read-time check could route an escaping or inconsistent stamp to a
     reported outcome instead of to the stored path.
+- discovery_id: disc-resolver-outcomes-5
+  class: invariant-gap
+  description: |
+    (Fix pass, 2026-09-26; supersedes residual (b) of
+    disc-resolver-outcomes-4 and the on-disk clause of
+    disc-resolver-outcomes-3.) The confinement clause is now LEXICAL
+    ONLY (user decision DD-16). `workspace-bookmark--confined-relpath-p`
+    refuses an absolute name, any `..` component, NUL and a non-string;
+    that is the whole test. A relpath that passes resolves to
+    `<checkout>/<relpath>` by spelling, whatever its links point at —
+    the same thing visiting that spelling by hand opens. Consequences
+    for the invariant: (1) a VALID stamp never resolves `non-portable`
+    (only absent / partial / unknown-version / lexically-escaping
+    stamps do), which closes the on-touch finding 1 route to the stored
+    filename; (2) `:path` for `resolved` and `missing-repo` is now
+    guaranteed to be SPELLED inside `:checkout`, not to be inside it by
+    file identity; (3) the anchoring dispatch has no catch-all that
+    returns a location — its `_` arm signals and the barrier maps the
+    signal to `no-clone`. The remaining residual is only the tampered
+    stamp (lexical escape → stored filename, as stock Emacs would).
+  affected_register_entry: register/invariant/no-silent-wrong-file-open
+  recommendation: |
+    Reword the confinement clause: "the :path of resolved / missing-repo
+    is spelled inside :checkout (lexical confinement, DD-16); where a
+    link on that branch points is the branch's business". Prohibition
+    4: "non-portable is reached only by a stamp that is absent, partial,
+    of an unknown version, or lexically escaping; a valid stamp never
+    degrades to it". Validator 1 gains the concrete site
+    (`--resolve-anchored`'s default arm signals) and validator 5 the
+    second-workspace spec (a valid stamp resolved in another workspace
+    through an escaping link asserts :path = that workspace's spelling,
+    never the stored filename). Known residuals: (a) stale stamps
+    (unchanged), (b) a TAMPERED stamp opens the stored filename.
+- discovery_id: disc-resolver-outcomes-6
+  class: shape-fragmentation
+  description: |
+    (Fix pass, 2026-09-26; resolves the open question in
+    disc-resolver-outcomes-2.) The result plist gained a sixth key,
+    `:checkout`: the workspace's checkout for `resolved` and
+    `not-on-branch`, the canonical checkout for `missing-repo` (whether
+    or not :path is nil), nil for `ambiguous`, `no-clone` and
+    `non-portable`. `:candidates` is NOT overloaded and stays nil
+    outside `ambiguous`. The shape is
+    (:outcome :path :identity :relpath :candidates :checkout), built
+    only by `workspace-bookmark--outcome`.
+  affected_register_entry: register/vocabulary/bookmark-resolution-outcome
+  recommendation: |
+    result_shape: the six keys above. missing-repo member: ":checkout
+    names the canonical checkout; :path is the candidate under it or
+    nil". Nested action set: add-worktree targets :checkout and never
+    re-runs discovery; view-canonical-read-only is offered only when
+    :path is non-nil. non-portable member: "absent, partial,
+    unknown-version or lexically-escaping stamp; a link escape is NOT
+    non-portable". Validator 1: "exactly the six members".

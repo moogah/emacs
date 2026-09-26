@@ -847,16 +847,16 @@ caller that dispatches on the outcome.")
        t))
 
 (cl-defun workspace-bookmark--outcome
-    (outcome &key path identity relpath candidates)
+    (outcome &key path identity relpath candidates checkout)
   "Return the resolution plist for OUTCOME.
 
-The plist always carries the five keys :outcome, :path, :identity,
-:relpath and :candidates, in that order.  Signals an error when OUTCOME
-is not in `workspace-bookmark--valid-outcomes'."
+The plist always carries the six keys :outcome, :path, :identity,
+:relpath, :candidates and :checkout, in that order.  Signals an error
+when OUTCOME is not in `workspace-bookmark--valid-outcomes'."
   (unless (workspace-bookmark--valid-outcome-p outcome)
     (error "Not a bookmark-resolution outcome: %S" outcome))
   (list :outcome outcome :path path :identity identity
-        :relpath relpath :candidates candidates))
+        :relpath relpath :candidates candidates :checkout checkout))
 
 (defconst workspace-bookmark--known-format-versions
   (list workspace-bookmark-format-version)
@@ -868,8 +868,9 @@ A record stamped under any other version resolves `non-portable'.")
 
 RELPATH must be a non-empty string that is not absolute (in the sense
 of `file-name-absolute-p'), has no component that is exactly \"..\",
-and holds no NUL byte.  This is a test of spelling only; see
-`workspace-bookmark--anchor' for the test against the disk."
+and holds no NUL byte.  This test of spelling is the WHOLE confinement
+test (DD-16): `workspace-bookmark--anchor' checks presence and kind,
+never where a link points."
   (and (stringp relpath)
        (not (string-empty-p relpath))
        (not (string-search "\0" relpath))
@@ -914,59 +915,63 @@ Never signals."
 RELPATH must already satisfy `workspace-bookmark--confined-relpath-p'.
 Returns one of:
 
-  (present . PATH)  PATH exists, really lies inside CHECKOUT, and is a
-                    directory exactly when RELPATH ends in \"/\";
-  (absent)          nothing of RELPATH's kind exists at PATH;
-  (escapes)         PATH exists but, through a symbolic link, lies
-                    outside CHECKOUT.
+  (present . PATH)  PATH exists and is a directory exactly when RELPATH
+                    ends in \"/\";
+  (absent)          nothing of RELPATH's kind exists at PATH.
 
-PATH is RELPATH expanded against CHECKOUT's directory name."
+PATH is RELPATH expanded against CHECKOUT's directory name, and is the
+answer by its spelling: where PATH's links point is not examined
+\(DD-16).  Signals when PATH does not start with CHECKOUT, which a
+confined RELPATH cannot produce."
   (let* ((root (file-name-as-directory checkout))
          (path (expand-file-name relpath root)))
+    (unless (or (string-prefix-p root path)
+                (string-equal path (directory-file-name root)))
+      (error "Relpath %S anchors outside %s: %s" relpath root path))
     (cond
-     ((not (string-prefix-p root path)) (list 'escapes))
      ((not (file-exists-p path)) (list 'absent))
-     ((not (workspace-bookmark--path-within-p path root)) (list 'escapes))
      ((not (eq (and (string-suffix-p "/" relpath) t)
                (and (file-directory-p path) t)))
       (list 'absent))
      (t (cons 'present path)))))
 
-(defun workspace-bookmark--resolve-anchored (outcome record relpath checkout identity)
+(defun workspace-bookmark--resolve-anchored (outcome relpath checkout identity)
   "Anchor RELPATH under CHECKOUT and return the outcome for it.
 
 OUTCOME is `resolved' (CHECKOUT is the workspace's) or `missing-repo'
 \(CHECKOUT is the canonical checkout).  A present location gives OUTCOME
 with its :path.  An absent one gives `not-on-branch' for `resolved',
-and `missing-repo' with a nil :path for `missing-repo'.  A location that
-escapes CHECKOUT gives `non-portable' for RECORD."
+and `missing-repo' with a nil :path for `missing-repo'.  Either way
+:checkout is CHECKOUT.  Any other anchoring answer is a programming
+error and signals: nothing here returns a location it did not anchor."
   (let ((anchored (workspace-bookmark--anchor relpath checkout)))
     (pcase (car anchored)
       ('present
        (workspace-bookmark--outcome outcome :path (cdr anchored)
-                                    :identity identity :relpath relpath))
+                                    :identity identity :relpath relpath
+                                    :checkout checkout))
       ('absent
        (workspace-bookmark--outcome (if (eq outcome 'resolved)
                                         'not-on-branch
                                       outcome)
-                                    :identity identity :relpath relpath))
-      (_ (workspace-bookmark--non-portable record)))))
+                                    :identity identity :relpath relpath
+                                    :checkout checkout))
+      (_ (error "Unknown anchoring answer: %S" anchored)))))
 
 (defun workspace-bookmark--non-portable (record)
   "Return the `non-portable' outcome for RECORD, with its stored filename."
   (workspace-bookmark--outcome
    'non-portable :path (workspace-bookmark--stored-filename record)))
 
-(defun workspace-bookmark--resolve-coordinates (record identity relpath workspace-name)
-  "Decide the outcome for IDENTITY and RELPATH in WORKSPACE-NAME.
-RECORD is the bookmark record they were read from.  See
-`workspace-bookmark--resolve'.  May signal; the caller catches."
+(defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name)
+  "Decide the outcome for the stamped IDENTITY and RELPATH in WORKSPACE-NAME.
+See `workspace-bookmark--resolve'.  May signal; the caller catches."
   (let ((checkouts (workspace-bookmark--workspace-checkouts
                     identity workspace-name)))
     (cond
      ((and checkouts (null (cdr checkouts)))
       (workspace-bookmark--resolve-anchored
-       'resolved record relpath (car checkouts) identity))
+       'resolved relpath (car checkouts) identity))
      (checkouts
       (workspace-bookmark--outcome 'ambiguous :identity identity
                                    :relpath relpath :candidates checkouts))
@@ -976,7 +981,7 @@ RECORD is the bookmark record they were read from.  See
         (cond
          ((and canonical (null (cdr canonical)))
           (workspace-bookmark--resolve-anchored
-           'missing-repo record relpath (car canonical) identity))
+           'missing-repo relpath (car canonical) identity))
          (canonical
           (workspace-bookmark--outcome 'ambiguous :identity identity
                                        :relpath relpath :candidates canonical))
@@ -991,7 +996,7 @@ RECORD is a bookmark record (NAME . ALIST); WORKSPACE-NAME a registered
 workspace's name, or nil for none.  Returns the plist
 
   (:outcome OUTCOME :path PATH :identity ID :relpath REL
-   :candidates CHECKOUTS)
+   :candidates CHECKOUTS :checkout CHECKOUT)
 
 where OUTCOME is one of `workspace-bookmark--valid-outcomes', decided
 first-match-wins:
@@ -999,20 +1004,26 @@ first-match-wins:
   `non-portable'   RECORD carries no usable stamp; :path is its
                    stored `filename' (the ONLY outcome that uses it).
   `resolved'       WORKSPACE-NAME holds exactly one checkout of the
-                   identity and the relpath exists there; :path is it.
-  `not-on-branch'  that one checkout lacks the relpath; :path nil.
+                   identity and the relpath exists there; :path is it,
+                   :checkout that checkout.
+  `not-on-branch'  that one checkout lacks the relpath; :path nil,
+                   :checkout that checkout.
   `ambiguous'      WORKSPACE-NAME holds several checkouts, or holds
                    none and several canonical checkouts are in view;
                    :candidates lists them, :path nil.
   `missing-repo'   WORKSPACE-NAME holds none and exactly one canonical
-                   checkout is in view; :path is the relpath under it
-                   when it exists there, else nil.  A candidate to
-                   offer, never a location to act on.
+                   checkout is in view; :checkout is it, and :path is
+                   the relpath under it when it exists there, else
+                   nil.  A candidate to offer, never a location to act
+                   on.
   `no-clone'       nothing in view; :path nil.
 
-A relpath that would leave its checkout, by `..', an absolute spelling
-or a symbolic link, resolves `non-portable'.  The stamp is not checked
-against the stored `filename' (see the Org prose on stale stamps).
+:checkout is nil for every outcome not listed with one.  A relpath
+that would leave its checkout by its spelling (`..', an absolute name)
+resolves `non-portable'; one that leaves it only through a symbolic
+link resolves by its spelling, as visiting it by hand would (DD-16).
+The stamp is not checked against the stored `filename' (see the Org
+prose on stale stamps).
 
 This is a decision function: it runs git through the discovery
 functions but never visits a file, displays a buffer, reads input or
@@ -1024,7 +1035,7 @@ is known gives `no-clone', before that `non-portable'."
             (workspace-bookmark--non-portable record)
           (condition-case nil
               (workspace-bookmark--resolve-coordinates
-               record (car coordinates) (cdr coordinates) workspace-name)
+               (car coordinates) (cdr coordinates) workspace-name)
             (error (workspace-bookmark--outcome
                     'no-clone :identity (car coordinates)
                     :relpath (cdr coordinates))))))
