@@ -2,7 +2,7 @@
 name: resolver-outcomes
 description: Implement the closed set of resolution outcomes as a pure decision function over coordinates plus workspace context
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 merge_commit: 339db36e
 task_class: feature
 on_critical_path: true
