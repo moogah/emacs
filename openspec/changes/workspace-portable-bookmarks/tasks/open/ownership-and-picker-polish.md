@@ -2,7 +2,8 @@
 name: ownership-and-picker-polish
 description: Small follow-ups from the wave-4 reviews — remote magit entries never touch the network, and prose drift
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
+merge_commit: 247b48d4
 task_class: bug
 on_critical_path: false
 cycle: cycle-1789935943
