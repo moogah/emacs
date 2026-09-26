@@ -142,3 +142,33 @@ E. **The ONLY outcome that uses the stored absolute filename is `non-portable`**
 F. **Placement.** New `* Resolution` section in portable-bookmarks.org,
    between `* Checkout discovery` and `* Advice installation`. Seam 2 stays
    pass-through; wiring it is `jump-seam`, deferred to cycle 2.
+
+## Fix scope (2026-09-26, on-touch architect blocking finding + user decision DD-16)
+
+These SUPERSEDE Amendment C's confinement rule where they conflict. Findings:
+`.orchestrator/cycles/cycle-1789935943/findings/on-touch-resolver-outcomes.md`.
+
+1. **BLOCKING: a valid stamp must never degrade to `non-portable`.** A symlink on
+   disk that leads out of the checkout (a tracked link `link-rel ->
+   ../shared/x.txt`, or `sub/f.txt` where `sub` is a link on the checked-out
+   branch) currently sends a VALID stamp to `non-portable`, which returns the
+   stored absolute path: another workspace's file. The cause is the `_` catch-all
+   arm in `--resolve-anchored`.
+2. **User decision DD-16: resolve by spelling.** Confinement is LEXICAL only:
+   refuse `..` components, absolute paths, NUL and non-string values (a TAMPERED
+   stamp, which stays `non-portable`), and nothing else. A relpath that is
+   lexically inside the checkout resolves to `<checkout>/<relpath>` whatever its
+   links point at, exactly as visiting that path by hand would. Remove the
+   file-identity escape check.
+3. The catch-all arm in `--resolve-anchored` must SIGNAL (a programming error the
+   outer barrier maps to `no-clone`), never return a location.
+4. **Advisory: add a `:checkout` key** to the plist, naming the chosen checkout
+   for `resolved` / `not-on-branch` and the canonical checkout for `missing-repo`,
+   so the deferred `missing-repo-choice` task can offer add-worktree without
+   re-running discovery. It is nil otherwise. The closed-set guard and plist-shape
+   spec get updated to match.
+5. **Specs.** Turn the two architect reproductions into specs that assert
+   `resolved` via the in-checkout spelling, never the stored path, from a
+   workspace other than the one that stamped the bookmark. Update the existing
+   symlink specs (resolver-spec ~438, ~452). Revert-prove each. Fix the prose and
+   docstrings.
