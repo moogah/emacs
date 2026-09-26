@@ -5,7 +5,7 @@ change: workspace-portable-bookmarks
 status: ready
 task_class: refactor
 on_critical_path: false
-cycle: cycle-2
+cycle: cycle-1790453714
 cites_register_entries:
   - register/boundary/git-derived-checkout-discovery
   - register/vocabulary/bookmark-resolution-outcome

@@ -5,7 +5,7 @@ change: workspace-portable-bookmarks
 status: ready
 task_class: feature
 on_critical_path: true
-cycle: deferred
+cycle: cycle-1790453714
 cites_register_entries:
   - register/boundary/bookmark-advice-seams
   - register/invariant/stored-record-never-mutated-by-jump
@@ -34,9 +34,15 @@ relations:
    record. Normalize with `bookmark-get-bookmark` so both forms are handled, then:
    - call `(workspace-bookmark--resolve record (workspace--current-name))`; it returns
      `(:outcome :path :identity :relpath :candidates :checkout)` and never signals
-     (only `quit` propagates); when that is nil, hand off to the
+     (only `quit` propagates) and it ALWAYS returns that six-key plist — it is
+     never nil (portable-bookmarks.el:992-1042 at b56f385a; corrected at cycle-2
+     plan, finding arch-cycle-1790453714-plan-01). The off-workspace hand-off is
+     therefore decided BEFORE calling the resolver: when
+     `(workspace--current-name)` is nil AND the record is stamped
+     (`workspace-bookmark--stamped-coordinates` non-nil), hand off to the
      off-workspace flow (task `off-workspace-restore`) — until that task lands,
-     treat nil as `non-portable` and pass through unchanged.
+     pass through unchanged in that case. Unstamped records off-workspace are
+     ordinary `non-portable` pass-throughs.
    - `non-portable` → call through with the original argument untouched.
    - `resolved` → build a **copy** of the record with `copy-tree`, substitute the
      resolved absolute path into its `filename` property with
@@ -136,3 +142,10 @@ exists to remove.
 ### Already-shipped inline fixes / related work
 - The resolver's own `condition-case` maps discovery errors to `no-clone`; the seam's step-5 barrier is the SECOND barrier (for the seam's own code), not the first.
 - Follow-up `discovery-identity-memo-and-cost-contract` (audit eoc-06) will change spawn counts on the resolve path; the jump spec should not pin spawn counts.
+
+## Cycle 2 plan (cycle-1790453714)
+
+- Step 2 amended (finding arch-cycle-1790453714-plan-01, blocking interface-drift against `register/vocabulary/bookmark-resolution-outcome`): the resolver never returns nil; the off-workspace trigger is a nil `workspace--current-name` on a STAMPED record, decided before `--resolve`.
+- Wave 1 merge order: `consolidate-portable-bookmarks-test-fixtures` merges FIRST. Write `portable-bookmarks-jump-spec.el` against its registry-scope macro `workspace-bookmark-fixtures-with-empty-registry` and its `workspace-bookmark-fixtures-commit-file` helper (rebase onto the integration branch once it has merged). Do NOT copy the per-file `workspace--registry` swap idiom: `register/invariant/spec-registry-isolation-via-fixtures` (new, speculated) forbids it and on-touch fires on it.
+- On-touch fires on this task for `register/boundary/bookmark-advice-seams`, `register/invariant/stored-record-never-mutated-by-jump` and `register/invariant/no-silent-wrong-file-open`; each entry's cycle-2 forward-mode paragraph names what the seam must settle (arms per outcome, copy-tree on the `(NAME . ALIST)` cons, second-barrier `condition-case` with `quit` propagating, `bookmark-jump-other-window` through the real jump path, "filename unchanged" asserted after a `bookmark-save` round trip).
+- Never bulk-delete shared temp prefixes (no `rm -rf $TMPDIR/wsbm-*`); delete only the directories this task created.

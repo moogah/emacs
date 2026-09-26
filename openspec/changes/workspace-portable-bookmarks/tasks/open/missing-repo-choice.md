@@ -4,8 +4,8 @@ description: Offer a bounded choice when the current workspace holds no checkout
 change: workspace-portable-bookmarks
 status: blocked
 task_class: feature
-on_critical_path: false
-cycle: deferred
+on_critical_path: true
+cycle: cycle-1790453714
 cites_register_entries:
   - register/vocabulary/bookmark-resolution-outcome
   - register/vocabulary/checkout-classification
@@ -144,3 +144,9 @@ discipline the outcomes themselves follow.
 ### Related follow-ups
 - `discovery-cleanup-singulars-and-docstrings` (audit eoc-02) deletes the singular discovery helpers; if a one-arm "the unique checkout" helper is wanted here, add it in THIS task with its caller.
 - design.md § Open Questions (merge this prompt with the off-workspace prompt) is still open; `off-workspace-restore` step 3 reuses this bounded choice.
+
+## Cycle 2 plan (cycle-1790453714)
+
+- `register/vocabulary/bookmark-resolution-outcome` now tags the nested missing-repo ACTION set with `cycle_2_owner: missing-repo-choice` and states the ask-16 default as the speculation to settle (nil `:path` with `:checkout` set; read-only withheld when nil → {add-worktree, cancel}; add-worktree never re-runs discovery). Compare `:path` / `:checkout` by device+inode (`register/invariant/directory-identity-by-device-inode`, new), never by string.
+- `discovery-cleanup-singulars-and-docstrings` (wave 2) deletes the singular discovery helpers before this task runs; if a one-arm "the unique checkout" helper is wanted, add it HERE with its caller.
+- Never bulk-delete shared temp prefixes.

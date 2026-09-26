@@ -3476,6 +3476,35 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: vocabulary
    status: reconciled
    status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     entry stays =reconciled=; the NESTED "missing-repo action" set stays
+     =speculated= and its OWNER is =missing-repo-choice= (wave 3; on-touch
+     fires on its first merge). The speculation execute settles is the
+     ask-16 default as drafted: (a) missing-repo may carry a nil :path with
+     :checkout set — the resolver already produces it
+     (=workspace-bookmark--resolve-anchored=, portable-bookmarks.el:938-959,
+     'absent arm) when the canonical checkout lacks the relpath; (b)
+     view-canonical-read-only is offered ONLY when :path is non-nil, so the
+     offered set is {add-worktree, cancel} when nil; (c) add-worktree
+     targets :checkout and never re-runs discovery; (d) whether this prompt
+     and off-workspace-restore's empty-registry fallback are ONE chooser —
+     if they merge, the nested set gains workspace candidates and is
+     re-stated at integrate. If the user answers ask 16 otherwise, the
+     missing-repo member text and the nested set are rewritten BEFORE wave
+     3 starts, not after it. TAG, binding on EVERY consumer (jump-seam,
+     missing-repo-choice, off-workspace-restore, and docs-readme's prose):
+     :path and :checkout are compared by FILE IDENTITY (device+inode,
+     =register/invariant/directory-identity-by-device-inode=), never by
+     string — a workspace checkout carries the registry's spelling
+     (/var/...), the canonical checkout git's truename (/private/var/...)
+     (end-of-cycle finding 7; resolver-spec.el:541). The absent
+     missing-repo-spec.el in test_corpus is owned by missing-repo-choice.
+     =discovery-cleanup-singulars-and-docstrings= (wave 2) rewrites the two
+     anchoring docstrings (portable-bookmarks.el:872-873, :922-924); the
+     member descriptions here already carry the corrected wording
+     ("presence and kind are asked of the filesystem"), so no register
+     change follows from that task.
+
      cycle-1789935943 integrate (2026-09-26, against 20944160): RECONCILED.
      SIX outcomes (DD-14 added =ambiguous=; portable-bookmarks.el:836-837); a
      =:checkout= key on every plist (resolver-outcomes fix, ac50b041);
@@ -3605,7 +3634,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          function: workspace-bookmark--resolve
        consumer:
          file: config/workspaces/portable-bookmarks.org
-         function: "workspace-bookmark--offer-missing-repo (planned: missing-repo-choice, cycle 2)"
+         function: "workspace-bookmark--offer-missing-repo (planned: missing-repo-choice, cycle 2)"   # owner: missing-repo-choice (cycle-1790453714)
      - value: no-clone
        order: 6
        description: |
@@ -3620,6 +3649,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      name: missing-repo action
      closed: true
      status: speculated
+     cycle_2_owner: missing-repo-choice   # cycle-1790453714; settles the ask-16 default
      speculated_note: |
        STILL SPECULATED at cycle-1789935943 integrate: =missing-repo-choice=
        is deferred to cycle 2 and ask-cycle-1789935943-16 is OPEN. Two rules
@@ -3679,7 +3709,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-resolver-spec.el
-     - "config/workspaces/test/portable-bookmarks-missing-repo-spec.el (planned: missing-repo-choice, cycle 2)"
+     - "config/workspaces/test/portable-bookmarks-missing-repo-spec.el (planned: missing-repo-choice, cycle 2)"   # owner: missing-repo-choice (cycle-1790453714)
 
    related_entries:
      - register/vocabulary/checkout-classification
@@ -3692,6 +3722,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - resolver-outcomes
      - missing-repo-choice
      - docs-readme
+     - jump-seam                                   # cycle-1790453714: dispatches on the six members
+     - off-workspace-restore                       # cycle-1790453714: resolves after restore
+     - discovery-cleanup-singulars-and-docstrings  # cycle-1790453714: anchoring docstrings
+     - disposition-spec-design-amendments          # cycle-1790453714: spec text to six members
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
    reconciled_in: cycle-1789935943
@@ -7229,6 +7263,40 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: speculated
    status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     RE-STATED for cycle 2 against b56f385a; status unchanged. SEAM 1 is
+     confirmed and not re-opened. SEAM 2 is owned by =jump-seam= (wave 1,
+     FIRST task of its wave); on-touch fires on the first merge of jump-seam
+     for this entry and the three jump-side invariants. OWNERS of the
+     unexercised clauses: validator 3's seam-2 half, validator 4, the
+     relocate-arm assertion in upstream_contract_risk and the jump-spec.el
+     corpus entry -> jump-seam; the missing-repo hand-off arm ->
+     =missing-repo-choice= (wave 3); the nil-workspace hand-off arm ->
+     =off-workspace-restore= (wave 3). SPECULATED going into cycle 2, for
+     execute to settle: (a) the exact arms of the :around body per outcome
+     — =resolved= substitutes a COPY and calls through; =non-portable=
+     calls through with the ORIGINAL argument untouched; =not-on-branch= /
+     =no-clone= / =ambiguous= report and DECLINE to call through;
+     =missing-repo= hands the whole plist to the prompt (report and open
+     nothing until wave 3); a nil (workspace--current-name) on a STAMPED
+     record hands off to the off-workspace flow (treated as non-portable
+     pass-through until wave 3); (b) the copy rule — copy-tree on the
+     normalised record, bookmark-prop-set on the copy, the copy keeps its
+     own handler; (c) condition-case fall-through — the seam's own barrier
+     calls ORIG-FN with the ORIGINAL argument on any internal error and is
+     the SECOND barrier (the resolver's condition-case already maps
+     discovery errors to no-clone, portable-bookmarks.el:992-1042), while
+     =quit= propagates through both; (d) argument normalisation —
+     bookmark-get-bookmark before --resolve for the STRING form, and that
+     the value handed to ORIG-FN on substitution is a RECORD, which is
+     exactly what suppresses the host's relocate arm (assert it, do not
+     inherit it); (e) bookmark-jump-other-window (and -other-frame)
+     coverage asserted through the REAL jump path, never the advice in
+     isolation; (f) seam 2's cost is whatever
+     =register/boundary/git-derived-checkout-discovery= cost_contract says
+     after =discovery-identity-memo-and-cost-contract= (wave 2) — the jump
+     spec must not pin spawn counts. No clause is weakened.
+
      cycle-1789935943 integrate (2026-09-26, against 20944160): PARTIAL —
      SEAM 1 LIVE and CONFIRMED (stamp-seam 9f28f931, wave3-review-fixes;
      verified by the on-touch architect with real git and a stock-Emacs
@@ -7353,6 +7421,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (=not-on-branch= must not become a relocate offer), but it is a
      behaviour change on the degraded path and must be an explicit
      assertion once seam 2 does work, not an accident.
+     # owner: jump-seam (cycle-1790453714)
 
    degradation_contract: |
      Both seams wrap their bodies in =condition-case= and fall through to the
@@ -7387,16 +7456,18 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         (apply orig-fn bookmark-name-or-record args); once it does work the
         same condition-case rule applies (validator to be re-armed by
         jump-seam).
+        # owner: jump-seam (cycle-1790453714)
      4. (planned: jump-seam, cycle 2) A behavioral spec drives
         bookmark-jump-other-window (not just bookmark-jump) and asserts
         resolution happened — proving the choke point.
+        # owner: jump-seam (cycle-1790453714)
      5. portable-bookmarks-stamp-spec.el:539-687 asserts the cost_contract
         counts with spies on workspace-bookmark--git.
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-stamp-spec.el
      - config/workspaces/test/portable-bookmarks-spec.el
-     - "config/workspaces/test/portable-bookmarks-jump-spec.el (planned: jump-seam, cycle 2)"
+     - "config/workspaces/test/portable-bookmarks-jump-spec.el (planned: jump-seam, cycle 2)"   # owner: jump-seam (cycle-1790453714)
 
    related_entries:
      - register/shape/portable-bookmark-coordinates
@@ -7410,6 +7481,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - jump-seam
      - module-scaffold-and-fixtures
      - wave3-review-fixes
+     - missing-repo-choice        # cycle-1790453714: the missing-repo hand-off arm
+     - off-workspace-restore      # cycle-1790453714: the nil-workspace hand-off arm
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
    #+end_src
@@ -7424,6 +7497,41 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: boundary
    status: reconciled
    status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     entry stays =reconciled=; the corpus-survey clause below (ask 18) is
+     untouched. Two cycle-2 owners, both in wave 2 and both editing
+     portable-bookmarks.org (conflict rule: resolve the .org, re-tangle).
+     (1) =discovery-identity-memo-and-cost-contract= owns the
+     cost_contract's target line and validator 6: route
+     --workspace-checkouts (:698) and --canonical-checkouts-for-identity
+     (:784) through --memoised-identity (:239), memoise --canonical-checkout
+     per common dir within one --canonical-checkouts-among call (:768), and
+     add spawn specs (warm memo: resolved <= 2; missing-repo <= 1 + in-view
+     count; picker <= 2 per magit entry) that FAIL with the memo bypassed;
+     the seam-1 numbers in =register/boundary/bookmark-advice-seams=
+     cost_contract must not move. (2)
+     =discovery-cleanup-singulars-and-docstrings= owns removing
+     --workspace-checkout (:718) and --canonical-for-identity (:800) from
+     the =functions= list once deleted and re-homing their specs on the
+     plurals; if missing-repo-choice wants a one-arm "the unique checkout"
+     helper it is added THERE with its caller and this list gains it then.
+     SPECULATED for execute to settle: whether the memo's invalidation
+     rule — reuse while the COMMON dir's config mtime is unchanged
+     (=workspace-bookmark--config-stamp=, :233-237; memo keyed per ROOT,
+     :246-250) — is correct for a LINKED worktree once discovery shares
+     the memo. The identity comes from =git remote get-url=, which reads
+     the common config AND, under extensions.worktreeConfig, the
+     worktree's own config.worktree; a per-worktree remote override would
+     change the identity without touching the common config's mtime.
+     Execute must either show get-url ignores config.worktree for remotes,
+     or fold the worktree git-dir's config.worktree mtime into the stamp
+     when that file exists — and pin whichever with a spec. Second thing
+     to settle: discovery inherits "a nil identity is memoised"; a
+     candidate that GAINS a remote after a memoised-nil lookup becomes
+     visible only through the same mtime invalidation (remote add writes
+     the common config, so it should) — pin it with a spec that adds a
+     remote after a memoised-nil lookup and resolves again.
+
      cycle-1789935943 integrate (2026-09-26, against 20944160): RECONCILED.
      The architecture is confirmed (git-only, configuration-free, one
      runner, one normalizer, no magit/projectile/cache/scanning). The
@@ -7577,6 +7685,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (nil no longer collapses "none" and "several"). The singulars
      --workspace-checkout (:718) and --canonical-for-identity (:800) have no
      production caller (end-of-cycle finding 2: delete in a follow-up).
+     # owner of the deletion and of dropping the two names from this list:
+     # discovery-cleanup-singulars-and-docstrings (cycle-1790453714)
 
    cross_module_surface: |
      ONE public function:
@@ -7641,6 +7751,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      candidate on a warm memo, by routing discovery through
      --memoised-identity and memoising --canonical-checkout per common dir
      within one call.
+     # owner: discovery-identity-memo-and-cost-contract (cycle-1790453714)
 
    out_of_scope_cold_path: |
      Declared clone roots / directory scanning (replacing projectile for
@@ -7666,6 +7777,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         (identity-spec.el:392).
      6. (owed; end-of-cycle finding 6) a spec bounds picker spawns per magit
         entry on a warm memo.
+        # owner: discovery-identity-memo-and-cost-contract (cycle-1790453714)
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-identity-spec.el
@@ -7690,6 +7802,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - canonical-predicate-consolidation
      - ownership-and-picker-polish
      - resolver-outcomes
+     - discovery-identity-memo-and-cost-contract   # cycle-1790453714: cost_contract, validator 6
+     - discovery-cleanup-singulars-and-docstrings  # cycle-1790453714: functions list
+     - off-workspace-restore                       # cycle-1790453714: candidate ordering calls --workspace-checkouts
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
    reconciled_in: cycle-1789935943
@@ -10661,6 +10776,34 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     RE-STATED for cycle 2 against b56f385a; status unchanged; still
+     UNEXERCISED (seam 2 pass-through, portable-bookmarks.el:398-405; zero
+     copy-tree hits). OWNERS: validators 0, 1, 2 and the resolved-jump
+     clause of validator 3 -> =jump-seam= (wave 1, FIRST task; on-touch
+     fires on its first merge); validator 3's "after a missing-repo
+     read-only view" clause -> =missing-repo-choice= (wave 3); validator
+     3's "after an off-workspace restore-then-jump" clause ->
+     =off-workspace-restore= (wave 3). The enforcement file
+     portable-bookmarks-jump-spec.el is created by jump-seam; the other two
+     clauses of validator 3 land in THEIR owners' spec files
+     (missing-repo-spec.el, off-workspace-spec.el), so validator 3 is
+     three-file at cycle-2 end and enforcement_mechanism.location is
+     amended then. SPECULATED for execute to settle: (a) that the
+     substituted record is constructed at exactly ONE site (validator 2)
+     even after wave 3 adds two more actors — the read-only view and the
+     restore-then-jump path must re-enter the seam's construction site, or
+     open :path directly WITHOUT building a record; never a second copy;
+     (b) copy-tree on the (NAME . ALIST) cons returned by
+     bookmark-get-bookmark, so the alist AND its property conses are
+     fresh, and bookmark-prop-set on the copy cannot reach bookmark-alist;
+     (c) bookmark-save-flag is still 1 at b56f385a
+     (config/core/defaults.el:114), so the why_it_matters premise holds;
+     (d) whether the "stored filename unchanged" assertion is made against
+     bookmark-alist AFTER a bookmark-save round trip to the temp bookmark
+     file — the only form that catches a write-through, since a shared
+     cons would still read back the same in memory. No clause is weakened.
+
      cycle-1789935943 integrate (2026-09-26, against 20944160): UNEXERCISED
      — status unchanged. Seam 2 is pass-through (portable-bookmarks.el:398-405);
      no substituted record is constructed anywhere; grep
@@ -10724,6 +10867,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        filename is STILL A's path. That second assertion is the regression
        guard; a spec that only checks the opened file would pass against a
        mutating implementation.
+       # owner: jump-seam (cycle-1790453714) — file created by that task
 
      enforcement_locus_check: |
        Where in the call graph is this enforced? Inside the
@@ -10752,6 +10896,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      0. The enforcement spec file named above exists (it does NOT at
         20944160; the register must not read as enforced while it is merely
         unexercised — end-of-cycle finding 3).
+        # owner: jump-seam (cycle-1790453714)
      1. grep -n 'copy-tree' config/workspaces/portable-bookmarks.el -> present;
         grep -n 'copy-alist\|copy-sequence' in the same substitution path ->
         absent.
@@ -10759,6 +10904,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      3. Jump spec asserts the stored record's filename is unchanged after a
         resolved jump, after a missing-repo read-only view, and after an
         off-workspace restore-then-jump.
+        # owners (cycle-1790453714): resolved jump -> jump-seam;
+        # read-only view -> missing-repo-choice; restore-then-jump ->
+        # off-workspace-restore
 
    design_anchor:
      section: design.md §D2
@@ -10775,6 +10923,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
    cited_by_tasks:
      - jump-seam
+     - missing-repo-choice        # cycle-1790453714: validator 3, read-only view
+     - off-workspace-restore      # cycle-1790453714: validator 3, restore-then-jump
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
    #+end_src
@@ -10789,6 +10939,36 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     RE-STATED for cycle 2 against b56f385a; status unchanged. DECISION
+     half LIVE (unchanged since ac50b041); ACTOR half still UNEXERCISED
+     (seam 2 pass-through, portable-bookmarks.el:398-405). OWNERS by
+     clause: prohibition 1 and validator 4 (not-on-branch creates NO
+     buffer) plus the ambiguous / no-clone report-and-decline arms ->
+     =jump-seam= (wave 1, FIRST task; on-touch fires on its first merge);
+     prohibition 2, validator 3 (view-mode AND a visible marker), the
+     cancel = open-nothing-signal-nothing rule and the "read-only withheld
+     when :path is nil" rule -> =missing-repo-choice= (wave 3); prohibition
+     4's empty-registry / user-quit fallback ("read-only canonical, or
+     cancel" — never the stored path) -> =off-workspace-restore= (wave 3);
+     prohibition 3 is LIVE (=register/vocabulary/checkout-classification=
+     validators). Validator 0's three files are created by those three
+     owners respectively. SPECULATED for execute to settle: (a) HOW the
+     seam declines — return without calling ORIG-FN after a =message=,
+     versus =user-error=; the entry requires only "report, open nothing",
+     and a signal is acceptable ONLY if it is not
+     =bookmark-error-no-filename=, the condition the host's relocate arm
+     catches; (b) the visible marker's form
+     (mode-line-buffer-identification prefix vs header-line) and that it
+     outlives the echo-area message; (c) that "no buffer visits the missing
+     path" is asserted with find-buffer-visiting / get-file-buffer over the
+     not-on-branch path AFTER the jump, never with "no error"; (d) whether
+     the off-workspace fallback REUSES missing-repo-choice's bounded
+     chooser (design § Open Questions) rather than a second prompt — if the
+     two prompts merge, the nested action vocabulary in
+     =register/vocabulary/bookmark-resolution-outcome= is re-stated, not
+     this entry. No clause is weakened.
+
      cycle-1789935943 integrate (2026-09-26, against 20944160): the DECISION
      half is live and confirmed (resolver-outcomes, ac50b041): pure decision
      function, closed six-member set, no permissive arm
@@ -10893,12 +11073,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        - portable-bookmarks-jump-spec.el (PLANNED: jump-seam, cycle 2) —
          =not-on-branch= creates NO buffer (assert no buffer visits the
          missing path afterwards; asserting "no error" is not sufficient).
+         # owner: jump-seam (cycle-1790453714)
        - portable-bookmarks-missing-repo-spec.el (PLANNED:
          missing-repo-choice, cycle 2) — cancel opens nothing and signals
          nothing; the read-only view is =view-mode= and marked.
+         # owner: missing-repo-choice (cycle-1790453714)
        - portable-bookmarks-off-workspace-spec.el (PLANNED:
          off-workspace-restore, cycle 2) — empty registry offers the
          bounded fallback and never opens the stored absolute path.
+         # owner: off-workspace-restore (cycle-1790453714)
 
      enforcement_locus_check: |
        Where is this enforced? NOT in one place — and that is the entry's
@@ -10937,9 +11120,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         (portable-bookmarks.el:836-1042) -> zero hits (verified).
      3. (planned: missing-repo-choice) The canonical read-only view sets
         view-mode AND writes a visible marker.
+        # owner: missing-repo-choice (cycle-1790453714)
      4. (planned: jump-seam) A spec asserts NO BUFFER visits the missing
         path after a not-on-branch jump — not merely that no error was
         signalled.
+        # owner: jump-seam (cycle-1790453714)
      5. A VALID stamp resolved in a second workspace through an escaping
         link yields that workspace's spelling, never the stored filename
         (portable-bookmarks-resolver-spec.el:503-582).
@@ -10962,6 +11147,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - resolver-outcomes
      - missing-repo-choice
      - jump-seam
+     - off-workspace-restore      # cycle-1790453714: prohibition 4's fallback
    discovered_from: workspace-portable-bookmarks
    discovered_by: architect
    #+end_src
@@ -10976,6 +11162,31 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    tier: invariant
    status: speculated
    status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     RE-STATED for cycle 2 against b56f385a; status unchanged; still
+     UNEXERCISED (zero workspace-anti-save-predicates hits in
+     portable-bookmarks.el; consult sites unchanged at persistence.el:301,
+     :317 and workspaces-mode.el:35; layouts.el still defers
+     window-state-put via run-at-time). OWNER of every clause and of
+     validators 0-4 -> =off-workspace-restore= (wave 3, after jump-seam;
+     on-touch fires on its first merge); it creates
+     portable-bookmarks-off-workspace-spec.el. SPECULATED for execute to
+     settle: (a) the suppression MECHANISM — an explicit-reset flag (a
+     module defvar set before workspace-restore and cleared by an event
+     that runs AFTER the deferred window-state-put: the predicate's own
+     first hit, or a one-shot timer queued after the restore's timer)
+     versus a plain let-binding, which the statement already rejects
+     because the run-at-time restore fires after the let unwinds; execute
+     must name WHICH event clears the flag and show it is ordered after the
+     deferred restore; (b) that the reset also runs on the error and quit
+     paths — unwind-protect covers the synchronous part, but the deferred
+     part needs its own clearing, so validator 4 (a later autosave still
+     writes :working-state) is the deciding spec; (c) exactly ONE predicate
+     added to workspace-anti-save-predicates and removed on unload next to
+     the advice removal (portable-bookmarks.el:1055-1058 today); (d) the
+     predicate keys on the module's flag ONLY, never on a jump inferred
+     from the call stack or from bookmark internals. No clause is weakened.
+
      cycle-1789935943 integrate (2026-09-26, against 20944160): UNEXERCISED
      — status unchanged. The module names no
      =workspace-anti-save-predicates= and adds no predicate (grep: zero hits
@@ -11047,6 +11258,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        20944160) — the behavioral spec captures the workspace's
        =:working-state= before a jump-triggered restore and asserts it is
        UNCHANGED afterwards, and that =:saved-state= is likewise untouched.
+       # owner: off-workspace-restore (cycle-1790453714) — file created by that task
 
      enforcement_locus_check: |
        Where is this enforced? In an anti-save predicate registered on
@@ -11073,6 +11285,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    validator: |
      0. The enforcement spec file named above exists (it does NOT at
         20944160 — end-of-cycle finding 3).
+        # owner: off-workspace-restore (cycle-1790453714)
      1. The module adds exactly one predicate to
         workspace-anti-save-predicates and removes it on unload.
      2. The suppression flag is reset on the normal, error, AND quit paths.
@@ -11098,6 +11311,332 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    cited_by_tasks:
      - off-workspace-restore
    discovered_from: workspace-portable-bookmarks
+   discovered_by: architect
+   #+end_src
+
+** directory-identity-by-device-inode
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-directory-identity-by-device-inode
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/directory-identity-by-device-inode
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     SEEDED from cycle-1 meta-discovery "path-identity-by-device-inode"
+     (five tasks hit it: checkout-discovery, worktree-candidates-git-first,
+     stamp-seam, wave3-review-fixes, ownership-and-picker-polish) and
+     end-of-cycle finding 7. The predicate EXISTS and is already the rule
+     inside portable-bookmarks (=workspace-bookmark--same-file-p=,
+     portable-bookmarks.el:96-118; every same-file comparison in the module
+     routes through it — =register/vocabulary/checkout-classification=
+     validator 2). The entry is SPECULATED because its scope is all of
+     config/workspaces/ and two CORE sites still violate it
+     (known_violations). Promotion of
+     .tasks/workspaces-file-equal-p-timestamp-race into this cycle is plan
+     ask P2 (pending the user); until it is decided the violations are
+     recorded here, owned by that .tasks item, not by a batch task. On-touch
+     fires on any diff to the predicate, to tabs.org
+     § workspace--registered-for-home-p, or to git-worktrees.org
+     § jf/workspace--worktree-children.
+   load_bearing: true
+   title: Directory and file identity is decided by ONE device+inode predicate; path strings are keys, never verdicts
+   statement: |
+     Across config/workspaces/ — core AND consumers — whether two paths name
+     the SAME directory or file is decided by exactly one predicate that
+     compares the device and inode numbers of the two paths' truenames:
+     today =workspace-bookmark--same-file-p= (portable-bookmarks.el:96).
+     Its contract: nil when either argument is not a string, is remote, or
+     does not exist; never signals. Three corollaries:
+     1. =file-equal-p= is REJECTED for identity. It compares the two
+        truenames' whole =file-attributes= lists, timestamps included, so a
+        directory written to between its two stats compares unequal to
+        ITSELF (4,817 of 20,000 calls under a concurrent writer;
+        wave3-review-fixes step 1). No production code under
+        config/workspaces/ calls it.
+     2. String comparison of PATH spellings (=equal=, =string==,
+        =string-equal=, =string-prefix-p= on expanded or truenamed paths) is
+        permitted ONLY as a hash key or a de-duplication PRE-FILTER whose
+        false negatives are harmless, never as the identity verdict.
+        Permitted today, by name so the grep does not misfire: the truename
+        hash key in =jf/workspace--worktree-dedupe-dirs=
+        (git-worktrees.el:34-55; a dedupe); the ROOT key of
+        =workspace-bookmark--identity-memo= (portable-bookmarks.el:214,
+        :246-250); the loop guard =(equal current previous)= in
+        =--path-within-p= (:604; termination, the verdict is --same-file-p
+        at :605); and the LEXICAL confinement assertion in
+        =workspace-bookmark--anchor= (:928-929), which is by design a
+        spelling check (DD-16), not an identity verdict. Comparing two
+        normalised IDENTITY strings (:713, :797) is not a path comparison
+        and is outside this rule.
+     3. The predicate has ONE home. Its eventual home is workspaces CORE,
+        with portable-bookmarks routed to it: core must never name a
+        =workspace-bookmark-*= symbol
+        (=register/boundary/portable-bookmarks-consumer= validator 2), so
+        core cannot call the module's copy, and the overlay treats a second
+        tangled body as duplication: blocking. Until the move, the module's
+        predicate is the reference implementation and core's two sites are
+        the known violations below; after it, the module's own defun is
+        deleted or reduced to a call.
+   why_it_matters: |
+     The project paid for this three ways in one cycle. (a) Ownership:
+     =file-equal-p= in the workspace-owned test made a workspace's OWN full
+     clone classify =canonical= while its home was being written to — a
+     wrong-file offer, the defect this change exists to remove
+     (wave3-review-fixes; the reverted fix failed 153 of 1000 calls under
+     a real writer). (b) Spelling: outcome plists carry the registry's
+     spelling (/var/...) for a workspace checkout and git's truename
+     (/private/var/...) for the canonical one (end-of-cycle finding 7), so
+     a consumer comparing :path or :checkout by string disagrees with
+     itself between the two. (c) Case and links: a case-flipped home
+     spelling and a symlinked prefix are the same directory on this
+     machine's filesystem and must own / dedupe the same
+     (portable-bookmarks-discovery-spec.el:539, :551, :979). Each is a
+     silent wrong answer, not an error, which is what earns an invariant
+     over a comment.
+   enforcement_mechanism:
+     kind: lint + test
+     location: |
+       Lint: the greps in validator 1-3 over config/workspaces/*.el, run by
+       the architect on-touch and at end-of-cycle. Test: the predicate's
+       contract and the ownership-under-write race,
+       portable-bookmarks-discovery-spec.el § "Canonical safety while the
+       workspace home is being written to" (:674 onward; the deterministic
+       timestamp-spy spec is the primary proof, the bounded real-writer
+       stress spec the secondary). Core's two sites have NO race test
+       today.
+       # owner of the core move and its race specs:
+       # .tasks/workspaces-file-equal-p-timestamp-race (promotion = plan ask P2, cycle-1790453714)
+     enforcement_locus_check: |
+       Where is this enforced? At each comparison site — which is why the
+       validator counts sites rather than asserting an outcome: one
+       remaining =file-equal-p= re-opens the race at that site only and
+       nothing else fails. Does it prevent silent-fail? Only the grep does;
+       the race is timing-dependent and a behavioural spec passes almost
+       always against the wrong predicate (the wave3 stress spec needed a
+       concurrent writer to show it). Structural check first, behavioural
+       spec second.
+   validator: |
+     Structural (no scaffolding in this project):
+     1. grep -n 'file-equal-p' config/workspaces/*.el -> hits ONLY in
+        portable-bookmarks.el:100 (the docstring rejecting it) and the
+        known_violations below (tabs.el:136, :147, :198;
+        git-worktrees.el:208 at b56f385a). Target after the move:
+        docstrings only.
+     2. grep -n 'defun .*same-file-p' config/workspaces/*.el -> exactly ONE
+        body (today portable-bookmarks.el:96; after the move, the core
+        file, with the module calling it — never two bodies).
+     3. grep -n 'string=\|string-equal\|(equal ' config/workspaces/*.el,
+        read at every site whose operands are PATHS -> each hit is a hash
+        key, a dedupe pre-filter, a loop guard or the lexical anchor
+        assertion (the list in statement 2); no hit decides ownership,
+        containment, "is this the home" or "is this the same worktree".
+     4. The predicate returns nil, never signals, for a remote path, a
+        non-string and a missing path (docstring :97-104; discovery-spec
+        pins the missing-path case through --path-within-p).
+     5. (test; owner: the promoted .tasks item) core's two sites pass the
+        timestamp-spy race spec that discovery-spec.el:674 uses for the
+        module.
+   known_violations: |
+     Owner: .tasks/workspaces-file-equal-p-timestamp-race (promotion into
+     this cycle is plan ask P2, pending). Verified at b56f385a:
+     - config/workspaces/tabs.el:147 (tabs.org:296),
+       =workspace--registered-for-home-p=: the duplicate-home check at
+       registration compares =:home= with =file-equal-p=; docstrings at
+       tabs.el:136 and :198 (tabs.org:272, :285, :347) promise the same.
+       Failure shape: a spurious "not registered" under a concurrent write
+       lets a second workspace register the same home
+       (=register/invariant/home-required-no-floating-workspaces= and
+       =register/invariant/registry-name-equals-basename= assume one home
+       per workspace).
+     - config/workspaces/git-worktrees.el:208 (git-worktrees.org:454),
+       =jf/workspace--worktree-children=: finds the child's own entry in
+       =magit-list-worktrees= with =file-equal-p=; a spurious miss leaves
+       the child's :branch nil in the payload. Not a wrong-file offer, but
+       a wrong answer.
+     Test-side, advisory, not counted by validator 1:
+     integration-dispatch-spec.el:118 and discovery-spec.el:551, :979
+     assert path equality with =file-equal-p=; when the predicate moves to
+     core, specs should assert with it too.
+   design_anchor:
+     section: tasks/open/wave3-review-fixes.md § step 1; .tasks/workspaces-file-equal-p-timestamp-race.md
+     quote: |
+       "Add one private predicate that compares device and inode numbers
+       of the two paths' truenames (nil when either does not exist), and
+       route EVERY same-file comparison in the module through it. No
+       module code may call file-equal-p afterwards."
+   related_entries:
+     - register/boundary/git-derived-checkout-discovery
+     - register/vocabulary/checkout-classification
+     - register/vocabulary/bookmark-resolution-outcome
+     - register/boundary/portable-bookmarks-consumer
+     - register/invariant/home-required-no-floating-workspaces
+     - register/invariant/registry-name-equals-basename
+   cited_by_tasks:
+     - wave3-review-fixes
+     - discovery-cleanup-singulars-and-docstrings   # its docstring edits touch the anchoring section that carries the lexical exception
+     - jump-seam                                    # consumer of :path / :checkout
+     - missing-repo-choice                          # consumer of :path / :checkout
+     - off-workspace-restore                        # candidate ordering compares checkouts
+   discovered_from: cycle-1789935943 meta-discovery path-identity-by-device-inode
+   discovered_by: architect
+   #+end_src
+
+** spec-registry-isolation-via-fixtures
+   :PROPERTIES:
+   :CUSTOM_ID: register-invariant-spec-registry-isolation-via-fixtures
+   :END:
+
+   #+begin_src yaml
+   entry_id: register/invariant/spec-registry-isolation-via-fixtures
+   tier: invariant
+   status: speculated
+   status_note: |
+     cycle-1790453714 (workspace-portable-bookmarks) plan, forward-mode:
+     SEEDED from cycle-1 meta-discovery
+     "shared-global-test-state-worked-around-per-file" and end-of-cycle
+     finding 4 (three spec files each swap =workspace--registry= for a
+     fresh table; three commit-a-file helpers; five git wrappers). OWNER:
+     =consolidate-portable-bookmarks-test-fixtures= (wave 1, alongside
+     jump-seam; on-touch fires on its first merge). load_bearing is TRUE:
+     the class has already cost gate time in this project (see
+     why_it_matters), which is the template's bar. SCOPE: the statement
+     binds the specs the fixtures module serves
+     (portable-bookmarks-*-spec.el, git-worktrees-spec.el) and every NEW
+     spec under config/workspaces/test/; the 20 pre-existing core specs
+     that =clrhash= the live table in place are recorded below as the
+     repo-wide generalisation, owned by
+     .tasks/test-suite-shared-global-state-isolation (promotion = ask 19,
+     pending), NOT by this cycle's fixtures task. Test hygiene is in scope
+     by the user's 2026-09-20 amendment. SPECULATED for execute to settle:
+     the macro's exact shape — that it saves the live table, installs a
+     fresh =equal= table, runs fixtures-setup, and restores inside
+     =unwind-protect= so a signalling spec body cannot leak the empty
+     table; and whether the four pre-existing call-process git wrappers
+     can share the fixtures' process-file wrapper without changing their
+     assertions (if not, the task says why in ## Observations and this
+     entry records them as accepted).
+   load_bearing: true
+   title: Specs never rebind the shared workspace registry themselves; the fixtures module owns the one registry scope
+   statement: |
+     No =*-spec.el= under config/workspaces/test/ =setq=s,
+     =let=/=cl-letf=-binds, or keeps its own saved copy of
+     =workspace--registry=. The ONE registry-scope construct is the
+     fixtures module's macro (planned name
+     =workspace-bookmark-fixtures-with-empty-registry=: save the live
+     table, install a fresh =equal= hash table, run
+     =workspace-bookmark-fixtures-setup=, restore on EVERY exit including
+     non-local ones), and the ONE commit-a-file helper is
+     =workspace-bookmark-fixtures-commit-file (repo relpath &optional
+     contents)=, both in config/workspaces/test/portable-bookmarks-fixtures.el.
+     Every spec that needs an empty registry goes through the macro; every
+     spec that needs a tracked file goes through the helper. Every spec is
+     green in ISOLATION (./bin/run-tests.sh -d config/workspaces exits 0)
+     AND in the FULL run (failure set = the cycle baseline;
+     compare-baseline.py prints NO-REGRESSION); a spec that passes in one
+     mode and not the other is a violation of THIS invariant before it is
+     anything else. The fixtures file's own =(defvar workspace--registry
+     ...)= (fixtures.el:40) is a load-order fallback definition, not a
+     rebinding, and stays.
+   why_it_matters: |
+     The buttercup runner loads every spec file into ONE Emacs process and
+     runs once, so any global a spec leaves changed is the next file's
+     starting state (.tasks/test-suite-shared-global-state-isolation: 21 ->
+     3 gptel failures from one contaminating fixture). In THIS change's
+     blast radius the class is already on the books: the fifth baseline
+     failure is a config/workspaces spec (broken-home-runtime-spec.el:365-380)
+     that errors on an out-of-range =substring= of a =*Messages*= buffer
+     polluted by every suite before it, and passes in isolation — which is
+     why every merge in cycle 1 paid TWO gates (isolated run exit 0 AND a
+     full-run failure-set comparison) instead of one, and why the
+     14-failure baseline cannot be read from an exit code
+     (.orchestrator/baseline-failures-cycle-1789935943.txt § Notes). Cycle
+     1 then wrote the same save / swap / restore plumbing three times
+     (discovery, resolver and git-worktrees specs) because the fixtures
+     module, written in wave 1, did not yet own a registry scope; each copy
+     is a place where a missed restore on a non-local exit leaks a fresh
+     EMPTY registry into every later spec and turns one failure into a
+     load-order puzzle. One owner, one macro, one helper is the cheapest
+     structural fix; the repo-wide runner change (per-file processes) is
+     the .tasks item.
+   enforcement_mechanism:
+     kind: lint + test
+     location: |
+       Lint: validators 1-3 over config/workspaces/test/*-spec.el. Test:
+       the two gates in the statement, run after every merge, plus one
+       fixtures spec asserting the macro restores the live table on a
+       non-local exit (a signal inside the body -> the original table is
+       back and the fixture names are gone from it).
+       # owner: consolidate-portable-bookmarks-test-fixtures (cycle-1790453714)
+     enforcement_locus_check: |
+       Where is this enforced? In ONE macro, so restore-on-unwind is
+       written once and a bug in it fails every spec at once (loud) rather
+       than one spec's private copy (quiet). Does it cover all entry paths?
+       Only for specs that use the macro — which is why validator 1 counts
+       direct references instead of trusting the macro.
+   validator: |
+     Structural (no scaffolding in this project):
+     1. grep -n 'setq[^)]*workspace--registry\|saved-registry\|(workspace--registry '
+        config/workspaces/test/*-spec.el -> zero hits; the swap lives only
+        in portable-bookmarks-fixtures.el.
+     2. grep -n 'workspace--registry' over portable-bookmarks-*-spec.el and
+        git-worktrees-spec.el -> reads only (gethash / maphash / remhash of
+        a fixture name).
+     3. grep -n '"commit"' config/workspaces/test/portable-bookmarks-*-spec.el
+        -> zero local commit helpers; commits go through
+        workspace-bookmark-fixtures-commit-file.
+     4. ./bin/run-tests.sh -d config/workspaces exits 0 AND the full run's
+        failure set equals the cycle baseline (compare-baseline.py).
+     5. A fixtures spec pins restore-on-non-local-exit for the macro.
+   known_violations: |
+     Owner: consolidate-portable-bookmarks-test-fixtures (cycle-1790453714).
+     Verified at b56f385a (the eoc-04 line ranges corrected):
+     - portable-bookmarks-discovery-spec.el:60-73 — saved-registry defvar
+       (:60-61), swap in --setup (:65-66), restore in --teardown (:72-73).
+     - portable-bookmarks-resolver-spec.el:63-82 — saved-registry defvar
+       (:63-64), swap in --setup (:74-75), restore in --teardown (:81-82).
+     - git-worktrees-spec.el:285-313 — saved-registry defvar (:285-286),
+       swap inlined in before-each (:296-297), restore in after-each
+       (:312-313).
+     - Commit-a-file helpers: discovery-spec.el:380 (--commit-file),
+       resolver-spec.el:161 (--commit-file; re-sets user.email / user.name
+       / gpgsign that fixtures-make-repo already set, fixtures.el:151-153),
+       stamp-spec.el:41 (--write, plus its commit).
+     - Five per-file git wrappers: fixtures.el:115 (process-file),
+       birth-offer-spec.el:55, integration-dispatch-spec.el:58,
+       scaffold-spec.el:45, workspace-new-anchor-spec.el:52 (call-process)
+       — fold only if the four call-process forms keep their assertions.
+     Repo-wide generalisation — owner
+     .tasks/test-suite-shared-global-state-isolation (promotion = ask 19,
+     pending); NOT this cycle's fixtures task:
+     - 20 pre-existing core specs =clrhash= the live table in before-each
+       with no restore (anti-save-spec.el:34, tabs-spec.el:37,
+       layouts-spec.el:32, persistence-spec.el:31, ... — grep 'clrhash
+       workspace--registry'); transient-menu-spec.el:51, :60, :69, :80,
+       :135, :150 =cl-letf=-bind it per =it= (dynamic scope is the safe
+       shape, but a second scope construct). Both mutate production state
+       in place; the full-run gate tolerates them today only because each
+       file starts by clearing.
+   design_anchor:
+     section: design.md §D11; end-of-cycle-1789935943 finding 4
+     quote: |
+       "Fixtures needed: a temp-repo builder (init a repo, set a remote,
+       add a worktree), a fake workspace registry entry pointing at a temp
+       home, and a temp bookmark-default-file so no test touches the real
+       bookmark list."
+   related_entries:
+     - register/boundary/portable-bookmarks-consumer
+     - register/boundary/git-derived-checkout-discovery
+     - register/boundary/workspace-git-worktrees-consumer
+   cited_by_tasks:
+     - consolidate-portable-bookmarks-test-fixtures
+     - jump-seam                                   # new jump-spec.el must use the macro, not a fourth swap
+     - missing-repo-choice                         # new missing-repo-spec.el likewise
+     - off-workspace-restore                       # new off-workspace-spec.el likewise
+     - discovery-identity-memo-and-cost-contract   # new spawn specs likewise
+   discovered_from: arch-cycle-1789935943-eoc-04
    discovered_by: architect
    #+end_src
 

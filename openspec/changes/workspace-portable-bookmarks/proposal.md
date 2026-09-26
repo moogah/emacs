@@ -8,6 +8,14 @@ status_note: |
   the only defensible value. Promotion to `confirmed` requires two cycles of
   clean forward chain with no goal-drift signal; this change's dependency
   graph is six levels deep, so that is cycle 3 at the earliest.
+
+  cycle-1790453714 plan (2026-09-26, cycle 2 of this change): STAYS
+  speculated. Cycle 1 closed clean (goal-drift query fired=false,
+  recommendation 'continue'; 16 design decisions narrowed behaviour
+  INSIDE the stated outcome, none changed it). That is one of the two
+  clean cycles promotion requires. The remaining outcome chain is
+  jump-seam -> missing-repo-choice / off-workspace-restore -> docs-readme,
+  all in the cycle-2 batch.
 ---
 
 ## Why

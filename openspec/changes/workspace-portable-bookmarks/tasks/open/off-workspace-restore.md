@@ -4,8 +4,8 @@ description: When not in a workspace, prompt from the registry and restore the c
 change: workspace-portable-bookmarks
 status: blocked
 task_class: feature
-on_critical_path: false
-cycle: deferred
+on_critical_path: true
+cycle: cycle-1790453714
 cites_register_entries:
   - register/invariant/bookmark-jump-not-captured-as-working-state
   - register/boundary/portable-bookmarks-consumer
@@ -46,7 +46,9 @@ relations:
    broken workspaces. Call it; do not reimplement any of that.
 
 3. Empty registry, or user quit: fall back to the same bounded choice as
-   `missing-repo` — read-only canonical checkout, or cancel. Do NOT open the
+   `missing-repo` — read-only canonical checkout (offered ONLY when the outcome
+   carries a non-nil `:path`; ask 16 default, cycle-2 plan finding
+   arch-cycle-1790453714-plan-05), or cancel. Do NOT open the
    record's stored absolute path as though it were a workspace copy; that is the
    silent wrong-file behaviour the spec forbids.
 
@@ -141,3 +143,9 @@ a small frame).
 
 ### Related follow-ups
 - `discovery-identity-memo-and-cost-contract` (audit eoc-06): candidate ordering calls discovery once per registered workspace; do not add a second pass, and do not pin spawn counts in this task's specs.
+
+## Cycle 2 plan (cycle-1790453714)
+
+- Step 3 inherits the ask-16 narrowing: read-only view is withheld when `missing-repo` carries a nil `:path`; `add-worktree` targets `:checkout`. Whether this fallback REUSES `missing-repo-choice`'s chooser is a speculation `register/invariant/no-silent-wrong-file-open` names for this wave; if merged into one chooser, the nested action vocabulary in `register/vocabulary/bookmark-resolution-outcome` is re-stated at integrate.
+- On-touch fires for `register/invariant/bookmark-jump-not-captured-as-working-state`: the entry's cycle-2 paragraph asks which event clears the explicit-reset flag, that it is ordered after the deferred `window-state-put`, and that it resets on error/quit paths.
+- Never bulk-delete shared temp prefixes.

@@ -5,7 +5,7 @@ change: workspace-portable-bookmarks
 status: blocked
 task_class: doc
 on_critical_path: false
-cycle: cycle-2
+cycle: cycle-1790453714
 cites_register_entries:
   - register/vocabulary/bookmark-resolution-outcome
   - register/shape/portable-bookmark-coordinates
