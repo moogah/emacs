@@ -24,26 +24,25 @@ Within one candidate collection only the first failure is shown; see
      :warning)))
 
 (defun jf/workspace--worktree-dedupe-dirs (dirs)
-  "Return DIRS as absolute directory names, without duplicates.
+  "Return the local DIRS as absolute directory names, without duplicates.
 Each entry is expanded and given a trailing slash.  Two entries are
-duplicates when they name the same directory: local entries are
-compared by `file-truename', so spellings through a symlinked prefix
-collapse; remote entries are compared by their expanded name.  The
-first occurrence's spelling is kept, in order.  nil entries are
-dropped."
+duplicates when they name the same directory, compared by
+`file-truename', so spellings through a symlinked prefix collapse.  The
+first occurrence's spelling is kept, in order.  nil entries and remote
+\(TRAMP) entries are dropped; a remote entry is asked only
+`file-remote-p', so nothing here touches the network."
   (let ((seen (make-hash-table :test #'equal))
         (out '()))
     (dolist (d dirs)
-      (when d
-        (let* ((dir (file-name-as-directory (expand-file-name d)))
-               (key (if (file-remote-p dir)
-                        dir
-                      (condition-case nil
-                          (file-name-as-directory (file-truename dir))
-                        (error dir)))))
-          (unless (gethash key seen)
-            (puthash key t seen)
-            (push dir out)))))
+      (when (and d (not (file-remote-p d)))
+        (let ((dir (file-name-as-directory (expand-file-name d))))
+          (unless (file-remote-p dir)
+            (let ((key (condition-case nil
+                           (file-name-as-directory (file-truename dir))
+                         (error dir))))
+              (unless (gethash key seen)
+                (puthash key t seen)
+                (push dir out)))))))
     (nreverse out)))
 
 (defun jf/workspace--worktree-git-derived-candidates ()
@@ -91,7 +90,7 @@ and then `(magit-list-repos)' when magit is loaded, classified by
 `jf/workspace--worktree-canonical-only'.  Projectile and project.el
 lists are deliberately not consulted.  Paths are de-duped by
 `jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
-spelling kept) and filtered to actual git repositories (via
+spelling kept, remote entries dropped unprobed) and filtered to actual git repositories (via
 `locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
 loaded).  At most one discovery warning is shown per call.  Returns the
 list; does not prompt."

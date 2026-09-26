@@ -1819,7 +1819,9 @@ enough alone:
   git agrees it is the main worktree, and it holds the work tree.
   NECESSARY, NOT SUFFICIENT: a workspace's full clone passes it.
 
-The classification is asked first because it runs no subprocess: a
+The classification is asked first because it is the cheaper half: it
+runs git only when a registered workspace's home lies inside DIR (the
+same-repository test, one or two subprocesses per such home), and a
 workspace-owned candidate never pays for =--canonical-checkout='s four.
 Nothing here catches errors: every step it composes already returns nil
 (or =other=) rather than signalling.
