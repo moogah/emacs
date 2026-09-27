@@ -2,7 +2,7 @@
 name: registration-and-purge-guards
 description: Name-collision refusal on every registration path; remote-home refusal at registry load; purge scope strictly below the default parent; remote spec proves the refusal it names
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: bug
 on_critical_path: false
 cycle: cycle-1790453714
