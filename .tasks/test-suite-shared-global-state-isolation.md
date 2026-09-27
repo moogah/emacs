@@ -331,3 +331,11 @@ cycle-1 baseline; discovered_by architect / orchestrator; discovered_class invar
 - **User decision 2026-09-27:** not promoted into this change; a repo-wide study (runner
   architecture: one process loads every `*-spec.el`; per-file processes or a portable dump
   are the candidate shapes) belongs in a separate change after workspace-portable-bookmarks ships.
+
+## Addendum (cycle-1790453714, 2026-09-27) — deleted `default-directory` leak class
+From arch-on-touch-1790453714-54/-64 (workspace-portable-bookmarks change). A spec that leaves the current buffer visiting (or with
+`default-directory` in) a directory its teardown deletes makes later specs' `make-process` / `process-file` fail with `file-missing`.
+Fixed at the named source (buffer-reincarnation-spec, merge acc335bc, with a guard describe). Still present in: tabs-spec,
+layouts-spec, persistence-spec, revert-spec, anti-save-spec, buffer-membership-spec (two also leave dead buffers). Also: three core
+specs cleared the global `workspace--integrations` without restoring it (fixed in acc335bc). Candidate shared fix: a suite-level
+after-each that restores `default-directory` to an existing directory and kills buffers visiting deleted paths.
