@@ -12,7 +12,11 @@
 ;;   stand-in that records what it was offered and answers with one key.
 ;;   `jf/workspace--add-worktree' (git-worktrees, magit-backed) is bound
 ;;   per spec to a stub that either really adds a worktree with the
-;;   fixtures or returns a vocabulary outcome; `nil' unbinds it.
+;;   fixtures or returns a vocabulary outcome; `nil' unbinds it.  ONE
+;;   spec runs the REAL command (git-worktrees.el is loaded here for it)
+;;   and stands in only for magit and the branch prompt, so the contract
+;;   the chooser relies on — the command honours `:source-repo' — is
+;;   pinned across the two modules, not against a stub.
 ;;
 ;; * UNIT — the offered option set and the prompt text, the payload handed
 ;;   to the worktree command, the chooser's own barrier, and a structural
@@ -40,6 +44,12 @@
 (load (expand-file-name "portable-bookmarks-fixtures.el"
                         portable-bookmarks-missing-repo-spec--this-dir))
 (load (expand-file-name "../portable-bookmarks.el"
+                        portable-bookmarks-missing-repo-spec--this-dir))
+;; The anchor payload's one constructor, and the real worktree command.
+;; Neither is required by portable-bookmarks; production loads both.
+(load (expand-file-name "../integrations.el"
+                        portable-bookmarks-missing-repo-spec--this-dir))
+(load (expand-file-name "../git-worktrees.el"
                         portable-bookmarks-missing-repo-spec--this-dir))
 
 (defvar jf/emacs-dir)
@@ -570,6 +580,46 @@ Returns the error's message; fails the spec when nothing was signalled."
                 :to-be nil)
         (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil))))
 
+  (it "through the REAL git-worktrees command: no source prompt, no discovery re-run, the worktree made from :checkout"
+    ;; Architect on-touch finding 31.  Only magit is stood in for — its
+    ;; main-branch lookup, and its worktree creation, which really adds
+    ;; the worktree with the fixtures — and the branch prompt, answered
+    ;; with its default.  Every source prompt fails the spec.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((repo (plist-get world :repo))
+             (home-c (plist-get world :home-c))
+             (a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (made nil))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (spy-on 'jf/workspace--worktree-read-repo :and-call-through)
+        (spy-on 'workspace-bookmark-canonical-checkouts-in-view :and-call-through)
+        (cl-letf (((symbol-function 'magit-main-branch) (lambda () "main"))
+                  ((symbol-function 'magit-worktree-branch)
+                   (lambda (dir branch _start)
+                     (push (list default-directory dir branch) made)
+                     (workspace-bookmark-fixtures-add-worktree
+                      default-directory dir :branch branch)))
+                  ((symbol-function 'read-string)
+                   (lambda (_prompt &optional initial &rest _) initial))
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest args) (error "Prompted for a source: %S" args)))
+                  ((symbol-function 'read-directory-name)
+                   (lambda (&rest args) (error "Prompted for a source: %S" args))))
+          (let ((buffer (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?a)))
+            (expect (workspace-bookmark--same-file-p
+                     (buffer-file-name buffer)
+                     (expand-file-name
+                      "README.md"
+                      (expand-file-name (file-name-nondirectory (directory-file-name repo))
+                                        home-c)))
+                    :to-be-truthy)))
+        (expect 'jf/workspace--worktree-read-repo :not :to-have-been-called)
+        (expect 'workspace-bookmark-canonical-checkouts-in-view :not :to-have-been-called)
+        (expect (length made) :to-equal 1)
+        (expect (workspace-bookmark--same-file-p (nth 0 (car made)) repo) :to-be-truthy)
+        (expect (nth 2 (car made)) :to-equal "wsbm-mr-c")
+        (expect (length portable-bookmarks-missing-repo-spec--prompts) :to-equal 1))))
+
   (it "reports (failed . REASON) and opens nothing"
     (portable-bookmarks-missing-repo-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
@@ -595,6 +645,32 @@ Returns the error's message; fails the spec when nothing was signalled."
           (expect (portable-bookmarks-missing-repo-spec--decline "readme" "wsbm-mr-c" ?a)
                   :to-match "skipped the add"))
         (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil)))))
+
+
+;;; Unit — the payload handed to the worktree command
+
+(describe "missing-repo choice: the add-worktree payload"
+
+  (workspace-bookmark-fixtures-with-empty-registry
+    (workspace-bookmark-fixtures-make-workspace "wsbm-mr-payload"))
+
+  (it "is core's anchor payload for the workspace, with context bookmark-jump, plus :source-repo"
+    (let ((home (workspace-bookmark--workspace-home "wsbm-mr-payload")))
+      (expect home :to-be-truthy)
+      (expect (workspace-bookmark--add-worktree-payload "wsbm-mr-payload" "/src/repo/")
+              :to-equal (append (workspace--integration-payload
+                                 "wsbm-mr-payload" home 'bookmark-jump)
+                                (list :source-repo "/src/repo/")))
+      (expect (plist-get (workspace-bookmark--add-worktree-payload "wsbm-mr-payload" "/src/repo/")
+                         :sessions-dir)
+              :to-equal (workspace--sessions-dir home))))
+
+  (it "lists the same keys but :sessions-dir when core's constructor is not loaded"
+    (let ((home (workspace-bookmark--workspace-home "wsbm-mr-payload")))
+      (cl-letf (((symbol-function 'workspace--integration-payload) nil))
+        (expect (workspace-bookmark--add-worktree-payload "wsbm-mr-payload" "/src/repo/")
+                :to-equal (list :name "wsbm-mr-payload" :home home
+                                :context 'bookmark-jump :source-repo "/src/repo/"))))))
 
 
 ;;; Unit — the chooser's own barrier

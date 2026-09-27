@@ -91,6 +91,7 @@ error barrier, stated under "The barrier".
 (require 'subr-x)
 (require 'seq)
 (require 'bookmark)
+(require 'view)
 #+end_src
 
 * Custom Group
@@ -347,18 +348,6 @@ not exist.  Never signals."
 
 * Repository identity
 
-** Where this checkout's root is
-
-#+begin_src emacs-lisp
-(defun workspace-bookmark--repo-root (dir)
-  "Return the root of the git checkout containing DIR, or nil.
-
-The value is an absolute directory name with a trailing slash.  Returns
-nil when DIR is in no git repository, and never signals."
-  (let ((root (workspace-bookmark--git dir "rev-parse" "--show-toplevel")))
-    (and root (file-name-as-directory (expand-file-name root)))))
-#+end_src
-
 ** Which repository this is
 
 =origin= is preferred.  When there is no =origin= and there is EXACTLY
@@ -538,36 +527,34 @@ Returns nil for anything that does not name a host: local paths,
           (concat host "/" path))))))
 #+end_src
 
-** The composed question
+** The identity of a checkout root
 
-=workspace-bookmark--identity= is the one entry point callers use.  The
-remote is looked up at the REPOSITORY ROOT rather than at DIR: the root is
-already known by then, it is guaranteed to exist and to be a directory,
-and it keeps the "which repository" question anchored to the checkout
-=--show-toplevel= actually resolved.  For a linked worktree this still
-works, because =remote.origin.url= lives in the shared config the worktree
-reads through.
+The remote is looked up at the checkout's ROOT, never at an arbitrary
+directory inside it: the root is guaranteed to exist and to be a
+directory, and it keeps the "which repository" question anchored to
+the checkout git actually resolved.  For a linked worktree this still
+works, because =remote.origin.url= lives in the shared config the
+worktree reads through.
 
-The second half of that question — "given a root, what is its identity?"
-— is its own function, because the stamp path already knows the root
-(it gets it from the same =rev-parse= that places the location) and asks
-through the memo below rather than through =--identity=.
+Every caller already knows the root before it asks: the stamp path and
+discovery both place a directory with ONE =rev-parse= (its POSITION,
+=workspace-bookmark--checkout-position=: root, shared git directory
+and prefix together), and ask for the identity of the root that
+position names, through the memo below.  So the question here is only
+"given a root, what is its identity?".  There is no second function
+that finds the root itself with a =rev-parse --show-toplevel= of its
+own: once discovery moved onto the position, such a function (and its
+root finder) had no caller outside the specs, and was removed rather
+than kept alive by them.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--root-identity (root)
   "Return the normalized identity of the checkout whose root is ROOT, or nil.
-ROOT must already be a checkout root; see `workspace-bookmark--identity'
-for the version that finds it."
+ROOT must already be a checkout root, as the first element of
+`workspace-bookmark--checkout-position' names it.  Callers ask through
+`workspace-bookmark--memoised-identity'."
   (workspace-bookmark--normalize-identity
    (workspace-bookmark--remote-url root)))
-
-(defun workspace-bookmark--identity (dir)
-  "Return the normalized identity of the repository containing DIR, or nil.
-
-Returns nil — never signals — when DIR is in no git repository, when that
-repository has no remote, or when the remote URL names no host."
-  (let ((root (workspace-bookmark--repo-root dir)))
-    (and root (workspace-bookmark--root-identity root))))
 #+end_src
 
 ** Memoised per repository root
@@ -1477,8 +1464,6 @@ would hand the user a fresh empty buffer, the quiet trap
 is cancel-only and still states both reasons.
 
 #+begin_src emacs-lisp
-(require 'view)
-
 (defconst workspace-bookmark--missing-repo-actions
   '((add-worktree ?a "add worktree here"
      "Add a worktree of the repository to the current workspace, resolve the bookmark again and open it there")
@@ -1787,15 +1772,20 @@ Worktree creation is magit's job and lives in git-worktrees'
 =jf/workspace--add-worktree=, the =:menu= command of the =git-worktree=
 integration.  It takes the anchor payload
 (=register/shape/workspace-integration-anchor-payload=), so the payload
-is built here the way =integrations.el= builds it for the current
-workspace — =:name=, =:home=, =:context= — plus =:source-repo=, the
-canonical checkout the resolver chose.  The source is decided, not
-discovered: discovery already ran once and =:checkout= is its answer;
-running it again would be a second prompt over the same candidates.
-The payload is the channel the shape entry leaves open ("flat and
-extensible: handlers read only the keys they need"); honouring
-=:source-repo= in place of the source prompt is the git-worktrees side
-of that channel.
+is built by the shape's ONE constructor, core's
+=workspace--integration-payload= (=:name=, =:home=, =:sessions-dir=,
+=:context=, here =bookmark-jump=), with =:source-repo= appended: the
+canonical checkout the resolver chose.  The constructor is reached the
+way this module reaches the rest of core — declared, =fboundp=-guarded
+at call time, never required — and only when it is unbound is the same
+plist spelled out here, so the two cannot drift while core is loaded.
+The source is decided, not discovered: discovery already ran once and
+=:checkout= is its answer; running it again would be a second prompt
+over the same candidates.  The payload is the channel the shape entry
+leaves open ("flat and extensible: handlers read only the keys they
+need"), and git-worktrees' command honours =:source-repo= in place of
+its source prompt: given one, it asks for no source and runs no
+discovery.
 
 On =ok= the resolver runs ONCE more against the workspace, and a
 =resolved= answer continues through the seam's normal path, pre-flight
@@ -1808,15 +1798,20 @@ the reason; the outcome vocabulary is closed
 else is an error the chooser's barrier turns into a decline.
 
 #+begin_src emacs-lisp
+(declare-function workspace--integration-payload "integrations" (name home context))
+
 (defun workspace-bookmark--add-worktree-payload (workspace checkout)
   "Return the anchor payload for adding a worktree of CHECKOUT to WORKSPACE.
-The keys `integrations.el' builds for the current workspace — :name,
-:home and :context — plus :source-repo, the canonical checkout the
-resolver chose, so the git-worktrees command need not ask for one."
-  (list :name workspace
-        :home (workspace-bookmark--workspace-home workspace)
-        :context 'bookmark-jump
-        :source-repo checkout))
+What `workspace--integration-payload' builds for WORKSPACE, its home
+and the context `bookmark-jump', plus :source-repo, the canonical
+checkout the resolver chose, so the git-worktrees command need not ask
+for one.  When that constructor is not loaded, the same keys but
+:sessions-dir are listed here."
+  (let ((home (workspace-bookmark--workspace-home workspace)))
+    (append (if (fboundp 'workspace--integration-payload)
+                (workspace--integration-payload workspace home 'bookmark-jump)
+              (list :name workspace :home home :context 'bookmark-jump))
+            (list :source-repo checkout))))
 
 (defun workspace-bookmark--after-add-message (record resolution)
   "Return the report for RECORD when RESOLUTION opens nothing after a worktree add."
@@ -2248,7 +2243,8 @@ Where else is this repository checked out, and which of those checkouts —
 if any — may be offered as THE canonical one?  These are pure queries: no
 buffer is opened, nothing prompts, nothing is cached.  Every git question
 goes through =workspace-bookmark--git=, every identity through
-=workspace-bookmark--identity=, and every function here returns nil (or,
+=workspace-bookmark--memoised-identity= (on the root a position names),
+and every function here returns nil (or,
 for the classifier, =other=) rather than signalling
 (=register/boundary/git-derived-checkout-discovery=).
 
@@ -2270,8 +2266,6 @@ reload during development).  With no registry there are simply no
 workspace-owned checkouts and no workspace children in view.
 
 #+begin_src emacs-lisp
-(require 'seq)
-
 (defvar workspace--registry)
 (defvar jf/emacs-dir)
 (declare-function workspace--registered-names "tabs" ())
@@ -2398,7 +2392,18 @@ Only USABLE checkouts are returned, in git's order:
 
 Paths come back as git reports them — absolute and already truenamed
 (=/private/var/…= on macOS) — with a trailing slash, the same shape as
-=workspace-bookmark--repo-root=.
+the root of a position (=--checkout-position=).
+
+The listing is asked through the discovery memo of the next section:
+DIR's position supplies the repository's shared git directory, which
+keys the listing, so within one discovery call every checkout of a
+repository shares ONE =git worktree list=, and DIR's position is shared
+with whoever else asks it.  Outside a discovery call nothing is shared
+and the two questions (position, listing) simply run.  The canonical
+predicate's candidate — a repository's MAIN-WORKTREE ENTRY — is the
+first element of this list (=--main-worktree-of=, "The one canonical
+predicate"), so this is the one function that reads the listing into
+checkouts.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--usable-checkout (entry)
@@ -2421,9 +2426,15 @@ order git lists them, which puts the main worktree first when it is
 usable.  Bare, prunable and missing entries are dropped, as is anything
 that is not an existing local directory containing `.git' (see
 `workspace-bookmark--usable-checkout').  Returns nil when git fails or
-DIR is in no repository, and never signals."
+DIR is in no repository, and never signals.
+
+Within a discovery call (`workspace-bookmark--with-discovery-memo')
+DIR's position and its repository's worktree listing are shared with
+the rest of the call; see `workspace-bookmark--shared-position' and
+`workspace-bookmark--shared-worktree-entries'."
   (delq nil (mapcar #'workspace-bookmark--usable-checkout
-                    (workspace-bookmark--worktree-entries dir))))
+                    (workspace-bookmark--shared-worktree-entries
+                     dir (nth 1 (workspace-bookmark--shared-position dir))))))
 #+end_src
 
 ** One discovery call asks git each question once
@@ -2460,13 +2471,22 @@ through it:
   repository, not of the checkout it was asked in.  Without a position
   (a directory git does not treat as a work tree) there is no key and
   the listing is simply asked.
+- The TRACKED-FILE CHECK of a canonical candidate (=git ls-files=, the
+  fourth check of =--canonical-checkout=) is keyed by the candidate's
+  truename, like a position.  Within one plural call the candidates are
+  de-duplicated before the predicate runs, so it is asked once anyway;
+  the key matters when one call reaches a repository twice — the
+  picker's two sources, both inside one scope (below).
 
 What this memo is NOT: it is not a cache across calls.  It exists only
 inside one =--workspace-checkouts=, =--canonical-checkouts-among= or
 =--canonical-checkouts-for-identity= call — or one
 =--resolve-coordinates= decision, which binds it once around the two
 plural calls it makes so the current home's checkouts are positioned
-once, not once per call — and is dropped on return, so
+once, not once per call, or one call of the public
+=workspace-bookmark-call-with-discovery-memo=, which the git-worktrees
+picker wraps around its whole candidate build ("Cross-module
+interface") — and is dropped on return, so
 it can never answer from a layout that has changed since; the only
 state that survives a call is the identity memo above, which is
 revalidated on every use.  Outside a discovery call the memo is nil and
@@ -2490,7 +2510,11 @@ The resulting costs, on a warm identity memo, are the cost contract of
   =missing-repo= fixture).
 - the picker, per magit entry that is a canonical main clone: THREE
   (position, worktree listing, tracked-file check); each further
-  checkout of a repository already seen: ONE.  Against about five.
+  checkout of a repository already seen: ONE.  Against about five.  The
+  picker's two sources — the checkouts in view and magit's list — are
+  classified in ONE discovery call, so a repository reached from both
+  pays its three once: its main clone in magit's list then costs
+  nothing more.
 
 Three is the floor, not a target that was missed: a canonical answer
 needs the shared git directory, git's own main-worktree slot and a
@@ -2504,8 +2528,9 @@ change.)
 (defvar workspace-bookmark--discovery-memo nil
   "Answers git gave earlier in the current discovery call, or nil outside one.
 A hash table (test `equal') keyed by (QUESTION . KEY) — see
-`workspace-bookmark--shared-position' and
-`workspace-bookmark--shared-worktree-entries' — and bound by
+`workspace-bookmark--shared-position',
+`workspace-bookmark--shared-worktree-entries' and
+`workspace-bookmark--shared-tracked-file-p' — and bound by
 `workspace-bookmark--with-discovery-memo'.  It never outlives the call
 that bound it.")
 
@@ -2557,6 +2582,16 @@ before the memo existed."
         (cons 'position (workspace-bookmark--discovery-memo-key dir))
         #'workspace-bookmark--checkout-position dir)))
 
+(defun workspace-bookmark--shared-tracked-file-p (dir)
+  "Return `workspace-bookmark--holds-tracked-file-p' of DIR, once per discovery call.
+Keyed like a position (`workspace-bookmark--discovery-memo-key').  A
+DIR that is not a string, or is remote, is nil at once."
+  (and (stringp dir)
+       (not (file-remote-p dir))
+       (workspace-bookmark--memoised-in-call
+        (cons 'tracked (workspace-bookmark--discovery-memo-key dir))
+        #'workspace-bookmark--holds-tracked-file-p dir)))
+
 (defun workspace-bookmark--shared-worktree-entries (dir git-common-dir)
   "Return `workspace-bookmark--worktree-entries' of DIR, once per repository.
 GIT-COMMON-DIR is DIR's shared git directory; every checkout of the
@@ -2598,7 +2633,8 @@ that must agree, and then confirmed against the candidate itself:
    ls-files= lists there exists under it.  This catches the layouts
    where all three checks above agree on a directory that holds nothing
    but the git directory (the two =.git=-named rows below).  One more
-   subprocess, paid only once 1–3 have passed.
+   subprocess, paid only once 1–3 have passed, and shared per candidate
+   within a discovery call (=--shared-tracked-file-p=).
 
 Asked about a main clone that is canonical, the whole test therefore
 costs THREE subprocesses (position, worktree listing, tracked-file
@@ -2777,9 +2813,10 @@ symlink), or any answer is unavailable, the answer is nil: no canonical
 checkout is better than a guessed one.  Never signals.
 
 Within a discovery call (`workspace-bookmark--with-discovery-memo') the
-position and the worktree listing are shared with the rest of the
-call, and the top-level check is answered from DIR's own position when
-DIR's top level is the candidate; the answer is the same either way."
+position, the worktree listing and the tracked-file check are shared
+with the rest of the call, and the top-level check is answered from
+DIR's own position when DIR's top level is the candidate; the answer is
+the same either way."
   (let* ((position (workspace-bookmark--shared-position dir))
          (common (if position
                      (nth 1 position)
@@ -2806,7 +2843,7 @@ DIR's top level is the candidate; the answer is the same either way."
                         candidate "rev-parse" "--show-toplevel"))))
             (when (and top
                        (workspace-bookmark--same-file-p top candidate)
-                       (workspace-bookmark--holds-tracked-file-p candidate))
+                       (workspace-bookmark--shared-tracked-file-p candidate))
               (file-name-as-directory candidate))))))))
 #+end_src
 
@@ -3086,7 +3123,7 @@ repository ENCLOSING it — in an anchored home, the home's own — so the
 child would report the home's identity and be listed next to the home,
 turning a unique answer into a false ambiguity.  A candidate is
 therefore kept only when git's own top level for it IS it
-(=--repo-root=, compared with =--same-file-p=).  The identity is then
+(the root of its position, compared with =--same-file-p=).  The identity is then
 read from that root, so the guard costs no extra subprocess.
 
 Each checkout costs ONE subprocess — the =rev-parse= of its position
@@ -3234,8 +3271,8 @@ signals."
 
 Given some checkouts, the canonical checkouts of their repositories are
 found by asking git for each repository's MAIN-WORKTREE ENTRY (the first
-usable entry of its worktree listing, the same answer as the first of
-=--checkouts-of=) and putting that candidate to the predicate.  The
+usable entry of its worktree listing: the first of =--checkouts-of=)
+and putting that candidate to the predicate.  The
 candidate need not itself be in view: that is the point of asking git.
 Only the main worktree can pass, because the predicate requires the
 candidate to BE the main worktree =--canonical-checkout= names; any
@@ -3253,13 +3290,10 @@ pay for one worktree listing, not N.
 #+begin_src emacs-lisp
 (defun workspace-bookmark--main-worktree-of (checkout)
   "Return the first usable checkout git lists for CHECKOUT's repository, or nil.
-The same answer as the first of `workspace-bookmark--checkouts-of',
-asked through the discovery memo: CHECKOUT's position and its
-repository's worktree listing are shared with the rest of the call."
-  (let ((position (workspace-bookmark--shared-position checkout)))
-    (seq-some #'workspace-bookmark--usable-checkout
-              (workspace-bookmark--shared-worktree-entries
-               checkout (nth 1 position)))))
+The first of `workspace-bookmark--checkouts-of': within a discovery
+call CHECKOUT's position and its repository's worktree listing are
+shared with the rest of the call."
+  (car (workspace-bookmark--checkouts-of checkout)))
 
 (defun workspace-bookmark--canonical-checkouts-among (checkouts)
   "Return the canonical checkouts of the repositories of CHECKOUTS.
@@ -3344,9 +3378,11 @@ shared with the canonical test that follows."
 public discovery function, and a CROSS-MODULE INTERFACE: the
 git-worktrees repository picker (=config/workspaces/git-worktrees.org=,
 =jf/workspace--worktree-git-derived-candidates= and
-=jf/workspace--worktree-canonical-only=) calls it, and it calls nothing
-else in this module.  Everything with a =--= in its name stays private
-and may change freely.
+=jf/workspace--worktree-canonical-only=) calls it.  Beside it stands
+one public SCOPE, =workspace-bookmark-call-with-discovery-memo=, which
+the picker wraps around its whole candidate build (below).  The picker
+calls nothing else in this module.  Everything with a =--= in its name
+stays private and may change freely.
 
 STABILITY PROMISE.  The name, the calling convention and the meaning
 below are a contract.  Changing any of them means changing
@@ -3399,6 +3435,45 @@ stable.  Never signals in normal operation."
    (if checkouts-given
        checkouts
      (workspace-bookmark--checkouts-in-view))))
+#+end_src
+
+*One scope for several calls.*  The picker has two sources — the
+checkouts in view, and magit's repository list — and asks the function
+above once for each, so that each keeps its own error barrier and its
+own fallback when this module is absent.  Each call is its own
+discovery call, so a repository reached from both (a main clone under
+=~/src= whose linked worktree sits in a workspace home: the everyday
+shape) would pay its canonical test twice.
+=workspace-bookmark-call-with-discovery-memo= makes the two calls ONE
+discovery call without merging them: it calls a function inside one
+discovery memo and returns its value, and every call of the entry point
+made inside shares that memo.  The entry point's name, calling
+convention and meaning are unchanged, and a caller that does not use the
+scope gets exactly the answers it got before.
+
+It is a FUNCTION taking a function, not a macro, because the consumer
+reaches it across a soft edge: git-worktrees loads before this module
+and guards the call with =fboundp= at call time, and a macro the
+consumer's code was read without would have been expanded as a plain
+function call.  Same stability promise as the entry point; the
+tripwire is the same spec, which now permits exactly these two public
+names.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark-call-with-discovery-memo (function)
+  "Call FUNCTION with no arguments as ONE discovery call; return its value.
+
+Every call of `workspace-bookmark-canonical-checkouts-in-view' made
+while FUNCTION runs shares one discovery memo, so a repository those
+calls reach more than once is asked each git question once.  The memo
+is dropped when FUNCTION returns or exits non-locally; nothing survives
+the call.  Answers are exactly those the calls give on their own.
+
+This is a CROSS-MODULE INTERFACE, called from git-worktrees.el behind a
+call-time `fboundp' guard; its name, calling convention and meaning are
+stable."
+  (workspace-bookmark--with-discovery-memo
+    (funcall function)))
 #+end_src
 
 * Resolution

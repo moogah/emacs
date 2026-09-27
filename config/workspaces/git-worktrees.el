@@ -90,27 +90,44 @@ works."
        (jf/workspace--worktree-warn-discovery "Repo candidate classification" err)
        nil)))))
 
+(defun jf/workspace--worktree-in-one-discovery-call (function)
+  "Call FUNCTION with no arguments as one portable-bookmarks discovery call.
+Returns FUNCTION's value.  When `workspace-bookmark-call-with-discovery-memo'
+is bound, FUNCTION runs inside it, so every call of
+`workspace-bookmark-canonical-checkouts-in-view' FUNCTION makes shares
+one memo of git's answers; otherwise FUNCTION is simply called.  Like
+that function, the scope is reached through a call-time `fboundp' guard
+and portable-bookmarks is never required."
+  (if (fboundp 'workspace-bookmark-call-with-discovery-memo)
+      (funcall 'workspace-bookmark-call-with-discovery-memo function)
+    (funcall function)))
+
 (defun jf/workspace--worktree-repo-candidates ()
   "Return the canonical git-repo roots offered as worktree sources.
 The sources, in order, are the git-derived candidates
 \(`jf/workspace--worktree-git-derived-candidates', canonical already)
 and then `(magit-list-repos)' when magit is loaded, classified by
-`jf/workspace--worktree-canonical-only'.  Projectile and project.el
-lists are deliberately not consulted.  Paths are de-duped by
+`jf/workspace--worktree-canonical-only'.  Both are built in one
+portable-bookmarks discovery call
+\(`jf/workspace--worktree-in-one-discovery-call').  Projectile and
+project.el lists are deliberately not consulted.  Paths are de-duped by
 `jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
 spelling kept, remote entries dropped unprobed) and filtered to actual git repositories (via
 `locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
 loaded).  At most one discovery warning is shown per call.  Returns the
 list; does not prompt."
   (let* ((jf/workspace--worktree-warning-state 'collecting)
-         (git-derived (jf/workspace--worktree-git-derived-candidates))
-         (magit (and (featurep 'magit) (fboundp 'magit-list-repos)
-                     (jf/workspace--worktree-canonical-only
-                      (jf/workspace--worktree-local-only
-                       (magit-list-repos))))))
+         (sources
+          (jf/workspace--worktree-in-one-discovery-call
+           (lambda ()
+             (let ((git-derived (jf/workspace--worktree-git-derived-candidates)))
+               (append git-derived
+                       (and (featurep 'magit) (fboundp 'magit-list-repos)
+                            (jf/workspace--worktree-canonical-only
+                             (jf/workspace--worktree-local-only
+                              (magit-list-repos))))))))))
     (seq-filter #'jf/workspace--worktree-git-repo-p
-                (jf/workspace--worktree-dedupe-dirs
-                 (append git-derived magit)))))
+                (jf/workspace--worktree-dedupe-dirs sources))))
 
 (defun jf/workspace--worktree-git-repo-p (dir)
   "Return non-nil when DIR is the root (or inside) a git repository.
@@ -154,11 +171,14 @@ PAYLOAD is the workspace-integration anchor plist; this reads `:name'
 `:home' (the workspace container directory, used as the worktree
 parent).  Operates solely on PAYLOAD, never on the current tab.
 
-Prompts for a source repo (`jf/workspace--worktree-read-repo'),
-detects its main branch (`magit-main-branch' with `default-directory'
-bound to the repo), and prompts for a branch name defaulting to the
-sanitized workspace name.  The worktree directory is a child of
-`:home' named for the source repo's basename.
+The source repo is PAYLOAD's `:source-repo' when present — no source
+prompt, no candidate discovery — and otherwise prompted for
+\(`jf/workspace--worktree-read-repo').  A `:source-repo' that is not an
+existing local directory returns (failed . REASON) without prompting.  Then
+detects the repo's main branch (`magit-main-branch' with
+`default-directory' bound to the repo), and prompts for a branch name
+defaulting to the sanitized workspace name.  The worktree directory is
+a child of `:home' named for the source repo's basename.
 
 If the target directory already exists, returns
 \(failed . REASON) and makes NO magit call — never overwriting.
@@ -166,23 +186,31 @@ Otherwise creates the worktree on a NEW branch off main via
 `magit-worktree-branch' (again with `default-directory' bound to the
 repo).  Returns `ok' on success, or (failed . REASON) on any git
 error."
-  (let* ((repo (jf/workspace--worktree-read-repo))
-         (main (let ((default-directory repo))
-                 (magit-main-branch)))
-         (default-branch (jf/workspace--worktree-sanitize-branch
-                          (plist-get payload :name)))
-         (branch (read-string "Worktree branch: " default-branch))
-         (dir (expand-file-name
-               (file-name-nondirectory (directory-file-name repo))
-               (plist-get payload :home))))
-    (if (file-exists-p dir)
-        (cons 'failed (format "worktree dir already exists: %s" dir))
-      (condition-case err
-          (progn
-            (let ((default-directory repo))
-              (magit-worktree-branch dir branch main))
-            'ok)
-        (error (cons 'failed (error-message-string err)))))))
+  (let ((source (plist-get payload :source-repo)))
+    (if (and (plist-member payload :source-repo)
+             (not (and (stringp source)
+                       (not (file-remote-p source))
+                       (file-directory-p source))))
+        (cons 'failed (format "source repository is not a directory: %s" source))
+      (let* ((repo (if source
+                       (file-name-as-directory (expand-file-name source))
+                     (jf/workspace--worktree-read-repo)))
+             (main (let ((default-directory repo))
+                     (magit-main-branch)))
+             (default-branch (jf/workspace--worktree-sanitize-branch
+                              (plist-get payload :name)))
+             (branch (read-string "Worktree branch: " default-branch))
+             (dir (expand-file-name
+                   (file-name-nondirectory (directory-file-name repo))
+                   (plist-get payload :home))))
+        (if (file-exists-p dir)
+            (cons 'failed (format "worktree dir already exists: %s" dir))
+          (condition-case err
+              (progn
+                (let ((default-directory repo))
+                  (magit-worktree-branch dir branch main))
+                'ok)
+            (error (cons 'failed (error-message-string err)))))))))
 
 (defun jf/workspace--worktree-children (home)
   "Return a list of linked-worktree descriptors under HOME.

@@ -4,6 +4,7 @@
 (require 'subr-x)
 (require 'seq)
 (require 'bookmark)
+(require 'view)
 
 (defgroup workspace-bookmark nil
   "Workspace-relative resolution of Emacs bookmarks."
@@ -117,14 +118,6 @@ not exist.  Never signals."
                          (file-attribute-device-number attrs-b))))
          (error nil))))
 
-(defun workspace-bookmark--repo-root (dir)
-  "Return the root of the git checkout containing DIR, or nil.
-
-The value is an absolute directory name with a trailing slash.  Returns
-nil when DIR is in no git repository, and never signals."
-  (let ((root (workspace-bookmark--git dir "rev-parse" "--show-toplevel")))
-    (and root (file-name-as-directory (expand-file-name root)))))
-
 (defun workspace-bookmark--remote-url (dir)
   "Return the effective remote URL of the repository containing DIR, or nil.
 
@@ -198,18 +191,11 @@ Returns nil for anything that does not name a host: local paths,
 
 (defun workspace-bookmark--root-identity (root)
   "Return the normalized identity of the checkout whose root is ROOT, or nil.
-ROOT must already be a checkout root; see `workspace-bookmark--identity'
-for the version that finds it."
+ROOT must already be a checkout root, as the first element of
+`workspace-bookmark--checkout-position' names it.  Callers ask through
+`workspace-bookmark--memoised-identity'."
   (workspace-bookmark--normalize-identity
    (workspace-bookmark--remote-url root)))
-
-(defun workspace-bookmark--identity (dir)
-  "Return the normalized identity of the repository containing DIR, or nil.
-
-Returns nil — never signals — when DIR is in no git repository, when that
-repository has no remote, or when the remote URL names no host."
-  (let ((root (workspace-bookmark--repo-root dir)))
-    (and root (workspace-bookmark--root-identity root))))
 
 (defvar workspace-bookmark--identity-memo (make-hash-table :test #'equal)
   "Memoised repository identities, keyed by checkout root.
@@ -621,8 +607,6 @@ originating buffer is never touched."
                (setq bookmark-current-bookmark bookmark-name-or-record))))))
       (_ (error "Not a jump plan: %S" plan)))))
 
-(require 'view)
-
 (defconst workspace-bookmark--missing-repo-actions
   '((add-worktree ?a "add worktree here"
      "Add a worktree of the repository to the current workspace, resolve the bookmark again and open it there")
@@ -821,15 +805,20 @@ and CHECKOUT's branch in one message."
            (abbreviate-file-name (directory-file-name checkout))
            (workspace-bookmark--canonical-branch checkout)))
 
+(declare-function workspace--integration-payload "integrations" (name home context))
+
 (defun workspace-bookmark--add-worktree-payload (workspace checkout)
   "Return the anchor payload for adding a worktree of CHECKOUT to WORKSPACE.
-The keys `integrations.el' builds for the current workspace — :name,
-:home and :context — plus :source-repo, the canonical checkout the
-resolver chose, so the git-worktrees command need not ask for one."
-  (list :name workspace
-        :home (workspace-bookmark--workspace-home workspace)
-        :context 'bookmark-jump
-        :source-repo checkout))
+What `workspace--integration-payload' builds for WORKSPACE, its home
+and the context `bookmark-jump', plus :source-repo, the canonical
+checkout the resolver chose, so the git-worktrees command need not ask
+for one.  When that constructor is not loaded, the same keys but
+:sessions-dir are listed here."
+  (let ((home (workspace-bookmark--workspace-home workspace)))
+    (append (if (fboundp 'workspace--integration-payload)
+                (workspace--integration-payload workspace home 'bookmark-jump)
+              (list :name workspace :home home :context 'bookmark-jump))
+            (list :source-repo checkout))))
 
 (defun workspace-bookmark--after-add-message (record resolution)
   "Return the report for RECORD when RESOLUTION opens nothing after a worktree add."
@@ -1079,8 +1068,6 @@ through with the ORIGINAL argument — the stored path — declines too;
              (format "Bookmark %S: could not establish a workspace for it (%s); nothing opened"
                      name (error-message-string err)))))))
 
-(require 'seq)
-
 (defvar workspace--registry)
 (defvar jf/emacs-dir)
 (declare-function workspace--registered-names "tabs" ())
@@ -1174,15 +1161,22 @@ order git lists them, which puts the main worktree first when it is
 usable.  Bare, prunable and missing entries are dropped, as is anything
 that is not an existing local directory containing `.git' (see
 `workspace-bookmark--usable-checkout').  Returns nil when git fails or
-DIR is in no repository, and never signals."
+DIR is in no repository, and never signals.
+
+Within a discovery call (`workspace-bookmark--with-discovery-memo')
+DIR's position and its repository's worktree listing are shared with
+the rest of the call; see `workspace-bookmark--shared-position' and
+`workspace-bookmark--shared-worktree-entries'."
   (delq nil (mapcar #'workspace-bookmark--usable-checkout
-                    (workspace-bookmark--worktree-entries dir))))
+                    (workspace-bookmark--shared-worktree-entries
+                     dir (nth 1 (workspace-bookmark--shared-position dir))))))
 
 (defvar workspace-bookmark--discovery-memo nil
   "Answers git gave earlier in the current discovery call, or nil outside one.
 A hash table (test `equal') keyed by (QUESTION . KEY) — see
-`workspace-bookmark--shared-position' and
-`workspace-bookmark--shared-worktree-entries' — and bound by
+`workspace-bookmark--shared-position',
+`workspace-bookmark--shared-worktree-entries' and
+`workspace-bookmark--shared-tracked-file-p' — and bound by
 `workspace-bookmark--with-discovery-memo'.  It never outlives the call
 that bound it.")
 
@@ -1233,6 +1227,16 @@ before the memo existed."
        (workspace-bookmark--memoised-in-call
         (cons 'position (workspace-bookmark--discovery-memo-key dir))
         #'workspace-bookmark--checkout-position dir)))
+
+(defun workspace-bookmark--shared-tracked-file-p (dir)
+  "Return `workspace-bookmark--holds-tracked-file-p' of DIR, once per discovery call.
+Keyed like a position (`workspace-bookmark--discovery-memo-key').  A
+DIR that is not a string, or is remote, is nil at once."
+  (and (stringp dir)
+       (not (file-remote-p dir))
+       (workspace-bookmark--memoised-in-call
+        (cons 'tracked (workspace-bookmark--discovery-memo-key dir))
+        #'workspace-bookmark--holds-tracked-file-p dir)))
 
 (defun workspace-bookmark--shared-worktree-entries (dir git-common-dir)
   "Return `workspace-bookmark--worktree-entries' of DIR, once per repository.
@@ -1311,9 +1315,10 @@ symlink), or any answer is unavailable, the answer is nil: no canonical
 checkout is better than a guessed one.  Never signals.
 
 Within a discovery call (`workspace-bookmark--with-discovery-memo') the
-position and the worktree listing are shared with the rest of the
-call, and the top-level check is answered from DIR's own position when
-DIR's top level is the candidate; the answer is the same either way."
+position, the worktree listing and the tracked-file check are shared
+with the rest of the call, and the top-level check is answered from
+DIR's own position when DIR's top level is the candidate; the answer is
+the same either way."
   (let* ((position (workspace-bookmark--shared-position dir))
          (common (if position
                      (nth 1 position)
@@ -1340,7 +1345,7 @@ DIR's top level is the candidate; the answer is the same either way."
                         candidate "rev-parse" "--show-toplevel"))))
             (when (and top
                        (workspace-bookmark--same-file-p top candidate)
-                       (workspace-bookmark--holds-tracked-file-p candidate))
+                       (workspace-bookmark--shared-tracked-file-p candidate))
               (file-name-as-directory candidate))))))))
 
 (defun workspace-bookmark--path-within-p (path dir)
@@ -1521,13 +1526,10 @@ signals."
 
 (defun workspace-bookmark--main-worktree-of (checkout)
   "Return the first usable checkout git lists for CHECKOUT's repository, or nil.
-The same answer as the first of `workspace-bookmark--checkouts-of',
-asked through the discovery memo: CHECKOUT's position and its
-repository's worktree listing are shared with the rest of the call."
-  (let ((position (workspace-bookmark--shared-position checkout)))
-    (seq-some #'workspace-bookmark--usable-checkout
-              (workspace-bookmark--shared-worktree-entries
-               checkout (nth 1 position)))))
+The first of `workspace-bookmark--checkouts-of': within a discovery
+call CHECKOUT's position and its repository's worktree listing are
+shared with the rest of the call."
+  (car (workspace-bookmark--checkouts-of checkout)))
 
 (defun workspace-bookmark--canonical-checkouts-among (checkouts)
   "Return the canonical checkouts of the repositories of CHECKOUTS.
@@ -1596,6 +1598,21 @@ stable.  Never signals in normal operation."
    (if checkouts-given
        checkouts
      (workspace-bookmark--checkouts-in-view))))
+
+(defun workspace-bookmark-call-with-discovery-memo (function)
+  "Call FUNCTION with no arguments as ONE discovery call; return its value.
+
+Every call of `workspace-bookmark-canonical-checkouts-in-view' made
+while FUNCTION runs shares one discovery memo, so a repository those
+calls reach more than once is asked each git question once.  The memo
+is dropped when FUNCTION returns or exits non-locally; nothing survives
+the call.  Answers are exactly those the calls give on their own.
+
+This is a CROSS-MODULE INTERFACE, called from git-worktrees.el behind a
+call-time `fboundp' guard; its name, calling convention and meaning are
+stable."
+  (workspace-bookmark--with-discovery-memo
+    (funcall function)))
 
 (defconst workspace-bookmark--valid-outcomes
   '(resolved not-on-branch missing-repo no-clone non-portable ambiguous)

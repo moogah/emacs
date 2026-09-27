@@ -1,9 +1,13 @@
 ;;; portable-bookmarks-identity-spec.el --- Repo identity specs -*- lexical-binding: t; -*-
 
 ;; Specs for the git-derived repository identity helpers:
-;; `workspace-bookmark--git', `workspace-bookmark--repo-root',
-;; `workspace-bookmark--remote-url', `workspace-bookmark--normalize-identity'
-;; and the composed `workspace-bookmark--identity'.
+;; `workspace-bookmark--git', `workspace-bookmark--remote-url',
+;; `workspace-bookmark--normalize-identity' and
+;; `workspace-bookmark--root-identity'.  The behavioral specs ask "which
+;; checkout, which repository is DIR?" the way the stamp seam and
+;; discovery ask it — DIR's position names the root, the root has the
+;; identity — through `workspace-bookmark-fixtures-root-of' and
+;; `workspace-bookmark-fixtures-identity-of'.
 ;;
 ;; Two halves, deliberately (design.md D11):
 ;;
@@ -194,29 +198,19 @@
     (cl-letf (((symbol-function 'workspace-bookmark--git) (lambda (&rest _) nil)))
       (expect (workspace-bookmark--remote-url "/anywhere") :to-be nil))))
 
-(describe "workspace-bookmark--identity"
-
-  (it "returns nil without asking for a remote when there is no repository"
-    (cl-letf (((symbol-function 'workspace-bookmark--repo-root) (lambda (_) nil))
-              ((symbol-function 'workspace-bookmark--remote-url)
-               (lambda (_) (error "must not be consulted"))))
-      (expect (workspace-bookmark--identity "/anywhere") :to-be nil)))
+(describe "workspace-bookmark--root-identity"
 
   (it "returns nil when the repository has no remote"
-    (cl-letf (((symbol-function 'workspace-bookmark--repo-root)
-               (lambda (_) "/root/"))
-              ((symbol-function 'workspace-bookmark--remote-url) (lambda (_) nil)))
-      (expect (workspace-bookmark--identity "/anywhere") :to-be nil)))
+    (cl-letf (((symbol-function 'workspace-bookmark--remote-url) (lambda (_) nil)))
+      (expect (workspace-bookmark--root-identity "/root/") :to-be nil)))
 
-  (it "asks for the remote at the repository root, not at the starting path"
+  (it "asks for the remote at ROOT and normalizes it"
     (let (asked)
-      (cl-letf (((symbol-function 'workspace-bookmark--repo-root)
-                 (lambda (_) "/root/"))
-                ((symbol-function 'workspace-bookmark--remote-url)
+      (cl-letf (((symbol-function 'workspace-bookmark--remote-url)
                  (lambda (dir)
                    (setq asked dir)
                    "git@github.com:moogah/emacs.git")))
-        (expect (workspace-bookmark--identity "/root/deep/file.el")
+        (expect (workspace-bookmark--root-identity "/root/")
                 :to-equal "github.com/moogah/emacs")
         (expect asked :to-equal "/root/")))))
 
@@ -233,28 +227,28 @@
                 :remote "git@github.com:moogah/emacs.git"))
           (https (workspace-bookmark-fixtures-make-repo
                   :remote "https://github.com/moogah/emacs")))
-      (expect (workspace-bookmark--identity ssh)
+      (expect (workspace-bookmark-fixtures-identity-of ssh)
               :to-equal "github.com/moogah/emacs")
-      (expect (workspace-bookmark--identity https)
-              :to-equal (workspace-bookmark--identity ssh))))
+      (expect (workspace-bookmark-fixtures-identity-of https)
+              :to-equal (workspace-bookmark-fixtures-identity-of ssh))))
 
   (it "gives a repository with no remote no identity"
     (let ((repo (workspace-bookmark-fixtures-make-repo)))
       ;; The repository is real — only the identity is absent.
-      (expect (workspace-bookmark--repo-root repo) :to-equal repo)
+      (expect (workspace-bookmark-fixtures-root-of repo) :to-equal repo)
       (expect (workspace-bookmark--remote-url repo) :to-be nil)
-      (expect (workspace-bookmark--identity repo) :to-be nil)))
+      (expect (workspace-bookmark-fixtures-identity-of repo) :to-be nil)))
 
   (it "gives a directory outside any repository no identity"
     (let ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-norepo-")))
-      (expect (workspace-bookmark--repo-root dir) :to-be nil)
-      (expect (workspace-bookmark--identity dir) :to-be nil)))
+      (expect (workspace-bookmark-fixtures-root-of dir) :to-be nil)
+      (expect (workspace-bookmark-fixtures-identity-of dir) :to-be nil)))
 
   (it "uses the only remote when it is not named origin"
     (let ((repo (workspace-bookmark-fixtures-make-repo)))
       (workspace-bookmark-fixtures-git
        repo "remote" "add" "upstream" "git@github.com:moogah/emacs.git")
-      (expect (workspace-bookmark--identity repo)
+      (expect (workspace-bookmark-fixtures-identity-of repo)
               :to-equal "github.com/moogah/emacs")))
 
   (it "prefers origin when several remotes exist"
@@ -266,7 +260,7 @@
        repo "remote" "add" "alt" "https://example.com/someone/other.git")
       (expect (workspace-bookmark--remote-url repo)
               :to-equal "git@github.com:moogah/emacs.git")
-      (expect (workspace-bookmark--identity repo)
+      (expect (workspace-bookmark-fixtures-identity-of repo)
               :to-equal "github.com/moogah/emacs")))
 
   (it "resolves the repository root from a subdirectory and from a file"
@@ -275,9 +269,9 @@
                   :file "src/deep/thing.el"))
            (subdir (expand-file-name "src/deep" repo))
            (file (expand-file-name "src/deep/thing.el" repo)))
-      (expect (workspace-bookmark--repo-root subdir) :to-equal repo)
-      (expect (workspace-bookmark--repo-root file) :to-equal repo)
-      (expect (workspace-bookmark--identity file)
+      (expect (workspace-bookmark-fixtures-root-of subdir) :to-equal repo)
+      (expect (workspace-bookmark-fixtures-root-of file) :to-equal repo)
+      (expect (workspace-bookmark-fixtures-identity-of file)
               :to-equal "github.com/moogah/emacs")))
 
   (it "gives a linked worktree the identity of its parent repository"
@@ -288,8 +282,8 @@
            (parent (workspace-bookmark-fixtures-temp-dir "wsbm-wt-"))
            (worktree (workspace-bookmark-fixtures-add-worktree
                       repo (expand-file-name "linked" parent))))
-      (expect (workspace-bookmark--repo-root worktree) :to-equal worktree)
-      (expect (workspace-bookmark--identity worktree)
+      (expect (workspace-bookmark-fixtures-root-of worktree) :to-equal worktree)
+      (expect (workspace-bookmark-fixtures-identity-of worktree)
               :to-equal "github.com/moogah/emacs")))
 
   (it "works in a repository whose directory name contains spaces"
@@ -300,7 +294,7 @@
                  :remote "git@github.com:moogah/emacs.git"
                  :prefix "wsbm Archived Repos ")))
       (expect (string-match-p " " repo) :to-be-truthy)
-      (expect (workspace-bookmark--identity repo)
+      (expect (workspace-bookmark-fixtures-identity-of repo)
               :to-equal "github.com/moogah/emacs"))))
 
 
@@ -373,7 +367,7 @@
       (workspace-bookmark-fixtures-git repo "init" "--quiet")
       (expect (workspace-bookmark--git repo "rev-parse" "--show-toplevel")
               :to-equal repo)
-      (expect (workspace-bookmark--repo-root repo)
+      (expect (workspace-bookmark-fixtures-root-of repo)
               :to-equal (file-name-as-directory repo))))
 
   (it "returns nil for a missing path inside a repository instead of asking its parent"
@@ -404,10 +398,10 @@
                          (list (concat "GIT_CEILING_DIRECTORIES="
                                        (directory-file-name repo)))))
         (let ((process-environment (append env process-environment)))
-          (expect (list env (workspace-bookmark--repo-root
+          (expect (list env (workspace-bookmark-fixtures-root-of
                              (expand-file-name "sub/" repo)))
                   :to-equal (list env repo))
-          (expect (list env (workspace-bookmark--identity
+          (expect (list env (workspace-bookmark-fixtures-identity-of
                              (expand-file-name "sub/" repo)))
                   :to-equal (list env "github.com/acme/one"))))))
 
@@ -479,14 +473,14 @@
                                "url.git@github.com:.insteadOf" "gh:")
       (expect (workspace-bookmark--remote-url repo)
               :to-equal "git@github.com:moogah/emacs.git")
-      (expect (workspace-bookmark--identity repo)
+      (expect (workspace-bookmark-fixtures-identity-of repo)
               :to-equal "github.com/moogah/emacs")))
 
   (it "uses a sole non-origin remote"
     (let ((repo (workspace-bookmark-fixtures-make-repo)))
       (workspace-bookmark--git repo "remote" "add" "upstream"
                                "git@github.com:moogah/emacs.git")
-      (expect (workspace-bookmark--identity repo)
+      (expect (workspace-bookmark-fixtures-identity-of repo)
               :to-equal "github.com/moogah/emacs")))
 
   (it "degrades to nil rather than guessing when several remotes exist and none is origin"
@@ -499,14 +493,14 @@
       (workspace-bookmark--git repo "remote" "add" "backup"
                                "git@example.com:mirror/emacs.git")
       (expect (workspace-bookmark--remote-url repo) :to-be nil)
-      (expect (workspace-bookmark--identity repo) :to-be nil)))
+      (expect (workspace-bookmark-fixtures-identity-of repo) :to-be nil)))
 
   (it "still prefers origin when origin exists alongside others"
     (let ((repo (workspace-bookmark-fixtures-make-repo
                  :remote "git@github.com:moogah/emacs.git")))
       (workspace-bookmark--git repo "remote" "add" "backup"
                                "git@example.com:mirror/emacs.git")
-      (expect (workspace-bookmark--identity repo)
+      (expect (workspace-bookmark-fixtures-identity-of repo)
               :to-equal "github.com/moogah/emacs"))))
 
 (describe "normalization spellings closed after the on-touch probe"
