@@ -2,7 +2,7 @@
 name: docs-readme
 description: Document portable bookmarks, the outcome set, and the off-workspace restore flow in the workspaces package README
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: doc
 on_critical_path: false
 cycle: cycle-1790453714

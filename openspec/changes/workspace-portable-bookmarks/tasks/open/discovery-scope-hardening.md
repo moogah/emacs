@@ -13,6 +13,7 @@ relations:
   - discovered-from:arch-on-touch-1790453714-47
   - discovered-from:arch-on-touch-1790453714-48
   - discovered-from:arch-on-touch-1790453714-50
+  - discovered-from:disc-docs-readme-1
   - blocked-by:workspaces-file-equal-p-timestamp-race
 discovered_from: [arch-on-touch-1790453714-47, arch-on-touch-1790453714-48, arch-on-touch-1790453714-50]
 discovered_by: architect
@@ -35,7 +36,12 @@ created_at: 2026-09-27T21:00:00+00:00
    enclosing discovery memo after the worktree is added. Spec: add-worktree inside an enclosing scope still finds the new worktree.
 3. **(50)** Docstrings: git-worktrees.el:62-63 ("the only portable-bookmarks symbol") and the context list in
    `workspace--integration-payload`'s docstring (integrations.org) — name `bookmark-jump`.
-4. Tangle each `.org`; commit `.org` + `.el`.
+4. **(disc-docs-readme-1)** `portable-bookmarks.org` says the add-worktree option is withheld when magit is absent, but
+   `jf/workspace--add-worktree` is defined unconditionally (only the integration's registration waits for magit), so the `fboundp`
+   guard always passes and, without magit, choosing the option declines with a void-function error (nothing opens). Make the guard
+   match the prose (withhold when the command cannot run, e.g. magit's worktree function not `fboundp`) and pin it with a spec; or, if
+   that widens the consumer boundary, correct the prose instead and say why in `## Observations`.
+5. Tangle each `.org`; commit `.org` + `.el`.
 
 ## Verification
 - `./bin/run-tests.sh -d config/workspaces </dev/null` green; full suite NO-REGRESSION via compare-baseline.py.
