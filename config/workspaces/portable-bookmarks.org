@@ -1087,19 +1087,33 @@ declined outcome is not.
 On substitution the host receives a RECORD, never the bookmark's
 name.  The host's relocate arm is gated on =(stringp
 bookmark-name-or-record)=, so a substituted jump can never turn into
-an offer to relocate the bookmark to the stored path.  Measured, and
-pinned by the jump spec so an upstream change surfaces as a failure:
-for a record argument the host does not merely skip the =y-or-n-p=,
-it swallows =bookmark-error-no-filename= altogether and returns nil.
-The consequence is narrow — a =resolved= path that vanishes between
-the resolver's existence check and the visit opens nothing and
-signals nothing — and it is the desired direction.
+an offer to relocate the bookmark to the stored path.  Measured
+against bookmark.el 30.2: for a record argument the host does not
+merely skip the =y-or-n-p=, it swallows =bookmark-error-no-filename=
+altogether and returns nil — and a nil return is exactly the silent
+tail the previous section describes: the display function on the
+buffer the user was already in, a fringe mark there, the after-jump
+hook.  The seam therefore never lets a substituted record reach the
+host unless its location exists.  The =resolved= arm PRE-FLIGHTS
+=:path= with =file-exists-p= (a directory counts) immediately before
+building the copy, and declines with =user-error= — the same shape as
+every other non-opening case — when the location has vanished since
+the resolver looked.  That is a seam-local decline reason, not a
+seventh outcome: the seam re-verifies the one precondition it
+substitutes on.  What remains is a race of microseconds between the
+pre-flight and the handler's own =file-readable-p=, plus the separate
+case of a file that exists but is unreadable; both end in the host's
+silent nil.  That is a bounded residual, stated here, and one this
+configuration already carries for every record argument (see
+=bufferlo= below).
 
 Stock Emacs ends a jump by name by setting =bookmark-current-bookmark=
 to that name, the default that the next =C-x r b= and =C-x r m=
 offer.  The host does that only for a string argument, so after a
-substituted jump the seam does it itself; otherwise every resolved
-jump would silently drop the default.
+substituted jump the seam does it itself — but only when the jump
+actually landed somewhere: the current buffer changed, or now visits
+the substituted location.  The host's silent nil can therefore never
+stamp the ORIGINATING buffer with a bookmark it did not jump to.
 
 In THIS configuration the string case is rarer than bookmark.el
 suggests: =bufferlo-mode= (=buffer-membership.org=) advises
@@ -1180,6 +1194,20 @@ outcome must be one that opens nothing (`not-on-branch', `ambiguous',
 #+end_src
 
 #+begin_src emacs-lisp
+(defun workspace-bookmark--vanished-message (record resolution)
+  "Return the report for a `resolved' RECORD whose location has vanished.
+
+RESOLUTION is the resolver's plist; its :path passed the resolver's
+existence check but fails the seam's pre-flight.  A seam-local decline
+reason, not a resolution outcome."
+  (format "Bookmark %S: %s vanished from %s before it could be opened; nothing opened"
+          (bookmark-name-from-full-record record)
+          (plist-get resolution :relpath)
+          (let ((checkout (plist-get resolution :checkout)))
+            (if (stringp checkout) (abbreviate-file-name checkout) "?"))))
+#+end_src
+
+#+begin_src emacs-lisp
 (defun workspace-bookmark--jump-plan (bookmark-name-or-record)
   "Decide what the jump seam does with BOOKMARK-NAME-OR-RECORD.
 
@@ -1190,8 +1218,9 @@ the original argument, or a substituted copy for `resolved' — or
 Decided before the resolver is asked: a value that is not a bookmark
 record calls through (the host signals for it); no current workspace
 on a STAMPED record is the off-workspace hand-off and calls through
-unchanged until `off-workspace-restore' lands.  May signal; the
-seam's barrier catches."
+unchanged until `off-workspace-restore' lands.  A `resolved' :path is
+pre-flighted with `file-exists-p' right before the copy is built; one
+that has vanished declines.  May signal; the seam's barrier catches."
   (let ((record (bookmark-get-bookmark bookmark-name-or-record 'noerror))
         (workspace (workspace-bookmark--current-workspace)))
     (cond
@@ -1206,9 +1235,12 @@ seam's barrier catches."
           ('non-portable
            (cons 'call-through bookmark-name-or-record))
           ('resolved
-           (cons 'call-through
-                 (workspace-bookmark--substituted-record
-                  record (plist-get resolution :path))))
+           (let ((path (plist-get resolution :path)))
+             (if (file-exists-p path)
+                 (cons 'call-through
+                       (workspace-bookmark--substituted-record record path))
+               (cons 'decline
+                     (workspace-bookmark--vanished-message record resolution)))))
           ((or 'not-on-branch 'ambiguous 'missing-repo 'no-clone)
            (cons 'decline
                  (workspace-bookmark--decline-message record resolution)))
@@ -1228,17 +1260,23 @@ all: every other outcome signals a `user-error' naming the bookmark
 and opens nothing.  Any error in this seam's own decision falls
 through to ORIG-FN with the ORIGINAL argument, so a failure affecting
 one bookmark cannot affect another or the bookmark file; `quit'
-propagates.  After a substituted jump by name,
-`bookmark-current-bookmark' is set as the host sets it for a plain
-one."
+propagates.  After a substituted jump by name that landed in a buffer
+\(the current buffer changed, or visits the substituted location),
+`bookmark-current-bookmark' is set there as the host sets it for a
+plain one; the originating buffer is never touched."
   (let ((plan (condition-case nil
                   (workspace-bookmark--jump-plan bookmark-name-or-record)
-                (error (cons 'call-through bookmark-name-or-record)))))
+                (error (cons 'call-through bookmark-name-or-record))))
+        (origin (current-buffer)))
     (if (eq (car plan) 'decline)
         (user-error "%s" (cdr plan))
       (prog1 (apply orig-fn (cdr plan) args)
         (when (and (stringp bookmark-name-or-record)
-                   (not (eq (cdr plan) bookmark-name-or-record)))
+                   (not (eq (cdr plan) bookmark-name-or-record))
+                   (or (not (eq (current-buffer) origin))
+                       (let ((file (buffer-file-name)))
+                         (and file (file-equal-p
+                                    file (bookmark-get-filename (cdr plan)))))))
           (setq bookmark-current-bookmark bookmark-name-or-record))))))
 #+end_src
 

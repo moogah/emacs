@@ -439,6 +439,18 @@ outcome must be one that opens nothing (`not-on-branch', `ambiguous',
                name identity))
       (outcome (error "Not an outcome that declines: %S" outcome)))))
 
+(defun workspace-bookmark--vanished-message (record resolution)
+  "Return the report for a `resolved' RECORD whose location has vanished.
+
+RESOLUTION is the resolver's plist; its :path passed the resolver's
+existence check but fails the seam's pre-flight.  A seam-local decline
+reason, not a resolution outcome."
+  (format "Bookmark %S: %s vanished from %s before it could be opened; nothing opened"
+          (bookmark-name-from-full-record record)
+          (plist-get resolution :relpath)
+          (let ((checkout (plist-get resolution :checkout)))
+            (if (stringp checkout) (abbreviate-file-name checkout) "?"))))
+
 (defun workspace-bookmark--jump-plan (bookmark-name-or-record)
   "Decide what the jump seam does with BOOKMARK-NAME-OR-RECORD.
 
@@ -449,8 +461,9 @@ the original argument, or a substituted copy for `resolved' — or
 Decided before the resolver is asked: a value that is not a bookmark
 record calls through (the host signals for it); no current workspace
 on a STAMPED record is the off-workspace hand-off and calls through
-unchanged until `off-workspace-restore' lands.  May signal; the
-seam's barrier catches."
+unchanged until `off-workspace-restore' lands.  A `resolved' :path is
+pre-flighted with `file-exists-p' right before the copy is built; one
+that has vanished declines.  May signal; the seam's barrier catches."
   (let ((record (bookmark-get-bookmark bookmark-name-or-record 'noerror))
         (workspace (workspace-bookmark--current-workspace)))
     (cond
@@ -465,9 +478,12 @@ seam's barrier catches."
           ('non-portable
            (cons 'call-through bookmark-name-or-record))
           ('resolved
-           (cons 'call-through
-                 (workspace-bookmark--substituted-record
-                  record (plist-get resolution :path))))
+           (let ((path (plist-get resolution :path)))
+             (if (file-exists-p path)
+                 (cons 'call-through
+                       (workspace-bookmark--substituted-record record path))
+               (cons 'decline
+                     (workspace-bookmark--vanished-message record resolution)))))
           ((or 'not-on-branch 'ambiguous 'missing-repo 'no-clone)
            (cons 'decline
                  (workspace-bookmark--decline-message record resolution)))
@@ -485,17 +501,23 @@ all: every other outcome signals a `user-error' naming the bookmark
 and opens nothing.  Any error in this seam's own decision falls
 through to ORIG-FN with the ORIGINAL argument, so a failure affecting
 one bookmark cannot affect another or the bookmark file; `quit'
-propagates.  After a substituted jump by name,
-`bookmark-current-bookmark' is set as the host sets it for a plain
-one."
+propagates.  After a substituted jump by name that landed in a buffer
+\(the current buffer changed, or visits the substituted location),
+`bookmark-current-bookmark' is set there as the host sets it for a
+plain one; the originating buffer is never touched."
   (let ((plan (condition-case nil
                   (workspace-bookmark--jump-plan bookmark-name-or-record)
-                (error (cons 'call-through bookmark-name-or-record)))))
+                (error (cons 'call-through bookmark-name-or-record))))
+        (origin (current-buffer)))
     (if (eq (car plan) 'decline)
         (user-error "%s" (cdr plan))
       (prog1 (apply orig-fn (cdr plan) args)
         (when (and (stringp bookmark-name-or-record)
-                   (not (eq (cdr plan) bookmark-name-or-record)))
+                   (not (eq (cdr plan) bookmark-name-or-record))
+                   (or (not (eq (current-buffer) origin))
+                       (let ((file (buffer-file-name)))
+                         (and file (file-equal-p
+                                    file (bookmark-get-filename (cdr plan)))))))
           (setq bookmark-current-bookmark bookmark-name-or-record))))))
 
 (require 'seq)
