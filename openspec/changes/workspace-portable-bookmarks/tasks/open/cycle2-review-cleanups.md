@@ -2,7 +2,7 @@
 name: cycle2-review-cleanups
 description: Refuse remote workspace homes (user decision); move consumer specs off file-equal-p; make the off-workspace "no workspace" answer honest
 change: workspace-portable-bookmarks
-status: blocked
+status: ready
 task_class: bug
 on_critical_path: false
 cycle: cycle-1790453714
@@ -12,7 +12,11 @@ cites_register_entries:
 relations:
   - discovered-from:workspaces-file-equal-p-timestamp-race
   - discovered-from:docs-readme
-  - blocked-by:discovery-scope-hardening
+  - discovered-from:arch-on-touch-1790453714-51
+  - discovered-from:arch-on-touch-1790453714-52
+  - discovered-from:arch-on-touch-1790453714-53
+  - discovered-from:arch-on-touch-1790453714-54
+  - discovered-from:arch-on-touch-1790453714-55
 discovered_from: [review workspaces-file-equal-p-timestamp-race findings 1+2, review docs-readme finding 1]
 discovered_by: reviewer
 discovered_class: invariant-gap
@@ -20,8 +24,9 @@ reconciled_into: null
 created_at: 2026-09-27T23:00:00+00:00
 ---
 
-> Follow-up created by the orchestrator during cycle-1790453714 execute. Runs after `discovery-scope-hardening` merges
-> (step 3 edits portable-bookmarks.org).
+> Follow-up created by the orchestrator during cycle-1790453714 execute; extended with the on-touch audit of the file-identity task
+> (`.orchestrator/cycles/cycle-1790453714/findings/on-touch-file-equal-p.md`, 51-55). Runs beside `discovery-scope-hardening` and
+> merges AFTER it (only step 3 touches portable-bookmarks.org, prose/docstring only).
 
 ## Steps
 1. **Remote workspace homes are unsupported (USER DECISION 2026-09-27: "never; refuse them").** Since the core identity predicate
@@ -31,9 +36,22 @@ created_at: 2026-09-27T23:00:00+00:00
    into the registry — with a clear `user-error` naming the path, before any filesystem work. Spec each entry point. State it in the
    `tabs.org` prose, the README (*Creating workspaces* / the double-registration paragraph) and report the register wording for
    `directory-identity-by-device-inode` in `## Discoveries`.
-2. **Specs off `file-equal-p`.** ~20 assertions in `test/portable-bookmarks-jump-spec.el` and `test/portable-bookmarks-off-workspace-spec.el`
+   **Also (arch 51, needed regardless):** `workspace--new-anchor-existing` has no registry-NAME collision check (`workspace-re-anchor`
+   has one), so anchoring a different local directory with the same basename REPLACES an existing workspace's registry entry (saved
+   layouts, membership, recent-layout pointer lost at the next save). Add the same refusal there; spec the local same-basename case.
+1b. **(arch 52) Containment.** The purge safeguard (`workspaces.org`, workspaces.el:174) decides containment with `file-in-directory-p`,
+   which ends in `file-equal-p` — the same timestamp race survives in core (fails closed: purge refused). Move portable-bookmarks'
+   `workspace-bookmark--path-within-p` logic into core as the ONE containment predicate (next to `workspace--same-file-p` in
+   data-model), route the purge safeguard and the bookmarks module to it, delete the module copy. Spec the race for containment.
+1c. **(arch 53) Prose.** `data-model.org` now says "pure except one read", contradicting `home-org.org:6-8`'s stated reason for being a
+   separate module. Keep the placement (load order); align the prose in both files.
+1d. **(arch 54) Spec leak.** `test/buffer-reincarnation-spec.el`: three `workspace-new` calls leave a home.org buffer current and
+   `br-spec--cleanup` then deletes its directory, so later specs' `make-process`/`process-file` fail with `file-missing`. Fix in that
+   spec (restore/bind `default-directory` and kill the buffers it creates).
+2. **Specs off `file-equal-p` (review 2 / arch 55).** ~20 assertions in `test/portable-bookmarks-jump-spec.el` and `test/portable-bookmarks-off-workspace-spec.el`
    use `file-equal-p` for path equality (jump-spec :168 and :261 compare directories — the exact race case). Switch them to
-   `workspace--same-file-p`.
+   `workspace--same-file-p`. Three are NEGATIVE assertions that would pass for the wrong reason under the race — check each still
+   asserts what it means.
 3. **The "no workspace" answer at the off-workspace prompt.** The README (*Off-workspace jumps*) and the prompt function's docstring in
    `portable-bookmarks.org` say an empty answer means "no workspace". With a default set (the first holder) stock `completing-read`
    returns the default on empty input, and vertico's RET picks the preselected candidate, so "no workspace" is reachable only when no
