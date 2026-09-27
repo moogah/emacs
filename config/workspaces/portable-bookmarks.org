@@ -198,7 +198,8 @@ working directory.  They reach Emacs's =process-environment= when Emacs is
 started by git (as =GIT_EDITOR=, or from a hook, which exports =GIT_DIR=),
 from a shell that exported them for a bare "dotfiles" repository, or by
 =setenv=.  Measured with =GIT_DIR= set: every checkout took the identity of
-the repository it named, and =--workspace-checkout= returned a checkout of
+the repository it named, and the workspace-checkout lookup (then a
+singular helper, now =--workspace-checkouts=) returned a checkout of
 a different repository.  The runner therefore unsets every variable git
 lists as repository-local (=git rev-parse --local-env-vars=) plus the two
 that steer repository discovery (=GIT_CEILING_DIRECTORIES=,
@@ -1732,8 +1733,8 @@ A tracked path is not enough on its own either.  Repositories edited on
 a Mac often COMMIT a =.DS_Store=, and Windows and sync clients leave
 =Thumbs.db=, =desktop.ini= or =Icon\r= that get committed the same way.
 When the repository tracks such a file and the OS writes one into the
-husk, "a tracked path exists" is true of the husk (measured, git 2.49:
-=--canonical-for-identity= returned the husk).  So check 4 SKIPS every
+husk, "a tracked path exists" is true of the husk (measured, git 2.49,
+with the since-deleted singular canonical lookup: it returned the husk).  So check 4 SKIPS every
 listed path whose basename is an OS or sync-client artifact, and answers
 t only for another tracked path that exists.  The list is short, closed
 and compared without regard to letter case (Windows names are
@@ -1989,8 +1990,8 @@ On this Mac's case-insensitive disk a home registered as
 it — and =file-in-directory-p= then says the workspace's own full clone
 is NOT inside it.  Ownership-first classification turns that miss into a
 =canonical= verdict for git's (on-disk-case) spelling of the clone, and
-=--canonical-for-identity= would offer workspace A's clone to a user in
-workspace B.  Comparing file identity says t for the same pair.
+=--canonical-checkouts-for-identity= would offer workspace A's clone to a
+user in workspace B.  Comparing file identity says t for the same pair.
 
 The walk stops at the filesystem root.  A path that does not exist cannot
 be proven inside anything, so it is not: =--path-within-p= requires BOTH
@@ -2017,8 +2018,8 @@ KNOWN LIMITATION — stated here because it is accepted, not fixed.  If a
 user symlinks a main clone into a workspace home (=ws/A/x ->
 ~/src/main=) instead of adding a worktree, workspace A is editing that
 clone, yet the clone is not A's: it classifies =canonical=, and
-=--canonical-for-identity= may offer it to a user standing in workspace
-B.  That is the defect the safety rule exists to prevent, reached
+=--canonical-checkouts-for-identity= may offer it to a user standing in
+workspace B.  That is the defect the safety rule exists to prevent, reached
 through a layout the tooling never builds.  The user's guidance is
 simply: do not symlink checkouts into a workspace home; add a worktree.
 The same holds for a link to a directory inside a clone, to a file
@@ -2030,7 +2031,7 @@ answer to a layout the tooling does not produce.
 
 The flip side is conservative: because the link is not a checkout of
 the workspace, a repository reachable ONLY through such a link is not
-in view, and =--workspace-checkout= never answers with it.
+in view, and =--workspace-checkouts= never lists it.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--path-within-p (path dir)
@@ -2270,8 +2271,8 @@ home, when that is a checkout, and its home's checkout children (see
 
 "May this directory be offered as a repository's canonical checkout?"
 has exactly ONE answer in this capability, and every path that offers a
-checkout as canonical — =--canonical-for-identity= (the resolver's
-fallback), =workspace-bookmark-canonical-checkouts-in-view= (the public
+checkout as canonical — =--canonical-checkouts-for-identity= (the
+resolver's canonical arm), =workspace-bookmark-canonical-checkouts-in-view= (the public
 entry point), and through it the git-worktrees repository picker — asks
 it here.  Two earlier derivations disagreed: the resolver path ran
 =--canonical-checkout='s four checks and then =--classify=, while the
