@@ -2,7 +2,7 @@
 name: cycle2-review-cleanups
 description: Refuse remote workspace homes (user decision); move consumer specs off file-equal-p; make the off-workspace "no workspace" answer honest
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: bug
 on_critical_path: false
 cycle: cycle-1790453714
