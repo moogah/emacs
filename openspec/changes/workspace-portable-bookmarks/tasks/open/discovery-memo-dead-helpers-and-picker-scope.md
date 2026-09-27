@@ -2,7 +2,7 @@
 name: discovery-memo-dead-helpers-and-picker-scope
 description: Remove or re-home the three discovery helpers left without a production caller by the memo work, and let the worktree picker build its candidates in one discovery-memo scope
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 task_class: refactor
 on_critical_path: false
 cycle: cycle-1790453714
