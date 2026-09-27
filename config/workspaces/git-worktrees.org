@@ -93,7 +93,10 @@ unscoped, the git-derived source contributes nothing and magit's
 candidates pass through unclassified.  When the
 function is loaded but signals, a warning is shown (at most one per
 candidate collection) and that step contributes nothing: a failed
-classification offers nothing rather than something unchecked.
+classification offers nothing rather than something unchecked.  When
+the SCOPE is loaded but signals before the build starts, the same
+warning is shown and the build runs unscoped: the scope changes only
+what the calls cost, so losing it loses nothing else.
 
 The merged list is de-duped on each candidate's *truename* directory
 (so a symlinked spelling of a repository git reports resolved is listed
@@ -134,10 +137,11 @@ A function that is *present but broken* must not abort the add-worktree
 command before it reaches its =read-directory-name= floor, because it
 is another module's code.  Each call is therefore wrapped in an error
 barrier that reports the failure (a warning, not silence) and
-contributes nothing.  The two calls (in-view discovery, then magit's
-list) usually fail for the same reason, so one candidate collection
-shows at most ONE warning, naming the first failure.  Outside a
-collection every failure is reported.
+contributes nothing.  That holds for EVERY portable-bookmarks call,
+the discovery scope below included.  The calls (in-view discovery,
+then magit's list, inside the scope) usually fail for the same reason,
+so one candidate collection shows at most ONE warning, naming the
+first failure.  Outside a collection every failure is reported.
 
 #+begin_src emacs-lisp
 (defvar jf/workspace--worktree-warning-state nil
@@ -223,9 +227,9 @@ first occurrence's spelling is kept, in order.  nil entries and remote
 Calls `workspace-bookmark-canonical-checkouts-in-view' with no argument:
 the checkouts already in view, each resolved to its repository's main
 worktree, which is kept only when portable-bookmarks' one canonical
-predicate admits it.  That public function is the only portable-bookmarks
-symbol this module calls, and the module is never required.  When it is
-unbound, the result is nil.  Never signals: if it signals, a warning
+predicate admits it.  That public function is one of the two public
+portable-bookmarks symbols this module calls (see the Overview), and the
+module is never required.  When it is unbound, the result is nil.  Never signals: if it signals, a warning
 naming the error is displayed and the result is nil."
   (when (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
     (condition-case err
@@ -265,6 +269,24 @@ source calls are inside it: de-duplication, the git-repository filter
 and, above all, the prompt that follows are not, so the memo never
 outlives the build.
 
+The scope is a portable-bookmarks call like the other two, so it gets
+the same barrier, drawn around the SCOPE only.  The build is handed to
+the scope wrapped so that it records how far it got:
+
+- the scope signals BEFORE the build starts (it is broken, or its
+  calling convention changed): one warning, and the build runs
+  unscoped — the answers are the same, only the sharing is lost, so the
+  sources still contribute and the prompt and its floor are reached;
+- the scope signals AFTER the build returned: one warning, and the
+  build's value is used;
+- the build ITSELF signals: that error is not the scope's, and it
+  propagates exactly as it would without the scope.  (Both source
+  calls inside it have barriers of their own.)
+
+The build never runs twice.  The warning goes through
+=jf/workspace--worktree-warn-discovery=, so it counts against the
+collection's one warning.
+
 #+begin_src emacs-lisp
 (defun jf/workspace--worktree-in-one-discovery-call (function)
   "Call FUNCTION with no arguments as one portable-bookmarks discovery call.
@@ -273,10 +295,34 @@ is bound, FUNCTION runs inside it, so every call of
 `workspace-bookmark-canonical-checkouts-in-view' FUNCTION makes shares
 one memo of git's answers; otherwise FUNCTION is simply called.  Like
 that function, the scope is reached through a call-time `fboundp' guard
-and portable-bookmarks is never required."
-  (if (fboundp 'workspace-bookmark-call-with-discovery-memo)
-      (funcall 'workspace-bookmark-call-with-discovery-memo function)
-    (funcall function)))
+and portable-bookmarks is never required.
+
+The scope is error-barriered like every portable-bookmarks call: when
+it signals before FUNCTION starts, a warning is displayed
+\(`jf/workspace--worktree-warn-discovery') and FUNCTION is called
+unscoped; when it signals after FUNCTION returned, a warning is
+displayed and FUNCTION's value is returned.  An error signalled by
+FUNCTION itself propagates unchanged.  FUNCTION is called at most once."
+  (if (not (fboundp 'workspace-bookmark-call-with-discovery-memo))
+      (funcall function)
+    (let ((stage 'before)
+          (value nil))
+      (condition-case err
+          (funcall 'workspace-bookmark-call-with-discovery-memo
+                   (lambda ()
+                     (setq stage 'running)
+                     (setq value (funcall function))
+                     (setq stage 'returned)
+                     value))
+        (error
+         (pcase stage
+           ('before
+            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+            (funcall function))
+           ('returned
+            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+            value)
+           (_ (signal (car err) (cdr err)))))))))
 #+end_src
 
 #+begin_src emacs-lisp

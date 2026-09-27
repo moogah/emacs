@@ -102,12 +102,16 @@ recomputed locally.
 
 #+begin_src emacs-lisp
 (defun workspace--integration-payload (name home context)
-  "Build the anchor payload plist for a workspace creation event.
+  "Build the anchor payload plist for a workspace integration event.
 NAME is the workspace name, HOME its filesystem anchor directory,
-CONTEXT one of the symbols `fresh', `anchored-scaffolded', or
-`anchored-existing'.  `:sessions-dir' is derived from HOME via
-`workspace--sessions-dir' (no path logic is duplicated here).  The
-plist is flat and extensible: handlers read only the keys they need."
+CONTEXT the symbol naming why the payload is built: at birth one of
+`fresh', `anchored-scaffolded' or `anchored-existing'; `menu-invoke'
+from the integration transient; `purge' at teardown; `bookmark-jump'
+when portable-bookmarks adds a worktree for a bookmark
+\(register/vocabulary/workspace-creation-context).  `:sessions-dir'
+is derived from HOME via `workspace--sessions-dir' (no path logic is
+duplicated here).  The plist is flat and extensible: handlers read
+only the keys they need."
   (list :name name
         :home home
         :sessions-dir (workspace--sessions-dir home)

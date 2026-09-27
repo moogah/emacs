@@ -12,7 +12,11 @@
 ;;   stand-in that records what it was offered and answers with one key.
 ;;   `jf/workspace--add-worktree' (git-worktrees, magit-backed) is bound
 ;;   per spec to a stub that either really adds a worktree with the
-;;   fixtures or returns a vocabulary outcome; `nil' unbinds it.  ONE
+;;   fixtures or returns a vocabulary outcome; `nil' unbinds it.  The
+;;   integration registry is bound per spec too (see
+;;   `portable-bookmarks-missing-repo-spec--hermetic'): the command is
+;;   registered as git-worktrees registers it once magit is loaded, so the
+;;   offer never depends on whether the harness happened to load magit.  ONE
 ;;   spec runs the REAL command (git-worktrees.el is loaded here for it)
 ;;   and stands in only for magit and the branch prompt, so the contract
 ;;   the chooser relies on — the command honours `:source-repo' — is
@@ -53,6 +57,7 @@
                         portable-bookmarks-missing-repo-spec--this-dir))
 
 (defvar jf/emacs-dir)
+(defvar workspace--integrations)
 
 ;; Owned by tabs.el; see portable-bookmarks-discovery-spec.el for why this
 ;; stand-in exists.  Under the harness the real definition is bound.
@@ -84,14 +89,29 @@
 (defvar portable-bookmarks-missing-repo-spec--prompts nil
   "(PROMPT CHOICES) pairs the stubbed `read-multiple-choice' received, newest first.")
 
+(defun portable-bookmarks-missing-repo-spec--git-worktree-registry ()
+  "Return an integration registry holding only the git-worktree integration.
+Registered through core's real `workspace-register-integration' exactly
+as git-worktrees.el registers it once magit is loaded."
+  (let ((workspace--integrations nil))
+    (workspace-register-integration 'git-worktree
+      :label "git worktree"
+      :menu (cons "w" #'jf/workspace--add-worktree)
+      :on-purge #'jf/workspace--worktree-on-purge)
+    workspace--integrations))
+
 (defmacro portable-bookmarks-missing-repo-spec--hermetic (&rest body)
   "Run one spec's BODY with nothing but the fixtures' world in view.
 `jf/emacs-dir' is nil so the configuration checkout running the suite
-is not a canonical checkout in view; the identity memo is cleared on
-exit; every buffer BODY leaves behind is killed before teardown deletes
-the directories those buffers visit."
+is not a canonical checkout in view; the integration registry holds the
+git-worktree integration only
+\(`portable-bookmarks-missing-repo-spec--git-worktree-registry'); the
+identity memo is cleared on exit; every buffer BODY leaves behind is
+killed before teardown deletes the directories those buffers visit."
   (declare (indent 0))
   `(let ((jf/emacs-dir nil)
+         (workspace--integrations
+          (portable-bookmarks-missing-repo-spec--git-worktree-registry))
          (before (buffer-list)))
      (unwind-protect (progn ,@body)
        (dolist (buffer (buffer-list))
@@ -252,6 +272,21 @@ Returns the error's message; fails the spec when nothing was signalled."
           (expect (fboundp 'jf/workspace--add-worktree) :to-be nil)
           (portable-bookmarks-missing-repo-spec--quits-p
            (lambda () (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?c))))
+        (expect (portable-bookmarks-missing-repo-spec--offered-keys) :to-equal '(?v ?c))
+        (expect (portable-bookmarks-missing-repo-spec--prompt-text)
+                :to-match "add worktree here not offered: the git worktree integration is not loaded"))))
+
+  (it "omits add worktree when the command is defined but not registered (magit not loaded), and says so"
+    ;; git-worktrees.el defines `jf/workspace--add-worktree' whether or not
+    ;; magit is loaded; only its registration waits for magit.  Here the
+    ;; REAL command is bound and nothing is registered.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+            (workspace--integrations nil))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (expect (fboundp 'jf/workspace--add-worktree) :to-be-truthy)
+        (portable-bookmarks-missing-repo-spec--quits-p
+         (lambda () (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?c)))
         (expect (portable-bookmarks-missing-repo-spec--offered-keys) :to-equal '(?v ?c))
         (expect (portable-bookmarks-missing-repo-spec--prompt-text)
                 :to-match "add worktree here not offered: the git worktree integration is not loaded"))))
@@ -619,6 +654,49 @@ Returns the error's message; fails the spec when nothing was signalled."
         (expect (workspace--same-file-p (nth 0 (car made)) repo) :to-be-truthy)
         (expect (nth 2 (car made)) :to-equal "wsbm-mr-c")
         (expect (length portable-bookmarks-missing-repo-spec--prompts) :to-equal 1))))
+
+  (it "re-resolves after the add in a fresh discovery memo, so an enclosing scope's listing cannot hide the new worktree"
+    ;; Architect on-touch finding 48.  The enclosing scope lists the
+    ;; repository (main clone + A's worktree) before the add; the re-resolve
+    ;; after it must see the worktree the add made.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((repo (plist-get world :repo))
+             (home-c (plist-get world :home-c))
+             (a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (resolve (symbol-function 'workspace-bookmark--resolve))
+             (listings nil)
+             (plan nil))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (cl-letf (((symbol-function 'workspace-bookmark--resolve)
+                   (lambda (record workspace)
+                     (push (workspace-bookmark--checkouts-of repo) listings)
+                     (funcall resolve record workspace)))
+                  ((symbol-function 'jf/workspace--add-worktree)
+                   (lambda (payload)
+                     (workspace-bookmark-fixtures-add-worktree
+                      repo (expand-file-name "proj" (plist-get payload :home))
+                      :branch "c")
+                     'ok)))
+          (workspace-bookmark-call-with-discovery-memo
+           (lambda ()
+             (let* ((record (bookmark-get-bookmark "readme"))
+                    (resolution (workspace-bookmark--resolve record "wsbm-mr-c")))
+               (expect (plist-get resolution :outcome) :to-be 'missing-repo)
+               (setq plan (workspace-bookmark--add-worktree-and-replan
+                           record resolution "wsbm-mr-c"))))))
+        (expect (length listings) :to-equal 2)
+        (expect (length (cadr listings)) :to-equal 2)
+        (expect (length (car listings)) :to-equal 3)
+        (expect (seq-some (lambda (checkout)
+                            (workspace--same-file-p
+                             checkout (expand-file-name "proj" home-c)))
+                          (car listings))
+                :to-be-truthy)
+        (expect (car plan) :to-be 'call-through)
+        (expect (workspace--same-file-p
+                 (bookmark-get-filename (cdr plan))
+                 (expand-file-name "proj/README.md" home-c))
+                :to-be-truthy))))
 
   (it "reports (failed . REASON) and opens nothing"
     (portable-bookmarks-missing-repo-spec--hermetic
