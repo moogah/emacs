@@ -373,6 +373,34 @@ Returns the error's message; fails the spec when nothing was signalled."
             (expect workspace-bookmark--canonical-view :to-be-truthy))
           (expect (portable-bookmarks-missing-repo-spec--marker buffer) :to-match "canonical")))))
 
+  (it "keeps the view through a revert-buffer that re-runs the major mode: marker, view-mode and read-only all come back"
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a))))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (let ((buffer (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?v)))
+          (with-current-buffer buffer
+            (revert-buffer t t nil)
+            (expect buffer-read-only :to-be-truthy)
+            (expect view-mode :to-be-truthy)
+            (expect workspace-bookmark--canonical-view :to-be-truthy))
+          (expect (portable-bookmarks-missing-repo-spec--marker buffer) :to-match "canonical")
+          (expect (length (split-string (portable-bookmarks-missing-repo-spec--marker buffer)
+                                        "\\[canonical" t))
+                  :to-equal 2)))))
+
+  (it "keeps the marker through a revert after C-x C-q, without putting the buffer back in view-mode"
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a))))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (let ((buffer (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?v)))
+          (with-current-buffer buffer
+            (read-only-mode -1)
+            (revert-buffer t t nil)
+            (expect buffer-read-only :to-be nil)
+            (expect view-mode :to-be nil)
+            (expect workspace-bookmark--canonical-view :to-be-truthy))
+          (expect (portable-bookmarks-missing-repo-spec--marker buffer) :to-match "canonical")))))
+
   (it "does not stack the marker when the same canonical copy is viewed twice"
     (portable-bookmarks-missing-repo-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a))))
@@ -590,7 +618,28 @@ Returns the error's message; fails the spec when nothing was signalled."
             (expect message :to-match "nothing opened")))
         (expect (portable-bookmarks-missing-repo-spec--visits-p canonical-path) :to-be nil)
         (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil)
-        (expect (bookmark-get-filename "readme") :to-equal a-path)))))
+        (expect (bookmark-get-filename "readme") :to-equal a-path))))
+
+  (it "declines a view whose resolution names no canonical checkout instead of opening the copy unmarked"
+    ;; Unreachable from today's resolver (a missing-repo with a :path
+    ;; always carries :checkout); forced by dropping :checkout from the
+    ;; real resolution, so a producer change cannot open main writable.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (canonical-path (expand-file-name "README.md" (plist-get world :repo)))
+             (resolve (symbol-function 'workspace-bookmark--resolve)))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (cl-letf (((symbol-function 'workspace-bookmark--resolve)
+                   (lambda (&rest args)
+                     (let ((resolution (copy-sequence (apply resolve args))))
+                       (expect (plist-get resolution :outcome) :to-be 'missing-repo)
+                       (expect (plist-get resolution :path) :to-be-truthy)
+                       (plist-put resolution :checkout nil)))))
+          (let ((message (portable-bookmarks-missing-repo-spec--decline "readme" "wsbm-mr-c" ?v)))
+            (expect message :to-match "No canonical checkout")
+            (expect message :to-match "nothing opened")))
+        (expect (portable-bookmarks-missing-repo-spec--visits-p canonical-path) :to-be nil)
+        (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil)))))
 
 
 ;;; Structural — the section, read off the tangled module
