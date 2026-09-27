@@ -151,6 +151,35 @@ Async or cached discovery across calls beyond the existing memo. Changing outcom
   once in `--resolve` would save that 1; left alone because the Resolution section is outside
   this task.
 
+### Fix pass (review of merge 6736b02a, Findings 1 and 2)
+
+- **Finding 1 (blocking) — remote barrier.** `--discovery-memo-key` ran `expand-file-name` and
+  `file-truename` on a caller-supplied checkout before any `file-remote-p`, so the public entry
+  and `--canonical-checkout` signalled `file-error` for a remote element (a real TRAMP name would
+  have opened a connection in `file-truename`) where they had returned nil. `--shared-position`
+  now answers nil for a non-string or remote DIR with `file-remote-p` as its ONLY file operation,
+  before the memo key is computed; `--discovery-memo-key` is wholly inside `condition-case` and
+  documents the precondition. Audit of every other new handler-dispatching site: `--checkout-git-dir`
+  and `--config-stamp` receive ROOT only from `--checkout-position` (git's own local output;
+  sites `--coordinates`, `--workspace-checkouts`, `--canonical-checkouts-for-identity`) and from
+  the identity-memo key, never from a caller; `--usable-checkout` expands git's worktree-list path
+  only after `--checkout-dir-p`'s `file-remote-p`; `--shared-worktree-entries` keys on the
+  common-dir string with no file operation. Pinned by portable-bookmarks-cost-spec.el § "A remote
+  checkout name reaches no file-name handler but file-remote-p": a `cl-letf`-scoped recording
+  fake handler for `/fake:` names (answers only `file-remote-p`, signals otherwise) proves the
+  public entry (mixed list and remote-only), `--canonical-checkout`, `--shared-position`,
+  `--canonical-checkouts-for-identity` (remote in view) and `--workspace-checkouts` (remote home
+  candidate) return nil / skip it with exactly `(file-remote-p)` asked; a non-string candidate
+  is refused too. Against 6736b02a's `.el` all six fail (signal from `expand-file-name`).
+- **Finding 2 (advisory) — one memo scope per resolve.** `--resolve-coordinates` now binds
+  `--with-discovery-memo` once around both plural calls (outcome-neutral: nothing between them
+  can change the layout), so the current home's checkouts are positioned once. missing-repo on
+  the cost fixture: 7 → 6 (= 4 in view + 2), identity-memo-bypassed companion 12 → 11, per-call
+  bypassed companion stays 12 (the single scope only matters with memoisation on). Org prose
+  ("1 + 3 + 2 = 6") corrected to the fixture's arithmetic (4 + 2 = 6) and the memo-scope list now
+  names `--resolve-coordinates`. Against 6736b02a's `.el` the two re-pinned specs read 7 and 12.
+- Finding 3 not addressed here (register / user matter per the coordinator).
+
 ## Discoveries
 
 - discovery_id: disc-discovery-identity-memo-and-cost-contract-1

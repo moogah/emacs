@@ -158,27 +158,30 @@ CANONICAL, when non-nil, is bound as `jf/emacs-dir' so that it is in view."
         (expect (cdr run) :to-equal 4))))
 
   (describe "missing-repo"
-    ;; 1 for B's own checkout, 4 for the checkouts in view, then for the
-    ;; one matching repository its worktree listing and the tracked-file
-    ;; check of its main worktree: the position that answers the
-    ;; top-level check is already held.  16 at 20944160 on this fixture.
+    ;; 4 for the checkouts in view (B's own checkout among them, positioned
+    ;; once: the whole resolve decision is one discovery call), then for
+    ;; the one matching repository its worktree listing and the
+    ;; tracked-file check of its main worktree: the position that answers
+    ;; the top-level check is already held.  16 at 20944160 on this
+    ;; fixture; 7 while the decision ran its two plural calls in separate
+    ;; memo scopes.
 
-    (it "costs the workspace's checkouts plus the checkouts in view plus two: seven"
+    (it "costs the checkouts in view plus two: six"
       (portable-bookmarks-cost-spec--warm "wsbm-cost-b" repo)
       (let ((run (portable-bookmarks-cost-spec--counting
                    (portable-bookmarks-cost-spec--resolve "wsbm-cost-b" repo))))
         (expect (plist-get (car run) :outcome) :to-be 'missing-repo)
         (expect (plist-get (car run) :path)
                 :to-equal (expand-file-name "README.md" repo))
-        (expect (cdr run) :to-equal 7)))
+        (expect (cdr run) :to-equal 6)))
 
-    (it "would cost twelve with the identity memo bypassed"
+    (it "would cost eleven with the identity memo bypassed"
       (portable-bookmarks-cost-spec--warm "wsbm-cost-b" repo)
       (let ((run (portable-bookmarks-cost-spec--counting
                    (portable-bookmarks-cost-spec--identity-memo-bypassed
                      (portable-bookmarks-cost-spec--resolve "wsbm-cost-b" repo)))))
         (expect (plist-get (car run) :outcome) :to-be 'missing-repo)
-        (expect (cdr run) :to-equal 12)))
+        (expect (cdr run) :to-equal 11)))
 
     (it "would cost twelve with the per-call memo bypassed"
       (portable-bookmarks-cost-spec--warm "wsbm-cost-b" repo)
@@ -343,5 +346,123 @@ CANONICAL, when non-nil, is bound as `jf/emacs-dir' so that it is in view."
                  portable-bookmarks-cost-spec--identity "wsbm-cost-gain")
                 :to-equal (list clone))
         (expect 'workspace-bookmark--root-identity :to-have-been-called-times 2)))))
+
+;;; Behavioral — a remote (TRAMP) name never reaches a file-name handler
+;;
+;; The register's load-bearing rule for this boundary: `file-remote-p' is
+;; tested before ANY file-name-handler dispatch, so TRAMP can neither
+;; signal nor prompt.  The per-call memo keys a position by truename, and
+;; `file-truename' on a TRAMP name opens the connection — so the memo must
+;; ask `file-remote-p' first, exactly as the runner does.  Real TRAMP is
+;; never loaded: `file-name-handler-alist' is bound to one fake handler for
+;; "/fake:" names that answers `file-remote-p' from the name and signals
+;; `file-error' for every other operation (the pattern of
+;; git-worktrees-spec.el § "remote (TRAMP) magit entries"), recording each
+;; operation it is asked.
+
+(defvar portable-bookmarks-cost-spec--remote-ops nil
+  "Operations the fake remote file-name handler was asked, newest first.")
+
+(defun portable-bookmarks-cost-spec--fake-remote-handler (operation &rest args)
+  "Fake handler for \"/fake:\" names: records OPERATION, answers only `file-remote-p'."
+  (push operation portable-bookmarks-cost-spec--remote-ops)
+  (if (eq operation 'file-remote-p)
+      (let ((name (car args)))
+        (and (stringp name)
+             (string-match "\\`/fake:[^:]*:" name)
+             (match-string 0 name)))
+    (signal 'file-error (list "remote probed" (symbol-name operation)))))
+
+(defmacro portable-bookmarks-cost-spec--with-fake-remote (&rest body)
+  "Run BODY with \"/fake:\" names served by the fake remote handler only.
+Returns BODY's value; the operations asked are left in
+`portable-bookmarks-cost-spec--remote-ops'."
+  (declare (indent 0))
+  `(let ((file-name-handler-alist
+          (list (cons "\\`/fake:" #'portable-bookmarks-cost-spec--fake-remote-handler))))
+     (setq portable-bookmarks-cost-spec--remote-ops nil)
+     ,@body))
+
+(defun portable-bookmarks-cost-spec--remote-ops-asked ()
+  "Return the distinct operations the fake remote handler was asked."
+  (seq-uniq (reverse portable-bookmarks-cost-spec--remote-ops)))
+
+(describe "A remote checkout name reaches no file-name handler but file-remote-p"
+  :var (repo home)
+
+  (workspace-bookmark-fixtures-with-empty-registry
+    (setq repo (workspace-bookmark-fixtures-make-repo
+                :remote portable-bookmarks-cost-spec--remote :prefix "wsbm-cost-rem-")
+          home (workspace-bookmark-fixtures-make-workspace "wsbm-cost-rem"))
+    (workspace-bookmark-fixtures-add-worktree
+     repo (expand-file-name "proj" home) :branch "rem")
+    (workspace-bookmark-clear-identity-cache))
+
+  (after-each
+    (workspace-bookmark-clear-identity-cache))
+
+  (defconst portable-bookmarks-cost-spec--remote-name "/fake:host:/srv/repo/"
+    "A remote checkout name; the fake handler serves it.")
+
+  (it "is skipped by the public entry, which still returns the local candidates"
+    (let ((result (portable-bookmarks-cost-spec--with-fake-remote
+                    (let ((jf/emacs-dir nil))
+                      (workspace-bookmark-canonical-checkouts-in-view
+                       (list portable-bookmarks-cost-spec--remote-name repo))))))
+      (expect result :to-equal (list repo))
+      (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+              :to-equal '(file-remote-p))))
+
+  (it "is nil for the public entry when it is the only candidate"
+    (expect (portable-bookmarks-cost-spec--with-fake-remote
+              (let ((jf/emacs-dir nil))
+                (workspace-bookmark-canonical-checkouts-in-view
+                 (list portable-bookmarks-cost-spec--remote-name))))
+            :to-be nil)
+    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+            :to-equal '(file-remote-p)))
+
+  (it "has no canonical checkout, and no position"
+    (expect (portable-bookmarks-cost-spec--with-fake-remote
+              (workspace-bookmark--canonical-checkout
+               portable-bookmarks-cost-spec--remote-name))
+            :to-be nil)
+    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+            :to-equal '(file-remote-p))
+    (expect (portable-bookmarks-cost-spec--with-fake-remote
+              (workspace-bookmark--with-discovery-memo
+                (workspace-bookmark--shared-position
+                 portable-bookmarks-cost-spec--remote-name)))
+            :to-be nil)
+    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+            :to-equal '(file-remote-p)))
+
+  (it "is skipped by --canonical-checkouts-for-identity when it is in view"
+    (spy-on 'workspace-bookmark--checkouts-in-view :and-return-value
+            (list portable-bookmarks-cost-spec--remote-name repo))
+    (expect (portable-bookmarks-cost-spec--with-fake-remote
+              (workspace-bookmark--canonical-checkouts-for-identity
+               portable-bookmarks-cost-spec--identity))
+            :to-equal (list repo))
+    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+            :to-equal '(file-remote-p)))
+
+  (it "is skipped by --workspace-checkouts when it is a candidate of the home"
+    (spy-on 'workspace-bookmark--home-checkouts :and-return-value
+            (list portable-bookmarks-cost-spec--remote-name
+                  (file-name-as-directory (expand-file-name "proj" home))))
+    (expect (portable-bookmarks-cost-spec--with-fake-remote
+              (workspace-bookmark--workspace-checkouts
+               portable-bookmarks-cost-spec--identity "wsbm-cost-rem"))
+            :to-equal (list (file-name-as-directory (expand-file-name "proj" home))))
+    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+            :to-equal '(file-remote-p)))
+
+  (it "is refused as a non-string too, without signalling"
+    (expect (workspace-bookmark--with-discovery-memo
+              (workspace-bookmark--shared-position nil))
+            :to-be nil)
+    (expect (workspace-bookmark-canonical-checkouts-in-view (list nil 42 repo))
+            :to-equal (list repo))))
 
 ;;; portable-bookmarks-cost-spec.el ends here
