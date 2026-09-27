@@ -282,9 +282,6 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
       (expect (nth 1 (spy-calls-args-for 'completing-read 0)) :to-be nil)
       (expect 'read-directory-name :to-have-been-called))))
 
-(defvar git-worktrees-spec--saved-registry nil
-  "The real `workspace--registry', set aside for the duration of a spec.")
-
 (describe "git-derived repo candidates"
   ;; Real git: REPO is a canonical checkout; workspace A's home holds a
   ;; linked worktree of it, which is what puts REPO in view.  OTHER is a
@@ -292,10 +289,7 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
   ;; repository only magit's list would report.
   :var (repo other home-a linked)
 
-  (before-each
-    (setq git-worktrees-spec--saved-registry workspace--registry
-          workspace--registry (make-hash-table :test 'equal))
-    (workspace-bookmark-fixtures-setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq repo (workspace-bookmark-fixtures-make-repo
                 :remote "git@example.com:fixtures/gw-candidates.git"
                 :prefix "gw-cand-repo-")
@@ -306,11 +300,6 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
                   (workspace-bookmark-fixtures-add-worktree
                    repo (expand-file-name "gw-candidates" home-a)
                    :branch "gw-cand-a"))))
-
-  (after-each
-    (workspace-bookmark-fixtures-teardown)
-    (setq workspace--registry git-worktrees-spec--saved-registry
-          git-worktrees-spec--saved-registry nil))
 
   (it "includes the repositories of checkouts in view with no other source"
     (let ((jf/emacs-dir nil))

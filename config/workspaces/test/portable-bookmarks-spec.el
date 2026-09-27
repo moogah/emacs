@@ -161,4 +161,135 @@
       (expect (file-directory-p (file-name-directory saved-bookmark-file))
               :to-be nil))))
 
+(describe "portable-bookmarks fixtures: registry isolation"
+
+  ;; `workspace-bookmark-fixtures-with-empty-registry' is the ONE construct
+  ;; a spec may swap `workspace--registry' through.  These specs pin that
+  ;; it hands each spec a fresh table and puts the live one back on every
+  ;; exit, so a spec that runs after one of the isolated suites starts from
+  ;; the same registry it would have without them.
+
+  (describe "around the specs of a describe"
+    :var (live)
+
+    ;; Outer hooks bracket the macro's own: buttercup runs a parent's
+    ;; `before-each' first and its `after-each' last, so LIVE is captured
+    ;; before the swap and inspected after the restore.
+    (before-each (setq live (workspace-bookmark-fixtures-live-registry)))
+    (after-each
+      (expect workspace--registry :to-be live)
+      (expect (workspace-bookmark-fixtures-live-registry) :to-be live)
+      (expect (gethash "wsbm-fx-inner" live) :to-be nil)
+      (expect (gethash "wsbm-fx-stray" live) :to-be nil)
+      (expect workspace-bookmark-fixtures--live-registry :to-be nil))
+
+    (describe "with the macro installed"
+      :var (home)
+
+      (workspace-bookmark-fixtures-with-empty-registry
+        (setq home (workspace-bookmark-fixtures-make-workspace "wsbm-fx-inner")))
+
+      (it "gives the spec a fresh `equal' table holding only its own fixtures"
+        (expect workspace--registry :not :to-be live)
+        (expect (workspace-bookmark-fixtures-live-registry) :to-be live)
+        (expect (hash-table-test workspace--registry) :to-be 'equal)
+        (expect (hash-table-count workspace--registry) :to-equal 1)
+        (expect (workspace--home (gethash "wsbm-fx-inner" workspace--registry))
+                :to-equal (file-name-as-directory home))
+        (expect (gethash "wsbm-fx-inner" live) :to-be nil))
+
+      (it "keeps an entry the spec writes itself out of the live table"
+        (puthash "wsbm-fx-stray" 'stray workspace--registry)
+        (expect (gethash "wsbm-fx-stray" workspace--registry) :to-be 'stray))))
+
+  (describe "on a non-local exit"
+    ;; Driven by hand: a `before-each' that signals would fail the spec
+    ;; that owns it, so the setup primitive the macro expands into is
+    ;; called directly.  The after-each is the same safety net the teardown
+    ;; describe uses; it is a no-op when the primitive did its job.
+    (after-each (workspace-bookmark-fixtures-teardown))
+
+    (it "restores the live table and drops the fixture names when setup signals"
+      (let ((live (workspace-bookmark-fixtures-live-registry))
+            (home nil))
+        (expect (workspace-bookmark-fixtures-setup-with-empty-registry
+                 (lambda ()
+                   (setq home (workspace-bookmark-fixtures-make-workspace
+                               "wsbm-fx-boom"))
+                   (error "fixture broke")))
+                :to-throw 'error)
+        (expect workspace--registry :to-be live)
+        (expect (gethash "wsbm-fx-boom" live) :to-be nil)
+        (expect workspace-bookmark-fixtures--live-registry :to-be nil)
+        (expect workspace-bookmark-fixtures--registered-names :to-be nil)
+        (expect (file-directory-p home) :to-be nil)))
+
+    (it "restores the live table even when a temp directory cannot be deleted"
+      (let ((live (workspace-bookmark-fixtures-live-registry)))
+        (workspace-bookmark-fixtures-setup-with-empty-registry
+         (lambda () (workspace-bookmark-fixtures-temp-dir "wsbm-fx-stuck-")))
+        (expect workspace--registry :not :to-be live)
+        (cl-letf (((symbol-function 'delete-directory)
+                   (lambda (&rest _) (error "stuck"))))
+          (expect (workspace-bookmark-fixtures-teardown) :to-throw 'error))
+        (expect workspace--registry :to-be live)
+        (expect workspace-bookmark-fixtures--live-registry :to-be nil))))
+
+  (it "expands to the before-each / after-each pair the specs rely on"
+    (expect (macroexpand-1
+             '(workspace-bookmark-fixtures-with-empty-registry (setq repo 1)))
+            :to-equal
+            '(progn
+               (before-each
+                 (workspace-bookmark-fixtures-setup-with-empty-registry
+                  (lambda () (setq repo 1))))
+               (after-each
+                 (workspace-bookmark-fixtures-teardown))))))
+
+(describe "portable-bookmarks fixtures: tracked and untracked files"
+  :var (repo)
+
+  (workspace-bookmark-fixtures-with-empty-registry
+    (setq repo (workspace-bookmark-fixtures-make-repo)))
+
+  (it "commit-file creates, adds and commits RELPATH and returns its path"
+    (let ((path (workspace-bookmark-fixtures-commit-file
+                 repo "sub/deep.el" "hello\n")))
+      (expect path :to-equal (expand-file-name "sub/deep.el" repo))
+      (expect (with-temp-buffer (insert-file-contents path) (buffer-string))
+              :to-equal "hello\n")
+      (expect (workspace-bookmark-fixtures-git repo "ls-files" "--" "sub/deep.el")
+              :to-equal "sub/deep.el")
+      (expect (workspace-bookmark-fixtures-git repo "status" "--porcelain")
+              :to-equal "")
+      (expect (workspace-bookmark-fixtures-git repo "rev-list" "--count" "HEAD")
+              :to-equal "2")))
+
+  (it "commit-file forces a name an ignore rule would skip into the index"
+    (workspace-bookmark-fixtures-commit-file repo ".gitignore" "*.o\n")
+    (workspace-bookmark-fixtures-commit-file repo "build/out.o")
+    (expect (workspace-bookmark-fixtures-git repo "ls-files" "--" "build/out.o")
+            :to-equal "build/out.o"))
+
+  (it "commit-file commits on the branch of the checkout it is given"
+    (let ((wt (workspace-bookmark-fixtures-add-worktree
+               repo (expand-file-name
+                     "wt" (workspace-bookmark-fixtures-temp-dir "wsbm-fx-wt-"))
+               :branch "topic")))
+      (workspace-bookmark-fixtures-commit-file wt "topic-only.el")
+      (expect (workspace-bookmark-fixtures-git wt "ls-files" "--" "topic-only.el")
+              :to-equal "topic-only.el")
+      (expect (workspace-bookmark-fixtures-git repo "ls-files" "--" "topic-only.el")
+              :to-equal "")))
+
+  (it "write-file creates parent directories and leaves the file untracked"
+    (let ((path (workspace-bookmark-fixtures-write-file repo "scratch/note.txt")))
+      (expect path :to-equal (expand-file-name "scratch/note.txt" repo))
+      (expect (with-temp-buffer (insert-file-contents path) (buffer-string))
+              :to-equal "x\n")
+      (expect (workspace-bookmark-fixtures-git repo "ls-files" "--" "scratch")
+              :to-equal "")
+      (expect (workspace-bookmark-fixtures-git repo "ls-files" "--others")
+              :to-equal "scratch/note.txt"))))
+
 ;;; portable-bookmarks-spec.el ends here

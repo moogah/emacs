@@ -38,23 +38,12 @@
 (defvar portable-bookmarks-stamp-spec--buffers nil
   "Buffers a spec visited; killed after each spec.")
 
-(defun portable-bookmarks-stamp-spec--write (root relpath &optional contents)
-  "Create RELPATH under ROOT with CONTENTS; return its absolute name."
-  (let ((path (expand-file-name relpath root)))
-    (make-directory (file-name-directory path) t)
-    (with-temp-file path (insert (or contents "x\n")))
-    path))
-
 (defun portable-bookmarks-stamp-spec--track (root &rest relpaths)
-  "Create and `git add' each of RELPATHS under ROOT.  Return ROOT."
+  "Create and `git add' each of RELPATHS under ROOT.  Return ROOT.
+Staged, not committed: the stamp seam treats an indexed file as tracked."
   (dolist (relpath relpaths)
-    (portable-bookmarks-stamp-spec--write root relpath))
+    (workspace-bookmark-fixtures-write-file root relpath))
   (apply #'workspace-bookmark-fixtures-git root "add" "--" relpaths)
-  root)
-
-(defun portable-bookmarks-stamp-spec--commit (root)
-  "Commit everything staged in ROOT.  Return ROOT."
-  (workspace-bookmark-fixtures-git root "commit" "--quiet" "-m" "spec")
   root)
 
 (defun portable-bookmarks-stamp-spec--visit (path)
@@ -160,7 +149,7 @@
 
   (it "leaves a file in no repository unstamped"
     (let* ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-plain-"))
-           (path (portable-bookmarks-stamp-spec--write dir "notes.txt"))
+           (path (workspace-bookmark-fixtures-write-file dir "notes.txt"))
            (record (portable-bookmarks-stamp-spec--bookmark path "plain")))
       (expect (portable-bookmarks-stamp-spec--unstamped-p record) :to-be-truthy)
       (expect (expand-file-name (bookmark-get-filename record)) :to-equal path)))
@@ -175,7 +164,8 @@
     ;; DD-9 / OD-1: git does not report it, so there is no relpath, and no
     ;; fallback path is computed.
     (let* ((repo (portable-bookmarks-stamp-spec--repo))
-           (path (portable-bookmarks-stamp-spec--write repo "scratch/untracked.el"))
+           (path (workspace-bookmark-fixtures-write-file
+                  repo "scratch/untracked.el"))
            (record (portable-bookmarks-stamp-spec--bookmark path "untracked")))
       (expect (portable-bookmarks-stamp-spec--unstamped-p record) :to-be-truthy)
       (expect (expand-file-name (bookmark-get-filename record)) :to-equal path)))
@@ -201,10 +191,10 @@
            (git (lambda (&rest args)
                   (apply #'workspace-bookmark-fixtures-git repo args))))
       (funcall git "checkout" "--quiet" "-b" "theirs")
-      (portable-bookmarks-stamp-spec--write repo "README.md" "theirs\n")
+      (workspace-bookmark-fixtures-write-file repo "README.md" "theirs\n")
       (funcall git "commit" "--quiet" "-am" "theirs")
       (funcall git "checkout" "--quiet" "main")
-      (portable-bookmarks-stamp-spec--write repo "README.md" "ours\n")
+      (workspace-bookmark-fixtures-write-file repo "README.md" "ours\n")
       (funcall git "commit" "--quiet" "-am" "ours")
       ;; The merge must stop with a conflict, so its non-zero exit is the
       ;; expected outcome and bypasses the fixture runner's error.
@@ -258,13 +248,12 @@
   (it "stamps a tracked subdirectory with git's prefix, not a file list"
     ;; `ls-files -- DIR' would list lisp/deep/foo.el; the directory's own
     ;; relpath is what `rev-parse --show-prefix' reports inside it.
-    (let* ((repo (portable-bookmarks-stamp-spec--commit
-                  (portable-bookmarks-stamp-spec--track
-                   (portable-bookmarks-stamp-spec--repo) "lisp/deep/foo.el")))
-           (dir (file-name-as-directory (expand-file-name "lisp" repo)))
-           (record (portable-bookmarks-stamp-spec--bookmark dir "lisp-dir")))
-      (expect (portable-bookmarks-stamp-spec--stamps record)
-              :to-equal (portable-bookmarks-stamp-spec--expected "lisp/"))))
+    (let* ((repo (portable-bookmarks-stamp-spec--repo))
+           (dir (file-name-as-directory (expand-file-name "lisp" repo))))
+      (workspace-bookmark-fixtures-commit-file repo "lisp/deep/foo.el")
+      (let ((record (portable-bookmarks-stamp-spec--bookmark dir "lisp-dir")))
+        (expect (portable-bookmarks-stamp-spec--stamps record)
+                :to-equal (portable-bookmarks-stamp-spec--expected "lisp/")))))
 
   (it "stamps the repository root as \"./\", which re-anchors to the root"
     ;; git spells the root's prefix as the empty string, and the runner
@@ -303,7 +292,7 @@
   (it "leaves a directory holding only untracked files unstamped"
     (let* ((repo (portable-bookmarks-stamp-spec--repo))
            (dir (file-name-directory
-                 (portable-bookmarks-stamp-spec--write repo "build/out.o")))
+                 (workspace-bookmark-fixtures-write-file repo "build/out.o")))
            (record (portable-bookmarks-stamp-spec--bookmark dir "build-dir")))
       (expect (portable-bookmarks-stamp-spec--unstamped-p record) :to-be-truthy)))
 
@@ -516,7 +505,7 @@
     ;; Amendment A: no `..' guard — a location outside the repository is
     ;; simply not reported by git.  Here the file is in no repository at all.
     (let* ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-outside-"))
-           (path (portable-bookmarks-stamp-spec--write dir "x.el")))
+           (path (workspace-bookmark-fixtures-write-file dir "x.el")))
       (expect (workspace-bookmark--coordinates path) :to-be nil)))
 
   (it "refuses a relpath git reports that does not re-anchor to the location"
@@ -587,7 +576,7 @@
       (apply #'portable-bookmarks-stamp-spec--track repo
              (mapcar (lambda (n) (format "sub/deep/file-%03d.el" n))
                      (number-sequence 1 300)))
-      (portable-bookmarks-stamp-spec--commit repo)
+      (workspace-bookmark-fixtures-git repo "commit" "--quiet" "-m" "spec")
       (workspace-bookmark--stamp-record
        (portable-bookmarks-stamp-spec--record-for (expand-file-name "README.md" repo)))
       (dolist (case (list (cons repo "./")
@@ -608,14 +597,14 @@
 
   (it "costs one git call for a file in no repository"
     (let* ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-plain-"))
-           (path (portable-bookmarks-stamp-spec--write dir "x.el")))
+           (path (workspace-bookmark-fixtures-write-file dir "x.el")))
       (spy-on 'workspace-bookmark--git :and-call-through)
       (workspace-bookmark--stamp-record (portable-bookmarks-stamp-spec--record-for path))
       (expect 'workspace-bookmark--git :to-have-been-called-times 1)))
 
   (it "never asks for identity for an untracked file"
     (let* ((repo (portable-bookmarks-stamp-spec--repo))
-           (path (portable-bookmarks-stamp-spec--write repo "untracked.el")))
+           (path (workspace-bookmark-fixtures-write-file repo "untracked.el")))
       (spy-on 'workspace-bookmark--remote-url :and-call-through)
       (workspace-bookmark--stamp-record (portable-bookmarks-stamp-spec--record-for path))
       (expect 'workspace-bookmark--remote-url :not :to-have-been-called)))

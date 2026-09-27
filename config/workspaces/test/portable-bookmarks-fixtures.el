@@ -19,8 +19,15 @@
 ;;   (before-each (workspace-bookmark-fixtures-setup))
 ;;   (after-each  (workspace-bookmark-fixtures-teardown))
 ;;
+;; or, when the specs must not see the developer's registered workspaces,
+;; at `describe' level in place of that pair:
+;;
+;;   (workspace-bookmark-fixtures-with-empty-registry
+;;     (setq repo (workspace-bookmark-fixtures-make-repo)))
+;;
 ;; `workspace-bookmark-fixtures-teardown' removes every temp directory,
-;; registry entry and bookmark-variable override the fixtures created.
+;; registry entry and bookmark-variable override the fixtures created, and
+;; puts the live registry back when the fixtures swapped it out.
 
 (require 'cl-lib)
 (require 'bookmark)
@@ -53,6 +60,11 @@ removable before (or harmlessly after) its parent.")
 A plist of the pre-isolation values restored by
 `workspace-bookmark-fixtures-teardown'.")
 
+(defvar workspace-bookmark-fixtures--live-registry nil
+  "The live `workspace--registry' while it is set aside, or nil.
+Non-nil only between `workspace-bookmark-fixtures-isolate-registry' and
+the restore in `workspace-bookmark-fixtures-teardown'.")
+
 
 ;;; Lifecycle
 
@@ -77,16 +89,99 @@ in this directory share."
   "End a fixture scope.  Call from `after-each'.
 
 Unregisters every workspace the fixtures registered, restores the
-bookmark globals, and recursively deletes every temp directory the
-fixtures created.  Safe to call when nothing was created."
-  (dolist (name workspace-bookmark-fixtures--registered-names)
-    (remhash name workspace--registry))
-  (setq workspace-bookmark-fixtures--registered-names nil)
-  (workspace-bookmark-fixtures-restore-bookmarks)
-  (dolist (dir workspace-bookmark-fixtures--temp-dirs)
-    (when (file-directory-p dir)
-      (delete-directory dir t)))
-  (setq workspace-bookmark-fixtures--temp-dirs nil))
+bookmark globals, recursively deletes every temp directory the fixtures
+created and, when `workspace-bookmark-fixtures-isolate-registry' swapped
+the registry out, puts the live table back.  The registry comes back
+even if an earlier step signals, so a temp directory that cannot be
+deleted never leaves an empty registry behind for the next spec.  Safe
+to call when nothing was created."
+  (unwind-protect
+      (progn
+        (dolist (name workspace-bookmark-fixtures--registered-names)
+          (remhash name workspace--registry))
+        (setq workspace-bookmark-fixtures--registered-names nil)
+        (workspace-bookmark-fixtures-restore-bookmarks)
+        (dolist (dir workspace-bookmark-fixtures--temp-dirs)
+          (when (file-directory-p dir)
+            (delete-directory dir t)))
+        (setq workspace-bookmark-fixtures--temp-dirs nil))
+    (workspace-bookmark-fixtures-restore-registry)))
+
+
+;;; Registry isolation
+
+(defun workspace-bookmark-fixtures-isolate-registry ()
+  "Swap `workspace--registry' for a fresh, empty table until teardown.
+
+The live table is set aside and put back by
+`workspace-bookmark-fixtures-teardown' (or, on its own, by
+`workspace-bookmark-fixtures-restore-registry').  The fresh table uses
+the `equal' test, as tabs.el's does, because workspace names are
+strings.  Re-entrant: when the registry is already isolated the outer
+save is kept and the current table stays.  Returns the table now bound
+to `workspace--registry'."
+  (unless workspace-bookmark-fixtures--live-registry
+    (setq workspace-bookmark-fixtures--live-registry workspace--registry
+          workspace--registry (make-hash-table :test 'equal)))
+  workspace--registry)
+
+(defun workspace-bookmark-fixtures-live-registry ()
+  "Return the live `workspace--registry'.
+
+While the fixtures have the registry isolated this is the table they
+set aside, NOT the one currently bound; otherwise it is the current
+table.  Specs use it to assert that nothing leaked into the developer's
+registry, without keeping a copy of their own."
+  (or workspace-bookmark-fixtures--live-registry workspace--registry))
+
+(defun workspace-bookmark-fixtures-restore-registry ()
+  "Put the live `workspace--registry' back, if the fixtures isolated it.
+A no-op otherwise."
+  (when workspace-bookmark-fixtures--live-registry
+    (setq workspace--registry workspace-bookmark-fixtures--live-registry
+          workspace-bookmark-fixtures--live-registry nil)))
+
+(defun workspace-bookmark-fixtures-setup-with-empty-registry (&optional setup)
+  "Isolate the registry, start a fixture scope, then call SETUP.
+
+SETUP is a function of no arguments that builds the per-spec fixtures,
+or nil.  If starting the scope or SETUP signals, the scope is torn down
+and the live registry restored BEFORE the signal propagates, so a broken
+fixture cannot leak an empty registry into the specs that run next.
+`workspace-bookmark-fixtures-with-empty-registry' installs this as the
+`before-each' of a `describe'."
+  (let ((done nil))
+    (unwind-protect
+        (progn
+          (workspace-bookmark-fixtures-isolate-registry)
+          (workspace-bookmark-fixtures-setup)
+          (when setup (funcall setup))
+          (setq done t))
+      (unless done
+        (workspace-bookmark-fixtures-teardown)))))
+
+(defmacro workspace-bookmark-fixtures-with-empty-registry (&rest setup-body)
+  "Run every spec of the current `describe' against an empty registry.
+
+Use at `describe' level in place of a `before-each' / `after-each' pair.
+Expands to a `before-each' that sets the live `workspace--registry'
+aside, installs a fresh `equal' table, starts a fixture scope and runs
+SETUP-BODY (the per-spec fixture building, which may `setq' the
+describe's `:var' variables), and an `after-each' that tears the scope
+down and puts the live table back.
+
+The live table comes back on every exit: a signal in SETUP-BODY restores
+it before propagating (see
+`workspace-bookmark-fixtures-setup-with-empty-registry'), and buttercup
+runs the `after-each' even when the spec body or an earlier hook fails.
+Needs buttercup loaded at the expansion site, as any spec has."
+  (declare (indent 0) (debug (&rest form)))
+  `(progn
+     (before-each
+       (workspace-bookmark-fixtures-setup-with-empty-registry
+        (lambda () ,@setup-body)))
+     (after-each
+       (workspace-bookmark-fixtures-teardown))))
 
 
 ;;; Temp directories
@@ -171,6 +266,34 @@ reclaims it."
     (workspace-bookmark-fixtures-git repo "worktree" "add" "--quiet"
                                      "-b" branch target "HEAD")
     (workspace-bookmark-fixtures-track-dir target)))
+
+(defun workspace-bookmark-fixtures-write-file (root relpath &optional contents)
+  "Create RELPATH under ROOT holding CONTENTS; return its absolute name.
+
+Parent directories are created.  CONTENTS defaults to \"x\\n\".  The
+file is NOT added to git: this is for the untracked-file cases, and
+`workspace-bookmark-fixtures-commit-file' for the tracked ones."
+  (let ((path (expand-file-name relpath root)))
+    (make-directory (file-name-directory path) t)
+    (with-temp-file path (insert (or contents "x\n")))
+    path))
+
+(defun workspace-bookmark-fixtures-commit-file (repo relpath &optional contents)
+  "Create RELPATH in REPO with CONTENTS, add and commit it; return its path.
+
+The add is forced (`git add -f'), so a name an ignore rule would skip —
+`.DS_Store' under a global excludesfile, say — still ends up tracked,
+which is what the specs asking for a tracked OS artifact rely on.  REPO
+may be a main worktree or a linked one; the commit lands on whatever
+branch it has checked out.  Committer identity is whatever REPO's
+configuration provides: repositories from
+`workspace-bookmark-fixtures-make-repo', and their linked worktrees,
+carry a local one."
+  (let ((path (workspace-bookmark-fixtures-write-file repo relpath contents)))
+    (workspace-bookmark-fixtures-git repo "add" "-f" "--" relpath)
+    (workspace-bookmark-fixtures-git repo "commit" "--quiet" "-m"
+                                     (concat "track " relpath))
+    path))
 
 
 ;;; Workspace registry
