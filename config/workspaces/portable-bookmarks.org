@@ -1247,16 +1247,22 @@ is built (a directory counts); one that has vanished since the resolver
 looked declines with `workspace-bookmark--vanished-message'.  The copy
 comes from `workspace-bookmark--substituted-record', the only place one
 is built.  Returns (call-through . COPY), (view COPY . CHECKOUT) or
-\(decline . MESSAGE); signals for any other KIND."
-  (let ((path (plist-get resolution :path)))
+\(decline . MESSAGE); signals for any other KIND, and for a `view'
+whose RESOLUTION names no :checkout — a view that cannot say which
+canonical checkout it shows is never opened unmarked."
+  (let ((path (plist-get resolution :path))
+        (checkout (plist-get resolution :checkout)))
     (cond
      ((not (and (stringp path) (file-exists-p path)))
       (cons 'decline (workspace-bookmark--vanished-message record resolution)))
      ((eq kind 'call-through)
       (cons 'call-through (workspace-bookmark--substituted-record record path)))
      ((eq kind 'view)
+      (unless (stringp checkout)
+        (error "No canonical checkout to view %S from: %S"
+               (bookmark-name-from-full-record record) checkout))
       (cons 'view (cons (workspace-bookmark--substituted-record record path)
-                        (plist-get resolution :checkout))))
+                        checkout)))
      (t (error "Not a jump plan kind: %S" kind)))))
 
 (defun workspace-bookmark--landed-p (origin record)
@@ -1398,7 +1404,7 @@ originating buffer is never touched."
            (workspace-bookmark--note-jump-target origin)
            (when (and (not (eq arg bookmark-name-or-record))
                       (workspace-bookmark--landed-p origin arg))
-             (when checkout
+             (when (eq (car plan) 'view)
                (workspace-bookmark--mark-canonical-view arg checkout))
              (when (stringp bookmark-name-or-record)
                (setq bookmark-current-bookmark bookmark-name-or-record))))))
@@ -1667,15 +1673,72 @@ A stock =C-x C-q= (=read-only-mode=) leaves view-mode and makes the
 buffer writable.  That is the deliberate way out and the only one;
 nothing here binds or advises it.
 
+A =revert-buffer= that re-runs the major mode (=M-x revert-buffer=,
+=C-x x g=; not =auto-revert-mode=, which preserves modes) kills every
+ordinary buffer-local variable, which would take the marker and
+view-mode with it and leave a buffer that is read-only for no visible
+reason.  So the viewed checkout is recorded in a permanent-local
+variable, and a permanent buffer-local entry on
+=revert-buffer-restore-functions= (Emacs 30) puts the marker back.
+That hook, not =after-revert-hook=, because it sees the buffer before
+the revert and acts after the stock read-only restore: it brings
+view-mode back only when view-mode was on before the revert, so after
+=C-x C-q= the user has left the view and a revert does not put them
+back in it.
+
 #+begin_src emacs-lisp
 (defvar-local workspace-bookmark--canonical-view nil
   "The canonical checkout this buffer views from the missing-repo prompt, or nil.
-Set once by `workspace-bookmark--mark-canonical-view'; survives `C-x C-q'.")
+Set once by `workspace-bookmark--mark-canonical-view'; survives `C-x C-q'
+and, being permanent-local, a `revert-buffer' that re-runs the major mode.")
+(put 'workspace-bookmark--canonical-view 'permanent-local t)
 
 (defun workspace-bookmark--canonical-branch (checkout)
   "Return the branch CHECKOUT has checked out, or a phrase for a detached HEAD."
   (or (workspace-bookmark--git checkout "symbolic-ref" "--short" "--quiet" "HEAD")
       "detached HEAD"))
+
+(defun workspace-bookmark--canonical-marker-p (element)
+  "Return non-nil when mode-line ELEMENT is the canonical-view marker."
+  (and (stringp element)
+       (> (length element) 0)
+       (get-text-property 0 'workspace-bookmark-canonical-view element)))
+
+(defun workspace-bookmark--show-canonical-marker (checkout)
+  "Append a marker naming CHECKOUT to the buffer's mode-line identification.
+Buffer-local, and never twice: a marker already present is left alone."
+  (unless (and (proper-list-p mode-line-buffer-identification)
+               (seq-some #'workspace-bookmark--canonical-marker-p
+                         mode-line-buffer-identification))
+    (setq mode-line-buffer-identification
+          (list "" mode-line-buffer-identification
+                (propertize
+                 (format " [canonical %s]"
+                         (abbreviate-file-name (directory-file-name checkout)))
+                 'face 'warning
+                 'workspace-bookmark-canonical-view t
+                 'help-echo (format "Canonical checkout %s, not a workspace checkout: opened read-only from a bookmark"
+                                    checkout))))))
+
+(defun workspace-bookmark--restore-canonical-view ()
+  "Return a function that puts the canonical view back after a revert.
+Buffer-local on `revert-buffer-restore-functions', and permanent like
+`workspace-bookmark--canonical-view', so it outlives the revert's
+`kill-all-local-variables'.  Called before the revert; the function it
+returns runs after it, once the stock read-only state is restored, and
+re-adds the marker and — only if it was on before the revert —
+`view-mode', so a revert never undoes a deliberate `C-x C-q'."
+  (let ((buffer (current-buffer))
+        (viewing view-mode))
+    (lambda ()
+      (when (buffer-live-p buffer)
+        (with-current-buffer buffer
+          (when workspace-bookmark--canonical-view
+            (when (and viewing (not view-mode))
+              (view-mode 1))
+            (workspace-bookmark--show-canonical-marker
+             workspace-bookmark--canonical-view)))))))
+(put 'workspace-bookmark--restore-canonical-view 'permanent-local-hook t)
 
 (defun workspace-bookmark--mark-canonical-view (record checkout)
   "Make the current buffer an unmistakable read-only view of CHECKOUT's copy.
@@ -1683,21 +1746,16 @@ Set once by `workspace-bookmark--mark-canonical-view'; survives `C-x C-q'.")
 The current buffer is where the host landed RECORD's substituted copy.
 Turns on `view-mode' (not in Dired, which is read-only already), appends
 a marker naming CHECKOUT to the buffer's `mode-line-buffer-identification'
-— once, buffer-locally, so it outlives the echo-area message and a
-later `C-x C-q' — and reports the path and CHECKOUT's branch in one
-message."
+— once, buffer-locally, so it outlives the echo-area message, a later
+`C-x C-q' and a mode-resetting `revert-buffer' — and reports the path
+and CHECKOUT's branch in one message."
   (unless (derived-mode-p 'dired-mode)
     (view-mode 1))
   (unless workspace-bookmark--canonical-view
-    (setq workspace-bookmark--canonical-view checkout)
-    (setq mode-line-buffer-identification
-          (list "" mode-line-buffer-identification
-                (propertize
-                 (format " [canonical %s]"
-                         (abbreviate-file-name (directory-file-name checkout)))
-                 'face 'warning
-                 'help-echo (format "Canonical checkout %s, not a workspace checkout: opened read-only from a bookmark"
-                                    checkout)))))
+    (setq workspace-bookmark--canonical-view checkout))
+  (workspace-bookmark--show-canonical-marker workspace-bookmark--canonical-view)
+  (add-hook 'revert-buffer-restore-functions
+            #'workspace-bookmark--restore-canonical-view nil t)
   (message "Bookmark %S: viewing %s read-only in the canonical checkout %s (branch %s)"
            (bookmark-name-from-full-record record)
            (abbreviate-file-name (or (buffer-file-name) default-directory))
