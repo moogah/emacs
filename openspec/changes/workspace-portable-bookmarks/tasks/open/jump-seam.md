@@ -165,6 +165,11 @@ exists to remove.
 - **Spec boundary.** The only mock in the behavioral specs is `workspace--current-name` (tabs.el) — a tab-bar tab cannot be selected from a batch spec. `jf/emacs-dir` is bound to nil for the whole scope, including the real `find-file-noselect`; checked that nothing in `config/workspaces` hooks `find-file-hook` (only `kill-emacs-hook` in persistence.el), so the binding cannot disturb the visit. `bookmark-set` under `bookmark-save-flag` 1 writes the fixtures' scratch bookmark file on every set — harmless, echo noise suppressed with `inhibit-message`.
 - **Spawn counts are not pinned** anywhere in the jump spec (`discovery-identity-memo-and-cost-contract` changes them).
 
+### Fix pass (after `consolidate-portable-bookmarks-test-fixtures` merged, ae45fdd5)
+
+- Both private shims are deleted. The real `workspace-bookmark-fixtures-with-empty-registry` is a DESCRIBE-level macro (expands to a `before-each` running `workspace-bookmark-fixtures-setup-with-empty-registry` with the body as the per-spec setup, plus an `after-each` teardown), not the body-wrapping per-`it` scope the first pass assumed. The jump spec now uses it as intended: each `describe` declares `:var (world)` and builds its world in the macro body; `portable-bookmarks-jump-spec--scope` is gone, replaced by a registry-free `portable-bookmarks-jump-spec--hermetic` that only binds `jf/emacs-dir` to nil, kills the buffers a spec leaves behind (before the `after-each` deletes their directories) and clears the identity memo. Validator 1 of `register/invariant/spec-registry-isolation-via-fixtures` returns zero hits for this file; `workspace-bookmark-fixtures-commit-file` is the real one (`git add -f`). The structural copy-tree spec moved to its own `describe` so it builds no world. disc-jump-seam-7 is answered: shape confirmed, adaptation done, the entry can drop the open question.
+- The `bookmark-current-bookmark` parity spec also asserts that the stamped jump landed in B's copy: parity alone is something the stock host satisfies by itself when driven with a string, so without that assertion the spec no longer failed under the revert demonstration (12 of 19 instead of 13). With it, the revert demonstration is back to 13 of 19 failing; the six survivors are unchanged.
+
 ## Discoveries
 
 - discovery_id: disc-jump-seam-1
