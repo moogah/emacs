@@ -298,52 +298,30 @@ machine's identity."
 * Same file
 
 Every "are these two paths the same file?" question in this module goes
-through one predicate, and it compares FILE IDENTITY: the device and
-inode numbers of the two paths' truenames.  Spelling does not matter
-(trailing slash, =~=, symlinks, letter case on a case-insensitive disk),
-and neither does anything that can change while the file stays the same
-file.
+through workspaces core's ONE identity predicate, =workspace--same-file-p=
+(=data-model.org= § File identity): the device and inode numbers of the
+two paths' truenames.  Spelling does not matter (trailing slash, =~=,
+symlinks, letter case on a case-insensitive disk), and neither does
+anything that can change while the file stays the same file.  Nil when
+either path is not a local string or does not exist; remote names are
+rejected before any filesystem call, as everywhere else in this module.
 
-=file-equal-p= is NOT used.  In Emacs 30 it truenames and stats each path
-and then compares the WHOLE attribute lists with =equal=.  Those lists
-include the access, modification and status-change times, so a directory
-that is modified, or merely read, between the two stats compares unequal
-to itself.  In the ownership test, "not equal" means "not inside this
+The module keeps no copy of its own.  The predicate was born here; core
+needed the same answer, core may never name a symbol of this module, and
+two bodies would drift, so the body moved to core and every call below
+names the core symbol.
+
+=file-equal-p= is NOT used.  It compares the two paths' WHOLE attribute
+lists, access and modification times included, so a directory that is
+modified, or merely read, between the two stats compares unequal to
+itself.  In the ownership test, "not equal" means "not inside this
 home", and ownership-first classification then calls a workspace's full
 clone =canonical=.  The reviewer measured 4,817 wrong =canonical= answers
 in 20,000 =--classify= calls while a shell loop created and removed one
-file in the home.  On this APFS volume the first read of a directory after
-it changes also updates its access time, so any concurrent reader
-(Spotlight, a sync client, git in another process) is enough.
-
-Nil when either path is not a local string or does not exist.  Remote
-names are rejected before any filesystem call, as everywhere else in this
-module.
+file in the home.
 
 #+begin_src emacs-lisp
-(defun workspace-bookmark--same-file-p (a b)
-  "Return non-nil when A and B name the same existing local file.
-
-Compares the device and inode numbers of the two paths' truenames, so
-spelling, symlinks and timestamps do not matter.  `file-equal-p' is
-deliberately not used: it compares whole attribute lists, timestamps
-included, and so reports a directory modified between its two stats as
-unequal to itself.  Nil when either is not a string, is remote, or does
-not exist.  Never signals."
-  (and (stringp a) (stringp b)
-       (not (file-remote-p a))
-       (not (file-remote-p b))
-       (condition-case nil
-           (let ((attrs-a (file-attributes (file-truename (expand-file-name a))))
-                 (attrs-b (file-attributes (file-truename (expand-file-name b)))))
-             (and attrs-a attrs-b
-                  (file-attribute-inode-number attrs-a)
-                  (file-attribute-device-number attrs-a)
-                  (equal (file-attribute-inode-number attrs-a)
-                         (file-attribute-inode-number attrs-b))
-                  (equal (file-attribute-device-number attrs-a)
-                         (file-attribute-device-number attrs-b))))
-         (error nil))))
+(declare-function workspace--same-file-p "data-model" (a b))
 #+end_src
 
 * Repository identity
@@ -914,7 +892,7 @@ has no way to stop at the first match, so the check moved to HEAD.
 
 *Verification.*  The relpath git reports is accepted only if, anchored
 back on the root, it names the SAME file as the location
-(=workspace-bookmark--same-file-p= compares the files, not the strings).
+(=workspace--same-file-p= compares the files, not the strings).
 This turns any git answer we misparsed into "unstamped" instead of into a
 persisted wrong path.
 
@@ -958,7 +936,7 @@ re-anchor on ROOT to the same file as LOCATION, or nil is returned."
               (setq reported (delete-dups reported))
               (and (= 1 (length reported)) (car reported))))))
     (and relpath
-         (workspace-bookmark--same-file-p (expand-file-name relpath root) location)
+         (workspace--same-file-p (expand-file-name relpath root) location)
          relpath)))
 #+end_src
 
@@ -1266,7 +1244,7 @@ RECORD's `filename' (compared by file identity)."
   (or (not (eq (current-buffer) origin))
       (let ((file (buffer-file-name)))
         (and file
-             (workspace-bookmark--same-file-p
+             (workspace--same-file-p
               file (bookmark-get-filename record))))))
 #+end_src
 
@@ -2833,16 +2811,16 @@ the same either way."
                          dir common))))
         (when (and first
                    (not (plist-get first :bare))
-                   (workspace-bookmark--same-file-p (plist-get first :path)
-                                                    candidate))
+                   (workspace--same-file-p (plist-get first :path)
+                                           candidate))
           (let ((top (if (and position
-                              (workspace-bookmark--same-file-p (nth 0 position)
-                                                               candidate))
+                              (workspace--same-file-p (nth 0 position)
+                                                      candidate))
                          (nth 0 position)
                        (workspace-bookmark--git
                         candidate "rev-parse" "--show-toplevel"))))
             (when (and top
-                       (workspace-bookmark--same-file-p top candidate)
+                       (workspace--same-file-p top candidate)
                        (workspace-bookmark--shared-tracked-file-p candidate))
               (file-name-as-directory candidate))))))))
 #+end_src
@@ -2925,7 +2903,7 @@ contain nor what used to contain it.
 Containment is tested by FILE IDENTITY, never by comparing strings.
 The checkout path is truenamed, then it and each of its parent
 directories in turn is compared to the home with
-=workspace-bookmark--same-file-p= (device and inode; see "Same file"),
+=workspace--same-file-p= (device and inode; see "Same file"),
 not by spelling.  A trailing slash, a =~= spelling, macOS's =/var= →
 =/private/var= symlink and — the case that matters — a difference in
 LETTER CASE on a case-insensitive filesystem all compare correctly, and
@@ -2994,7 +2972,7 @@ in view, and =--workspace-checkouts= never lists it.
 Both must be local and exist (a missing PATH is inside nothing); DIR
 must be a directory.  Containment is
 by file identity: PATH is truenamed, then it and each of its ancestors
-is compared to DIR with `workspace-bookmark--same-file-p', so
+is compared to DIR with `workspace--same-file-p', so
 differences of spelling — trailing slash, `~', symlinked prefixes, and
 letter case on a case-insensitive filesystem — do not matter, and
 neither do DIR's timestamps changing during the walk.  Never signals."
@@ -3009,7 +2987,7 @@ neither do DIR's timestamps changing during the walk.  Never signals."
              (when (and (file-exists-p (expand-file-name path))
                         (file-directory-p (expand-file-name dir)))
                (while (and (not found) (not (equal current previous)))
-                 (if (workspace-bookmark--same-file-p current dir)
+                 (if (workspace--same-file-p current dir)
                      (setq found t)
                    (setq previous current
                          current (directory-file-name
@@ -3021,7 +2999,7 @@ neither do DIR's timestamps changing during the walk.  Never signals."
   "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
 HOME must be its own top level (`git rev-parse --show-toplevel' run in it
 names it), and its shared git directory must be CHECKOUT's, by
-`workspace-bookmark--same-file-p'.  CHECKOUT's shared git directory is
+`workspace--same-file-p'.  CHECKOUT's shared git directory is
 its `.git' directory when it has one; otherwise git is asked.  One
 subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
   (let* ((out (workspace-bookmark--git
@@ -3029,8 +3007,8 @@ subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
                "--show-toplevel" "--git-common-dir"))
          (lines (and out (split-string out "\n"))))
     (and (= 2 (length lines))
-         (workspace-bookmark--same-file-p (nth 0 lines) home)
-         (workspace-bookmark--same-file-p
+         (workspace--same-file-p (nth 0 lines) home)
+         (workspace--same-file-p
           (nth 1 lines)
           (let ((dotgit (expand-file-name ".git" checkout)))
             (if (file-directory-p dotgit)
@@ -3179,7 +3157,7 @@ One subprocess per candidate (its position); the identity comes from
       (seq-filter (lambda (checkout)
                     (let ((position (workspace-bookmark--shared-position checkout)))
                       (and position
-                           (workspace-bookmark--same-file-p (nth 0 position) checkout)
+                           (workspace--same-file-p (nth 0 position) checkout)
                            (equal identity
                                   (workspace-bookmark--memoised-identity
                                    (nth 0 position) (nth 1 position))))))
@@ -3265,7 +3243,7 @@ This is the ONLY test that may admit a checkout as canonical.  Never
 signals."
   (and (stringp dir)
        (eq 'canonical (workspace-bookmark--classify dir))
-       (workspace-bookmark--same-file-p
+       (workspace--same-file-p
         dir (workspace-bookmark--canonical-checkout dir))))
 #+end_src
 
@@ -3312,7 +3290,7 @@ seen cost one each."
      #'workspace-bookmark--offerable-canonical-p
      (seq-uniq (delq nil (mapcar #'workspace-bookmark--main-worktree-of
                                  checkouts))
-               #'workspace-bookmark--same-file-p))))
+               #'workspace--same-file-p))))
 #+end_src
 
 ** The safety rule, and ambiguity

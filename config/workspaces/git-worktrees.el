@@ -221,8 +221,10 @@ For each, binds `default-directory' into the child and calls
 whose FIRST element is the source repo's primary worktree.  Returns a
 list of plists (:dir CHILD :branch BRANCH :source SOURCE-REPO), where
 BRANCH is the child worktree's branch and SOURCE-REPO is the source
-repo's primary worktree directory.  Children that do not resolve are
-skipped."
+repo's primary worktree directory.  The child's own entry in magit's
+list is found with `workspace--same-file-p' (device and inode), so a
+child written to while it is looked up still finds its branch.
+Children that do not resolve are skipped."
   (let ((acc '()))
     (when (and home (file-directory-p home))
       (dolist (child (directory-files home t directory-files-no-dot-files-regexp))
@@ -233,7 +235,7 @@ skipped."
                  (source (car (car worktrees)))
                  (self (seq-find
                         (lambda (wt)
-                          (file-equal-p (car wt) child))
+                          (workspace--same-file-p (car wt) child))
                         worktrees))
                  (branch (and self (nth 2 self))))
             (when source

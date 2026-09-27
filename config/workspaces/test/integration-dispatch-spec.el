@@ -115,9 +115,9 @@ prompt to return HOME."
         (expect (plist-get payload :name) :to-equal "foo")
         (expect (plist-get payload :context) :to-equal 'fresh)
         ;; :home is the resolved scaffold directory.
-        (expect (file-equal-p (plist-get payload :home)
-                              (expand-file-name "foo" idsp--tmp))
-                :to-be t))))
+        (expect (workspace--same-file-p (plist-get payload :home)
+                                        (expand-file-name "foo" idsp--tmp))
+                :to-be-truthy))))
 
   (it "fires once with `anchored-existing' for case 1 (repo + home.org)"
     (let* ((home (file-name-as-directory

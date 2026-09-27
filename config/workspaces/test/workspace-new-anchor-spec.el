@@ -12,8 +12,8 @@
 ;;       3. non-repo            → full scaffold (mkdir, git init,
 ;;                                files, initial commit);
 ;;   - double-registration guard: refuse to anchor a directory that is
-;;     already a registered workspace's :home (file-equal-p check,
-;;     trailing-slash- and `~'-insensitive);
+;;     already a registered workspace's :home (`workspace--same-file-p'
+;;     check: device and inode, trailing-slash- and `~'-insensitive);
 ;;   - the workspace name is derived from the chosen directory's
 ;;     basename (=register/invariant/registry-name-equals-basename=);
 ;;   - the workspace plist is constructed via `workspace--make'

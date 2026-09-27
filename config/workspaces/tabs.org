@@ -269,8 +269,11 @@ runs no =:on-create= handler.
 
 A double-registration guard refuses to anchor a directory that is
 already a registered workspace's =:home=.  Path comparison is by
-=file-equal-p= on directory-normalized, =expand-file-name='d paths so
-trailing-slash and =~= variants do not produce false negatives.  This
+=workspace--same-file-p= (device and inode of the truenames; see
+=data-model.org= § File identity), so trailing-slash, =~=, symlink and
+case variants do not produce false negatives, and neither does a home
+being written to between the two reads (=file-equal-p= would: it
+compares timestamps too).  This
 preserves the registry-key uniqueness invariant (broken entries are
 not exempt: a broken workspace's =:home= is still a registered home).
 
@@ -282,23 +285,21 @@ tab-bar untouched.
 (defun workspace--registered-for-home-p (home)
   "Return non-nil if any workspace in the registry has =:home= equal to HOME.
 
-Path comparison is by `file-equal-p' on directory-normalized,
-`expand-file-name'-d paths so trailing-slash and =~= variants do
-not produce false negatives.  Broken-state workspaces are NOT
+Path comparison is by `workspace--same-file-p' (device and inode of
+the truenames), so trailing-slash, =~=, symlink and case variants do
+not produce false negatives, and neither does a home written to
+between the two reads.  A home that does not exist never matches,
+and neither does a remote (TRAMP) one: the predicate never opens a
+connection.  Broken-state workspaces are NOT
 exempt: a broken workspace's =:home= remains a registered home for
 the purposes of the uniqueness invariant."
-  (let ((target (file-name-as-directory (expand-file-name home))))
-    (catch 'found
-      (maphash
-       (lambda (_name ws)
-         (let ((ws-home (workspace--home ws)))
-           (when (and ws-home
-                      (file-equal-p (file-name-as-directory
-                                     (expand-file-name ws-home))
-                                    target))
-             (throw 'found t))))
-       workspace--registry)
-      nil)))
+  (catch 'found
+    (maphash
+     (lambda (_name ws)
+       (when (workspace--same-file-p (workspace--home ws) home)
+         (throw 'found t)))
+     workspace--registry)
+    nil))
 
 (defun workspace--offer-birth-menu (context)
   "Raise the `workspace-menu' front door after a workspace is born.
@@ -344,7 +345,7 @@ directory state:
                                   files, initial commit).
 
 Signals `user-error' if HOME is already a registered workspace's
-=:home= (compared by `file-equal-p').  Returns the freshly-registered
+=:home= (compared by `workspace--same-file-p').  Returns the freshly-registered
 workspace plist on success."
   (let* ((home (file-name-as-directory
                 (read-directory-name "Anchor workspace at: " nil nil t)))

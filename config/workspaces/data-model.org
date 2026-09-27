@@ -3,7 +3,10 @@
 #+property: header-args:emacs-lisp :tangle data-model.el
 #+auto_tangle: y
 
-Pure, side-effect-free data layer for the =workspaces= module.
+Pure, side-effect-free data layer for the =workspaces= module.  The
+one exception to "pure" is the file-identity predicate
+(=workspace--same-file-p=, see [[*File identity][File identity]]),
+which reads the filesystem but writes nothing.
 
 The in-memory representation mirrors the persistent shape (design.md
 §D5) so that serialization is a direct walk of the registry, no
@@ -431,6 +434,64 @@ architect finding =arch-cycle-20260525-213500-05=).
 Pure function: does not touch the filesystem.  HOME is the
 workspace's =:home= directory."
   (expand-file-name "sessions" home))
+#+end_src
+
+* File identity
+
+Every "are these two paths the same file or directory?" question in
+=config/workspaces/= — core and consumers alike — goes through ONE
+predicate, =workspace--same-file-p=, and it compares FILE IDENTITY: the
+device and inode numbers of the two paths' truenames.  Spelling does
+not matter (trailing slash, =~=, symlinks, letter case on a
+case-insensitive disk), and neither does anything that can change while
+the file stays the same file.  Path strings are hash keys and
+de-duplication pre-filters, never the verdict.
+
+=file-equal-p= is REJECTED for identity.  In Emacs 30 it truenames and
+stats each path and then compares the WHOLE attribute lists with
+=equal=.  Those lists include the access, modification and status-change
+times, so a directory that is modified, or merely read, between the two
+stats compares unequal to itself.  On this machine's APFS volume the
+first read of a directory after it changes also updates its access time,
+so any concurrent reader (Spotlight, a sync client, git in another
+process) is enough.  The portable-bookmarks review measured 4,817 wrong
+answers in 20,000 ownership checks while a shell loop created and
+removed one file in a workspace home.
+
+Nil when either path is not a local string or does not exist.  Remote
+(TRAMP) names are rejected before any filesystem call, so the predicate
+never opens a connection.  It never signals.
+
+This is the one function in this file that reads the filesystem.  It
+writes nothing and holds no state, so it keeps the data layer free of
+side effects; it lives here because =data-model.el= is the first module
+the package loads and every module that compares paths (=tabs.el=,
+=git-worktrees.el=, =portable-bookmarks.el=) loads after it.
+
+#+begin_src emacs-lisp
+(defun workspace--same-file-p (a b)
+  "Return non-nil when A and B name the same existing local file.
+
+Compares the device and inode numbers of the two paths' truenames, so
+spelling, symlinks and timestamps do not matter.  `file-equal-p' is
+deliberately not used: it compares whole attribute lists, timestamps
+included, and so reports a directory modified between its two stats as
+unequal to itself.  Nil when either is not a string, is remote, or does
+not exist.  Never signals."
+  (and (stringp a) (stringp b)
+       (not (file-remote-p a))
+       (not (file-remote-p b))
+       (condition-case nil
+           (let ((attrs-a (file-attributes (file-truename (expand-file-name a))))
+                 (attrs-b (file-attributes (file-truename (expand-file-name b)))))
+             (and attrs-a attrs-b
+                  (file-attribute-inode-number attrs-a)
+                  (file-attribute-device-number attrs-a)
+                  (equal (file-attribute-inode-number attrs-a)
+                         (file-attribute-inode-number attrs-b))
+                  (equal (file-attribute-device-number attrs-a)
+                         (file-attribute-device-number attrs-b))))
+         (error nil))))
 #+end_src
 
 * Provide

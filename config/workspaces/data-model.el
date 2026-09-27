@@ -261,5 +261,29 @@ Pure function: does not touch the filesystem.  HOME is the
 workspace's =:home= directory."
   (expand-file-name "sessions" home))
 
+(defun workspace--same-file-p (a b)
+  "Return non-nil when A and B name the same existing local file.
+
+Compares the device and inode numbers of the two paths' truenames, so
+spelling, symlinks and timestamps do not matter.  `file-equal-p' is
+deliberately not used: it compares whole attribute lists, timestamps
+included, and so reports a directory modified between its two stats as
+unequal to itself.  Nil when either is not a string, is remote, or does
+not exist.  Never signals."
+  (and (stringp a) (stringp b)
+       (not (file-remote-p a))
+       (not (file-remote-p b))
+       (condition-case nil
+           (let ((attrs-a (file-attributes (file-truename (expand-file-name a))))
+                 (attrs-b (file-attributes (file-truename (expand-file-name b)))))
+             (and attrs-a attrs-b
+                  (file-attribute-inode-number attrs-a)
+                  (file-attribute-device-number attrs-a)
+                  (equal (file-attribute-inode-number attrs-a)
+                         (file-attribute-inode-number attrs-b))
+                  (equal (file-attribute-device-number attrs-a)
+                         (file-attribute-device-number attrs-b))))
+         (error nil))))
+
 (provide 'workspace-data-model)
 ;;; data-model.el ends here
