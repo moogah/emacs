@@ -931,20 +931,6 @@ One subprocess per candidate (its position); the identity comes from
                   (workspace-bookmark--home-checkouts
                    (workspace-bookmark--workspace-home workspace-name))))))
 
-(defun workspace-bookmark--workspace-checkout (identity workspace-name)
-  "Return the one checkout of IDENTITY in WORKSPACE-NAME's home, or nil.
-
-The value is the checkout only when it is UNIQUE among
-`workspace-bookmark--workspace-checkouts'.  Nil when there is none, and
-nil when there are several — the home holds sibling checkouts of one
-repository, and picking one would pick a branch.  Call
-`workspace-bookmark--workspace-checkouts' to tell the two apart.  Also
-nil when IDENTITY or WORKSPACE-NAME is nil or the workspace is not
-registered.  Never signals."
-  (let ((matches (workspace-bookmark--workspace-checkouts
-                  identity workspace-name)))
-    (and matches (null (cdr matches)) (car matches))))
-
 (defun workspace-bookmark--checkouts-in-view ()
   "Return the checkouts in view, most relevant first, without duplicates.
 The current workspace's checkouts, then every other registered
@@ -1035,18 +1021,6 @@ shared with the canonical test that follows."
                                     (nth 0 position) (nth 1 position))))))
                    (workspace-bookmark--checkouts-in-view))))))
 
-(defun workspace-bookmark--canonical-for-identity (identity)
-  "Return THE canonical checkout of IDENTITY, or nil.
-
-The value is the checkout only when it is UNIQUE among
-`workspace-bookmark--canonical-checkouts-for-identity'.  Nil when there
-is none, and nil when there are several — separate main clones of one
-repository, and picking one would pick by workspace or registry order.
-Call the plural to tell the two apart.  A workspace-owned or `other'
-checkout is never returned.  Never signals."
-  (let ((all (workspace-bookmark--canonical-checkouts-for-identity identity)))
-    (and all (null (cdr all)) (car all))))
-
 (cl-defun workspace-bookmark-canonical-checkouts-in-view
     (&optional (checkouts nil checkouts-given))
   "Return the canonical checkouts of the repositories in view.
@@ -1107,8 +1081,9 @@ A record stamped under any other version resolves `non-portable'.")
 RELPATH must be a non-empty string that is not absolute (in the sense
 of `file-name-absolute-p'), has no component that is exactly \"..\",
 and holds no NUL byte.  This test of spelling is the WHOLE confinement
-test (DD-16): `workspace-bookmark--anchor' checks presence and kind,
-never where a link points."
+test (DD-16): `workspace-bookmark--anchor' decides the LOCATION by that
+spelling, and asks the filesystem — which follows links — only whether
+something of RELPATH's kind is present there."
   (and (stringp relpath)
        (not (string-empty-p relpath))
        (not (string-search "\0" relpath))
@@ -1158,7 +1133,9 @@ Returns one of:
   (absent)          nothing of RELPATH's kind exists at PATH.
 
 PATH is RELPATH expanded against CHECKOUT's directory name, and is the
-answer by its spelling: where PATH's links point is not examined
+answer by its spelling; whether something of RELPATH's kind exists
+there is asked of the filesystem, which follows links, so a link that
+points out of CHECKOUT still answers PATH and a dangling link is absent
 \(DD-16).  Signals when PATH does not start with CHECKOUT, which a
 confined RELPATH cannot produce."
   (let* ((root (file-name-as-directory checkout))

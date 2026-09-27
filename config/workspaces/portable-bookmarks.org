@@ -2112,15 +2112,15 @@ it is enumerated like any other and never matches.
 of one repository (=project-alpha/=, =project-zeta/=), or be a checkout
 of a repository and also hold a worktree of it.
 =workspace-bookmark--workspace-checkouts= returns EVERY checkout of the
-identity in the home, in the order above.
-=workspace-bookmark--workspace-checkout= returns a checkout only when it
-is the ONLY one, and nil when there are none or several.  The first
-implementation returned the alphabetically-first match, which is a
-choice of branch made by =directory-files=' sort order; the consumer
-could not tell, and might open the other branch's copy of the file.
-Several matches is AMBIGUITY, not absence: a consumer that needs to tell
-the two apart calls =--workspace-checkouts=.  How ambiguity maps onto
-the resolver's outcomes is the resolver's decision, not this section's.
+identity in the home, in the order above, and that list is the whole
+answer: whether it is unique is the consumer's decision, read off the
+list's length.  The first implementation returned the
+alphabetically-first match, which is a choice of branch made by
+=directory-files=' sort order; the consumer could not tell, and might
+open the other branch's copy of the file.  Several matches is
+AMBIGUITY, not absence, and a list keeps the two apart where a single
+value (a checkout, or nil) could not.  How ambiguity maps onto the
+resolver's outcomes is the resolver's decision, not this section's.
 
 *Only checkout ROOTS count.*  =--home-checkouts= asks only whether a
 child holds a =.git= entry, and an EMPTY =.git= directory (or any other
@@ -2192,22 +2192,6 @@ One subprocess per candidate (its position); the identity comes from
                                    (nth 0 position) (nth 1 position))))))
                   (workspace-bookmark--home-checkouts
                    (workspace-bookmark--workspace-home workspace-name))))))
-#+end_src
-
-#+begin_src emacs-lisp
-(defun workspace-bookmark--workspace-checkout (identity workspace-name)
-  "Return the one checkout of IDENTITY in WORKSPACE-NAME's home, or nil.
-
-The value is the checkout only when it is UNIQUE among
-`workspace-bookmark--workspace-checkouts'.  Nil when there is none, and
-nil when there are several — the home holds sibling checkouts of one
-repository, and picking one would pick a branch.  Call
-`workspace-bookmark--workspace-checkouts' to tell the two apart.  Also
-nil when IDENTITY or WORKSPACE-NAME is nil or the workspace is not
-registered.  Never signals."
-  (let ((matches (workspace-bookmark--workspace-checkouts
-                  identity workspace-name)))
-    (and matches (null (cdr matches)) (car matches))))
 #+end_src
 
 ** Checkouts in view
@@ -2356,20 +2340,20 @@ main worktree that no workspace owns, and they can be on different
 branches.  The first implementation returned the first one found, so
 the answer depended on which workspace was current and then on registry
 order, and the consumer could not tell a choice had been made.
-=workspace-bookmark--canonical-for-identity= therefore returns a
-checkout only when it is the ONLY distinct one, and nil when there are
-none or several — the same shape as =--workspace-checkout(s)=.  A
-consumer that must tell "none" from "several" calls the plural.  How
-ambiguity maps onto the resolver's outcomes is the resolver's decision,
-not this section's.  Two worktrees of ONE repository in view are not
-ambiguous: they share one main worktree, which is counted once.
+=workspace-bookmark--canonical-checkouts-for-identity= therefore
+returns them ALL and names none of them as THE checkout — the same
+shape as =--workspace-checkouts=: a list, whose length tells "none"
+from "one" from "several".  How ambiguity maps onto the resolver's
+outcomes is the resolver's decision, not this section's.  Two worktrees
+of ONE repository in view are not ambiguous: they share one main
+worktree, which is counted once.
 
-The plural asks every in-view checkout for its identity, because
-uniqueness needs them all; there is no early stop at the first match.
-Each costs one subprocess (its position, =--shared-position=); the
-identity itself is =--memoised-identity='s, a hit on a warm memo.  The
-matching checkouts then go to =--canonical-checkouts-among= inside the
-SAME discovery call, so their positions are not asked again.
+It asks every in-view checkout for its identity, because uniqueness
+needs them all; there is no early stop at the first match.  Each costs
+one subprocess (its position, =--shared-position=); the identity itself
+is =--memoised-identity='s, a hit on a warm memo.  The matching
+checkouts then go to =--canonical-checkouts-among= inside the SAME
+discovery call, so their positions are not asked again.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--canonical-checkouts-for-identity (identity)
@@ -2396,18 +2380,6 @@ shared with the canonical test that follows."
                                    (workspace-bookmark--memoised-identity
                                     (nth 0 position) (nth 1 position))))))
                    (workspace-bookmark--checkouts-in-view))))))
-
-(defun workspace-bookmark--canonical-for-identity (identity)
-  "Return THE canonical checkout of IDENTITY, or nil.
-
-The value is the checkout only when it is UNIQUE among
-`workspace-bookmark--canonical-checkouts-for-identity'.  Nil when there
-is none, and nil when there are several — separate main clones of one
-repository, and picking one would pick by workspace or registry order.
-Call the plural to tell the two apart.  A workspace-owned or `other'
-checkout is never returned.  Never signals."
-  (let ((all (workspace-bookmark--canonical-checkouts-for-identity identity)))
-    (and all (null (cdr all)) (car all))))
 #+end_src
 
 ** Cross-module interface: the canonical checkouts in view
@@ -2645,8 +2617,9 @@ A record stamped under any other version resolves `non-portable'.")
 RELPATH must be a non-empty string that is not absolute (in the sense
 of `file-name-absolute-p'), has no component that is exactly \"..\",
 and holds no NUL byte.  This test of spelling is the WHOLE confinement
-test (DD-16): `workspace-bookmark--anchor' checks presence and kind,
-never where a link points."
+test (DD-16): `workspace-bookmark--anchor' decides the LOCATION by that
+spelling, and asks the filesystem — which follows links — only whether
+something of RELPATH's kind is present there."
   (and (stringp relpath)
        (not (string-empty-p relpath))
        (not (string-search "\0" relpath))
@@ -2723,7 +2696,9 @@ Returns one of:
   (absent)          nothing of RELPATH's kind exists at PATH.
 
 PATH is RELPATH expanded against CHECKOUT's directory name, and is the
-answer by its spelling: where PATH's links point is not examined
+answer by its spelling; whether something of RELPATH's kind exists
+there is asked of the filesystem, which follows links, so a link that
+points out of CHECKOUT still answers PATH and a dangling link is absent
 \(DD-16).  Signals when PATH does not start with CHECKOUT, which a
 confined RELPATH cannot produce."
   (let* ((root (file-name-as-directory checkout))
@@ -2755,11 +2730,12 @@ deterministic.
 | 5 | the workspace holds none, TWO OR MORE canonical checkouts in view  | =ambiguous=      |
 | 6 | nothing in view                                                    | =no-clone=       |
 
-The PLURAL discovery functions are asked —
+The discovery functions asked —
 =workspace-bookmark--workspace-checkouts= and
-=workspace-bookmark--canonical-checkouts-for-identity= — never the
-singulars, which answer nil for both "none" and "several" and so would
-turn ambiguity into =missing-repo= or =no-clone=.
+=workspace-bookmark--canonical-checkouts-for-identity= — return
+lists, and uniqueness is read off the list HERE: a helper that answered
+nil for both "none" and "several" would turn ambiguity into
+=missing-repo= or =no-clone=, which is why no such helper exists.
 
 Rows 2 and 4 re-anchor the relpath by its spelling (see "Re-anchoring
 a relpath") and name the checkout they anchored under in =:checkout=.

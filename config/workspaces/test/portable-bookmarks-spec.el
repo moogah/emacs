@@ -209,7 +209,7 @@
     ;; describe uses; it is a no-op when the primitive did its job.
     (after-each (workspace-bookmark-fixtures-teardown))
 
-    (it "restores the live table and drops the fixture names when setup signals"
+    (it "keeps the scope open when setup signals, so the body stays isolated until after-each"
       (let ((live (workspace-bookmark-fixtures-live-registry))
             (home nil))
         (expect (workspace-bookmark-fixtures-setup-with-empty-registry
@@ -218,6 +218,13 @@
                                "wsbm-fx-boom"))
                    (error "fixture broke")))
                 :to-throw 'error)
+        ;; Still isolated: buttercup runs the spec body after a failed
+        ;; before-each, and that body must not see the live table.
+        (expect workspace--registry :not :to-be live)
+        (expect (gethash "wsbm-fx-boom" workspace--registry) :not :to-be nil)
+        (expect (gethash "wsbm-fx-boom" live) :to-be nil)
+        ;; The after-each path restores everything.
+        (workspace-bookmark-fixtures-teardown)
         (expect workspace--registry :to-be live)
         (expect (gethash "wsbm-fx-boom" live) :to-be nil)
         (expect workspace-bookmark-fixtures--live-registry :to-be nil)
