@@ -11408,7 +11408,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        stress spec the secondary). Core's two sites have NO race test
        today.
        # owner of the core move and its race specs:
-       # .tasks/workspaces-file-equal-p-timestamp-race (promotion = plan ask P2, cycle-1790453714)
+       # owner: workspaces-file-equal-p-timestamp-race (promoted from .tasks 2026-09-27, cycle-1790453714 wave 4)
      enforcement_locus_check: |
        Where is this enforced? At each comparison site — which is why the
        validator counts sites rather than asserting an outcome: one
@@ -11440,7 +11440,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         timestamp-spy race spec that discovery-spec.el:674 uses for the
         module.
    known_violations: |
-     Owner: .tasks/workspaces-file-equal-p-timestamp-race (promotion into
+     Owner: tasks/open/workspaces-file-equal-p-timestamp-race (PROMOTED 2026-09-27 by user decision, cycle-1790453714 wave 4; was: promotion into
      this cycle is plan ask P2, pending). Verified at b56f385a:
      - config/workspaces/tabs.el:147 (tabs.org:296),
        =workspace--registered-for-home-p=: the duplicate-home check at

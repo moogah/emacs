@@ -300,3 +300,34 @@ a full OpenSpec change (per `.tasks/` promotion bar).
   top-level side effect: `config/gptel/scope/scope-filesystem-tools.el:41`.
 - Hand-rolled fset save/teardown to replace with `cl-letf`:
   `config/gptel/scope/test/helpers-spec.el:308-346`.
+
+## Observed during workspace-portable-bookmarks (cycle-1789935943 / cycle-1790453714)
+
+Recorded 2026-09-27 at the user's direction (promotion declined; "externalize a task with
+any details observed"). Provenance: discovered_from arch-cycle-1789935943-eoc-04 and the
+cycle-1 baseline; discovered_by architect / orchestrator; discovered_class invariant-gap.
+
+- **A workspaces spec fails ONLY in the full run.** `config/workspaces/test/broken-home-runtime-spec.el`
+  (~:365-380) errors on an out-of-range `substring` of the `*Messages*` buffer, which earlier
+  suites have polluted; it passes in isolation (`./bin/run-tests.sh -d config/workspaces`).
+  See `.orchestrator/cycles/cycle-1789935943/baseline-failures-cycle-1789935943.txt` § Notes.
+- **Cost to delivery.** The full suite exits 1 at baseline (14 pre-existing failures), so the
+  overlay's exit-code parser cannot detect regressions; every merge in cycle 1 paid TWO gates
+  (isolated run exit 0 + full-run failure-SET comparison with
+  `.orchestrator/cycles/cycle-1789935943/compare-baseline.py`). 11 merges, 22 runs.
+- **Three spec files hand-rolled the same workaround** for the shared `workspace--registry`
+  hash: `portable-bookmarks-discovery-spec.el:60-73`, `portable-bookmarks-resolver-spec.el:63-82`,
+  `git-worktrees-spec.el:285-313` each save / replace / restore the table. 20 further core specs
+  `clrhash` it; `transient-menu-spec.el` `cl-letf`-binds around it. The bookmarks-local fix
+  (one fixtures-owned macro) is `openspec/changes/workspace-portable-bookmarks/tasks/open/consolidate-portable-bookmarks-test-fixtures.md`;
+  the repo-wide rule is `register/invariant/spec-registry-isolation-via-fixtures` (interfaces.org,
+  speculated), whose `known_violations` names this item as the generalisation owner.
+- **gptel quantification** (already above): ~18 of the 21 failures parked in
+  `gptel-preexisting-async-scope-test-failures` are this class.
+- **Process incident** related to shared test state on disk: an implementor ran
+  `rm -rf $TMPDIR/wsbm-*` during a parallel run and deleted a sibling task's fixtures; every
+  brief now carries "never bulk-delete shared temp prefixes". Per-file processes would also
+  isolate `TMPDIR` use.
+- **User decision 2026-09-27:** not promoted into this change; a repo-wide study (runner
+  architecture: one process loads every `*-spec.el`; per-file processes or a portable dump
+  are the candidate shapes) belongs in a separate change after workspace-portable-bookmarks ships.
