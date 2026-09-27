@@ -148,7 +148,28 @@ lists are EMPTY unless BODY binds them."
                     'workspace-bookmark-canonical-checkouts-in-view)
                    nil))
           (expect (jf/workspace--worktree-repo-candidates)
-                  :to-equal '("/repos/a/" "/repos/b/"))))))
+                  :to-equal '("/repos/a/" "/repos/b/")))))
+
+    (it "classifies both sources inside ONE discovery call, and leaves no memo behind"
+      (let ((memos nil))
+        (spy-on 'workspace-bookmark-call-with-discovery-memo :and-call-through)
+        (spy-on 'jf/workspace--worktree-git-derived-candidates :and-call-fake
+                (lambda ()
+                  (push workspace-bookmark--discovery-memo memos)
+                  '("/repos/git-a/")))
+        (spy-on 'workspace-bookmark-canonical-checkouts-in-view :and-call-fake
+                (lambda (&optional dirs)
+                  (push workspace-bookmark--discovery-memo memos)
+                  dirs))
+        (git-worktrees-spec--with-sources '(magit) '("/repos/magit-b/")
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal '("/repos/git-a/" "/repos/magit-b/")))
+        (expect 'workspace-bookmark-call-with-discovery-memo
+                :to-have-been-called-times 1)
+        (expect (length memos) :to-equal 2)
+        (expect (hash-table-p (car memos)) :to-be-truthy)
+        (expect (eq (car memos) (cadr memos)) :to-be-truthy)
+        (expect workspace-bookmark--discovery-memo :to-be nil))))
 
   (describe "jf/workspace--worktree-read-repo"
 
@@ -500,8 +521,13 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
         (git-worktrees-spec--with-sources '(magit) (list other)
           (cl-letf (((symbol-function
                       'workspace-bookmark-canonical-checkouts-in-view)
+                     nil)
+                    ((symbol-function
+                      'workspace-bookmark-call-with-discovery-memo)
                      nil))
             (expect (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
+                    :to-be nil)
+            (expect (fboundp 'workspace-bookmark-call-with-discovery-memo)
                     :to-be nil)
             (condition-case err
                 (setq result (jf/workspace--worktree-repo-candidates))
@@ -520,6 +546,19 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
   ;; that module goes through `workspace-bookmark--git', so a call-through
   ;; spy on it is the count (portable-bookmarks-cost-spec.el has the
   ;; resolver side and the arithmetic).
+  ;;
+  ;; KNOWINGLY UNCOUNTED: the git-repository post-filter
+  ;; (`jf/workspace--worktree-git-repo-p') calls `magit-toplevel' once per
+  ;; surviving candidate when magit is loaded — `featurep' says it is, in
+  ;; `git-worktrees-spec--with-sources'.  Those spawns go through magit's
+  ;; own process calls, not the one runner `workspace-bookmark--git', so
+  ;; they are outside this count by design (the entry's one-runner
+  ;; boundary), not by accident.
+  ;;
+  ;; Both sources — the checkouts in view and magit's list — are built in
+  ;; ONE discovery call (`workspace-bookmark-call-with-discovery-memo'),
+  ;; so a repository reached from both pays once; the nested describe
+  ;; below pins that, with a companion that splits the scope.
   ;;
   ;; A canonical main clone costs THREE (its position, its repository's
   ;; worktree listing, the tracked-file check); a further checkout of a
@@ -581,13 +620,42 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
                 (mapcar #'directory-file-name (list w1 repo-a w2 repo-b repo-c)))))
       (expect (cdr run) :to-equal 11)
       (expect 'workspace-bookmark--memoised-identity :not :to-have-been-called)
-      (expect 'workspace-bookmark--remote-url :not :to-have-been-called))))
+      (expect 'workspace-bookmark--remote-url :not :to-have-been-called)))
+
+  (describe "with a repository both in view and in magit's list"
+    ;; The everyday shape under DD-15: REPO-A's main clone is one magit
+    ;; lists (~/src), and a linked worktree of it sits in a workspace home,
+    ;; so it is in view too.  The git-derived source reaches REPO-A through
+    ;; that worktree — its position and REPO-A's listing, then REPO-A's
+    ;; canonical test (position, tracked-file check; the listing is
+    ;; shared): 4.  Magit's pass then finds REPO-A's position, listing and
+    ;; tracked-file check already asked: 0, and 3 each for B and C.
+
+    (before-each
+      (let ((home (workspace-bookmark-fixtures-make-workspace "gw-cost-view")))
+        (workspace-bookmark-fixtures-add-worktree
+         repo-a (expand-file-name "wa" home) :branch "gw-cost-wa")))
+
+    (it "pays for that repository once: ten for the view's worktree and three clones"
+      (let ((run (git-worktrees-spec--picker-spawns
+                  (mapcar #'directory-file-name (list repo-a repo-b repo-c)))))
+        (expect (car run) :to-equal (list repo-a repo-b repo-c))
+        (expect (cdr run) :to-equal 10)))
+
+    (it "would pay thirteen with the two sources in separate discovery calls"
+      (cl-letf (((symbol-function 'workspace-bookmark-call-with-discovery-memo)
+                 (lambda (function) (funcall function))))
+        (let ((run (git-worktrees-spec--picker-spawns
+                    (mapcar #'directory-file-name (list repo-a repo-b repo-c)))))
+          (expect (car run) :to-equal (list repo-a repo-b repo-c))
+          (expect (cdr run) :to-equal 13))))))
 
 (describe "git-worktrees.el's portable-bookmarks surface"
 
   (it "names no private portable-bookmarks function in its code"
-    ;; Docstrings and comments may mention them; code may not.  The one
-    ;; permitted surface is `workspace-bookmark-canonical-checkouts-in-view'.
+    ;; Docstrings and comments may mention them; code may not.  The
+    ;; permitted surface is `workspace-bookmark-canonical-checkouts-in-view'
+    ;; and the scope `workspace-bookmark-call-with-discovery-memo'.
     (let ((file (expand-file-name "../git-worktrees.el"
                                   git-worktrees-spec--this-dir))
           (private nil)
@@ -617,7 +685,9 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
           (end-of-file nil)))
       (expect private :to-be nil)
       (expect (delete-dups public)
-              :to-equal '(workspace-bookmark-canonical-checkouts-in-view)))))
+              :to-have-same-items-as
+              '(workspace-bookmark-canonical-checkouts-in-view
+                workspace-bookmark-call-with-discovery-memo)))))
 
 (describe "jf/workspace--worktree-sanitize-branch"
 
@@ -709,6 +779,60 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
                      '(:name "feat" :home "/ws/home/"))))
         (expect (car result) :to-equal 'failed)
         (expect (cdr result) :to-match "worktree failure")))
+
+    (it "prompts for the source as before when the payload has no :source-repo"
+      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (expect 'jf/workspace--worktree-read-repo :to-have-been-called-times 1)
+      (expect dd-at-main :to-equal "/repos/source-repo/"))
+
+    (describe "with a :source-repo in the payload"
+      ;; The portable-bookmarks missing-repo chooser ("add worktree here")
+      ;; hands the canonical checkout its resolver admitted.  The command
+      ;; must make the worktree from it and ask for no source: no prompt,
+      ;; no candidate discovery.
+      :var (source)
+
+      (before-each
+        (setq source (file-name-as-directory (make-temp-file "gw-source-repo-" t)))
+        (spy-on 'jf/workspace--worktree-repo-candidates))
+
+      (after-each
+        (delete-directory source t))
+
+      (it "targets it without the source prompt or candidate discovery"
+        (let ((result (jf/workspace--add-worktree
+                       (list :name "feat" :home "/ws/home/" :source-repo source))))
+          (expect result :to-equal 'ok)
+          (expect 'jf/workspace--worktree-read-repo :not :to-have-been-called)
+          (expect 'jf/workspace--worktree-repo-candidates :not :to-have-been-called)
+          (expect dd-at-main :to-equal source)
+          (expect dd-at-branch :to-equal source)
+          (expect 'magit-worktree-branch :to-have-been-called-with
+                  (expand-file-name
+                   (file-name-nondirectory (directory-file-name source))
+                   "/ws/home/")
+                  "feat" "main")))
+
+      (it "binds default-directory to the source itself when it is spelled without a trailing slash"
+        (expect (jf/workspace--add-worktree
+                 (list :name "feat" :home "/ws/home/"
+                       :source-repo (directory-file-name source)))
+                :to-equal 'ok)
+        (expect dd-at-main :to-equal source)
+        (expect dd-at-branch :to-equal source))
+
+      (it "fails without prompting or calling magit when it names no local directory"
+        (dolist (bad (list (expand-file-name "missing/" source)
+                           nil
+                           42
+                           "/ssh:nohost.invalid:/repo/"))
+          (let ((result (jf/workspace--add-worktree
+                         (list :name "feat" :home "/ws/home/" :source-repo bad))))
+            (expect (car result) :to-equal 'failed)
+            (expect (cdr result) :to-match "source repository is not a directory")))
+        (expect 'jf/workspace--worktree-read-repo :not :to-have-been-called)
+        (expect 'magit-main-branch :not :to-have-been-called)
+        (expect 'magit-worktree-branch :not :to-have-been-called)))
 
     (it "derives worktree state — never stores :repo/:branch on the payload"
       ;; Spec `workspace-git-worktrees': "Worktree state is derived, not

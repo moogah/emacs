@@ -850,7 +850,7 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
              (append (list (concat "GIT_DIR=" (expand-file-name ".git" other))
                            (concat "GIT_WORK_TREE=" (directory-file-name other)))
                      process-environment)))
-        (expect (workspace-bookmark--identity child)
+        (expect (workspace-bookmark-fixtures-identity-of child)
                 :to-equal portable-bookmarks-discovery-spec--identity)
         (expect (workspace-bookmark--workspace-checkouts
                  "example.com/fixtures/other" "wsbm-disc-env")
@@ -875,8 +875,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
            (proj (portable-bookmarks-discovery-spec--clone-into
                   (expand-file-name "proj " home))))
       (workspace-bookmark-fixtures-register-workspace "wsbm-disc-space" home)
-      (expect (workspace-bookmark--repo-root proj) :to-equal proj)
-      (expect (workspace-bookmark--identity proj)
+      (expect (workspace-bookmark-fixtures-root-of proj) :to-equal proj)
+      (expect (workspace-bookmark-fixtures-identity-of proj)
               :to-equal portable-bookmarks-discovery-spec--identity)
       ;; The home is a checkout of its own identity (anchored homes), and
       ;; only of that one: PROJ does not answer for it.
@@ -959,23 +959,30 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
       (expect (workspace-bookmark--canonical-checkout "/tmp/") :to-be nil)))
 
   (it "workspace-bookmark--canonical-checkouts-for-identity never lists a checkout that is not canonical"
-    (let ((home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-unit")))
-      (make-directory (expand-file-name "a/.git" home) t)
+    (let* ((home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-unit"))
+           (a (expand-file-name "a/" home)))
+      (make-directory (expand-file-name ".git" a) t)
       (portable-bookmarks-discovery-spec--hermetic
-        (dolist (kind '(workspace-owned other))
-          ;; The candidate is a REAL directory that git "confirms" as the
-          ;; main worktree, so only the classification can refuse it.
-          (cl-letf (((symbol-function 'workspace-bookmark--identity)
-                     (lambda (_) "example.com/x/y"))
+        ;; The candidate is a REAL directory that git "confirms" as the
+        ;; main worktree, on the path discovery takes today: its position
+        ;; and memoised identity match, `--checkouts-of' lists it first
+        ;; and `--canonical-checkout' names it.  So only the
+        ;; classification can refuse it — and the `canonical' control
+        ;; proves the stubs reach the predicate.
+        (dolist (kind '(workspace-owned other canonical))
+          (cl-letf (((symbol-function 'workspace-bookmark--shared-position)
+                     (lambda (_) (list a (expand-file-name ".git" a) "")))
+                    ((symbol-function 'workspace-bookmark--memoised-identity)
+                     (lambda (&rest _) "example.com/x/y"))
                     ((symbol-function 'workspace-bookmark--checkouts-of)
-                     (lambda (_) (list (expand-file-name "a/" home))))
+                     (lambda (_) (list a)))
                     ((symbol-function 'workspace-bookmark--canonical-checkout)
-                     (lambda (_) (expand-file-name "a/" home)))
+                     (lambda (_) a))
                     ((symbol-function 'workspace-bookmark--classify)
                      (lambda (_) kind)))
             (expect (cons kind (workspace-bookmark--canonical-checkouts-for-identity
                                 "example.com/x/y"))
-                    :to-equal (cons kind nil)))))))
+                    :to-equal (cons kind (and (eq kind 'canonical) (list a)))))))))
 
   (it "workspace-bookmark--classify reports workspace-owned across ~ and trailing-slash spellings of the home"
     ;; The registry canonicalises :home through `workspace--make', so a ~
@@ -1220,9 +1227,9 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
       ;; Preconditions: the child passes the cheap `.git' test, and git,
       ;; run in it, answers for the anchored home's repository.
       (expect (workspace-bookmark--home-checkouts repo) :to-equal (list repo sub))
-      (expect (workspace-bookmark--identity sub)
+      (expect (workspace-bookmark-fixtures-identity-of sub)
               :to-equal portable-bookmarks-discovery-spec--identity)
-      (expect (workspace-bookmark--repo-root sub) :to-equal repo)
+      (expect (workspace-bookmark-fixtures-root-of sub) :to-equal repo)
       (expect (workspace-bookmark--workspace-checkouts
                portable-bookmarks-discovery-spec--identity "wsbm-disc-emptygit")
               :to-equal (list repo)))))
@@ -1271,7 +1278,7 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
       (expect (workspace--home ws) :to-equal pkg)
       (expect (file-directory-p (expand-file-name ".git" pkg)) :to-be-truthy)
       ;; The anchored home does not carry the clone's identity ...
-      (expect (workspace-bookmark--identity pkg) :to-be nil)
+      (expect (workspace-bookmark-fixtures-identity-of pkg) :to-be nil)
       ;; ... yet the clone containing it is that workspace's.
       (expect (workspace-bookmark--owning-workspace main)
               :to-equal (workspace--name ws))

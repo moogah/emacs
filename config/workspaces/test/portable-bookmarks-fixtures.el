@@ -311,6 +311,25 @@ their own local identity before committing there."
     path))
 
 
+;;; The identity questions, asked the way the live paths ask them
+
+(defun workspace-bookmark-fixtures-root-of (dir)
+  "Return the root of the checkout containing DIR, or nil.
+The root the live paths use: the first element of DIR's position,
+`workspace-bookmark--checkout-position' — the one `rev-parse' that
+places a directory for the stamp seam and for discovery alike."
+  (car (workspace-bookmark--checkout-position dir)))
+
+(defun workspace-bookmark-fixtures-identity-of (dir)
+  "Return the identity of the repository containing DIR, or nil.
+Composed as the live paths compose it: DIR's position names the root
+\(`workspace-bookmark-fixtures-root-of'), and the identity is that
+root's (`workspace-bookmark--root-identity').  The identity memo is
+bypassed, so one spec's answer never depends on another's."
+  (let ((root (workspace-bookmark-fixtures-root-of dir)))
+    (and root (workspace-bookmark--root-identity root))))
+
+
 ;;; Workspace registry
 
 (defun workspace-bookmark-fixtures-register-workspace (name home)
