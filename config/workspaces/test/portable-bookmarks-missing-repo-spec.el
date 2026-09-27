@@ -188,7 +188,7 @@ Returns the error's message; fails the spec when nothing was signalled."
                 (seq-some (lambda (buffer)
                             (with-current-buffer buffer
                               (and (derived-mode-p 'dired-mode)
-                                   (workspace-bookmark--same-file-p
+                                   (workspace--same-file-p
                                     default-directory path))))
                           (buffer-list))))
        t))
@@ -350,17 +350,17 @@ Returns the error's message; fails the spec when nothing was signalled."
             (expect (car ours) :to-match "read-only")
             (expect (car ours) :to-match (regexp-quote (abbreviate-file-name canonical-path)))
             (expect (car ours) :to-match "branch main")))
-        (expect (workspace-bookmark--same-file-p (buffer-file-name buffer) canonical-path)
+        (expect (workspace--same-file-p (buffer-file-name buffer) canonical-path)
                 :to-be-truthy)
-        (expect (workspace-bookmark--same-file-p (buffer-file-name buffer) a-path)
+        (expect (workspace--same-file-p (buffer-file-name buffer) a-path)
                 :to-be nil)
         (with-current-buffer buffer
           (expect (point) :to-equal portable-bookmarks-missing-repo-spec--position)
           (expect buffer-read-only :to-be-truthy)
           (expect view-mode :to-be-truthy)
           (expect workspace-bookmark--canonical-view :to-be-truthy)
-          (expect (workspace-bookmark--same-file-p workspace-bookmark--canonical-view
-                                                   (plist-get world :repo))
+          (expect (workspace--same-file-p workspace-bookmark--canonical-view
+                                          (plist-get world :repo))
                   :to-be-truthy))
         (expect (portable-bookmarks-missing-repo-spec--marker buffer) :to-match "canonical")
         (expect (portable-bookmarks-missing-repo-spec--marker buffer)
@@ -428,7 +428,7 @@ Returns the error's message; fails the spec when nothing was signalled."
         (let ((buffer (portable-bookmarks-missing-repo-spec--jump "sub" "wsbm-mr-c" ?v)))
           (with-current-buffer buffer
             (expect (derived-mode-p 'dired-mode) :to-be-truthy)
-            (expect (workspace-bookmark--same-file-p default-directory canonical-dir)
+            (expect (workspace--same-file-p default-directory canonical-dir)
                     :to-be-truthy)
             (expect buffer-read-only :to-be-truthy)
             (expect view-mode :to-be nil))
@@ -533,17 +533,17 @@ Returns the error's message; fails the spec when nothing was signalled."
                       :branch "c")
                      'ok)))
           (let ((buffer (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?a)))
-            (expect (workspace-bookmark--same-file-p
+            (expect (workspace--same-file-p
                      (buffer-file-name buffer)
                      (expand-file-name "proj/README.md" home-c))
                     :to-be-truthy)
             (expect (with-current-buffer buffer view-mode) :to-be nil)
             (expect (with-current-buffer buffer buffer-read-only) :to-be nil)))
         (expect (plist-get received :name) :to-equal "wsbm-mr-c")
-        (expect (workspace-bookmark--same-file-p (plist-get received :home) home-c)
+        (expect (workspace--same-file-p (plist-get received :home) home-c)
                 :to-be-truthy)
-        (expect (workspace-bookmark--same-file-p (plist-get received :source-repo)
-                                                 (plist-get world :repo))
+        (expect (workspace--same-file-p (plist-get received :source-repo)
+                                        (plist-get world :repo))
                 :to-be-truthy)
         (expect (plist-get received :context) :to-equal 'bookmark-jump)
         (expect (spy-calls-count 'workspace-bookmark--resolve) :to-equal 2)
@@ -570,8 +570,8 @@ Returns the error's message; fails the spec when nothing was signalled."
           (let ((message (portable-bookmarks-missing-repo-spec--decline "only-a" "wsbm-mr-c" ?a)))
             (expect message :to-match "not on this branch")
             (expect message :to-match "after adding a worktree")))
-        (expect (workspace-bookmark--same-file-p (plist-get received :source-repo)
-                                                 (plist-get world :repo))
+        (expect (workspace--same-file-p (plist-get received :source-repo)
+                                        (plist-get world :repo))
                 :to-be-truthy)
         (expect (length portable-bookmarks-missing-repo-spec--prompts) :to-equal 1)
         (expect (file-directory-p (expand-file-name "proj" home-c)) :to-be-truthy)
@@ -606,7 +606,7 @@ Returns the error's message; fails the spec when nothing was signalled."
                   ((symbol-function 'read-directory-name)
                    (lambda (&rest args) (error "Prompted for a source: %S" args))))
           (let ((buffer (portable-bookmarks-missing-repo-spec--jump "readme" "wsbm-mr-c" ?a)))
-            (expect (workspace-bookmark--same-file-p
+            (expect (workspace--same-file-p
                      (buffer-file-name buffer)
                      (expand-file-name
                       "README.md"
@@ -616,7 +616,7 @@ Returns the error's message; fails the spec when nothing was signalled."
         (expect 'jf/workspace--worktree-read-repo :not :to-have-been-called)
         (expect 'workspace-bookmark-canonical-checkouts-in-view :not :to-have-been-called)
         (expect (length made) :to-equal 1)
-        (expect (workspace-bookmark--same-file-p (nth 0 (car made)) repo) :to-be-truthy)
+        (expect (workspace--same-file-p (nth 0 (car made)) repo) :to-be-truthy)
         (expect (nth 2 (car made)) :to-equal "wsbm-mr-c")
         (expect (length portable-bookmarks-missing-repo-spec--prompts) :to-equal 1))))
 

@@ -517,7 +517,7 @@
            (clone (file-name-as-directory (expand-file-name "repo" real-home))))
       (assume (and (not (equal flipped real-home))
                    (file-directory-p flipped)
-                   (file-equal-p flipped real-home))
+                   (workspace--same-file-p flipped real-home))
               "temp filesystem is case-sensitive; the case-flip layout cannot exist here")
       (workspace-bookmark-fixtures-register-workspace "wsbm-disc-case" flipped)
       (workspace-bookmark-fixtures-git real-home "clone" "--quiet" origin clone)
@@ -739,7 +739,7 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
         (expect (workspace-bookmark--owning-workspace answer) :to-be nil)
         (dolist (home (list home-a home-b))
           (dolist (held (workspace-bookmark--home-checkouts home))
-            (expect (workspace-bookmark--same-file-p held answer)
+            (expect (workspace--same-file-p held answer)
                     :to-be nil)))))))
 
 (describe "Symbolic links in a workspace home are ignored"
@@ -921,7 +921,7 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
            (tilde (concat "~/" (file-name-nondirectory
                                 (directory-file-name real))
                           "/child")))
-      (expect (file-equal-p tilde child) :to-be-truthy)
+      (expect (workspace--same-file-p tilde child) :to-be-truthy)
       (expect (workspace-bookmark--classify tilde) :to-be 'workspace-owned)))
 
   (it "does not treat a sibling sharing a name prefix as contained"

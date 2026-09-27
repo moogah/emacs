@@ -94,29 +94,7 @@ machine's identity."
                       (unless (string-empty-p out) out)))))))))
     (error nil)))
 
-(defun workspace-bookmark--same-file-p (a b)
-  "Return non-nil when A and B name the same existing local file.
-
-Compares the device and inode numbers of the two paths' truenames, so
-spelling, symlinks and timestamps do not matter.  `file-equal-p' is
-deliberately not used: it compares whole attribute lists, timestamps
-included, and so reports a directory modified between its two stats as
-unequal to itself.  Nil when either is not a string, is remote, or does
-not exist.  Never signals."
-  (and (stringp a) (stringp b)
-       (not (file-remote-p a))
-       (not (file-remote-p b))
-       (condition-case nil
-           (let ((attrs-a (file-attributes (file-truename (expand-file-name a))))
-                 (attrs-b (file-attributes (file-truename (expand-file-name b)))))
-             (and attrs-a attrs-b
-                  (file-attribute-inode-number attrs-a)
-                  (file-attribute-device-number attrs-a)
-                  (equal (file-attribute-inode-number attrs-a)
-                         (file-attribute-inode-number attrs-b))
-                  (equal (file-attribute-device-number attrs-a)
-                         (file-attribute-device-number attrs-b))))
-         (error nil))))
+(declare-function workspace--same-file-p "data-model" (a b))
 
 (defun workspace-bookmark--remote-url (dir)
   "Return the effective remote URL of the repository containing DIR, or nil.
@@ -362,7 +340,7 @@ re-anchor on ROOT to the same file as LOCATION, or nil is returned."
               (setq reported (delete-dups reported))
               (and (= 1 (length reported)) (car reported))))))
     (and relpath
-         (workspace-bookmark--same-file-p (expand-file-name relpath root) location)
+         (workspace--same-file-p (expand-file-name relpath root) location)
          relpath)))
 
 (defun workspace-bookmark--coordinates (location)
@@ -473,7 +451,7 @@ RECORD's `filename' (compared by file identity)."
   (or (not (eq (current-buffer) origin))
       (let ((file (buffer-file-name)))
         (and file
-             (workspace-bookmark--same-file-p
+             (workspace--same-file-p
               file (bookmark-get-filename record))))))
 
 (defun workspace-bookmark--decline-message (record resolution)
@@ -1335,16 +1313,16 @@ the same either way."
                          dir common))))
         (when (and first
                    (not (plist-get first :bare))
-                   (workspace-bookmark--same-file-p (plist-get first :path)
-                                                    candidate))
+                   (workspace--same-file-p (plist-get first :path)
+                                           candidate))
           (let ((top (if (and position
-                              (workspace-bookmark--same-file-p (nth 0 position)
-                                                               candidate))
+                              (workspace--same-file-p (nth 0 position)
+                                                      candidate))
                          (nth 0 position)
                        (workspace-bookmark--git
                         candidate "rev-parse" "--show-toplevel"))))
             (when (and top
-                       (workspace-bookmark--same-file-p top candidate)
+                       (workspace--same-file-p top candidate)
                        (workspace-bookmark--shared-tracked-file-p candidate))
               (file-name-as-directory candidate))))))))
 
@@ -1354,7 +1332,7 @@ the same either way."
 Both must be local and exist (a missing PATH is inside nothing); DIR
 must be a directory.  Containment is
 by file identity: PATH is truenamed, then it and each of its ancestors
-is compared to DIR with `workspace-bookmark--same-file-p', so
+is compared to DIR with `workspace--same-file-p', so
 differences of spelling — trailing slash, `~', symlinked prefixes, and
 letter case on a case-insensitive filesystem — do not matter, and
 neither do DIR's timestamps changing during the walk.  Never signals."
@@ -1369,7 +1347,7 @@ neither do DIR's timestamps changing during the walk.  Never signals."
              (when (and (file-exists-p (expand-file-name path))
                         (file-directory-p (expand-file-name dir)))
                (while (and (not found) (not (equal current previous)))
-                 (if (workspace-bookmark--same-file-p current dir)
+                 (if (workspace--same-file-p current dir)
                      (setq found t)
                    (setq previous current
                          current (directory-file-name
@@ -1381,7 +1359,7 @@ neither do DIR's timestamps changing during the walk.  Never signals."
   "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
 HOME must be its own top level (`git rev-parse --show-toplevel' run in it
 names it), and its shared git directory must be CHECKOUT's, by
-`workspace-bookmark--same-file-p'.  CHECKOUT's shared git directory is
+`workspace--same-file-p'.  CHECKOUT's shared git directory is
 its `.git' directory when it has one; otherwise git is asked.  One
 subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
   (let* ((out (workspace-bookmark--git
@@ -1389,8 +1367,8 @@ subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
                "--show-toplevel" "--git-common-dir"))
          (lines (and out (split-string out "\n"))))
     (and (= 2 (length lines))
-         (workspace-bookmark--same-file-p (nth 0 lines) home)
-         (workspace-bookmark--same-file-p
+         (workspace--same-file-p (nth 0 lines) home)
+         (workspace--same-file-p
           (nth 1 lines)
           (let ((dotgit (expand-file-name ".git" checkout)))
             (if (file-directory-p dotgit)
@@ -1481,7 +1459,7 @@ One subprocess per candidate (its position); the identity comes from
       (seq-filter (lambda (checkout)
                     (let ((position (workspace-bookmark--shared-position checkout)))
                       (and position
-                           (workspace-bookmark--same-file-p (nth 0 position) checkout)
+                           (workspace--same-file-p (nth 0 position) checkout)
                            (equal identity
                                   (workspace-bookmark--memoised-identity
                                    (nth 0 position) (nth 1 position))))))
@@ -1521,7 +1499,7 @@ This is the ONLY test that may admit a checkout as canonical.  Never
 signals."
   (and (stringp dir)
        (eq 'canonical (workspace-bookmark--classify dir))
-       (workspace-bookmark--same-file-p
+       (workspace--same-file-p
         dir (workspace-bookmark--canonical-checkout dir))))
 
 (defun workspace-bookmark--main-worktree-of (checkout)
@@ -1548,7 +1526,7 @@ seen cost one each."
      #'workspace-bookmark--offerable-canonical-p
      (seq-uniq (delq nil (mapcar #'workspace-bookmark--main-worktree-of
                                  checkouts))
-               #'workspace-bookmark--same-file-p))))
+               #'workspace--same-file-p))))
 
 (defun workspace-bookmark--canonical-checkouts-for-identity (identity)
   "Return every distinct canonical checkout of IDENTITY, or nil.
