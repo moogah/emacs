@@ -13,6 +13,7 @@ relations:
   - discovered-from:arch-on-touch-1790453714-23
   - discovered-from:arch-on-touch-1790453714-25
   - discovered-from:arch-on-touch-1790453714-26
+  - discovered-from:disc-missing-repo-choice-2
   - blocked-by:discovery-identity-memo-and-cost-contract
 discovered_from: [arch-on-touch-1790453714-23, arch-on-touch-1790453714-25, arch-on-touch-1790453714-26]
 discovered_by: architect
@@ -52,7 +53,12 @@ present in both pays its three git calls twice. This task closes both without ch
    paying twice) so a repo present in both view and magit list pays once.
 3. In the picker budget spec header, name the `magit-toplevel` post-filter spawn as knowingly uncounted (spy is at
    `workspace-bookmark--git`).
-4. Tangle `portable-bookmarks.org` and `git-worktrees.org`; validate.
+4. (added 2026-09-27 from missing-repo-choice discovery disc-missing-repo-choice-2, class interface-drift) `jf/workspace--add-worktree`
+   ignores the anchor payload's `:source-repo` and re-prompts through `--worktree-read-repo` (a discovery re-run with the free-form
+   floor). Make it honour `:source-repo` when present (skip the prompt; ~3 lines in `git-worktrees.org`), keep the prompt when absent,
+   and add a spec. This is what lets the bookmark chooser's "add worktree here" target the canonical checkout it was handed.
+   Reconcile `register/boundary/workspace-git-worktrees-consumer` / `register/shape/workspace-integration-anchor-payload` at integrate.
+5. Tangle `portable-bookmarks.org` and `git-worktrees.org`; validate.
 
 ## Verification
 - `./bin/run-tests.sh -d config/workspaces` all green; full suite = baseline set (compare-baseline.py NO-REGRESSION).
