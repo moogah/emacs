@@ -161,6 +161,30 @@
       (expect 'tab-bar-new-tab :not :to-have-been-called)
       (expect (file-exists-p gone) :to-be nil))))
 
+(describe "workspace-new default-path refuses a NAME that is not a single directory name"
+  ;; register/invariant/registry-name-equals-basename: the registry key
+  ;; must equal the home's basename.  A NAME with a separator, an absolute
+  ;; or ~ path, . or .. would register under a key that is not the
+  ;; directory's basename (and could land on another workspace's home).
+  (before-each
+    (wnd-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through))
+  (after-each (wnd-spec--cleanup))
+
+  (it "refuses sub/acme, ../ext/x, an absolute path, ~/x, ., .. and the empty name before any work"
+    (dolist (bad (list "sub/acme" "../ext/x"
+                       (expand-file-name "abs" wnd-spec--tmp-parent)
+                       "~/x" "." ".." ""))
+      (expect (workspace-new bad)
+              :to-throw 'user-error
+              (list (format "Workspace name must be a single directory name (no /, ~, . or ..): %S"
+                            bad))))
+    (expect (hash-table-count workspace--registry) :to-equal 0)
+    (expect 'workspace-scaffold :not :to-have-been-called)
+    (expect 'tab-bar-new-tab :not :to-have-been-called)
+    (expect (directory-files wnd-spec--tmp-parent nil "\\`[^.]") :to-equal nil)))
+
 (describe "workspace-new default-path scaffold failure"
   (before-each
     (wnd-spec--reset)

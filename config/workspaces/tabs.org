@@ -330,6 +330,21 @@ is opened.  Returns nil for a local HOME."
      "Workspace homes must be local; remote (TRAMP) directories are not supported: %s"
      home)))
 
+(defun workspace--refuse-non-basename (name)
+  "Signal `user-error' unless NAME is a single directory name.
+The registry key must equal the home's basename
+\(=register/invariant/registry-name-equals-basename=), so a name with
+a directory separator, an absolute or =~= path, =.=, =..= or nothing
+at all is refused before any filesystem work."
+  (when (or (not (stringp name))
+            (equal name "")
+            (member name '("." ".."))
+            (not (string= name (file-name-nondirectory name)))
+            (file-name-absolute-p name))
+    (user-error
+     "Workspace name must be a single directory name (no /, ~, . or ..): %S"
+     name)))
+
 (defun workspace--refuse-taken-name (name)
   "Signal `user-error' when a workspace is already registered as NAME.
 The registry is keyed by name, so registering another workspace under
@@ -486,6 +501,7 @@ registration (and after the initial commit) we fire
 `workspace--dispatch-create-integrations' with the `fresh' context so
 integrations can react to the new workspace; a failing integration
 never blocks the already-clean workspace (design Decision 4)."
+  (workspace--refuse-non-basename name)
   (let* ((home (expand-file-name
                 name
                 workspaces-default-parent-directory)))

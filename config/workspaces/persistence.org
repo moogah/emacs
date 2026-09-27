@@ -655,7 +655,9 @@ new path or `workspace-purge' to remove the registry entry."
   (let ((ws (gethash name workspace--registry)))
     (when (and ws (workspace--broken-p ws))
       (user-error
-       "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'."
+       (if (file-remote-p (workspace--home ws))
+           "Workspace %s is broken: :home %s is remote, and remote workspace homes are not supported. Use `workspace-re-anchor' or `workspace-delete'."
+         "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'.")
        name (workspace--home ws))))
   (if-let ((idx (workspace--tab-index-for name)))
       (tab-bar-select-tab idx)
