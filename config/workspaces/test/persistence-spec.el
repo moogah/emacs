@@ -313,12 +313,20 @@
     (expect noninteractive :to-be-truthy))
 
   (it "never resolves the real per-machine state dir with no override"
-    (let ((workspace-state-directory-override nil))
-      (expect (workspace--state-directory)
-              :not :to-match "/state/workspaces/")
-      (expect (file-in-directory-p (workspace--state-directory)
-                                   temporary-file-directory)
-              :to-be-truthy)))
+    (let* ((workspace-state-directory-override nil)
+           (dir (workspace--state-directory))
+           (created (not (file-exists-p dir))))
+      (expect dir :not :to-match "/state/workspaces/")
+      ;; Containment by core's ONE predicate (file identity), which
+      ;; needs the directory to exist: create this process's own sandbox
+      ;; if absent, and remove it again (non-recursively) only if created.
+      (unwind-protect
+          (progn
+            (make-directory dir t)
+            (expect (workspace--path-within-p dir temporary-file-directory)
+                    :to-be-truthy))
+        (when created
+          (delete-directory dir)))))
 
   (it "honours workspace-state-directory-override when set"
     (let ((workspace-state-directory-override "/tmp/ws-override-sentinel"))

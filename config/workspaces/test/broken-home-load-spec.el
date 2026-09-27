@@ -15,6 +15,7 @@
 (require 'cl-lib)
 (require 'tab-bar)
 (require 'frameset)
+(require 'seq)
 
 (let ((dir (file-name-directory (or load-file-name buffer-file-name))))
   (load (expand-file-name "../data-model.el" dir))
@@ -135,6 +136,106 @@
         (let ((alpha (gethash "alpha" workspace--registry)))
           (expect alpha :not :to-be nil)
           (expect (workspace--broken-p alpha) :to-be nil))))))
+
+;;; Remote (TRAMP) :home in the state file (user decision 2026-09-27:
+;;; remote workspace homes are unsupported).  Loaded TAGGED BROKEN with no
+;;; filesystem call on it, one warning naming it; never signals, never
+;;; dropped.
+
+(defconst broken-home-load-spec--remote-prefix "/wshl-remote:"
+  "Prefix of the stand-in remote file names below.")
+
+(defvar broken-home-load-spec--remote-touches nil
+  "Filesystem operations the stand-in remote handler was asked, newest first.")
+
+(defun broken-home-load-spec--remote-handler (operation &rest args)
+  "A stand-in for TRAMP: names under the remote prefix are remote.
+`file-remote-p' answers the prefix without connecting, as TRAMP does;
+pure file-NAME operations use the default implementation.  Any other
+operation is a filesystem touch (a real connection under TRAMP): it is
+recorded and SIGNALS, so a load that stats the remote home fails the
+spec instead of connecting anywhere."
+  (let ((inhibit-file-name-handlers
+         (cons 'broken-home-load-spec--remote-handler inhibit-file-name-handlers))
+        (inhibit-file-name-operation operation))
+    (pcase operation
+      ('file-remote-p broken-home-load-spec--remote-prefix)
+      ((or 'expand-file-name 'file-name-as-directory 'directory-file-name
+           'file-name-directory 'file-name-nondirectory
+           'file-name-sans-versions 'substitute-in-file-name
+           'file-name-case-insensitive-p 'abbreviate-file-name)
+       (apply operation args))
+      (_
+       (push operation broken-home-load-spec--remote-touches)
+       (error "Remote filesystem touched: %S %S" operation args)))))
+
+(describe "A remote :home in the state file"
+  :var (remote-home local-home missing-home remote-groups)
+  (before-each
+    (broken-home-load-spec--reset)
+    (setq broken-home-load-spec--remote-touches nil
+          remote-home (concat broken-home-load-spec--remote-prefix "/srv/r/")
+          local-home (file-name-as-directory
+                      (expand-file-name "local" broken-home-load-spec--tmp-dir))
+          missing-home (file-name-as-directory
+                        (expand-file-name "gone" broken-home-load-spec--tmp-dir))
+          remote-groups '((:name "home" :layouts nil)))
+    (make-directory local-home t)
+    (spy-on 'display-warning :and-return-value nil))
+  (after-each (broken-home-load-spec--cleanup))
+
+  (it "is loaded broken without any filesystem call on it, with one warning naming it, and its siblings still load"
+    (broken-home-load-spec--with-state-file
+      (broken-home-load-spec--write-raw
+       `(:version 3
+                  :workspaces ((:name "before" :home ,local-home
+                                      :recent-layout-group nil
+                                      :buffer-files nil :layout-groups nil)
+                               (:name "r" :home ,remote-home
+                                      :recent-layout-group "home"
+                                      :buffer-files nil
+                                      :layout-groups ,remote-groups)
+                               (:name "gone" :home ,missing-home
+                                      :recent-layout-group nil
+                                      :buffer-files nil :layout-groups nil))))
+      (let ((file-name-handler-alist
+             (cons (cons (concat "\\`" (regexp-quote
+                                         broken-home-load-spec--remote-prefix))
+                         #'broken-home-load-spec--remote-handler)
+                   file-name-handler-alist)))
+        (expect (file-remote-p remote-home) :to-be-truthy)
+        (workspace--restore)
+        ;; Never contacted.
+        (expect broken-home-load-spec--remote-touches :to-be nil)
+        ;; Kept, tagged broken, data verbatim.
+        (let ((r (gethash "r" workspace--registry)))
+          (expect r :not :to-be nil)
+          (expect (workspace--broken-p r) :to-be t)
+          (expect (workspace--home r) :to-equal remote-home)
+          (expect (workspace--layout-groups r) :to-equal remote-groups))
+        ;; One warning, naming the entry and its home.
+        (expect 'display-warning :to-have-been-called-times 1)
+        (let ((args (spy-calls-args-for 'display-warning 0)))
+          (expect (nth 0 args) :to-be 'workspaces)
+          (expect (nth 1 args) :to-match "\"r\"")
+          (expect (nth 1 args) :to-match (regexp-quote remote-home))
+          (expect (nth 1 args) :to-match "not supported"))
+        ;; Siblings on either side loaded normally.
+        (expect (workspace--broken-p (gethash "before" workspace--registry))
+                :to-be nil)
+        (expect (workspace--broken-p (gethash "gone" workspace--registry))
+                :to-be t)
+        ;; It is never restored (refused as broken, still uncontacted) ...
+        (expect (workspace-restore "r") :to-throw 'user-error)
+        (expect broken-home-load-spec--remote-touches :to-be nil)
+        ;; ... and it survives the next save, without the runtime tag.
+        (let ((saved (seq-find (lambda (ws) (equal (plist-get ws :name) "r"))
+                               (plist-get (workspace--serialize-registry)
+                                          :workspaces))))
+          (expect saved :not :to-be nil)
+          (expect (plist-get saved :home) :to-equal remote-home)
+          (expect (plist-get saved :layout-groups) :to-equal remote-groups)
+          (expect (plist-member saved :broken) :to-be nil))))))
 
 (provide 'broken-home-load-spec)
 ;;; broken-home-load-spec.el ends here

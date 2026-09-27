@@ -335,6 +335,93 @@ Integration teardown is stubbed so only the safeguard and the delete run."
       (expect (gethash "vanished" workspace--registry) :not :to-be nil)
       (expect 'workspace--flush-state :not :to-have-been-called))))
 
+(defmacro wdp-spec--recording-deletes (var &rest body)
+  "Run BODY with `delete-directory' recording its arguments onto VAR.
+Nothing is deleted."
+  (declare (indent 1))
+  `(cl-letf (((symbol-function 'delete-directory)
+              (lambda (&rest args) (push args ,var) nil)))
+     ,@body))
+
+(describe "workspace-purge scope is STRICT: the default parent itself needs C-u"
+  ;; The containment predicate is reflexive (a path is within itself).  A
+  ;; workspace anchored AT the default parent must not pass the safeguard:
+  ;; one "yes" would recursively delete every workspace below it.
+  ;; Every purge here runs inside `wdp-spec--recording-deletes', which
+  ;; records `delete-directory' calls instead of deleting, so even with
+  ;; the production change reverted nothing is deleted.  (A scoped
+  ;; `cl-letf', not a spy: a spy would still be active in `after-each'
+  ;; and stop the temp-dir cleanup.)
+  :var (deleted)
+  (before-each
+    (wdp-spec--reset)
+    (setq deleted nil)
+    (spy-on 'workspace--flush-state :and-return-value nil)
+    (spy-on 'workspace--dispatch-purge-integrations :and-return-value nil))
+  (after-each (wdp-spec--cleanup))
+
+  (it "is out of scope at the predicate, for the parent and a symlinked spelling of it"
+    (let ((link (expand-file-name "link-to-parent" wdp-spec--tmp-external)))
+      (make-symbolic-link (directory-file-name wdp-spec--tmp-parent) link)
+      (expect (workspace--purge-in-scope-p wdp-spec--tmp-parent) :to-be nil)
+      (expect (workspace--purge-in-scope-p
+               (directory-file-name wdp-spec--tmp-parent))
+              :to-be nil)
+      (expect (workspace--purge-in-scope-p (file-name-as-directory link))
+              :to-be nil)
+      ;; A proper descendant is still in scope, present or vanished.
+      (let ((child (wdp-spec--seed-home
+                    (expand-file-name "child" wdp-spec--tmp-parent))))
+        (expect (workspace--purge-in-scope-p child) :to-be-truthy))
+      (expect (workspace--purge-in-scope-p
+               (expand-file-name "vanished/" wdp-spec--tmp-parent))
+              :to-be-truthy)))
+
+  (it "refuses a workspace anchored at the default parent without C-u; nothing is prompted or deleted"
+    (let* ((parent-home (file-name-as-directory wdp-spec--tmp-parent))
+           (sibling (wdp-spec--seed-home
+                     (expand-file-name "sibling" wdp-spec--tmp-parent)))
+           (prompt-calls 0)
+           (err nil))
+      (wdp-spec--make-workspace "parent" parent-home)
+      (wdp-spec--make-workspace "sibling" sibling)
+      (cl-letf (((symbol-function 'yes-or-no-p)
+                 (lambda (&rest _) (cl-incf prompt-calls) t)))
+        (let ((current-prefix-arg nil))
+          (wdp-spec--recording-deletes deleted
+            (setq err (condition-case e
+                          (progn (workspace-purge "parent") nil)
+                        (user-error e))))))
+      (expect err :not :to-be nil)
+      (expect (error-message-string err) :to-match "Refusing to purge")
+      (expect prompt-calls :to-equal 0)
+      (expect deleted :to-be nil)
+      (expect 'workspace--flush-state :not :to-have-been-called)
+      (expect (gethash "parent" workspace--registry) :not :to-be nil)
+      (expect (file-directory-p sibling) :to-be t)))
+
+  (it "refuses a symlinked spelling of the default parent without C-u"
+    (let* ((link (expand-file-name "link-to-parent" wdp-spec--tmp-external))
+           (err nil))
+      (make-symbolic-link (directory-file-name wdp-spec--tmp-parent) link)
+      (wdp-spec--make-workspace "link-to-parent" (file-name-as-directory link))
+      (wdp-spec--recording-deletes deleted
+        (setq err (wdp-spec--purge-in-scope "link-to-parent")))
+      (expect err :not :to-be nil)
+      (expect (error-message-string err) :to-match "Refusing to purge")
+      (expect deleted :to-be nil)
+      (expect (gethash "link-to-parent" workspace--registry) :not :to-be nil)))
+
+  (it "with C-u, the parent is purgeable like any external home"
+    (let ((parent-home (file-name-as-directory wdp-spec--tmp-parent)))
+      (wdp-spec--make-workspace "parent" parent-home)
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+        (let ((current-prefix-arg '(4)))
+          (wdp-spec--recording-deletes deleted
+            (workspace-purge "parent"))))
+      (expect (gethash "parent" workspace--registry) :to-be nil)
+      (expect deleted :to-equal (list (list parent-home t))))))
+
 (describe "workspace-purge broken-home"
   (before-each
     (wdp-spec--reset)

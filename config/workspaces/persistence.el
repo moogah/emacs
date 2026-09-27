@@ -87,7 +87,7 @@ Does NOT create tabs — startup hydrates the registry only; tabs are
 materialized later by the explicit `workspace-restore' command.  Assumes
 STATE has already been version-checked by `workspace--read-state'.
 
-Three filtering rules apply per entry (design.md §D5, §D6; cycle-2
+Four filtering rules apply per entry (design.md §D5, §D6; cycle-2
 architect finding =arch-cycle-20260525-213500-04= for the
 absolute-path arm):
 
@@ -104,6 +104,15 @@ absolute-path arm):
   requirement (the constructor =workspace--make= is the other entry
   point, but we cannot rely on it for hand-edited or corrupted
   persistence files).
+
+- Entries whose =:home= is remote (TRAMP) are tagged broken via
+  `workspace--mark-broken' WITHOUT any filesystem call on the home
+  (stat'ing it would open a connection at startup), with one
+  `display-warning' naming the entry.  Remote workspace homes are not
+  supported (user decision 2026-09-27); the entry is kept rather than
+  skipped, so its layouts survive the next save, and being broken it
+  is never restored.  It never signals, so one such entry cannot
+  abort the load of its siblings.
 
 - Entries whose =:home= directory does not exist on disk are tagged
   via `workspace--mark-broken' before insertion.  The broken tag is
@@ -124,6 +133,20 @@ absolute-path arm):
           (message
            "Workspaces: skipping persisted entry %S — :home %S is not absolute"
            name home))
+         ((file-remote-p home)
+          ;; Remote homes are not supported (user decision 2026-09-27).
+          ;; No filesystem call on HOME: stat'ing it would open a
+          ;; connection at startup.  Kept (so its data survives the next
+          ;; save) and tagged broken (so it is never restored or opened).
+          (display-warning
+           'workspaces
+           (format
+            "Workspace %S has a remote :home %s. Remote workspace homes are not supported; it was loaded broken and not contacted. Use `workspace-re-anchor' to point it at a local directory, or `workspace-delete' to unregister it."
+            name home)
+           :warning)
+          (let ((with-broken (workspace--mark-broken ws)))
+            (puthash name with-broken workspace--registry)
+            (push with-broken restored)))
          (t
           (let* ((broken-p (not (file-directory-p home)))
                  (with-broken (if broken-p

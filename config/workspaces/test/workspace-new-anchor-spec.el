@@ -381,6 +381,13 @@ filesystem with a remote home fails loudly instead of connecting."
        (push operation wna-spec--remote-touches)
        (error "Remote filesystem touched: %S %S" operation args)))))
 
+(defun wna-spec--remote-refusal (home)
+  "The `user-error' data `workspace--refuse-remote-home' signals for HOME.
+Every remote spec asserts THIS message, so each one fails when the
+remote refusal is removed, rather than passing on another guard."
+  (list (concat "Workspace homes must be local; remote (TRAMP)"
+                " directories are not supported: " home)))
+
 (defmacro wna-spec--with-remote-names (&rest body)
   "Run BODY with `wna-spec--remote-handler' serving remote names."
   (declare (indent 0))
@@ -404,9 +411,7 @@ filesystem with a remote home fails loudly instead of connecting."
     (spy-on 'file-exists-p :and-call-through)
     (let ((remote "/ssh:wsna-nohost.invalid:/srv/proj/"))
       (expect (workspace--refuse-remote-home remote)
-              :to-throw 'user-error
-              (list (concat "Workspace homes must be local; remote (TRAMP)"
-                            " directories are not supported: " remote)))
+              :to-throw 'user-error (wna-spec--remote-refusal remote))
       (expect (workspace--refuse-remote-home wna-spec--tmp-dir) :to-be nil))
     (expect 'file-attributes :not :to-have-been-called)
     (expect 'file-exists-p :not :to-have-been-called))
@@ -415,7 +420,8 @@ filesystem with a remote home fails loudly instead of connecting."
     (wna-spec--with-remote-names
       (let ((home (concat wna-spec--remote-prefix "/srv/proj/")))
         (expect (file-remote-p home) :to-be-truthy)
-        (expect (wna-spec--call-anchor home) :to-throw 'user-error)
+        (expect (wna-spec--call-anchor home)
+                :to-throw 'user-error (wna-spec--remote-refusal home))
         (expect wna-spec--remote-touches :to-be nil)
         ;; Refused before the duplicate-home guard, whose nil for a remote
         ;; name would mean "cannot tell", not "not registered".
@@ -424,24 +430,35 @@ filesystem with a remote home fails loudly instead of connecting."
         (expect 'tab-bar-new-tab :not :to-have-been-called)
         (expect (hash-table-count workspace--registry) :to-equal 0))))
 
-  (it "C-u workspace-new refuses a second anchor of a registered remote home, keeping the entry"
-    ;; The consequence the refusal exists for: the duplicate-home guard
-    ;; cannot see a remote home, so without the refusal this anchor would
-    ;; replace the registered workspace.
+  (it "C-u workspace-new refuses a remote ALIAS of a registered remote home, keeping the entry"
+    ;; The case only the remote refusal catches.  The alias (another mount
+    ;; path of the same remote directory) has a DIFFERENT basename, so the
+    ;; registry-name guard does not fire, and the duplicate-home guard
+    ;; cannot compare remote names.  Without the refusal the anchor would
+    ;; go on to the filesystem (here the stand-in handler signals) and
+    ;; register a second workspace on the registered one's directory.
     (wna-spec--with-remote-names
       (let* ((home (concat wna-spec--remote-prefix "/srv/proj/"))
+             (alias (concat wna-spec--remote-prefix "/mnt/proj-alias/"))
              (original (workspace--make "proj" home)))
         (puthash "proj" original workspace--registry)
-        (expect (wna-spec--call-anchor home) :to-throw 'user-error)
+        (expect (wna-spec--call-anchor alias)
+                :to-throw 'user-error (wna-spec--remote-refusal alias))
         (expect (gethash "proj" workspace--registry) :to-be original)
+        (expect (gethash "proj-alias" workspace--registry) :to-be nil)
+        (expect (hash-table-count workspace--registry) :to-equal 1)
         (expect wna-spec--remote-touches :to-be nil)
+        (expect 'workspace--registered-for-home-p :not :to-have-been-called)
         (expect 'tab-bar-new-tab :not :to-have-been-called))))
 
   (it "workspace-new refuses a remote default parent before any filesystem work"
     (wna-spec--with-remote-names
       (setq workspaces-default-parent-directory
             (concat wna-spec--remote-prefix "/srv/"))
-      (expect (workspace-new "proj") :to-throw 'user-error)
+      (expect (workspace-new "proj")
+              :to-throw 'user-error
+              (wna-spec--remote-refusal
+               (concat wna-spec--remote-prefix "/srv/proj")))
       (expect wna-spec--remote-touches :to-be nil)
       (expect 'workspace-scaffold :not :to-have-been-called)
       (expect 'tab-bar-new-tab :not :to-have-been-called)
@@ -457,7 +474,9 @@ filesystem with a remote home fails loudly instead of connecting."
       (wna-spec--with-remote-names
         (expect (workspace-re-anchor
                  "proj" (concat wna-spec--remote-prefix "/srv/proj/"))
-                :to-throw 'user-error)
+                :to-throw 'user-error
+                (wna-spec--remote-refusal
+                 (concat wna-spec--remote-prefix "/srv/proj/")))
         (expect wna-spec--remote-touches :to-be nil))
       (expect (gethash "proj" workspace--registry) :to-be original)
       (expect 'workspace--flush-state :not :to-have-been-called))))
