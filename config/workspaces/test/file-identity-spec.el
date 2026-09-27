@@ -14,7 +14,11 @@
 ;;     unequal; each race spec shows that as a control;
 ;;   - the two core call sites routed to it, each under the same race:
 ;;     `workspace--registered-for-home-p' (tabs.el) and
-;;     `jf/workspace--worktree-children' (git-worktrees.el).
+;;     `jf/workspace--worktree-children' (git-worktrees.el);
+;;   - the ONE containment predicate built on it, `workspace--path-within-p'
+;;     (data-model.el), under the same race, with `file-in-directory-p'
+;;     (which ends in `file-equal-p') as the control.  Its core call site,
+;;     the purge safeguard, is pinned in workspace-delete-purge-spec.el.
 
 (require 'buttercup)
 (require 'cl-lib)
@@ -207,6 +211,101 @@ value."
             (accept-process-output nil 0.05))))
       (expect calls :to-be-greater-than 100)
       (expect wrong :to-equal 0))))
+
+
+;;; The containment predicate
+
+(describe "workspace--path-within-p"
+  (before-each (file-identity-spec--make-root))
+  (after-each (file-identity-spec--delete-root))
+
+  (it "is true for a directory itself and for paths inside it, under different spellings"
+    (let* ((root file-identity-spec--root)
+           (dir (expand-file-name "d" root))
+           (file (expand-file-name "d/sub/f.txt" root)))
+      (make-directory (file-name-directory file) t)
+      (write-region "" nil file nil 'silent)
+      (expect (workspace--path-within-p dir dir) :to-be-truthy)
+      (expect (workspace--path-within-p file dir) :to-be-truthy)
+      (expect (workspace--path-within-p file (file-name-as-directory dir))
+              :to-be-truthy)
+      (expect (workspace--path-within-p (file-truename file) dir) :to-be-truthy)
+      (expect (workspace--path-within-p file (file-truename dir)) :to-be-truthy)))
+
+  (it "compares whole directories, not name prefixes"
+    (let* ((root file-identity-spec--root)
+           (ws (expand-file-name "ws" root))
+           (ws-old (expand-file-name "ws-old" root)))
+      (make-directory ws)
+      (make-directory ws-old)
+      (expect (workspace--path-within-p ws-old ws) :to-be nil)
+      (expect (workspace--path-within-p ws ws-old) :to-be nil)
+      (expect (workspace--path-within-p ws root) :to-be-truthy)
+      (expect (workspace--path-within-p root ws) :to-be nil)))
+
+  (it "is true for a differently cased spelling of the directory on a case-insensitive disk"
+    (let* ((root file-identity-spec--root)
+           (dir (expand-file-name "CaseDir" root))
+           (file (expand-file-name "f.txt" dir)))
+      (make-directory dir)
+      (write-region "" nil file nil 'silent)
+      (assume (file-name-case-insensitive-p dir) "case-sensitive filesystem")
+      (let ((flipped (expand-file-name "casedir" root)))
+        ;; Control: the spelling comparison misses it.
+        (expect (file-in-directory-p file flipped) :to-be nil)
+        (expect (workspace--path-within-p file flipped) :to-be-truthy))))
+
+  (it "is nil when either path does not exist, or DIR is not a directory"
+    (let* ((root file-identity-spec--root)
+           (missing (expand-file-name "missing/f.txt" root))
+           (file (expand-file-name "f.txt" root)))
+      (write-region "" nil file nil 'silent)
+      (expect (workspace--path-within-p missing root) :to-be nil)
+      (expect (workspace--path-within-p file (expand-file-name "missing" root))
+              :to-be nil)
+      (expect (workspace--path-within-p file file) :to-be nil)))
+
+  (it "is nil for a non-string"
+    (expect (workspace--path-within-p nil file-identity-spec--root) :to-be nil)
+    (expect (workspace--path-within-p file-identity-spec--root nil) :to-be nil))
+
+  (it "is nil for a remote name and makes no filesystem call for it"
+    (spy-on 'file-attributes :and-call-through)
+    (spy-on 'file-truename :and-call-through)
+    (spy-on 'file-exists-p :and-call-through)
+    (let ((remote "/ssh:wsid-nohost.invalid:/tmp/"))
+      (expect (workspace--path-within-p remote file-identity-spec--root)
+              :to-be nil)
+      (expect (workspace--path-within-p file-identity-spec--root remote)
+              :to-be nil))
+    (expect 'file-attributes :not :to-have-been-called)
+    (expect 'file-truename :not :to-have-been-called)
+    (expect 'file-exists-p :not :to-have-been-called))
+
+  (it "never signals, answering nil instead"
+    (spy-on 'file-truename :and-call-fake
+            (lambda (&rest _) (error "Simulated truename failure")))
+    (expect (workspace--path-within-p file-identity-spec--root
+                                      file-identity-spec--root)
+            :to-be nil))
+
+  (it "is true for a path inside a directory whose timestamps change between reads"
+    (let* ((dir file-identity-spec--root)
+           (sub (expand-file-name "sub" dir)))
+      (make-directory sub)
+      (file-identity-spec--with-timestamp-drift
+        ;; Control: `file-in-directory-p' ends in `file-equal-p'.
+        (expect (file-in-directory-p sub dir) :to-be nil)
+        (expect (workspace--path-within-p sub dir) :to-be-truthy))))
+
+  (it "is true for a path inside a directory written to between reads"
+    (let* ((dir file-identity-spec--root)
+           (sub (expand-file-name "sub" dir)))
+      (make-directory sub)
+      (file-identity-spec--with-write-between-reads dir
+        (expect (file-in-directory-p sub dir) :to-be nil)
+        (expect (workspace--path-within-p sub dir) :to-be-truthy)
+        (expect writes :to-be-greater-than 2)))))
 
 
 ;;; Core site 1 — tabs.el, the duplicate-home guard

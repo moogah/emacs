@@ -168,6 +168,11 @@ register/invariant/broken-tag-runtime-only and the cycle-2
 architect-pinned contract.  Registry rename is a remhash/puthash pair;
 collisions are guarded.
 
+Remote workspace homes are not supported (user decision, 2026-09-27;
+see =tabs.org= § Commands): a remote (TRAMP) NEW-HOME is refused with a
+=user-error= by =workspace--refuse-remote-home=, before any filesystem
+work, like every other command that puts a home into the registry.
+
 #+begin_src emacs-lisp
 (defun workspace-re-anchor (name new-home)
   "Point broken workspace NAME at NEW-HOME on the filesystem.
@@ -177,7 +182,9 @@ Clears the broken-state tag and updates `:home'.  If
 from NAME, the registry entry is renamed to match the new basename
 (per the registry-name-equals-basename invariant).
 
-The new path must exist and must be a directory."
+The new path must be local (remote workspace homes are not supported;
+refused before any filesystem work), must exist and must be a
+directory."
   (interactive
    (list (completing-read "Re-anchor workspace: "
                           (workspace--registered-names) nil t)
@@ -186,6 +193,7 @@ The new path must exist and must be a directory."
   (let ((ws (gethash name workspace--registry)))
     (unless ws
       (user-error "No workspace named %s" name))
+    (workspace--refuse-remote-home new-home)
     (unless (file-directory-p new-home)
       (user-error "Not a directory: %s" new-home))
     (let* ((new-name (file-name-nondirectory
@@ -261,7 +269,39 @@ a half-deleted directory, which is strictly worse.
 =workspace--tab-index-for= returns a 1-based index suitable for
 =tab-bar-close-tab= directly (no =1+= bridge).
 
+The scope safeguard decides containment with core's ONE containment
+predicate, =workspace--path-within-p= (=data-model.org= § Containment),
+never =file-in-directory-p=: that one compares spellings case-sensitively
+and ends in =file-equal-p=, so a differently-cased spelling of the
+default parent, or the parent being written to during the check, made it
+refuse a workspace that IS under the parent — and each spurious refusal
+told the user to add =C-u=, which disables the safeguard.  The predicate
+answers nil for a path that does not exist, but a broken workspace's
+=:home= has gone, and its purge (registry cleanup only) must stay in
+scope when it was under the parent.  So a missing =:home= is judged by
+its nearest existing ancestor: a vanished home under the parent is in
+scope, one under an external tree is not, as before.  A remote =:home=
+is never in scope.
+
 #+begin_src emacs-lisp
+(defun workspace--purge-in-scope-p (home)
+  "Return non-nil when HOME lies inside `workspaces-default-parent-directory'.
+Decided by `workspace--path-within-p' (file identity, never spelling).
+A HOME that no longer exists (a broken workspace) is judged by its
+nearest existing ancestor, so a vanished home under the parent is in
+scope and one under an external tree is not.  Nil for a remote HOME.
+Never signals."
+  (and (stringp home)
+       (not (file-remote-p home))
+       (let ((path (directory-file-name (expand-file-name home)))
+             (previous nil))
+         ;; The `equal' is the loop guard at the filesystem root, not a
+         ;; containment verdict.
+         (while (and (not (file-exists-p path)) (not (equal path previous)))
+           (setq previous path
+                 path (directory-file-name (file-name-directory path))))
+         (workspace--path-within-p path workspaces-default-parent-directory))))
+
 (defun workspace-delete (name)
   "Remove workspace NAME from the registry and close its tab.
 The home directory and all its contents (including .git/, home.org,
@@ -315,7 +355,7 @@ purge as =:allowed= on broken)."
     ;; the destructive prompt without a deliberate two-step opt-in
     ;; (design.md §D8).
     (unless (or current-prefix-arg
-                (file-in-directory-p home workspaces-default-parent-directory))
+                (workspace--purge-in-scope-p home))
       (user-error
        "Refusing to purge %s; outside %s. Use `C-u M-x workspace-purge' to override."
        home workspaces-default-parent-directory))

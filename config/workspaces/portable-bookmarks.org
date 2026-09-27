@@ -22,10 +22,11 @@ core (=register/boundary/portable-bookmarks-consumer=).  The one-way rule:
   (=workspace--registry=, =workspace--current-name=, =workspace--broken-p=,
   =workspace-restore=), and it reads core's one signal to consumers,
   =workspace--restoring-layout-leaf= (bound by =layouts.el= while a
-  layout leaf is restored), guarded by =boundp=.  It also reads core's
-  integration registry, =workspace--integrations=, guarded by =boundp=,
-  for one question only: whether git-worktrees' add-worktree command is
-  registered (see "What is offered, and why not").
+  layout leaf is restored), guarded by =boundp=.  It also asks core's
+  integration registry one question through its accessor,
+  =workspace--integration-menu-command-p= (guarded by =fboundp=):
+  whether git-worktrees' add-worktree command is registered (see "What
+  is offered, and why not").  It never reads the registry's shape.
 - Workspaces CORE (=data-model= / =integrations= / =workspaces= / =tabs= /
   =persistence= / =layouts= / =workspaces-mode= / =workspaces-transient=)
   MUST NEVER name a =workspace-bookmark-*= symbol.  The single permitted
@@ -325,8 +326,13 @@ clone =canonical=.  The reviewer measured 4,817 wrong =canonical= answers
 in 20,000 =--classify= calls while a shell loop created and removed one
 file in the home.
 
+"Is this path inside that directory?" is core's ONE containment
+predicate, =workspace--path-within-p= (=data-model.org= § Containment),
+built on the identity predicate; this module keeps no copy of it either.
+
 #+begin_src emacs-lisp
 (declare-function workspace--same-file-p "data-model" (a b))
+(declare-function workspace--path-within-p "data-model" (path dir))
 #+end_src
 
 * Repository identity
@@ -1440,8 +1446,10 @@ command is always defined, and only its REGISTRATION as the
 =git-worktree= integration's menu command waits for magit.  Without
 magit, calling it fails on its first magit call and nothing opens.  So
 the command counts as runnable only when it is also registered as some
-integration's menu command in core's =workspace--integrations= — the
-same condition under which the workspace menu offers it as "w".  With
+integration's menu command — asked of core through its accessor
+=workspace--integration-menu-command-p=, never by reading core's
+registry shape — the same condition under which the workspace menu
+offers it as "w".  With
 magit absent the option is therefore absent, with its reason, rather
 than an error.  The question is asked of core's registry, so this
 module still names no magit symbol and no second git-worktrees symbol.
@@ -1470,21 +1478,19 @@ entries are offered is decided by
 `workspace-bookmark--missing-repo-withheld'; what each does, by
 `workspace-bookmark--offer-missing-repo'.")
 
-(defvar workspace--integrations)
+(declare-function workspace--integration-menu-command-p "integrations" (command))
 
 (defun workspace-bookmark--add-worktree-runnable-p ()
   "Return non-nil when git-worktrees' add-worktree command can run.
 That is when `jf/workspace--add-worktree' is defined AND registered as
-the menu command of an integration in core's `workspace--integrations'
-\(read only when bound).  git-worktrees defines the command whether or
-not magit is loaded, but registers it only once magit is, and the
-command needs magit."
+the menu command of an integration, asked of core through
+`workspace--integration-menu-command-p' (called only when bound).
+git-worktrees defines the command whenever it is loaded, but it can run
+only once the integration that provides it has registered it, which
+waits for the command's own dependencies."
   (and (fboundp 'jf/workspace--add-worktree)
-       (boundp 'workspace--integrations)
-       (seq-some (lambda (entry)
-                   (eq (cdr-safe (plist-get (cdr-safe entry) :menu))
-                       'jf/workspace--add-worktree))
-                 workspace--integrations)
+       (fboundp 'workspace--integration-menu-command-p)
+       (workspace--integration-menu-command-p 'jf/workspace--add-worktree)
        t))
 
 (defun workspace-bookmark--missing-repo-withheld (resolution workspace)
@@ -1933,8 +1939,14 @@ there — nothing restored, nothing opened, nothing else asked.  The user
 has abandoned the jump, and answering a C-g with the fallback's own
 question would be a second prompt for one gesture (DD-4: one prompt,
 one message).  An EMPTY answer is different: it is an answer, "no
-workspace", and the fallback below acts on it.  An empty registry asks
-nothing and goes straight to the fallback.
+workspace", and the fallback below acts on it — but only when no
+workspace holds a checkout of the repository.  When one does, the first
+holder is the default, and =completing-read= returns the default for
+empty input, so an empty answer restores that holder; there is no
+"no workspace" choice at the prompt then.  (Under vertico, RET takes
+the highlighted candidate; an empty answer is =M-RET=,
+=vertico-exit-input=.)  An empty registry asks nothing and goes
+straight to the fallback.
 
 *No prompt where no one can answer.*  The picker sits behind the same
 guard as the missing-repo chooser, =workspace-bookmark--can-prompt-p=:
@@ -1946,7 +1958,8 @@ be declined by this section's barrier).
 
 ** The fallback never opens the stored path
 
-With no workspace chosen — empty registry, or an empty answer — the
+With no workspace chosen — empty registry, or an empty answer when no
+workspace holds the repository — the
 seam still holds a stamped record with a stored absolute path, and the
 one thing it must not do is open that path as though it were a
 workspace copy (=register/invariant/no-silent-wrong-file-open=,
@@ -2123,9 +2136,12 @@ holds a checkout of IDENTITY."
 CANDIDATES is the non-empty list `workspace-bookmark--offerable-workspaces'
 returned for IDENTITY; it is offered through `completing-read' with a
 required match, the first holder as the default when there is one.
-Returns nil for an empty answer — \"no workspace\", which the fallback
-acts on.  Does not catch `quit': C-g ends the jump, nothing else is
-asked.  The caller has checked `workspace-bookmark--can-prompt-p'."
+With a default, an empty answer returns that default (`completing-read'
+substitutes it), so \"no workspace\" cannot be chosen.  Without one (no
+candidate holds a checkout), an empty answer returns nil — \"no
+workspace\", which the fallback acts on.  Does not catch `quit': C-g
+ends the jump, nothing else is asked.  The caller has checked
+`workspace-bookmark--can-prompt-p'."
   (let* ((default (and (cdr (car candidates)) (car (car candidates))))
          (choice (completing-read
                   (format-prompt "Restore a workspace for %s" default identity)
@@ -2939,10 +2955,11 @@ that no longer exists lies in no directory (see the containment walk
 below), so a deleted home owns nothing — neither what it used to
 contain nor what used to contain it.
 
-Containment is tested by FILE IDENTITY, never by comparing strings.
-The checkout path is truenamed, then it and each of its parent
-directories in turn is compared to the home with
-=workspace--same-file-p= (device and inode; see "Same file"),
+Containment is tested by FILE IDENTITY, never by comparing strings,
+with core's ONE containment predicate, =workspace--path-within-p=
+(=data-model.org= § Containment).  The checkout path is truenamed, then
+it and each of its parent directories in turn is compared to the home
+with =workspace--same-file-p= (device and inode; see "Same file"),
 not by spelling.  A trailing slash, a =~= spelling, macOS's =/var= →
 =/private/var= symlink and — the case that matters — a difference in
 LETTER CASE on a case-insensitive filesystem all compare correctly, and
@@ -2965,7 +2982,7 @@ is NOT inside it.  Ownership-first classification turns that miss into a
 user in workspace B.  Comparing file identity says t for the same pair.
 
 The walk stops at the filesystem root.  A path that does not exist cannot
-be proven inside anything, so it is not: =--path-within-p= requires BOTH
+be proven inside anything, so it is not: =workspace--path-within-p= requires BOTH
 arguments to exist.  That matters since ownership is asked in both
 directions — the reverse direction passes a registered HOME as the path,
 and a home can have been deleted.  (Before the existence test, a deleted
@@ -3005,35 +3022,6 @@ the workspace, a repository reachable ONLY through such a link is not
 in view, and =--workspace-checkouts= never lists it.
 
 #+begin_src emacs-lisp
-(defun workspace-bookmark--path-within-p (path dir)
-  "Return non-nil when PATH is DIR or lies inside it.
-
-Both must be local and exist (a missing PATH is inside nothing); DIR
-must be a directory.  Containment is
-by file identity: PATH is truenamed, then it and each of its ancestors
-is compared to DIR with `workspace--same-file-p', so
-differences of spelling — trailing slash, `~', symlinked prefixes, and
-letter case on a case-insensitive filesystem — do not matter, and
-neither do DIR's timestamps changing during the walk.  Never signals."
-  (and (stringp path) (stringp dir)
-       (not (file-remote-p path))
-       (not (file-remote-p dir))
-       (condition-case nil
-           (let ((current (directory-file-name
-                           (file-truename (expand-file-name path))))
-                 (previous nil)
-                 (found nil))
-             (when (and (file-exists-p (expand-file-name path))
-                        (file-directory-p (expand-file-name dir)))
-               (while (and (not found) (not (equal current previous)))
-                 (if (workspace--same-file-p current dir)
-                     (setq found t)
-                   (setq previous current
-                         current (directory-file-name
-                                  (file-name-directory current))))))
-             found)
-         (error nil))))
-
 (defun workspace-bookmark--same-repository-worktree-p (home checkout)
   "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
 HOME must be its own top level (`git rev-parse --show-toplevel' run in it
@@ -3060,7 +3048,7 @@ subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
   "Return the name of a registered workspace that owns CHECKOUT, or nil.
 A workspace owns CHECKOUT when CHECKOUT is its `:home', really lies
 inside it, or really contains it, by file identity (see
-`workspace-bookmark--path-within-p').  A contained home owns CHECKOUT
+`workspace--path-within-p').  A contained home owns CHECKOUT
 only when it is not itself a worktree of CHECKOUT's repository (see
 `workspace-bookmark--same-repository-worktree-p'), and only a home
 that exists owns anything.  Symbolic links confer nothing: a clone
@@ -3068,8 +3056,8 @@ linked into a home from outside it is not owned, and neither is a clone
 holding a link to a home.  Never signals."
   (seq-find (lambda (name)
               (let ((home (workspace-bookmark--workspace-home name)))
-                (or (workspace-bookmark--path-within-p checkout home)
-                    (and (workspace-bookmark--path-within-p home checkout)
+                (or (workspace--path-within-p checkout home)
+                    (and (workspace--path-within-p home checkout)
                          (not (workspace-bookmark--same-repository-worktree-p
                                home checkout))))))
             (workspace-bookmark--registered-names)))

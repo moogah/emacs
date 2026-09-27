@@ -253,6 +253,88 @@ delete-leaves-files-on-disk assertions are meaningful."
       (expect (file-exists-p home) :to-be nil)
       (expect 'workspace--flush-state :to-have-been-called-times 1))))
 
+(defun wdp-spec--purge-in-scope (name)
+  "Purge NAME with no prefix arg and confirmation granted; return the error or nil.
+Integration teardown is stubbed so only the safeguard and the delete run."
+  (spy-on 'workspace--dispatch-purge-integrations :and-return-value nil)
+  (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) t)))
+    (let ((current-prefix-arg nil))
+      (condition-case e
+          (progn (workspace-purge name) nil)
+        (user-error e)))))
+
+(describe "workspace-purge scope safeguard decides containment by file identity"
+  ;; The safeguard asks core's ONE containment predicate
+  ;; (`workspace--path-within-p'), never `file-in-directory-p', which
+  ;; compares spellings case-sensitively and ends in `file-equal-p'.  Each
+  ;; spec below was a spurious "Refusing to purge" under the old test.
+  (before-each
+    (wdp-spec--reset)
+    (spy-on 'workspace--flush-state :and-return-value nil))
+  (after-each (wdp-spec--cleanup))
+
+  (it "purges a home under the default parent while the parent is written to between reads"
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "myproj" wdp-spec--tmp-parent)))
+           (parent wdp-spec--tmp-parent)
+           (real-file-attributes (symbol-function 'file-attributes))
+           (writes 0)
+           (control nil)
+           (err nil))
+      (wdp-spec--make-workspace "myproj" home)
+      ;; Every `file-attributes' read is followed by a real write into the
+      ;; parent, so its modification time moves between two reads.
+      (cl-letf (((symbol-function 'file-attributes)
+                 (lambda (file &optional id-format)
+                   (prog1 (funcall real-file-attributes file id-format)
+                     (setq writes (1+ writes))
+                     (write-region "" nil
+                                   (expand-file-name
+                                    (format "wdp-write-%d" writes) parent)
+                                   nil 'silent)))))
+        ;; Control: the old test refuses under this write pattern.
+        (setq control (file-in-directory-p home parent))
+        (setq err (wdp-spec--purge-in-scope "myproj")))
+      (expect control :to-be nil)
+      (expect err :to-be nil)
+      (expect writes :to-be-greater-than 2)
+      (expect (gethash "myproj" workspace--registry) :to-be nil)
+      (expect (file-exists-p home) :to-be nil)))
+
+  (it "purges a home under a differently cased spelling of the default parent"
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "myproj" wdp-spec--tmp-parent))))
+      (assume (file-name-case-insensitive-p wdp-spec--tmp-parent)
+              "case-sensitive filesystem")
+      (setq workspaces-default-parent-directory
+            (expand-file-name
+             (upcase (file-name-nondirectory
+                      (directory-file-name wdp-spec--tmp-parent)))
+             (file-name-directory (directory-file-name wdp-spec--tmp-parent))))
+      (expect (file-directory-p workspaces-default-parent-directory) :to-be t)
+      ;; Control: the spelling comparison misses it.
+      (expect (file-in-directory-p home workspaces-default-parent-directory)
+              :to-be nil)
+      (wdp-spec--make-workspace "myproj" home)
+      (expect (wdp-spec--purge-in-scope "myproj") :to-be nil)
+      (expect (gethash "myproj" workspace--registry) :to-be nil)
+      (expect (file-exists-p home) :to-be nil)))
+
+  (it "still refuses a vanished home under an external tree without a prefix arg"
+    ;; A missing :home is judged by its nearest existing ancestor: under
+    ;; the parent it is in scope (the broken-home spec below), under an
+    ;; external tree it is not.
+    (let* ((missing (file-name-as-directory
+                     (expand-file-name "vanished" wdp-spec--tmp-external)))
+           (err nil))
+      (expect (file-exists-p missing) :to-be nil)
+      (wdp-spec--make-workspace "vanished" missing t)
+      (setq err (wdp-spec--purge-in-scope "vanished"))
+      (expect err :not :to-be nil)
+      (expect (error-message-string err) :to-match "Refusing to purge")
+      (expect (gethash "vanished" workspace--registry) :not :to-be nil)
+      (expect 'workspace--flush-state :not :to-have-been-called))))
+
 (describe "workspace-purge broken-home"
   (before-each
     (wdp-spec--reset)

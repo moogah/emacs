@@ -55,6 +55,11 @@ on disk is the source of truth.
 =workspace-new= (=C-x w n=) has two flows controlled by the prefix
 argument:
 
+Workspace homes must be local.  Remote (TRAMP) directories are not
+supported as workspace homes: =workspace-new= (either flow) and
+=workspace-re-anchor= refuse one with a =user-error= naming it, before
+touching the filesystem.
+
 ** No prefix arg — scaffold a fresh directory
 
 =workspace-new NAME= scaffolds a new directory at
@@ -98,7 +103,16 @@ already a registered workspace's =:home=.  Directories are compared by
 device and inode, not by spelling, so two spellings of the same
 directory (a trailing slash, a =~= prefix, a symlinked parent, a
 different letter case on a case-insensitive disk) are recognised as
-one.  Remote (TRAMP) homes are not supported by that check.
+one.  That comparison never opens a remote connection and cannot tell
+two remote spellings apart, which is one reason remote homes are
+refused outright (above).
+
+A second guard refuses to anchor a directory whose basename is
+already a registered workspace's name — =~/b/proj= while "proj" lives at
+=~/a/proj= — because the workspace name IS the basename, and anchoring
+would replace the existing workspace (losing its saved layouts).  The
+error names the existing workspace's home; rename one of the
+directories to anchor both.
 
 * Deleting and purging workspaces
 
@@ -732,8 +746,12 @@ workspace: the next autosave records it in the workspace's
 autosave.
 
 =C-g= at the workspace prompt ends the jump: nothing restored, nothing
-opened.  An empty answer, or no workspace to offer, means "no workspace":
-the bookmark is resolved against none, and the only thing that can
+opened.  When a workspace holds the repository, the first holder is the
+default and an empty answer (plain =RET=) restores it: "no workspace"
+is not offered then.  When no workspace holds it, an empty answer —
+=M-RET= (=vertico-exit-input=) under vertico, whose plain =RET= picks the
+highlighted candidate — or no workspace to offer at all, means "no
+workspace": the bookmark is resolved against none, and the only thing that can
 follow is the =missing-repo= choice without "add a worktree" (view
 read-only, or cancel), or a report.  In a non-interactive Emacs, or
 wherever no question may be asked, the jump declines with a message

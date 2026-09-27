@@ -93,6 +93,30 @@ order.  Returns ID."
   id)
 #+end_src
 
+* Menu-command query
+
+Consumers that need to know whether an integration's menu command is
+live — registered, so the workspace menu offers it — ask this predicate
+instead of reading =workspace--integrations='s =(ID . PLIST)= / =:menu
+(KEY . COMMAND)= shape themselves.  It walks the registry the way the
+workspace menu does (=workspace--menu-integration-children=): an entry
+counts when its =:menu= is a cons whose command is =eq= to COMMAND.
+Read-only; never signals on a malformed entry.
+
+#+begin_src emacs-lisp
+(defun workspace--integration-menu-command-p (command)
+  "Return non-nil when COMMAND is the `:menu' command of a registered integration.
+Walks `workspace--integrations' as the workspace menu does: an entry
+counts when its `:menu' is a (KEY . COMMAND) cons whose command is `eq'
+to COMMAND.  Read-only; never signals."
+  (and (cl-some (lambda (entry)
+                  (let ((menu (and (consp entry)
+                                   (plist-get (cdr-safe entry) :menu))))
+                    (and (consp menu) (eq (cdr menu) command))))
+                workspace--integrations)
+       t))
+#+end_src
+
 * Anchor payload constructor
 
 The single source of payload shape (Decision 2).  A flat, extensible

@@ -67,10 +67,15 @@
   (idsp--git dir "config" "user.name"  "Test User")
   (idsp--git dir "commit" "--allow-empty" "-q" "-m" "initial"))
 
+(defvar idsp--saved-integrations nil
+  "The live `workspace--integrations', set aside by `idsp--reset'.")
+
 (defun idsp--reset ()
-  "Reset tab-bar, registry, integration registry, and tmpdir."
+  "Reset tab-bar, registry, integration registry, and tmpdir.
+The live integration registry is set aside; `idsp--cleanup' puts it back."
   (clrhash workspace--registry)
-  (setq workspace--integrations nil)
+  (setq idsp--saved-integrations workspace--integrations
+        workspace--integrations nil)
   (let ((tabs (frame-parameter nil 'tabs)))
     (when (> (length tabs) 1)
       (dotimes (_ (1- (length tabs)))
@@ -81,7 +86,9 @@
         workspaces-default-parent-directory idsp--tmp))
 
 (defun idsp--cleanup ()
-  "Remove the per-test tmpdir tree and restore the defcustom."
+  "Remove the per-test tmpdir tree; restore the defcustom and the integration registry."
+  (setq workspace--integrations idsp--saved-integrations
+        idsp--saved-integrations nil)
   (when (and idsp--tmp (file-directory-p idsp--tmp))
     (delete-directory idsp--tmp t))
   (setq idsp--tmp nil)

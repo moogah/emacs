@@ -26,9 +26,23 @@
   "Per-test temp directory used as `workspaces-default-parent-directory'.")
 
 (defun br-spec--cleanup ()
+  "Kill every buffer in `br-spec--parent-dir', delete it, leave *scratch* current.
+`workspace-new' runs the default home builder, which `find-file's the new
+home's home.org and leaves that buffer current.  Deleting the directory
+under it would leave the specs after this one, in this file and the next,
+running in a buffer whose `default-directory' no longer exists, where
+`make-process' and `process-file' fail with `file-missing'."
   (when (and br-spec--parent-dir
              (file-directory-p br-spec--parent-dir))
-    (delete-directory br-spec--parent-dir t)))
+    (dolist (buffer (buffer-list))
+      (when (workspace--path-within-p
+             (buffer-local-value 'default-directory buffer)
+             br-spec--parent-dir)
+        (with-current-buffer buffer (set-buffer-modified-p nil))
+        (let ((kill-buffer-query-functions nil))
+          (kill-buffer buffer))))
+    (delete-directory br-spec--parent-dir t))
+  (set-buffer (get-buffer-create "*scratch*")))
 
 (defun br-spec--make-temp-file (&optional contents)
   "Create a temp file with optional CONTENTS, return its path."
@@ -489,6 +503,25 @@ Reads `workspace--restoring-layout-leaf' as a consumer must: guarded by
               (expect (buffer-live-p result) :to-be t)
               (expect (buffer-name result) :to-equal "magit: ~/repo/")))
         (when (buffer-live-p magit-buf) (kill-buffer magit-buf))))))
+
+(describe "buffer-reincarnation-spec's own cleanup"
+  ;; Runs after every describe above that calls `workspace-new'.  Their
+  ;; cleanup must not leave the current buffer, or any live buffer, in a
+  ;; directory it deleted: a later spec that spawns a subprocess would
+  ;; fail with `file-missing' in the full run only.
+  (it "leaves the current buffer in a directory that exists"
+    (expect (file-directory-p default-directory) :to-be-truthy)
+    (expect (process-file "true") :to-equal 0))
+
+  (it "leaves no live buffer in a deleted per-test directory"
+    (expect (seq-filter
+             (lambda (buffer)
+               (let ((dir (buffer-local-value 'default-directory buffer)))
+                 (and (stringp dir)
+                      (string-match-p "ws-br-spec-" dir)
+                      (not (file-directory-p dir)))))
+             (buffer-list))
+            :to-equal nil)))
 
 (provide 'buffer-reincarnation-spec)
 ;;; buffer-reincarnation-spec.el ends here

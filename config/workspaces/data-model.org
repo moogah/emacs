@@ -3,10 +3,13 @@
 #+property: header-args:emacs-lisp :tangle data-model.el
 #+auto_tangle: y
 
-Pure, side-effect-free data layer for the =workspaces= module.  The
-one exception to "pure" is the file-identity predicate
-(=workspace--same-file-p=, see [[*File identity][File identity]]),
-which reads the filesystem but writes nothing.
+Side-effect-free data layer for the =workspaces= module.  It never
+writes, holds no state beyond the registry shapes it defines, and
+reads the filesystem only in the identity and containment predicates
+(=workspace--same-file-p= and =workspace--path-within-p=, see
+[[*File identity][File identity]]), which stat paths and never read
+file contents.  Reading a file's contents (=home.org=) is
+=home-org.el='s business, not this layer's.
 
 The in-memory representation mirrors the persistent shape (design.md
 §D5) so that serialization is a direct walk of the registry, no
@@ -462,11 +465,13 @@ Nil when either path is not a local string or does not exist.  Remote
 (TRAMP) names are rejected before any filesystem call, so the predicate
 never opens a connection.  It never signals.
 
-This is the one function in this file that reads the filesystem.  It
-writes nothing and holds no state, so it keeps the data layer free of
-side effects; it lives here because =data-model.el= is the first module
-the package loads and every module that compares paths (=tabs.el=,
-=git-worktrees.el=, =portable-bookmarks.el=) loads after it.
+This predicate and the containment predicate below are the only
+functions in this file that read the filesystem.  They stat paths, never
+read file contents, write nothing and hold no state, so the data layer
+stays free of side effects.  They live here because =data-model.el= is
+the first module the package loads, and every module that compares paths
+(=tabs.el=, =git-worktrees.el=, =workspaces.el=,
+=portable-bookmarks.el=) loads after it.
 
 #+begin_src emacs-lisp
 (defun workspace--same-file-p (a b)
@@ -491,6 +496,67 @@ not exist.  Never signals."
                          (file-attribute-inode-number attrs-b))
                   (equal (file-attribute-device-number attrs-a)
                          (file-attribute-device-number attrs-b))))
+         (error nil))))
+#+end_src
+
+** Containment
+
+"Does this path lie inside that directory?" is the identity question
+asked of each ancestor, so it has ONE predicate too,
+=workspace--path-within-p=, built on =workspace--same-file-p=.  The
+path is truenamed, then it and each of its parent directories in turn is
+compared to the directory by file identity, up to the filesystem root.
+Spelling does not matter (trailing slash, =~=, a symlinked prefix such
+as macOS's =/var= → =/private/var=, letter case on a case-insensitive
+disk), whole directories are compared (=/a/ws-old= is not inside
+=/a/ws=), and the directory being written to during the walk does not
+change the answer.  A path is within itself.
+
+=file-in-directory-p= is REJECTED for containment.  It truenames both
+paths, compares their components with a case-sensitive =string-equal=,
+and ends with =file-equal-p=, so it carries both defects: a
+differently-cased spelling of a directory on this machine's disk is not
+inside it, and a directory written to between two reads is not inside
+itself.
+
+Both paths must be local and exist, and the directory must be a
+directory: a path that does not exist cannot be proven inside anything,
+so it is not.  Remote (TRAMP) names are rejected before any filesystem
+call.  It never signals.
+
+The equality test in the loop compares two spellings of the SAME walk to
+detect the root (the parent of the root is the root); it is a
+termination guard, never the verdict.
+
+#+begin_src emacs-lisp
+(defun workspace--path-within-p (path dir)
+  "Return non-nil when PATH is DIR or lies inside it.
+
+Both must be local and exist (a missing PATH is inside nothing); DIR
+must be a directory.  Containment is by file identity: PATH is
+truenamed, then it and each of its ancestors is compared to DIR with
+`workspace--same-file-p', so differences of spelling (trailing slash,
+`~', symlinked prefixes, letter case on a case-insensitive filesystem)
+do not matter, and neither do DIR's timestamps changing during the
+walk.  `file-in-directory-p' is deliberately not used: it compares
+spellings case-sensitively and ends in `file-equal-p'.  Never signals."
+  (and (stringp path) (stringp dir)
+       (not (file-remote-p path))
+       (not (file-remote-p dir))
+       (condition-case nil
+           (let ((current (directory-file-name
+                           (file-truename (expand-file-name path))))
+                 (previous nil)
+                 (found nil))
+             (when (and (file-exists-p (expand-file-name path))
+                        (file-directory-p (expand-file-name dir)))
+               (while (and (not found) (not (equal current previous)))
+                 (if (workspace--same-file-p current dir)
+                     (setq found t)
+                   (setq previous current
+                         current (directory-file-name
+                                  (file-name-directory current))))))
+             found)
          (error nil))))
 #+end_src
 

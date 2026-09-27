@@ -928,6 +928,9 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
         ;; The plist is unchanged from what was passed in.
         (expect payload :to-equal '(:name "feat" :home "/ws/home/"))))))
 
+(defvar git-worktrees-spec--saved-integrations nil
+  "The live `workspace--integrations', set aside while a registration spec runs.")
+
 (describe "workspace-git-worktrees registration gating (droppable / magit-soft)"
 
   ;; Spec `workspace-git-worktrees': the module attaches SOLELY through
@@ -937,7 +940,14 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
   ;; git integration is registered (not an error).  We exercise the gate
   ;; directly with a fresh, isolated registry — magit is never required.
 
-  (before-each (setq workspace--integrations nil))
+  (before-each
+    (setq git-worktrees-spec--saved-integrations workspace--integrations
+          workspace--integrations nil))
+  ;; Put the live registry back: the registration spec below leaves
+  ;; `git-worktree' registered in the isolated one.
+  (after-each
+    (setq workspace--integrations git-worktrees-spec--saved-integrations
+          git-worktrees-spec--saved-integrations nil))
 
   (it "is gated behind with-eval-after-load 'workspaces AND 'magit in source"
     ;; Structural guarantee that absent magit ⇒ no registration (not an

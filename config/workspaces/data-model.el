@@ -285,5 +285,35 @@ not exist.  Never signals."
                          (file-attribute-device-number attrs-b))))
          (error nil))))
 
+(defun workspace--path-within-p (path dir)
+  "Return non-nil when PATH is DIR or lies inside it.
+
+Both must be local and exist (a missing PATH is inside nothing); DIR
+must be a directory.  Containment is by file identity: PATH is
+truenamed, then it and each of its ancestors is compared to DIR with
+`workspace--same-file-p', so differences of spelling (trailing slash,
+`~', symlinked prefixes, letter case on a case-insensitive filesystem)
+do not matter, and neither do DIR's timestamps changing during the
+walk.  `file-in-directory-p' is deliberately not used: it compares
+spellings case-sensitively and ends in `file-equal-p'.  Never signals."
+  (and (stringp path) (stringp dir)
+       (not (file-remote-p path))
+       (not (file-remote-p dir))
+       (condition-case nil
+           (let ((current (directory-file-name
+                           (file-truename (expand-file-name path))))
+                 (previous nil)
+                 (found nil))
+             (when (and (file-exists-p (expand-file-name path))
+                        (file-directory-p (expand-file-name dir)))
+               (while (and (not found) (not (equal current previous)))
+                 (if (workspace--same-file-p current dir)
+                     (setq found t)
+                   (setq previous current
+                         current (directory-file-name
+                                  (file-name-directory current))))))
+             found)
+         (error nil))))
+
 (provide 'workspace-data-model)
 ;;; data-model.el ends here

@@ -313,5 +313,154 @@ to return HOME.  Returns the freshly-registered workspace plist."
         (expect (hash-table-count workspace--registry) :to-equal 1)
         (expect 'workspace-scaffold :not :to-have-been-called)))))
 
+;;; Registry-name guard (anchoring a same-basename directory)
+
+(describe "workspace-new anchor-existing — registry-name guard"
+  ;; The registry is keyed by basename, so anchoring a DIFFERENT
+  ;; directory with an existing workspace's basename must be refused:
+  ;; registering it would replace that workspace's entry (its layouts,
+  ;; membership and recent-layout pointer).
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through))
+  (after-each (wna-spec--cleanup))
+
+  (it "refuses a different local directory with the same basename and keeps the existing entry"
+    (let* ((home-a (file-name-as-directory
+                    (expand-file-name "a/proj" wna-spec--tmp-dir)))
+           (home-b (file-name-as-directory
+                    (expand-file-name "b/proj" wna-spec--tmp-dir)))
+           (original (workspace--set-recent-group
+                      (workspace--make "proj" home-a) "home")))
+      (make-directory home-a t)
+      (make-directory home-b t)
+      (puthash "proj" original workspace--registry)
+      (let ((tabs-before (length (funcall tab-bar-tabs-function))))
+        (expect (wna-spec--call-anchor home-b)
+                :to-throw 'user-error
+                (list (format "A workspace named proj already exists (home %s)"
+                              home-a)))
+        ;; The existing entry is untouched: the very same plist.
+        (expect (gethash "proj" workspace--registry) :to-be original)
+        (expect (hash-table-count workspace--registry) :to-equal 1)
+        ;; Refused before any tab or scaffold work.
+        (expect 'tab-bar-new-tab :not :to-have-been-called)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect (length (funcall tab-bar-tabs-function)) :to-equal tabs-before)
+        (expect (file-exists-p (expand-file-name ".git" home-b)) :to-be nil)
+        (expect (file-exists-p (expand-file-name "home.org" home-b)) :to-be nil)))))
+
+
+;;; Remote (TRAMP) workspace homes are refused (user decision 2026-09-27)
+
+(defconst wna-spec--remote-prefix "/wsna-remote:"
+  "Prefix of the stand-in remote file names below.")
+
+(defvar wna-spec--remote-touches nil
+  "Filesystem operations the stand-in remote handler was asked, newest first.")
+
+(defun wna-spec--remote-handler (operation &rest args)
+  "A stand-in for TRAMP: names under `wna-spec--remote-prefix' are remote.
+`file-remote-p' answers the prefix, as TRAMP does, without connecting.
+Pure file-NAME operations are answered by the default implementation.
+Every other operation is a filesystem touch: it is recorded in
+`wna-spec--remote-touches' and signals, so a spec that reaches the
+filesystem with a remote home fails loudly instead of connecting."
+  (let ((inhibit-file-name-handlers
+         (cons 'wna-spec--remote-handler inhibit-file-name-handlers))
+        (inhibit-file-name-operation operation))
+    (pcase operation
+      ('file-remote-p wna-spec--remote-prefix)
+      ((or 'expand-file-name 'file-name-as-directory 'directory-file-name
+           'file-name-directory 'file-name-nondirectory
+           'file-name-sans-versions 'substitute-in-file-name
+           'file-name-case-insensitive-p 'abbreviate-file-name)
+       (apply operation args))
+      (_
+       (push operation wna-spec--remote-touches)
+       (error "Remote filesystem touched: %S %S" operation args)))))
+
+(defmacro wna-spec--with-remote-names (&rest body)
+  "Run BODY with `wna-spec--remote-handler' serving remote names."
+  (declare (indent 0))
+  `(let ((file-name-handler-alist
+          (cons (cons (concat "\\`" (regexp-quote wna-spec--remote-prefix))
+                      #'wna-spec--remote-handler)
+                file-name-handler-alist)))
+     (setq wna-spec--remote-touches nil)
+     ,@body))
+
+(describe "remote (TRAMP) workspace homes are refused"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through)
+    (spy-on 'workspace--registered-for-home-p :and-call-through))
+  (after-each (wna-spec--cleanup))
+
+  (it "names the path in the refusal, for a real TRAMP name, without connecting"
+    (spy-on 'file-attributes :and-call-through)
+    (spy-on 'file-exists-p :and-call-through)
+    (let ((remote "/ssh:wsna-nohost.invalid:/srv/proj/"))
+      (expect (workspace--refuse-remote-home remote)
+              :to-throw 'user-error
+              (list (concat "Workspace homes must be local; remote (TRAMP)"
+                            " directories are not supported: " remote)))
+      (expect (workspace--refuse-remote-home wna-spec--tmp-dir) :to-be nil))
+    (expect 'file-attributes :not :to-have-been-called)
+    (expect 'file-exists-p :not :to-have-been-called))
+
+  (it "C-u workspace-new refuses a remote directory before any filesystem work"
+    (wna-spec--with-remote-names
+      (let ((home (concat wna-spec--remote-prefix "/srv/proj/")))
+        (expect (file-remote-p home) :to-be-truthy)
+        (expect (wna-spec--call-anchor home) :to-throw 'user-error)
+        (expect wna-spec--remote-touches :to-be nil)
+        ;; Refused before the duplicate-home guard, whose nil for a remote
+        ;; name would mean "cannot tell", not "not registered".
+        (expect 'workspace--registered-for-home-p :not :to-have-been-called)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect 'tab-bar-new-tab :not :to-have-been-called)
+        (expect (hash-table-count workspace--registry) :to-equal 0))))
+
+  (it "C-u workspace-new refuses a second anchor of a registered remote home, keeping the entry"
+    ;; The consequence the refusal exists for: the duplicate-home guard
+    ;; cannot see a remote home, so without the refusal this anchor would
+    ;; replace the registered workspace.
+    (wna-spec--with-remote-names
+      (let* ((home (concat wna-spec--remote-prefix "/srv/proj/"))
+             (original (workspace--make "proj" home)))
+        (puthash "proj" original workspace--registry)
+        (expect (wna-spec--call-anchor home) :to-throw 'user-error)
+        (expect (gethash "proj" workspace--registry) :to-be original)
+        (expect wna-spec--remote-touches :to-be nil)
+        (expect 'tab-bar-new-tab :not :to-have-been-called))))
+
+  (it "workspace-new refuses a remote default parent before any filesystem work"
+    (wna-spec--with-remote-names
+      (setq workspaces-default-parent-directory
+            (concat wna-spec--remote-prefix "/srv/"))
+      (expect (workspace-new "proj") :to-throw 'user-error)
+      (expect wna-spec--remote-touches :to-be nil)
+      (expect 'workspace-scaffold :not :to-have-been-called)
+      (expect 'tab-bar-new-tab :not :to-have-been-called)
+      (expect (hash-table-count workspace--registry) :to-equal 0)))
+
+  (it "workspace-re-anchor refuses a remote new home before any filesystem work"
+    (let* ((old-home (file-name-as-directory
+                      (expand-file-name "gone/proj" wna-spec--tmp-dir)))
+           (original (workspace--mark-broken
+                      (workspace--make "proj" old-home))))
+      (puthash "proj" original workspace--registry)
+      (spy-on 'workspace--flush-state)
+      (wna-spec--with-remote-names
+        (expect (workspace-re-anchor
+                 "proj" (concat wna-spec--remote-prefix "/srv/proj/"))
+                :to-throw 'user-error)
+        (expect wna-spec--remote-touches :to-be nil))
+      (expect (gethash "proj" workspace--registry) :to-be original)
+      (expect 'workspace--flush-state :not :to-have-been-called))))
+
 (provide 'workspace-new-anchor-spec)
 ;;; workspace-new-anchor-spec.el ends here

@@ -327,13 +327,13 @@ both."
                   :to-equal '("wsbm-off-a" "wsbm-off-b"))
           (expect (workspace--current-name) :to-equal "wsbm-off-a")
           (expect (workspace--tab-index-for "wsbm-off-a") :not :to-be nil)
-          (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be-truthy)
+          (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)
           (expect (with-current-buffer buffer (point))
                   :to-equal portable-bookmarks-off-workspace-spec--position))
         (expect (portable-bookmarks-off-workspace-spec--visits-p b-path) :to-be nil)
         (portable-bookmarks-off-workspace-spec--drain-timers)
         ;; The selected window of the restored tab shows the file; no split.
-        (expect (file-equal-p (buffer-file-name (window-buffer (selected-window))) a-path)
+        (expect (workspace--same-file-p (buffer-file-name (window-buffer (selected-window))) a-path)
                 :to-be-truthy)
         (expect (length (window-list nil 'no-mini)) :to-equal 1)
         (expect workspace-bookmark--awaiting-jump-target :to-be nil)
@@ -358,7 +358,7 @@ both."
                   :to-equal '("wsbm-off-a" "wsbm-off-b"))
           (expect (workspace--current-name) :to-equal "wsbm-off-b")
           (expect (length (frame-parameter nil 'tabs)) :to-equal (1+ tabs-before))
-          (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy))
+          (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy))
         (portable-bookmarks-off-workspace-spec--drain-timers)
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
@@ -415,7 +415,7 @@ both."
           ;; D9: the layout is painted (two windows), THEN the file replaces
           ;; the selected window — plain same-window display, no split.
           (expect (length (window-list nil 'no-mini)) :to-equal 2)
-          (expect (file-equal-p (buffer-file-name (window-buffer (selected-window))) a-path)
+          (expect (workspace--same-file-p (buffer-file-name (window-buffer (selected-window))) a-path)
                   :to-be-truthy)
           ;; No autosave has run yet.
           (expect (workspace--layout-working-state
@@ -429,7 +429,7 @@ both."
                  (files (portable-bookmarks-off-workspace-spec--leaf-files
                          (workspace--layout-working-state layout))))
             (expect (length files) :to-equal 2)
-            (expect (seq-some (lambda (file) (and file (file-equal-p file a-path))) files)
+            (expect (seq-some (lambda (file) (and file (workspace--same-file-p file a-path))) files)
                     :to-be-truthy)
             (expect (workspace--layout-saved-state layout) :to-equal saved-before))))))
 
@@ -620,6 +620,36 @@ both."
 
 ;;; Unit — the fallback with an empty registry
 
+(describe "off-workspace jump: an empty answer at the workspace prompt"
+  ;; The REAL `completing-read' (stock `completing-read-default'); only the
+  ;; minibuffer read under it is answered, with empty input, as RET on an
+  ;; empty minibuffer returns it.  `completing-read' then substitutes its
+  ;; DEF, so "no workspace" is an empty answer only when no default is
+  ;; offered — when no candidate holds a checkout.
+  (workspace-bookmark-fixtures-with-empty-registry)
+
+  (it "restores the default, the first holder, when a workspace holds a checkout"
+    (let ((reads 0))
+      (cl-letf (((symbol-function 'read-from-minibuffer)
+                 (lambda (&rest _) (setq reads (1+ reads)) "")))
+        (let ((completing-read-function #'completing-read-default))
+          (expect (workspace-bookmark--choose-workspace
+                   '(("wsbm-off-holder" . t) ("wsbm-off-other"))
+                   portable-bookmarks-off-workspace-spec--identity)
+                  :to-equal "wsbm-off-holder")))
+      (expect reads :to-equal 1)))
+
+  (it "answers no workspace (nil) when no candidate holds a checkout, so no default is offered"
+    (let ((reads 0))
+      (cl-letf (((symbol-function 'read-from-minibuffer)
+                 (lambda (&rest _) (setq reads (1+ reads)) "")))
+        (let ((completing-read-function #'completing-read-default))
+          (expect (workspace-bookmark--choose-workspace
+                   '(("wsbm-off-a") ("wsbm-off-b"))
+                   portable-bookmarks-off-workspace-spec--identity)
+                  :to-be nil)))
+      (expect reads :to-equal 1))))
+
 (describe "off-workspace jump: empty registry"
   :var (repo)
 
@@ -673,7 +703,7 @@ both."
           (let ((buffer (portable-bookmarks-off-workspace-spec--jump
                          "readme" "unused"
                          (lambda (_prompt choices &rest _) (assq ?v choices)))))
-            (expect (file-equal-p (buffer-file-name buffer) path) :to-be-truthy)
+            (expect (workspace--same-file-p (buffer-file-name buffer) path) :to-be-truthy)
             (with-current-buffer buffer
               (expect buffer-read-only :to-be-truthy)
               (expect view-mode :to-be-truthy)

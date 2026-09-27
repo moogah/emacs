@@ -1315,7 +1315,7 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
 
   (it "leaves the main clone canonical and offered to other workspaces"
     ;; Precondition: the home really lies inside MAIN.
-    (expect (workspace-bookmark--path-within-p feat main) :to-be-truthy)
+    (expect (workspace--path-within-p feat main) :to-be-truthy)
     (expect (workspace-bookmark--owning-workspace main) :to-be nil)
     (expect (workspace-bookmark--classify main) :to-be 'canonical)
     (expect (workspace-bookmark--classify feat) :to-be 'workspace-owned)
@@ -1371,7 +1371,7 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
       (workspace-bookmark-fixtures-make-workspace "wsbm-disc-gone" gone)
       (delete-directory gone)
       (expect (file-exists-p gone) :to-be nil)
-      (expect (workspace-bookmark--path-within-p gone main) :to-be nil)
+      (expect (workspace--path-within-p gone main) :to-be nil)
       (expect (workspace-bookmark--classify main) :to-be 'canonical)
       (portable-bookmarks-discovery-spec--expect-offered-main-only
        main gone home-b)))

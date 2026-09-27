@@ -363,6 +363,37 @@ Returns the error's message; fails the spec when nothing was signalled."
         (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil)))))
 
 
+(describe "missing-repo choice: the add-worktree offer follows git-worktrees' real registration"
+  ;; Cross-module pin: no hand-copied registration.  git-worktrees.el's
+  ;; OWN registration form (double-gated on `workspaces' and `magit') runs
+  ;; into an isolated integration registry, and the chooser's predicate is
+  ;; asked through core's accessor before and after it.  If git-worktrees
+  ;; registered a different command, or core's accessor stopped seeing it,
+  ;; the option would silently disappear; this spec would fail.
+  (workspace-bookmark-fixtures-with-empty-registry)
+
+  (it "withholds add-worktree before git-worktrees registers, and offers it after its own registration runs"
+    (let ((workspace--integrations nil)
+          ;; Both load guards satisfied for this spec only; nothing is
+          ;; provided globally.
+          (features (append '(workspaces magit) features))
+          (home (workspace-bookmark-fixtures-make-workspace "wsbm-mr-reg"))
+          (resolution '(:path "/nonexistent/README.md" :relpath "README.md")))
+      (expect home :to-be-truthy)
+      (expect (fboundp 'jf/workspace--add-worktree) :to-be-truthy)
+      (expect (workspace-bookmark--add-worktree-runnable-p) :to-be nil)
+      (expect (assq 'add-worktree
+                    (workspace-bookmark--missing-repo-withheld resolution "wsbm-mr-reg"))
+              :to-equal '(add-worktree . "the git worktree integration is not loaded"))
+      (load (expand-file-name "../git-worktrees.el"
+                              portable-bookmarks-missing-repo-spec--this-dir)
+            nil t)
+      (expect (assq 'git-worktree workspace--integrations) :to-be-truthy)
+      (expect (workspace-bookmark--add-worktree-runnable-p) :to-be t)
+      (expect (assq 'add-worktree
+                    (workspace-bookmark--missing-repo-withheld resolution "wsbm-mr-reg"))
+              :to-be nil))))
+
 (describe "missing-repo choice: view read-only"
   :var (world)
 

@@ -165,7 +165,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                 (seq-some (lambda (buffer)
                             (with-current-buffer buffer
                               (and (derived-mode-p 'dired-mode)
-                                   (file-equal-p default-directory path))))
+                                   (workspace--same-file-p default-directory path))))
                           (buffer-list))))
        t))
 
@@ -200,8 +200,10 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (bookmark-prop-get stored workspace-bookmark-relpath-property)
                 :to-equal "README.md")
         (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
-          (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy)
-          (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be nil)
+          (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy)
+          ;; Not vacuous: A's copy exists, so nil means "a different file".
+          (expect (file-exists-p a-path) :to-be-truthy)
+          (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be nil)
           (expect (with-current-buffer buffer (point))
                   :to-equal portable-bookmarks-jump-spec--position))
         ;; The regression guard: in memory, then through the file.  A
@@ -220,8 +222,8 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (dolist (side (list (cons "wsbm-jump-b" (plist-get world :wt-b))
                             (cons "wsbm-jump-a" (plist-get world :wt-a))))
           (let ((buffer (portable-bookmarks-jump-spec--jump "readme" (car side))))
-            (expect (file-equal-p (buffer-file-name buffer)
-                                  (expand-file-name "README.md" (cdr side)))
+            (expect (workspace--same-file-p (buffer-file-name buffer)
+                                            (expand-file-name "README.md" (cdr side)))
                     :to-be-truthy)))
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
@@ -258,8 +260,10 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (let ((buffer (portable-bookmarks-jump-spec--jump "sub" "wsbm-jump-b")))
           (with-current-buffer buffer
             (expect (derived-mode-p 'dired-mode) :to-be-truthy)
-            (expect (file-equal-p default-directory b-dir) :to-be-truthy)
-            (expect (file-equal-p default-directory a-dir) :to-be nil)))
+            (expect (workspace--same-file-p default-directory b-dir) :to-be-truthy)
+            ;; Not vacuous: A's directory exists.
+            (expect (file-directory-p a-dir) :to-be-truthy)
+            (expect (workspace--same-file-p default-directory a-dir) :to-be nil)))
         (expect (bookmark-get-filename "sub") :to-equal a-dir)
         (portable-bookmarks-jump-spec--reload-bookmarks)
         (expect (bookmark-get-filename "sub") :to-equal a-dir))))
@@ -276,7 +280,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (let ((snapshot (copy-tree stored)))
           (setq portable-bookmarks-jump-spec--handled nil)
           (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
-            (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy))
+            (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy))
           (expect (length portable-bookmarks-jump-spec--handled) :to-equal 1)
           (let ((copy (car portable-bookmarks-jump-spec--handled)))
             (expect copy :not :to-be stored)
@@ -296,7 +300,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (portable-bookmarks-jump-spec--set a-path "readme")
         (let ((buffer (portable-bookmarks-jump-spec--jump
                        "readme" "wsbm-jump-b" #'bookmark-jump-other-window)))
-          (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy))
+          (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy))
         (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be-truthy)
         (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
@@ -323,8 +327,8 @@ Saves with `bookmark-save', empties the alist, loads the file back."
             ;; The stamped one must ALSO have been substituted: parity
             ;; alone is something the stock host satisfies by itself.
             (when (equal name "readme")
-              (expect (file-equal-p (buffer-file-name buffer)
-                                    (expand-file-name "README.md" (plist-get world :wt-b)))
+              (expect (workspace--same-file-p (buffer-file-name buffer)
+                                              (expand-file-name "README.md" (plist-get world :wt-b)))
                       :to-be-truthy))))
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
@@ -338,7 +342,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
           (expect (bookmark-prop-get stored workspace-bookmark-relpath-property)
                   :to-be nil)
           (let ((buffer (portable-bookmarks-jump-spec--jump "plain" "wsbm-jump-b")))
-            (expect (file-equal-p (buffer-file-name buffer) path) :to-be-truthy)
+            (expect (workspace--same-file-p (buffer-file-name buffer) path) :to-be-truthy)
             (expect (with-current-buffer buffer (point))
                     :to-equal portable-bookmarks-jump-spec--position))
           (expect (bookmark-get-bookmark "plain") :to-equal snapshot)))))
@@ -370,8 +374,10 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                   ((symbol-function 'workspace-restore)
                    (lambda (name) (push 'restore events) (setq restored name) name)))
           (let ((buffer (portable-bookmarks-jump-spec--jump "readme" nil)))
-            (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy)
-            (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be nil)))
+            (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy)
+            ;; Not vacuous: A's copy exists.
+            (expect (file-exists-p a-path) :to-be-truthy)
+            (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be nil)))
         (expect restored :to-equal "wsbm-jump-b")
         (expect (reverse events) :to-equal '(prompt restore resolve))
         (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
@@ -511,7 +517,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (cl-letf (((symbol-function 'workspace-bookmark--resolve)
                    (lambda (&rest _) (error "Boom"))))
           (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
-            (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be-truthy)))
+            (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)))
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
   (it "still opens the stored location when the seam's own copy step signals"
@@ -522,7 +528,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (cl-letf (((symbol-function 'workspace-bookmark--substituted-record)
                    (lambda (&rest _) (error "Boom"))))
           (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
-            (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be-truthy)))
+            (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)))
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
   (it "lets quit propagate through the barrier"

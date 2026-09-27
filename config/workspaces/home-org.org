@@ -4,8 +4,11 @@
 #+auto_tangle: y
 
 Lightweight reader for a workspace's =home.org= file.  Lives separately
-from =data-model.org= because it performs file I/O — =data-model= is
-the pure, side-effect-free layer and that property must be preserved.
+from =data-model.org= because it READS FILE CONTENTS (=home.org=) and
+must never cache them (=register/boundary/home-org-read-pipeline=).
+=data-model= stays side-effect free: its only filesystem access is the
+stat-level identity and containment predicates (=workspace--same-file-p=,
+=workspace--path-within-p=), which never read a file's contents.
 
 This module exposes three functions:
 
