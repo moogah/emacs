@@ -2,10 +2,11 @@
 name: discovery-cleanup-singulars-and-docstrings
 description: Delete the two test-only singular discovery functions, move their specs onto the plurals, and correct two anchoring docstrings that overstate "never where a link points"
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: refactor
 on_critical_path: false
 cycle: cycle-1790453714
+merge_commit: c74eb67d
 cites_register_entries:
   - register/boundary/git-derived-checkout-discovery
   - register/vocabulary/bookmark-resolution-outcome
