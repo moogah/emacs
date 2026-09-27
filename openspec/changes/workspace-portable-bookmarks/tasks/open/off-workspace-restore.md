@@ -2,7 +2,7 @@
 name: off-workspace-restore
 description: When not in a workspace, prompt from the registry and restore the chosen workspace before resolving, without capturing the perturbation
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 task_class: feature
 on_critical_path: true
 cycle: cycle-1790453714
