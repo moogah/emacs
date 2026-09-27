@@ -2,11 +2,13 @@
 name: missing-repo-choice
 description: Offer a bounded choice when the current workspace holds no checkout — add worktree, read-only view, or cancel
 change: workspace-portable-bookmarks
-status: needs_review
+status: reviewed
 task_class: feature
 on_critical_path: true
 cycle: cycle-1790453714
 merge_commit: 492b5e88
+findings_path: .orchestrator/cycles/cycle-1790453714/reviews/missing-repo-choice.md
+reviewed_at: 2026-09-27T15:40:00+00:00
 cites_register_entries:
   - register/vocabulary/bookmark-resolution-outcome
   - register/vocabulary/checkout-classification
