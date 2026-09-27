@@ -654,8 +654,8 @@ Returns the error's message; fails the spec when nothing was signalled."
                      (buffer-string)))
            (start (string-match-p "(defconst workspace-bookmark--missing-repo-actions" source))
            ;; The section ends where the next one, "Off-workspace", begins:
-           ;; its first form is the anti-save predicate's `defvar'.
-           (end (string-match-p "(defvar workspace-anti-save-predicates)" source))
+           ;; its first form declares `workspace--broken-p'.
+           (end (string-match-p "(declare-function workspace--broken-p " source))
            (section (and start end (< start end) (substring source start end))))
       (expect section :not :to-be nil)
       (expect section :to-match "read-multiple-choice")

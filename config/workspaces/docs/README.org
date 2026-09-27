@@ -492,8 +492,10 @@ at restore time.  Each struct carries:
 
 ** The fallback chain
 
-On restore, each leaf walks a closed-set chain of strategies and
-stops at the first one that produces a live buffer:
+On restore, each leaf walks a closed-set chain of strategies.  Step 1
+has three possible answers — a buffer (done), a failure (go on to
+step 2) or a decline (the gate below) — and steps 2 to 4 are tried in
+order until one produces a live buffer:
 
 1. =bookmark= — call =bookmark-handle-bookmark= on the saved record.
    Restores point position, narrowing region, and any
@@ -507,6 +509,25 @@ stops at the first one that produces a live buffer:
 4. =error-buffer= — a clearly named buffer describing what failed.
    The window slot is never left empty; a failed reincarnation is
    visible, not silent.
+
+*The decline gate.*  A bookmark handler that signals =user-error= has
+DECLINED to restore its buffer — a message for the user, not a
+failure.  The portable-bookmarks module does this when a file's
+bookmark resolves to "not on this branch", "ambiguous" or "this
+workspace holds no checkout of that repository".  A declined leaf
+skips steps 2 and 3 and lands directly on the error buffer, which
+shows the reason and says the saved filename was deliberately NOT
+opened: that filename is the path the buffer had when the layout was
+captured, which the handler has just refused.  Every declined leaf of
+one restore is reported in a single message.  Any other error in
+step 1 is a failure and falls through to step 2 as before.
+
+Restoring a leaf does not suppress questions: a handler that asks
+while visiting — the large-file prompt, the unsafe local variables
+query — asks as on any other visit.  While a leaf is restored,
+=workspace--restoring-layout-leaf= is non-nil; a module whose handler
+would ask a question of its own for every leaf (the portable-bookmarks
+missing-repo choice) reads it and declines instead.
 
 The four step names are closed-set-enforced at the code level via
 =workspace--valid-reincarnation-steps= and the

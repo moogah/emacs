@@ -85,18 +85,35 @@ in this directory share."
           workspace-bookmark-fixtures--registered-names nil))
   (workspace-bookmark-fixtures-isolate-bookmarks))
 
+(defun workspace-bookmark-fixtures-reset-jump-state ()
+  "Cancel a pending restore-then-jump finish step and clear the jump state.
+A spec that drives an off-workspace jump without draining the event
+loop leaves `workspace-bookmark--finish-restore' queued and the
+module's jump globals set; left alone they would fire, or be read, in
+whatever spec file runs next.  Every symbol is guarded, so this is safe
+before the module is loaded."
+  (when (fboundp 'workspace-bookmark--finish-restore)
+    (cancel-function-timers #'workspace-bookmark--finish-restore))
+  (when (boundp 'workspace-bookmark--awaiting-jump-target)
+    (set 'workspace-bookmark--awaiting-jump-target nil))
+  (when (boundp 'workspace-bookmark--jump-target)
+    (set 'workspace-bookmark--jump-target nil)))
+
 (defun workspace-bookmark-fixtures-teardown ()
   "End a fixture scope.  Call from `after-each'.
 
-Unregisters every workspace the fixtures registered, restores the
-bookmark globals, recursively deletes every temp directory the fixtures
-created and, when `workspace-bookmark-fixtures-isolate-registry' swapped
-the registry out, puts the live table back.  The registry comes back
-even if an earlier step signals, so a temp directory that cannot be
-deleted never leaves an empty registry behind for the next spec.  Safe
-to call when nothing was created."
+Cancels a pending restore-then-jump finish step and clears the jump
+state (`workspace-bookmark-fixtures-reset-jump-state'), unregisters
+every workspace the fixtures registered, restores the bookmark globals,
+recursively deletes every temp directory the fixtures created and, when
+`workspace-bookmark-fixtures-isolate-registry' swapped the registry out,
+puts the live table back.  The registry comes back even if an earlier
+step signals, so a temp directory that cannot be deleted never leaves
+an empty registry behind for the next spec.  Safe to call when nothing
+was created."
   (unwind-protect
       (progn
+        (workspace-bookmark-fixtures-reset-jump-state)
         (dolist (name workspace-bookmark-fixtures--registered-names)
           (remhash name workspace--registry))
         (setq workspace-bookmark-fixtures--registered-names nil)

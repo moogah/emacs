@@ -98,8 +98,10 @@ prefix before it preserved."
 (defconst workspace--valid-reincarnation-steps
   '(bookmark filename name error-buffer)
   "Closed, ordered set of reincarnation-chain step symbols.
-The order is load-bearing in production via the `or' chain in
-`workspace--deserialize-buffer'.  Adding a fifth member is a
+The order is load-bearing in production via `workspace--deserialize-buffer':
+a buffer from step 1 wins; when step 1 FAILED, steps 2, 3 and 4 are
+tried in this order; when step 1 DECLINED (the gate), steps 2 and 3
+are skipped and step 4 carries the reason.  Adding a fifth member is a
 register-level change (see register/vocabulary/buffer-
 reincarnation-fallback-chain in =interfaces.org=), not a
 code-level addition.")
@@ -198,13 +200,28 @@ listing the four steps as having failed."
       (visual-line-mode 1))
     buf))
 
+(defvar workspace--restoring-layout-leaf nil
+  "Non-nil while a layout leaf is being restored; consumers must not prompt.
+Bound by `workspace--bookmark-buffer' around the leaf's bookmark jump,
+and nil everywhere else.  It suppresses nothing by itself: stock
+handlers still ask whatever they ask on any visit.  A consumer whose
+handler would put a question of its own for every leaf of a layout
+reads it (guarded by `boundp') and declines with `user-error' instead,
+which the reincarnation chain treats as a decline (see
+`workspace--deserialize-buffer').")
+
 (defun workspace--bookmark-buffer (ws-buffer)
   "Return the buffer produced by jumping to WS-BUFFER's bookmark record.
 Returns the buffer on success, nil when the jump FAILED, or
 \(declined . MESSAGE) when the bookmark handler DECLINED to restore
-the buffer — it signalled `user-error', or tried to ask the user
-\(the jump runs with `inhibit-interaction' bound, so a prompt inside
-a handler signals `inhibited-interaction' rather than reading).
+the buffer by signalling `user-error'.  Any other error, and a jump
+that returns without moving off the probe buffer, is a failure.
+`quit' propagates.
+
+The jump runs with `workspace--restoring-layout-leaf' bound non-nil,
+so a consumer can tell a layout leaf from an interactive jump; nothing
+else about the handler's environment is changed, and a handler that
+asks the user is asked as on any other visit.
 
 Uses a temp-buffer probe to detect whether `bookmark-jump' actually
 moved off the temp buffer — `bookmark-handle-bookmark' swallows the
@@ -224,16 +241,13 @@ workaround a failure to read here.  See bug#56643."
                (declined nil)
                (jumped-to-buffer
                 (save-window-excursion
-                  (let ((inhibit-interaction t))
+                  (let ((workspace--restoring-layout-leaf t))
                     (condition-case err
                         (bookmark-jump bookmark)
                       ;; The handler declined: a decision for the
                       ;; user to see, not a failure to fall through.
                       (user-error
                        (setq declined (error-message-string err)))
-                      (inhibited-interaction
-                       (setq declined
-                             "its bookmark needed to ask a question a layout restore cannot answer"))
                       ;; bug#56643 et al.: read-back failures, missing
                       ;; handlers, anything else.  Fall through.
                       (error nil)))
@@ -283,7 +297,11 @@ error buffer carrying the handler's reason, and the decline is noted
 for the restore's single report.  The stored filename is the path the
 buffer had when the layout was captured; a handler that has just
 refused to open its bookmark's location must not be second-guessed
-by opening that path anyway."
+by opening that path anyway.
+
+Step 1 has exactly three answers — a buffer, nil (FAILED) or
+\(declined . MESSAGE) — and the dispatch has an arm for each; any
+other value signals rather than reaching the filename step."
   (let ((jumped (and (workspace-buffer-bookmark ws-buffer)
                      (condition-case-unless-debug _err
                          (workspace--bookmark-buffer ws-buffer)
@@ -295,7 +313,8 @@ by opening that path anyway."
      ((eq (car-safe jumped) 'declined)
       (workspace--note-reincarnation-decline ws-buffer (cdr jumped))
       (workspace--error-buffer ws-buffer (cdr jumped)))
-     (t
+     ;; Step 1 FAILED: the rest of the chain, in order.
+     ((null jumped)
       (or
        ;; 2. Filename fallback.
        (and (workspace-buffer-filename ws-buffer)
@@ -305,7 +324,9 @@ by opening that path anyway."
        (and (workspace-buffer-name ws-buffer)
             (get-buffer (workspace-buffer-name ws-buffer)))
        ;; 4. Error buffer.  Always live.
-       (workspace--error-buffer ws-buffer))))))
+       (workspace--error-buffer ws-buffer)))
+     ;; Nothing else is an answer step 1 gives; never guess the filename.
+     (t (error "Not a reincarnation step-1 result: %S" jumped)))))
 
 (defun workspace--window-state-serialize (state)
   "Return a fresh window-state like STATE with `workspace-buffer' embedded.

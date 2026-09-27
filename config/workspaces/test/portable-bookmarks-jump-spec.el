@@ -344,12 +344,15 @@ Saves with `bookmark-save', empties the alist, loads the file back."
           (expect (bookmark-get-bookmark "plain") :to-equal snapshot)))))
 
   (it "hands a stamped record off-workspace to the workspace prompt, restores the choice, then resolves against it"
-    ;; The off-workspace flow's own specs (real tabs, real restore,
-    ;; the anti-save flag) are portable-bookmarks-off-workspace-spec.el.
-    ;; Here the two core calls are stubbed so the seam's shape is what
-    ;; is under test: the prompt is asked BEFORE the resolver, the
-    ;; chosen workspace is restored, and resolution runs against it —
-    ;; the record is NOT passed through to its stored path.
+    ;; The off-workspace flow's own specs (real tabs, real restore, the
+    ;; deferred display of the jump's buffer) are
+    ;; portable-bookmarks-off-workspace-spec.el.  Here the two core calls
+    ;; are stubbed so the seam's shape is what is under test: the prompt
+    ;; is asked BEFORE the resolver, the chosen workspace is restored,
+    ;; and resolution runs against it — the record is NOT passed through
+    ;; to its stored path.  The prompt guard is lifted (batch has no one
+    ;; to ask); the finish step this leaves queued is cancelled by the
+    ;; fixtures' teardown, which the next spec checks.
     (portable-bookmarks-jump-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
@@ -360,6 +363,8 @@ Saves with `bookmark-save', empties the alist, loads the file back."
              (resolve (symbol-function 'workspace-bookmark--resolve)))
         (cl-letf (((symbol-function 'workspace-bookmark--resolve)
                    (lambda (&rest args) (push 'resolve events) (apply resolve args)))
+                  ((symbol-function 'workspace-bookmark--can-prompt-p)
+                   (lambda () t))
                   ((symbol-function 'completing-read)
                    (lambda (&rest _) (push 'prompt events) "wsbm-jump-b"))
                   ((symbol-function 'workspace-restore)
@@ -370,7 +375,23 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect restored :to-equal "wsbm-jump-b")
         (expect (reverse events) :to-equal '(prompt restore resolve))
         (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
-        (expect (bookmark-get-bookmark "readme") :to-equal snapshot)))))
+        (expect (bookmark-get-bookmark "readme") :to-equal snapshot)
+        ;; The jump left its finish step queued; nothing here drains it.
+        (expect (seq-some (lambda (timer)
+                            (eq (timer--function timer)
+                                #'workspace-bookmark--finish-restore))
+                          timer-list)
+                :to-be-truthy))))
+
+  (it "leaves nothing of the off-workspace jump pending for the next spec: the fixtures' teardown cancelled the finish step and cleared the jump state"
+    ;; Runs after the spec above, whose teardown has run by now.
+    (expect (seq-some (lambda (timer)
+                        (eq (timer--function timer)
+                            #'workspace-bookmark--finish-restore))
+                      timer-list)
+            :to-be nil)
+    (expect workspace-bookmark--awaiting-jump-target :to-be nil)
+    (expect workspace-bookmark--jump-target :to-be nil)))
 
 
 ;;; Behavioral — outcomes that open nothing
