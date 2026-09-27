@@ -599,12 +599,30 @@ entries are offered is decided by
 `workspace-bookmark--missing-repo-withheld'; what each does, by
 `workspace-bookmark--offer-missing-repo'.")
 
+(defvar workspace--integrations)
+
+(defun workspace-bookmark--add-worktree-runnable-p ()
+  "Return non-nil when git-worktrees' add-worktree command can run.
+That is when `jf/workspace--add-worktree' is defined AND registered as
+the menu command of an integration in core's `workspace--integrations'
+\(read only when bound).  git-worktrees defines the command whether or
+not magit is loaded, but registers it only once magit is, and the
+command needs magit."
+  (and (fboundp 'jf/workspace--add-worktree)
+       (boundp 'workspace--integrations)
+       (seq-some (lambda (entry)
+                   (eq (cdr-safe (plist-get (cdr-safe entry) :menu))
+                       'jf/workspace--add-worktree))
+                 workspace--integrations)
+       t))
+
 (defun workspace-bookmark--missing-repo-withheld (resolution workspace)
   "Return the `missing-repo' actions not offered for RESOLUTION, with reasons.
 
 An alist of (ACTION . REASON), REASON a phrase for the prompt.
 `add-worktree' needs a current WORKSPACE (a name) with a home and the
-git-worktrees command `jf/workspace--add-worktree' loaded;
+git-worktrees command `jf/workspace--add-worktree' runnable
+\(`workspace-bookmark--add-worktree-runnable-p');
 `view-canonical-read-only' needs a non-nil :path, the relpath present
 under the canonical checkout.  `cancel' is always offered."
   (let ((withheld nil))
@@ -612,7 +630,7 @@ under the canonical checkout.  `cancel' is always offered."
      ((null workspace)
       (push (cons 'add-worktree "no workspace is current to add a worktree to")
             withheld))
-     ((not (fboundp 'jf/workspace--add-worktree))
+     ((not (workspace-bookmark--add-worktree-runnable-p))
       (push (cons 'add-worktree "the git worktree integration is not loaded")
             withheld))
      ((not (workspace-bookmark--workspace-home workspace))
@@ -784,6 +802,7 @@ and CHECKOUT's branch in one message."
            (workspace-bookmark--canonical-branch checkout)))
 
 (declare-function workspace--integration-payload "integrations" (name home context))
+(defvar workspace-bookmark--discovery-memo)
 
 (defun workspace-bookmark--add-worktree-payload (workspace checkout)
   "Return the anchor payload for adding a worktree of CHECKOUT to WORKSPACE.
@@ -812,7 +831,8 @@ for one.  When that constructor is not loaded, the same keys but
 
 Calls git-worktrees' `jf/workspace--add-worktree', which must be
 `fboundp', with `workspace-bookmark--add-worktree-payload'.  On `ok'
-the resolver runs once more against WORKSPACE: a `resolved' answer
+the resolver runs once more against WORKSPACE, outside any enclosing
+discovery memo (the add changed the repository): a `resolved' answer
 continues through `workspace-bookmark--plan-to-open', pre-flight
 included; any other answer declines with its report, never a second
 prompt.  (failed . REASON) and `skipped' decline naming the reason.
@@ -825,7 +845,8 @@ Signals on an unknown result; the caller's barrier declines."
                           workspace (plist-get resolution :checkout)))))
     (pcase result
       ('ok
-       (let ((again (workspace-bookmark--resolve record workspace)))
+       (let* ((workspace-bookmark--discovery-memo nil)
+              (again (workspace-bookmark--resolve record workspace)))
          (if (eq (plist-get again :outcome) 'resolved)
              (workspace-bookmark--plan-to-open record again 'call-through)
            (cons 'decline (workspace-bookmark--after-add-message record again)))))
@@ -1582,9 +1603,17 @@ stable.  Never signals in normal operation."
 
 Every call of `workspace-bookmark-canonical-checkouts-in-view' made
 while FUNCTION runs shares one discovery memo, so a repository those
-calls reach more than once is asked each git question once.  The memo
-is dropped when FUNCTION returns or exits non-locally; nothing survives
-the call.  Answers are exactly those the calls give on their own.
+calls reach more than once is asked each git question once.  So does
+every other discovery made while FUNCTION runs, not only that entry
+point.  The memo is dropped when FUNCTION returns or exits non-locally;
+nothing survives the call.
+
+Precondition: answers are exactly those the calls give on their own
+only while nothing changes the repositories inside the scope.
+FUNCTION must not create, move or remove a checkout or change a
+repository's configuration, and must not wait for user input (while
+it waits, anything may change); a question asked again after such a
+change is answered from the memo, as before it.
 
 This is a CROSS-MODULE INTERFACE, called from git-worktrees.el behind a
 call-time `fboundp' guard; its name, calling convention and meaning are

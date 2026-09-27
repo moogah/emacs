@@ -58,9 +58,9 @@ first occurrence's spelling is kept, in order.  nil entries and remote
 Calls `workspace-bookmark-canonical-checkouts-in-view' with no argument:
 the checkouts already in view, each resolved to its repository's main
 worktree, which is kept only when portable-bookmarks' one canonical
-predicate admits it.  That public function is the only portable-bookmarks
-symbol this module calls, and the module is never required.  When it is
-unbound, the result is nil.  Never signals: if it signals, a warning
+predicate admits it.  That public function is one of the two public
+portable-bookmarks symbols this module calls (see the Overview), and the
+module is never required.  When it is unbound, the result is nil.  Never signals: if it signals, a warning
 naming the error is displayed and the result is nil."
   (when (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
     (condition-case err
@@ -97,10 +97,34 @@ is bound, FUNCTION runs inside it, so every call of
 `workspace-bookmark-canonical-checkouts-in-view' FUNCTION makes shares
 one memo of git's answers; otherwise FUNCTION is simply called.  Like
 that function, the scope is reached through a call-time `fboundp' guard
-and portable-bookmarks is never required."
-  (if (fboundp 'workspace-bookmark-call-with-discovery-memo)
-      (funcall 'workspace-bookmark-call-with-discovery-memo function)
-    (funcall function)))
+and portable-bookmarks is never required.
+
+The scope is error-barriered like every portable-bookmarks call: when
+it signals before FUNCTION starts, a warning is displayed
+\(`jf/workspace--worktree-warn-discovery') and FUNCTION is called
+unscoped; when it signals after FUNCTION returned, a warning is
+displayed and FUNCTION's value is returned.  An error signalled by
+FUNCTION itself propagates unchanged.  FUNCTION is called at most once."
+  (if (not (fboundp 'workspace-bookmark-call-with-discovery-memo))
+      (funcall function)
+    (let ((stage 'before)
+          (value nil))
+      (condition-case err
+          (funcall 'workspace-bookmark-call-with-discovery-memo
+                   (lambda ()
+                     (setq stage 'running)
+                     (setq value (funcall function))
+                     (setq stage 'returned)
+                     value))
+        (error
+         (pcase stage
+           ('before
+            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+            (funcall function))
+           ('returned
+            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+            value)
+           (_ (signal (car err) (cdr err)))))))))
 
 (defun jf/workspace--worktree-repo-candidates ()
   "Return the canonical git-repo roots offered as worktree sources.

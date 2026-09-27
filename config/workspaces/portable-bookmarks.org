@@ -22,18 +22,23 @@ core (=register/boundary/portable-bookmarks-consumer=).  The one-way rule:
   (=workspace--registry=, =workspace--current-name=, =workspace--broken-p=,
   =workspace-restore=), and it reads core's one signal to consumers,
   =workspace--restoring-layout-leaf= (bound by =layouts.el= while a
-  layout leaf is restored), guarded by =boundp=.
+  layout leaf is restored), guarded by =boundp=.  It also reads core's
+  integration registry, =workspace--integrations=, guarded by =boundp=,
+  for one question only: whether git-worktrees' add-worktree command is
+  registered (see "What is offered, and why not").
 - Workspaces CORE (=data-model= / =integrations= / =workspaces= / =tabs= /
   =persistence= / =layouts= / =workspaces-mode= / =workspaces-transient=)
   MUST NEVER name a =workspace-bookmark-*= symbol.  The single permitted
   mention in core is the loader PATH STRING "portable-bookmarks.el" in
   =workspaces.org= — a string, not a live symbol.
 - One sibling CONSUMER module, =git-worktrees.el=, calls into this one:
-  it calls =workspace-bookmark-canonical-checkouts-in-view= and nothing
-  else, never =require=s this module, and guards the call with =fboundp=
-  at call time.  That function is a cross-module interface with a
-  stability promise (see "Cross-module interface: the canonical
-  checkouts in view"); every =workspace-bookmark--= symbol stays private.
+  it calls =workspace-bookmark-canonical-checkouts-in-view= and the
+  scope =workspace-bookmark-call-with-discovery-memo= and nothing else,
+  never =require=s this module, and guards each call with =fboundp= at
+  call time and with an error barrier.  Those two functions are
+  cross-module interfaces with a stability promise (see "Cross-module
+  interface: the canonical checkouts in view"); every
+  =workspace-bookmark--= symbol stays private.
 
 ** No magit, no projectile
 
@@ -1422,15 +1427,24 @@ prompt says so, so the user knows what is missing where:
 
 | option                      | withheld when                                                             |
 |-----------------------------+---------------------------------------------------------------------------|
-| =add-worktree=              | no current workspace; =jf/workspace--add-worktree= not =fboundp=; no home |
+| =add-worktree=              | no current workspace; the add-worktree command cannot run; no home        |
 | =view-canonical-read-only=  | =:path= is nil — the relpath is absent under the canonical checkout      |
 | =cancel=                    | never                                                                     |
 
 =jf/workspace--add-worktree= is git-worktrees' command and git-worktrees
 is magit's; this module requires neither (DD-6).  The symbol is quoted
 and =fboundp=-guarded at call time, the same discipline git-worktrees
-uses towards this module (DD-10), so with magit absent the option is
-absent rather than an error — the git-worktrees spec's own rule.
+uses towards this module (DD-10).  =fboundp= alone is not enough,
+though: git-worktrees.el is loaded whether or not magit is, so the
+command is always defined, and only its REGISTRATION as the
+=git-worktree= integration's menu command waits for magit.  Without
+magit, calling it fails on its first magit call and nothing opens.  So
+the command counts as runnable only when it is also registered as some
+integration's menu command in core's =workspace--integrations= — the
+same condition under which the workspace menu offers it as "w".  With
+magit absent the option is therefore absent, with its reason, rather
+than an error.  The question is asked of core's registry, so this
+module still names no magit symbol and no second git-worktrees symbol.
 
 A nil =:path= is a real case, not a defensive one: the resolver anchors
 the relpath under the canonical checkout and answers =missing-repo=
@@ -1456,12 +1470,30 @@ entries are offered is decided by
 `workspace-bookmark--missing-repo-withheld'; what each does, by
 `workspace-bookmark--offer-missing-repo'.")
 
+(defvar workspace--integrations)
+
+(defun workspace-bookmark--add-worktree-runnable-p ()
+  "Return non-nil when git-worktrees' add-worktree command can run.
+That is when `jf/workspace--add-worktree' is defined AND registered as
+the menu command of an integration in core's `workspace--integrations'
+\(read only when bound).  git-worktrees defines the command whether or
+not magit is loaded, but registers it only once magit is, and the
+command needs magit."
+  (and (fboundp 'jf/workspace--add-worktree)
+       (boundp 'workspace--integrations)
+       (seq-some (lambda (entry)
+                   (eq (cdr-safe (plist-get (cdr-safe entry) :menu))
+                       'jf/workspace--add-worktree))
+                 workspace--integrations)
+       t))
+
 (defun workspace-bookmark--missing-repo-withheld (resolution workspace)
   "Return the `missing-repo' actions not offered for RESOLUTION, with reasons.
 
 An alist of (ACTION . REASON), REASON a phrase for the prompt.
 `add-worktree' needs a current WORKSPACE (a name) with a home and the
-git-worktrees command `jf/workspace--add-worktree' loaded;
+git-worktrees command `jf/workspace--add-worktree' runnable
+\(`workspace-bookmark--add-worktree-runnable-p');
 `view-canonical-read-only' needs a non-nil :path, the relpath present
 under the canonical checkout.  `cancel' is always offered."
   (let ((withheld nil))
@@ -1469,7 +1501,7 @@ under the canonical checkout.  `cancel' is always offered."
      ((null workspace)
       (push (cons 'add-worktree "no workspace is current to add a worktree to")
             withheld))
-     ((not (fboundp 'jf/workspace--add-worktree))
+     ((not (workspace-bookmark--add-worktree-runnable-p))
       (push (cons 'add-worktree "the git worktree integration is not loaded")
             withheld))
      ((not (workspace-bookmark--workspace-home workspace))
@@ -1767,7 +1799,11 @@ discovery.
 
 On =ok= the resolver runs ONCE more against the workspace, and a
 =resolved= answer continues through the seam's normal path, pre-flight
-included.  Any other answer declines with its report — a worktree
+included.  The add changed the repository, so that second resolve runs
+in a FRESH discovery memo (=workspace-bookmark--discovery-memo= bound to
+nil), never in one a caller may have opened around this function: an
+enclosing memo holds the repository's worktree listing from before the
+add (see "One discovery call asks git each question once").  Any other answer declines with its report — a worktree
 added off =main= lacks a file that exists only on the bookmarked
 branch, and that is =not-on-branch=, reported like any other — and
 never prompts again.  =(failed . REASON)= and =skipped= decline naming
@@ -1777,6 +1813,7 @@ else is an error the chooser's barrier turns into a decline.
 
 #+begin_src emacs-lisp
 (declare-function workspace--integration-payload "integrations" (name home context))
+(defvar workspace-bookmark--discovery-memo)
 
 (defun workspace-bookmark--add-worktree-payload (workspace checkout)
   "Return the anchor payload for adding a worktree of CHECKOUT to WORKSPACE.
@@ -1805,7 +1842,8 @@ for one.  When that constructor is not loaded, the same keys but
 
 Calls git-worktrees' `jf/workspace--add-worktree', which must be
 `fboundp', with `workspace-bookmark--add-worktree-payload'.  On `ok'
-the resolver runs once more against WORKSPACE: a `resolved' answer
+the resolver runs once more against WORKSPACE, outside any enclosing
+discovery memo (the add changed the repository): a `resolved' answer
 continues through `workspace-bookmark--plan-to-open', pre-flight
 included; any other answer declines with its report, never a second
 prompt.  (failed . REASON) and `skipped' decline naming the reason.
@@ -1818,7 +1856,8 @@ Signals on an unknown result; the caller's barrier declines."
                           workspace (plist-get resolution :checkout)))))
     (pcase result
       ('ok
-       (let ((again (workspace-bookmark--resolve record workspace)))
+       (let* ((workspace-bookmark--discovery-memo nil)
+              (again (workspace-bookmark--resolve record workspace)))
          (if (eq (plist-get again :outcome) 'resolved)
              (workspace-bookmark--plan-to-open record again 'call-through)
            (cons 'decline (workspace-bookmark--after-add-message record again)))))
@@ -3429,6 +3468,20 @@ made inside shares that memo.  The entry point's name, calling
 convention and meaning are unchanged, and a caller that does not use the
 scope gets exactly the answers it got before.
 
+The scope's promise of equal answers has a PRECONDITION, stated in its
+docstring: nothing may change the repositories while it is open.  A
+nested discovery shares the outer memo rather than starting its own
+(=workspace-bookmark--with-discovery-memo=), so inside the scope EVERY
+discovery joins it — the resolver's, a workspace's checkouts — not
+only the entry point; a checkout added inside the scope and then asked
+about would be answered from the listing taken before the add.  So the
+function run in the scope must not create, move or remove a checkout or
+change a repository's configuration, and must not wait for user input.
+The git-worktrees picker wraps only its pure candidate build, never the
+prompt that follows.  The one place this module adds a checkout and then
+asks again, =workspace-bookmark--add-worktree-and-replan=, does not
+rely on its caller: it re-resolves in a fresh memo.
+
 It is a FUNCTION taking a function, not a macro, because the consumer
 reaches it across a soft edge: git-worktrees loads before this module
 and guards the call with =fboundp= at call time, and a macro the
@@ -3443,9 +3496,17 @@ names.
 
 Every call of `workspace-bookmark-canonical-checkouts-in-view' made
 while FUNCTION runs shares one discovery memo, so a repository those
-calls reach more than once is asked each git question once.  The memo
-is dropped when FUNCTION returns or exits non-locally; nothing survives
-the call.  Answers are exactly those the calls give on their own.
+calls reach more than once is asked each git question once.  So does
+every other discovery made while FUNCTION runs, not only that entry
+point.  The memo is dropped when FUNCTION returns or exits non-locally;
+nothing survives the call.
+
+Precondition: answers are exactly those the calls give on their own
+only while nothing changes the repositories inside the scope.
+FUNCTION must not create, move or remove a checkout or change a
+repository's configuration, and must not wait for user input (while
+it waits, anything may change); a question asked again after such a
+change is answered from the memo, as before it.
 
 This is a CROSS-MODULE INTERFACE, called from git-worktrees.el behind a
 call-time `fboundp' guard; its name, calling convention and meaning are
