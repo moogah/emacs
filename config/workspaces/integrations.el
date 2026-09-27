@@ -38,6 +38,18 @@ order.  Returns ID."
             (append workspace--integrations (list (cons id plist))))))
   id)
 
+(defun workspace--integration-menu-command-p (command)
+  "Return non-nil when COMMAND is the `:menu' command of a registered integration.
+Walks `workspace--integrations' as the workspace menu does: an entry
+counts when its `:menu' is a (KEY . COMMAND) cons whose command is `eq'
+to COMMAND.  Read-only; never signals."
+  (and (cl-some (lambda (entry)
+                  (let ((menu (and (consp entry)
+                                   (plist-get (cdr-safe entry) :menu))))
+                    (and (consp menu) (eq (cdr menu) command))))
+                workspace--integrations)
+       t))
+
 (defun workspace--integration-payload (name home context)
   "Build the anchor payload plist for a workspace integration event.
 NAME is the workspace name, HOME its filesystem anchor directory,

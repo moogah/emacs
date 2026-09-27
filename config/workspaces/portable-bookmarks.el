@@ -95,6 +95,7 @@ machine's identity."
     (error nil)))
 
 (declare-function workspace--same-file-p "data-model" (a b))
+(declare-function workspace--path-within-p "data-model" (path dir))
 
 (defun workspace-bookmark--remote-url (dir)
   "Return the effective remote URL of the repository containing DIR, or nil.
@@ -599,21 +600,19 @@ entries are offered is decided by
 `workspace-bookmark--missing-repo-withheld'; what each does, by
 `workspace-bookmark--offer-missing-repo'.")
 
-(defvar workspace--integrations)
+(declare-function workspace--integration-menu-command-p "integrations" (command))
 
 (defun workspace-bookmark--add-worktree-runnable-p ()
   "Return non-nil when git-worktrees' add-worktree command can run.
 That is when `jf/workspace--add-worktree' is defined AND registered as
-the menu command of an integration in core's `workspace--integrations'
-\(read only when bound).  git-worktrees defines the command whether or
-not magit is loaded, but registers it only once magit is, and the
-command needs magit."
+the menu command of an integration, asked of core through
+`workspace--integration-menu-command-p' (called only when bound).
+git-worktrees defines the command whenever it is loaded, but it can run
+only once the integration that provides it has registered it, which
+waits for the command's own dependencies."
   (and (fboundp 'jf/workspace--add-worktree)
-       (boundp 'workspace--integrations)
-       (seq-some (lambda (entry)
-                   (eq (cdr-safe (plist-get (cdr-safe entry) :menu))
-                       'jf/workspace--add-worktree))
-                 workspace--integrations)
+       (fboundp 'workspace--integration-menu-command-p)
+       (workspace--integration-menu-command-p 'jf/workspace--add-worktree)
        t))
 
 (defun workspace-bookmark--missing-repo-withheld (resolution workspace)
@@ -941,9 +940,12 @@ holds a checkout of IDENTITY."
 CANDIDATES is the non-empty list `workspace-bookmark--offerable-workspaces'
 returned for IDENTITY; it is offered through `completing-read' with a
 required match, the first holder as the default when there is one.
-Returns nil for an empty answer — \"no workspace\", which the fallback
-acts on.  Does not catch `quit': C-g ends the jump, nothing else is
-asked.  The caller has checked `workspace-bookmark--can-prompt-p'."
+With a default, an empty answer returns that default (`completing-read'
+substitutes it), so \"no workspace\" cannot be chosen.  Without one (no
+candidate holds a checkout), an empty answer returns nil — \"no
+workspace\", which the fallback acts on.  Does not catch `quit': C-g
+ends the jump, nothing else is asked.  The caller has checked
+`workspace-bookmark--can-prompt-p'."
   (let* ((default (and (cdr (car candidates)) (car (car candidates))))
          (choice (completing-read
                   (format-prompt "Restore a workspace for %s" default identity)
@@ -1347,35 +1349,6 @@ the same either way."
                        (workspace-bookmark--shared-tracked-file-p candidate))
               (file-name-as-directory candidate))))))))
 
-(defun workspace-bookmark--path-within-p (path dir)
-  "Return non-nil when PATH is DIR or lies inside it.
-
-Both must be local and exist (a missing PATH is inside nothing); DIR
-must be a directory.  Containment is
-by file identity: PATH is truenamed, then it and each of its ancestors
-is compared to DIR with `workspace--same-file-p', so
-differences of spelling — trailing slash, `~', symlinked prefixes, and
-letter case on a case-insensitive filesystem — do not matter, and
-neither do DIR's timestamps changing during the walk.  Never signals."
-  (and (stringp path) (stringp dir)
-       (not (file-remote-p path))
-       (not (file-remote-p dir))
-       (condition-case nil
-           (let ((current (directory-file-name
-                           (file-truename (expand-file-name path))))
-                 (previous nil)
-                 (found nil))
-             (when (and (file-exists-p (expand-file-name path))
-                        (file-directory-p (expand-file-name dir)))
-               (while (and (not found) (not (equal current previous)))
-                 (if (workspace--same-file-p current dir)
-                     (setq found t)
-                   (setq previous current
-                         current (directory-file-name
-                                  (file-name-directory current))))))
-             found)
-         (error nil))))
-
 (defun workspace-bookmark--same-repository-worktree-p (home checkout)
   "Return non-nil when HOME is a checkout root of CHECKOUT's own repository.
 HOME must be its own top level (`git rev-parse --show-toplevel' run in it
@@ -1402,7 +1375,7 @@ subprocess, two when CHECKOUT's `.git' is a file.  Never signals."
   "Return the name of a registered workspace that owns CHECKOUT, or nil.
 A workspace owns CHECKOUT when CHECKOUT is its `:home', really lies
 inside it, or really contains it, by file identity (see
-`workspace-bookmark--path-within-p').  A contained home owns CHECKOUT
+`workspace--path-within-p').  A contained home owns CHECKOUT
 only when it is not itself a worktree of CHECKOUT's repository (see
 `workspace-bookmark--same-repository-worktree-p'), and only a home
 that exists owns anything.  Symbolic links confer nothing: a clone
@@ -1410,8 +1383,8 @@ linked into a home from outside it is not owned, and neither is a clone
 holding a link to a home.  Never signals."
   (seq-find (lambda (name)
               (let ((home (workspace-bookmark--workspace-home name)))
-                (or (workspace-bookmark--path-within-p checkout home)
-                    (and (workspace-bookmark--path-within-p home checkout)
+                (or (workspace--path-within-p checkout home)
+                    (and (workspace--path-within-p home checkout)
                          (not (workspace-bookmark--same-repository-worktree-p
                                home checkout))))))
             (workspace-bookmark--registered-names)))

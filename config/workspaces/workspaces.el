@@ -73,7 +73,9 @@ Clears the broken-state tag and updates `:home'.  If
 from NAME, the registry entry is renamed to match the new basename
 (per the registry-name-equals-basename invariant).
 
-The new path must exist and must be a directory."
+The new path must be local (remote workspace homes are not supported;
+refused before any filesystem work), must exist and must be a
+directory."
   (interactive
    (list (completing-read "Re-anchor workspace: "
                           (workspace--registered-names) nil t)
@@ -82,6 +84,7 @@ The new path must exist and must be a directory."
   (let ((ws (gethash name workspace--registry)))
     (unless ws
       (user-error "No workspace named %s" name))
+    (workspace--refuse-remote-home new-home)
     (unless (file-directory-p new-home)
       (user-error "Not a directory: %s" new-home))
     (let* ((new-name (file-name-nondirectory
@@ -117,6 +120,24 @@ The new path must exist and must be a directory."
             (tab-bar-rename-tab new-name tab-idx)))))
       (workspace--flush-state)
       (message "Workspace re-anchored: %s → %s" name new-home))))
+
+(defun workspace--purge-in-scope-p (home)
+  "Return non-nil when HOME lies inside `workspaces-default-parent-directory'.
+Decided by `workspace--path-within-p' (file identity, never spelling).
+A HOME that no longer exists (a broken workspace) is judged by its
+nearest existing ancestor, so a vanished home under the parent is in
+scope and one under an external tree is not.  Nil for a remote HOME.
+Never signals."
+  (and (stringp home)
+       (not (file-remote-p home))
+       (let ((path (directory-file-name (expand-file-name home)))
+             (previous nil))
+         ;; The `equal' is the loop guard at the filesystem root, not a
+         ;; containment verdict.
+         (while (and (not (file-exists-p path)) (not (equal path previous)))
+           (setq previous path
+                 path (directory-file-name (file-name-directory path))))
+         (workspace--path-within-p path workspaces-default-parent-directory))))
 
 (defun workspace-delete (name)
   "Remove workspace NAME from the registry and close its tab.
@@ -171,7 +192,7 @@ purge as =:allowed= on broken)."
     ;; the destructive prompt without a deliberate two-step opt-in
     ;; (design.md §D8).
     (unless (or current-prefix-arg
-                (file-in-directory-p home workspaces-default-parent-directory))
+                (workspace--purge-in-scope-p home))
       (user-error
        "Refusing to purge %s; outside %s. Use `C-u M-x workspace-purge' to override."
        home workspaces-default-parent-directory))
