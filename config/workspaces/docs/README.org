@@ -520,8 +520,9 @@ workspace being restored: the file is not on this branch
 (=not-on-branch=), more than one checkout could hold it
 (=ambiguous=), the workspace holds no checkout of the repository
 (=missing-repo= — a restore never asks the three-way question a
-direct jump would), or no checkout of the repository is in view at
-all (=no-clone=).  A declined leaf skips steps 2 and 3 and lands
+direct jump would), or no checkout of the repository in view can be
+used — none at all, only another workspace's own clone, or discovery
+failed (=no-clone=).  A declined leaf skips steps 2 and 3 and lands
 directly on the error buffer, which shows the reason and says the
 saved filename was deliberately NOT opened: that filename is the path
 the buffer had when the layout was captured — very often another
@@ -659,8 +660,12 @@ chosen for you*: picking the first would be choosing a branch by
 directory order, so =ambiguous= reports and opens nothing.  Two
 worktrees of /one/ repository elsewhere in view are not ambiguous — they
 share one main worktree.  Only =non-portable= ever opens the stored
-absolute path; a declined jump opens nothing and leaves no bookmark
-mark in the buffer you were in.
+absolute path by design; a declined jump opens nothing and leaves no
+bookmark mark in the buffer you were in.  Two failure paths are the
+exception: if the jump code itself errors, the bookmark is opened as
+stock Emacs would (its stored path) rather than not at all, and during
+a layout restore a leaf whose jump errors (as opposed to declining)
+falls through the reincarnation chain to its saved filename.
 
 The stored relative path is taken as spelled.  A bookmark reached
 through a symbolic link that the repository tracks resolves to the same
@@ -717,7 +722,8 @@ such, and the first of them is the default; broken workspaces are not
 offered.
 
 The chosen workspace is restored exactly as =workspace-restore= would
-(its tab created or selected, its layout painted), and the bookmark is
+(its tab created and its layout painted, or, when the tab already
+exists, simply selected), and the bookmark is
 then resolved against it through the table above.  A =resolved= file
 opens in the selected window of the restored layout — same window, no
 split.  The result is remembered like any other file you open in that
