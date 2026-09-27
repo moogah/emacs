@@ -149,3 +149,12 @@ a small frame).
 - Step 3 inherits the ask-16 narrowing: read-only view is withheld when `missing-repo` carries a nil `:path`; `add-worktree` targets `:checkout`. Whether this fallback REUSES `missing-repo-choice`'s chooser is a speculation `register/invariant/no-silent-wrong-file-open` names for this wave; if merged into one chooser, the nested action vocabulary in `register/vocabulary/bookmark-resolution-outcome` is re-stated at integrate.
 - On-touch fires for `register/invariant/bookmark-jump-not-captured-as-working-state`: the entry's cycle-2 paragraph asks which event clears the explicit-reset flag, that it is ordered after the deferred `window-state-put`, and that it resets on error/quit paths.
 - Never bulk-delete shared temp prefixes.
+
+### Hard requirement from the jump-seam on-touch audit (arch-on-touch-1790453714-2, 2026-09-27)
+`config/workspaces/layouts.el:203-212` (the layout reincarnation chain) catches the seam's decline (`user-error`) with `(error nil)` and
+its step 2 (`:214-222`) then opens the leaf's STORED `filename` — exactly the route `register/invariant/no-silent-wrong-file-open`
+prohibition 4 forbids. Behaviour is unchanged from before the seam (it was pass-through), so this is not a jump-seam regression, but
+the restore flow this task builds MUST treat a seam decline as "skip this leaf's filename" (leave the window on its fallback, report
+once per DD-4), never as "fall back to the stored path". Add a behavioural spec: a layout leaf whose bookmark resolves `not-on-branch`
+is restored WITHOUT visiting the stored path. Coordinate with `missing-repo-choice` if the chain reaches its prompt (a restore must not
+prompt per leaf; aggregate).
