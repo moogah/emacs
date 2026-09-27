@@ -192,28 +192,44 @@ parent that holds every scaffolded workspace.
 For broken-state workspaces (=:home= missing on disk), no
 filesystem deletion is attempted — the registry entry is still
 removed (register/vocabulary/workspace-broken-disposition pins
-purge as =:allowed= on broken)."
+purge as =:allowed= on broken).
+
+A remote (TRAMP) =:home= is never contacted: remote workspace homes are
+unsupported, and such an entry is only ever loaded broken.  Purge then
+asks to unregister it, with or without a prefix argument, and touches
+nothing on the remote host — no scope check, no integration teardown,
+no deletion."
   (interactive
    (list (completing-read "Purge workspace (DELETES HOME DIR): "
                           (workspace--registered-names) nil t)))
   (let* ((ws (gethash name workspace--registry))
-         (home (and ws (workspace--home ws))))
+         (home (and ws (workspace--home ws)))
+         ;; `file-remote-p' answers from the name alone; it never connects.
+         (remote (and home (file-remote-p home))))
     (unless ws
       (user-error "No workspace named %s" name))
     (unless home
       (user-error "Workspace %s has no :home (data corruption?)" name))
+    ;; A remote home is unsupported and never contacted: unregister only.
+    (when remote
+      (unless (yes-or-no-p
+               (format "Unregister workspace %s? Its remote home %s is not touched. "
+                       name home))
+        (user-error "Cancelled")))
     ;; Scope safeguard: refuse to nuke a dir outside the default parent
     ;; unless the user explicitly opts in via prefix arg.  Checked BEFORE
     ;; the yes-or-no-p so an anchored external project never even shows
     ;; the destructive prompt without a deliberate two-step opt-in
     ;; (design.md §D8).
-    (unless (or current-prefix-arg
+    (unless (or remote
+                current-prefix-arg
                 (workspace--purge-in-scope-p home))
       (user-error
        "Refusing to purge %s; outside %s. Use `C-u M-x workspace-purge' to override."
        home workspaces-default-parent-directory))
     ;; Final confirmation.
-    (unless (yes-or-no-p (format "Recursively delete %s? " home))
+    (unless (or remote
+                (yes-or-no-p (format "Recursively delete %s? " home)))
       (user-error "Cancelled"))
     ;; Unregister first; even if delete-directory errors below the
     ;; registry is already clean.  Unregistering BEFORE closing the tab
@@ -229,7 +245,7 @@ purge as =:allowed= on broken)."
     (workspace--flush-state)
     ;; Filesystem delete (best-effort; broken-home case has nothing
     ;; to do — :home is already absent).
-    (when (file-directory-p home)
+    (when (and (not remote) (file-directory-p home))
       ;; Additive integration teardown BEFORE the directory is gone:
       ;; integrations clean up resources anchored under :home (e.g. git
       ;; worktrees) while the tree still exists (design.md §D3).  The
@@ -238,6 +254,15 @@ purge as =:allowed= on broken)."
       ;; is surfaced via `message' but NEVER aborts the purge.  Fires on
       ;; purge only; `workspace-delete' leaves :home intact and so has
       ;; nothing to tear down.
+      ;; Re-check scope right before teardown and the recursive delete:
+      ;; the filesystem can change while the confirmation prompt is open
+      ;; (a missing parent reappearing as a symlink out of the default
+      ;; parent).
+      (unless (or current-prefix-arg
+                  (workspace--purge-in-scope-p home))
+        (user-error
+         "Not deleting %s: it left %s while you were confirming. The registry entry is already removed."
+         home workspaces-default-parent-directory))
       (workspace--dispatch-purge-integrations name home 'purge)
       (delete-directory home t))
     (message "Workspace %s purged" name)))

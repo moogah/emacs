@@ -563,3 +563,104 @@ Nothing is deleted."
 
 (provide 'workspace-delete-purge-spec)
 ;;; workspace-delete-purge-spec.el ends here
+
+;;; Remote homes (unsupported; user decision 2026-09-27): purge never
+;;; contacts the host.  A stand-in handler plays TRAMP: `file-remote-p'
+;;; answers from the name, pure file-NAME operations use the default
+;;; implementation, and ANY other operation is recorded and signals, so
+;;; a purge that stats, tears down or deletes the remote home fails.
+
+(defconst wdp-spec--remote-prefix "/wdp-remote:"
+  "Prefix of the stand-in remote file names below.")
+
+(defvar wdp-spec--remote-touches nil
+  "Filesystem operations the stand-in remote handler was asked, newest first.")
+
+(defun wdp-spec--remote-handler (operation &rest args)
+  "Stand-in for TRAMP on names under `wdp-spec--remote-prefix'.
+Name-only operations pass through; everything else signals."
+  (let ((inhibit-file-name-handlers
+         (cons 'wdp-spec--remote-handler inhibit-file-name-handlers))
+        (inhibit-file-name-operation operation))
+    (pcase operation
+      ('file-remote-p wdp-spec--remote-prefix)
+      ((or 'expand-file-name 'file-name-as-directory 'directory-file-name
+           'file-name-directory 'file-name-nondirectory
+           'file-name-sans-versions 'substitute-in-file-name
+           'file-name-case-insensitive-p 'abbreviate-file-name)
+       (apply operation args))
+      (_
+       (push operation wdp-spec--remote-touches)
+       (error "Remote filesystem touched: %S %S" operation args)))))
+
+(describe "workspace-purge on a remote :home"
+  :var (remote-home prompts)
+  (before-each
+    (wdp-spec--reset)
+    (spy-on 'workspace--flush-state :and-return-value nil)
+    (spy-on 'workspace--dispatch-purge-integrations)
+    (setq wdp-spec--remote-touches nil
+          prompts nil
+          remote-home (concat wdp-spec--remote-prefix "/srv/r/"))
+    (wdp-spec--make-workspace "r" remote-home t))
+  (after-each (wdp-spec--cleanup))
+
+  (it "unregisters after one unregister-only confirmation, with or without C-u, and never contacts the host"
+    (dolist (prefix '(nil (4)))
+      (clrhash workspace--registry)
+      (wdp-spec--make-workspace "r" remote-home t)
+      (setq prompts nil)
+      (let ((file-name-handler-alist
+             (cons (cons (concat "\\`" (regexp-quote wdp-spec--remote-prefix))
+                         #'wdp-spec--remote-handler)
+                   file-name-handler-alist))
+            (current-prefix-arg prefix)
+            (deletes nil))
+        (wdp-spec--recording-deletes deletes
+          (cl-letf (((symbol-function 'yes-or-no-p)
+                     (lambda (prompt) (push prompt prompts) t)))
+            (workspace-purge "r"))
+          (expect deletes :to-equal nil)))
+      (expect (gethash "r" workspace--registry) :to-be nil)
+      (expect (length prompts) :to-equal 1)
+      (expect (car prompts) :to-match "Unregister workspace r")
+      (expect (car prompts) :not :to-match "Recursively delete")
+      (expect wdp-spec--remote-touches :to-equal nil)
+      (expect 'workspace--dispatch-purge-integrations :not :to-have-been-called)))
+
+  (it "cancelling the confirmation leaves the entry registered"
+    (let ((file-name-handler-alist
+           (cons (cons (concat "\\`" (regexp-quote wdp-spec--remote-prefix))
+                       #'wdp-spec--remote-handler)
+                 file-name-handler-alist)))
+      (cl-letf (((symbol-function 'yes-or-no-p) (lambda (&rest _) nil)))
+        (expect (workspace-purge "r") :to-throw 'user-error)))
+    (expect (gethash "r" workspace--registry) :not :to-be nil)
+    (expect wdp-spec--remote-touches :to-equal nil)))
+
+(describe "workspace-purge re-checks scope after the confirmation prompt"
+  ;; arch-on-touch-1790453714-69: scope is decided before the prompt and
+  ;; the delete happens after it.  If the home leaves the default parent
+  ;; while the prompt is open, nothing is torn down or deleted.
+  (before-each
+    (wdp-spec--reset)
+    (spy-on 'workspace--flush-state :and-return-value nil)
+    (spy-on 'workspace--dispatch-purge-integrations))
+  (after-each (wdp-spec--cleanup))
+
+  (it "does not tear down or delete when the home left scope during the prompt"
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "moving" wdp-spec--tmp-parent)))
+           (deleted nil)
+           (in-scope t))
+      (wdp-spec--make-workspace "moving" home)
+      (cl-letf (((symbol-function 'workspace--purge-in-scope-p)
+                 (lambda (&rest _) in-scope))
+                ((symbol-function 'yes-or-no-p)
+                 (lambda (&rest _) (setq in-scope nil) t)))
+        (let ((current-prefix-arg nil))
+          (wdp-spec--recording-deletes deleted
+            (expect (workspace-purge "moving") :to-throw 'user-error))))
+      (expect deleted :to-be nil)
+      (expect 'workspace--dispatch-purge-integrations :not :to-have-been-called)
+      (expect (file-directory-p home) :to-be t))))
