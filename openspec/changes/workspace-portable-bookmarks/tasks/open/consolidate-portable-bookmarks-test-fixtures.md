@@ -2,10 +2,11 @@
 name: consolidate-portable-bookmarks-test-fixtures
 description: One fixtures-owned registry scope and one commit-a-file helper for the portable-bookmarks and git-worktrees specs; fold the five per-file git wrappers into one
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: test
 on_critical_path: false
 cycle: cycle-1790453714
+merge_commit: ae45fdd5
 cites_register_entries:
   - register/boundary/portable-bookmarks-consumer
   - register/invariant/spec-registry-isolation-via-fixtures
