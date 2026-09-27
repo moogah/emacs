@@ -94,9 +94,11 @@ directory's basename.  Three sub-cases by directory state:
    init=, files, initial commit), same as the default-path branch.
 
 A double-registration guard refuses to anchor a directory that is
-already a registered workspace's =:home=.  Path comparison is by
-=file-equal-p=, so trailing-slash and =~= variants do not produce
-false positives.
+already a registered workspace's =:home=.  Directories are compared by
+device and inode, not by spelling, so two spellings of the same
+directory (a trailing slash, a =~= prefix, a symlinked parent, a
+different letter case on a case-insensitive disk) are recognised as
+one.  Remote (TRAMP) homes are not supported by that check.
 
 * Deleting and purging workspaces
 
@@ -512,15 +514,25 @@ order until one produces a live buffer:
 
 *The decline gate.*  A bookmark handler that signals =user-error= has
 DECLINED to restore its buffer — a message for the user, not a
-failure.  The portable-bookmarks module does this when a file's
-bookmark resolves to "not on this branch", "ambiguous" or "this
-workspace holds no checkout of that repository".  A declined leaf
-skips steps 2 and 3 and lands directly on the error buffer, which
-shows the reason and says the saved filename was deliberately NOT
-opened: that filename is the path the buffer had when the layout was
-captured, which the handler has just refused.  Every declined leaf of
-one restore is reported in a single message.  Any other error in
-step 1 is a failure and falls through to step 2 as before.
+failure.  The portable-bookmarks module (see *Portable bookmarks*
+below) does this whenever a leaf's bookmark cannot be resolved in the
+workspace being restored: the file is not on this branch
+(=not-on-branch=), more than one checkout could hold it
+(=ambiguous=), the workspace holds no checkout of the repository
+(=missing-repo= — a restore never asks the three-way question a
+direct jump would), or no checkout of the repository is in view at
+all (=no-clone=).  A declined leaf skips steps 2 and 3 and lands
+directly on the error buffer, which shows the reason and says the
+saved filename was deliberately NOT opened: that filename is the path
+the buffer had when the layout was captured — very often another
+workspace's copy of the file — which the handler has just refused.
+Every declined leaf of one restore is reported in a single message,
+never one prompt or one message per window.  Buffers whose bookmark
+carries no repository stamp (files outside git, untracked files,
+anything else the module does not stamp) are unaffected and restore
+exactly as before.  Any
+other error in step 1 is a failure and falls through to step 2 as
+before.
 
 Restoring a leaf does not suppress questions: a handler that asks
 while visiting — the large-file prompt, the unsafe local variables
@@ -549,6 +561,216 @@ The =window-state-put= call is deferred via =(run-at-time nil nil
 ...)= so the restore does not race against =bookmark--jump-via='s
 own buffer-display call.  The user observes no delay; this is just
 "don't fight the bookmark protocol."
+
+* Portable bookmarks
+
+** The problem
+
+An Emacs bookmark stores an absolute =filename=.  In a
+worktree-per-workspace workflow the same file exists in several
+checkouts of one repository — the main clone plus one git worktree per
+workspace — and a bookmark points into whichever checkout was current
+when it was made.  Jumping to it from another workspace silently opens
+/that/ workspace's copy, on another branch: an edit lands on the wrong
+branch and nothing says so.  Once the owning workspace is purged the
+bookmark points at nothing.
+
+The portable-bookmarks module (=config/workspaces/portable-bookmarks.org=)
+makes a bookmark mean "this file of this repository", and resolves it
+against the workspace you are standing in when you jump.  It covers
+every jump that goes through Emacs's bookmark machinery: =C-x r b=, the
+other-window and other-frame variants, completion front-ends such as
+=consult-bookmark=, and the layout restore described under *Buffer
+reincarnation*.
+
+** What is stored
+
+When a bookmark is made for a file or directory that git tracks in a
+repository with a remote, the record gains three extra properties: the
+repository's identity (its remote URL normalized so that the SSH and
+HTTPS spellings agree, e.g. =github.com/moogah/emacs=; =origin= is
+preferred, a sole remote of another name is used, credentials in the
+URL are dropped), the path relative to the repository root as git
+spells it, and a format version.  Everything else about the record is
+unchanged — in particular the absolute =filename= is kept.  A stock
+Emacs therefore still reads and uses the bookmark file, and the stamp
+costs nothing if the module is ever removed.
+
+Records that cannot be stamped are left exactly as Emacs made them:
+files outside any repository, untracked files, repositories with no
+remote (no remote, no identity — a local path would mean nothing on
+another machine), remote (TRAMP) files, and records that hold nested
+records or window trees rather than one location (e.g. =tab-bookmark=).
+Bookmarks made before the module existed are unstamped too.  All of
+them keep working exactly as before.
+
+** Which checkouts count
+
+Resolution sorts every checkout it meets into one of three kinds:
+
+- /workspace-owned/ — a checkout inside a registered workspace's home,
+  the home itself (a workspace anchored at an existing repository with
+  =C-u= =workspace-new=), or a clone that /contains/ the home (a
+  workspace anchored at a subdirectory of a clone is working in that
+  clone).  The one exception: a home that is a linked worktree kept
+  inside its own main clone (=<clone>/.worktrees/x=) does not make
+  that clone workspace-owned.  A workspace's own checkouts — the ones
+  a bookmark resolves into — are its home, when the home is a
+  checkout, and the checkouts directly under it
+  (=~/emacs-workspaces/<name>/<repo>/=).
+- /canonical/ — a repository's main worktree that no workspace owns.
+  It is the only checkout that may ever be offered from outside the
+  workspace, and only on an explicit choice.
+- /other/ — anything else: in particular a linked worktree no workspace
+  owns, which is never offered as "the" copy of a repository.
+
+The checkouts /in view/ are the current workspace's, then every other
+registered workspace's, then the repository this Emacs was loaded
+from; git names each one's main worktree.  Nothing scans the disk
+beyond that, so a clone that no workspace has a worktree of is not in
+view.  Symbolic links in a workspace home are ignored: add a worktree
+rather than linking a checkout in.
+
+** The outcome table
+
+Every jump to a stamped bookmark ends in exactly one of six outcomes:
+
+| Outcome         | When                                                            | What you see                                       |
+|-----------------+-----------------------------------------------------------------+----------------------------------------------------|
+| =resolved=      | the workspace holds one checkout; the path is there             | its copy opens, through the bookmark's own handler |
+| =not-on-branch= | the workspace holds one checkout; the path is not on its branch | a report; nothing opened                           |
+| =ambiguous=     | two or more candidate checkouts                                 | a report naming them; nothing chosen               |
+| =missing-repo=  | the workspace holds none; one canonical checkout in view        | a three-way choice (below)                         |
+| =no-clone=      | no canonical checkout in view                                   | a report; nothing opened                           |
+| =non-portable=  | no usable stamp                                                 | stock Emacs: the stored absolute path opens        |
+
+A =resolved= jump keeps everything the bookmark normally restores:
+position, Dired, Org, PDF.  =not-on-branch= also covers a directory
+where a file was bookmarked, or the reverse.  =ambiguous= means the
+workspace holds two or more checkouts of the repository (two sibling
+worktrees in its home, say), or holds none while two or more separate
+main clones are in view.  Each report is a single message naming the
+bookmark and the repository.
+
+Two rules hold across the table.  *The main checkout is never a silent
+fallback*: it is opened only when you pick "view read-only" at the
+=missing-repo= choice.  And *when two candidates are in view, nothing is
+chosen for you*: picking the first would be choosing a branch by
+directory order, so =ambiguous= reports and opens nothing.  Two
+worktrees of /one/ repository elsewhere in view are not ambiguous — they
+share one main worktree.  Only =non-portable= ever opens the stored
+absolute path; a declined jump opens nothing and leaves no bookmark
+mark in the buffer you were in.
+
+The stored relative path is taken as spelled.  A bookmark reached
+through a symbolic link that the repository tracks resolves to the same
+spelling inside your checkout, wherever that link points on your
+branch — exactly what visiting the path by hand would open.  A
+hand-edited stamp whose path is absolute or climbs out with =..= is
+treated as unstamped, and the jump behaves as stock.
+
+** The missing-repo choice
+
+=missing-repo= is the one outcome where a useful action exists but has
+to be chosen.  The prompt names the bookmark, the workspace, the
+repository and the canonical checkout, and offers:
+
+- /add a worktree here/ — creates a worktree of the canonical checkout
+  the resolver found, inside the current workspace's home, through the
+  git-worktree integration.  You are not asked for a source repository
+  again; you are asked only for the branch name (defaulting to the
+  workspace name).  The new worktree is branched off the repository's
+  main branch, and the bookmark is resolved once more against it: the
+  file opens if it exists there, and otherwise the jump reports why
+  (typically =not-on-branch=, for a file that only exists on the branch
+  where it was bookmarked) without asking again.
+- /view read-only/ — opens the canonical checkout's copy in =view-mode=
+  and adds a =[canonical …]= marker to the mode line naming the
+  checkout.  The marker stays for the life of the buffer: it survives
+  =C-x C-q= (the deliberate way to make the buffer writable) and a
+  =revert-buffer=, so the buffer always says what it is.
+- /cancel/ — opens nothing.
+
+An option that cannot work is withheld, and the prompt says why:
+"add a worktree" needs a current workspace with a home and the
+git-worktree module loaded; "view read-only" is
+withheld when the canonical checkout does not have the file.  During a
+layout restore nothing prompts: the leaf declines with the
+=missing-repo= report instead (see *Buffer reincarnation*).
+
+For the ordinary =C-x w= /Integrations/ "git worktree" command, which
+does ask for a source repository, the candidates come first from the
+checkouts in view (each resolved to its canonical checkout) and then
+from magit's repository list, which this configuration points at the
+repositories directly under =~/src= when that directory exists.  Only
+canonical checkouts are offered from either source.
+
+** Off-workspace jumps
+
+A stamped bookmark needs a workspace to resolve against.  Jumping to one
+from a tab that is not a workspace does not open the stored path;
+instead it asks which workspace should serve the jump.  The candidates
+come from the /registry/, not from live tabs, so this works right after
+a restart when the workspace has no tab yet.  Workspaces that already
+hold a checkout of the repository are listed first and annotated as
+such, and the first of them is the default; broken workspaces are not
+offered.
+
+The chosen workspace is restored exactly as =workspace-restore= would
+(its tab created or selected, its layout painted), and the bookmark is
+then resolved against it through the table above.  A =resolved= file
+opens in the selected window of the restored layout — same window, no
+split.  The result is remembered like any other file you open in that
+workspace: the next autosave records it in the workspace's
+=:working-state=, and =:saved-state= is untouched as with every
+autosave.
+
+=C-g= at the workspace prompt ends the jump: nothing restored, nothing
+opened.  An empty answer, or no workspace to offer, means "no workspace":
+the bookmark is resolved against none, and the only thing that can
+follow is the =missing-repo= choice without "add a worktree" (view
+read-only, or cancel), or a report.  In a non-interactive Emacs, or
+wherever no question may be asked, the jump declines with a message
+instead of prompting.  Unstamped bookmarks are not affected: off a
+workspace they open their stored path as always.
+
+** Two bookmark systems
+
+This section is about the user-facing bookmark list (=C-x r m=,
+=C-x r b=, stored in =bookmark-default-file=).  The layouts in
+=workspaces.eld= carry bookmark records of their own, one per window
+(see *Buffer reincarnation*).  The two are separate stores, but both go
+through the same Emacs functions, so layout records are stamped the same
+way and a restored layout's windows are resolved against the workspace
+being restored, with the decline gate described there.
+
+** Scope and limitations
+
+- One location per record.  Records holding nested records or window
+  trees (e.g. =tab-bookmark=) are left alone, and no property other than
+  the record's own =filename= is resolved.
+- Stamps are trusted: after =bookmark-relocate= (or a hand edit) a
+  record keeps its old stamp and resolves to the pre-relocation file
+  from other checkouts — a known limitation.
+- Not part of this module, each separate future work: sharing
+  bookmarks between machines (and deciding where a shared bookmark
+  file lives — see =state/bookmarks/README.md=), bookmarks that restore
+  a workspace at a named layout, portable layouts, and workspace
+  templates.
+
+** Removing the module
+
+The module is droppable.  It is loaded by one =jf/load-module= line in
+=config/workspaces/workspaces.org=; removing that line removes both
+advices at the next start (=M-x workspace-bookmark-remove-advice= does
+the same in a running session), and every bookmark goes back to its
+stored absolute path, layout windows included.  Nothing is lost: the
+stamps stay in the files as inert extra properties that stock Emacs
+ignores, and they are used again if the module comes back.  The
+workspaces core does not depend on it.  The one visible difference
+elsewhere is the git-worktree command's repository picker, which loses
+its checkouts-in-view source and offers magit's repository list
+without checking which entries are canonical.
 
 * Working-state revert
 

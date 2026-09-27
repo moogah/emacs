@@ -118,3 +118,155 @@ should be able to confirm that without reading the code.
 ### Related
 - `disposition-spec-design-amendments` (audit eoc-01) corrects the delta specs/design.md to the same six-outcome, three-property design; write the README against the decided design, not the current spec text.
 - Blocked by `missing-repo-choice` and `off-workspace-restore` (unchanged): the README describes their behaviour.
+
+## Observations
+
+Written against the code at base 6d061857, not the task text, where they differ.
+
+**Departures from the task body (user decisions of 2026-09-27, per the brief):**
+- Off-workspace jumps: the README says the result IS remembered — the next
+  autosave records it in `:working-state`, `:saved-state` untouched. The task
+  body's "deliberately not saved" bullet was not followed.
+- Droppability: the loader line lives in `config/workspaces/workspaces.org`
+  (line 148), not in `init.org`'s `jf/enabled-modules`; the README names the
+  right file. The claim "no side effects" is slightly too strong: the
+  git-worktree picker loses its checkouts-in-view source and passes magit's
+  list through unclassified (`git-worktrees.org` § Cross-module interface,
+  `jf/workspace--worktree-canonical-only` returns DIRS unchanged when the
+  function is unbound). The README says so in one sentence.
+- Deferred features list left unchanged: no entry's status changes (the
+  portable-bookmark work does not use the `:etc` alist; revisions, selected-tab
+  and rename remain deferred). The change's own future slices (1b/1c/2/3) are
+  listed under *Portable bookmarks › Scope and limitations* instead of being
+  added to the package's Deferred list.
+- `* Buffer reincarnation` › *The decline gate* rewritten to name all four
+  decline cases incl. `no-clone`, to say a restore never asks the missing-repo
+  question, that reporting is once per restore, and that unstamped buffers
+  (files outside git) are unaffected.
+
+**Each behavioural claim and what it was checked against:**
+- Stamp content (identity, relpath, format version; `filename` kept; all three
+  or none): `portable-bookmarks.org` § Stamped property names, § Stamping.
+- Identity: origin preferred, sole remote otherwise, no remote = no identity,
+  userinfo stripped, SSH/HTTPS normalize equal: § Which repository this is,
+  § Normalizing a remote URL.
+- Unstamped cases (outside repo, untracked, no remote, TRAMP, nested
+  records/window trees, `tab-bookmark`): § Which records are Tier 1, § The
+  repository-relative path.
+- Directories stamped (tracked tree in HEAD): § The repository-relative path.
+- Layout records stamped too: § Seam 1 (layout save calls
+  `bookmark-make-record`, caller not excluded).
+- Jump coverage (`C-x r b`, other-window/frame, consult-bookmark): § Seam 2
+  intro.
+- Six outcomes, conditions, first-match order, ambiguity (2+ in workspace, or
+  none + 2+ separate main clones; two worktrees of one repo not ambiguous):
+  § The closed set of outcomes, § The decision, § The safety rule, and
+  ambiguity; seam table § What the seam does with each outcome;
+  `workspace-bookmark--jump-plan`.
+- Report wording ("…; nothing opened", "none chosen"):
+  `workspace-bookmark--decline-message`.
+- Declines leave no fringe mark in the originating buffer: § Declining is a
+  user-error.
+- Kind mismatch → not-on-branch: § Relpath forms.
+- Tracked-symlink spelling (DD-16), `..`/absolute stamp → unstamped: § Reading
+  the stamp.
+- Classification words and ownership rules (inside home, is home, contains
+  home; same-repo worktree-in-clone exception; symlinks ignored; workspace's
+  checkouts = home + immediate children): § Classification, § A workspace's
+  checkouts.
+- Checkouts in view order (current, other workspaces, `jf/emacs-dir`), no disk
+  scan: § Checkouts in view, design D5.
+- Missing-repo choice: options, withheld reasons, prompt contents:
+  `workspace-bookmark--missing-repo-withheld`, § The prompt,
+  `workspace-bookmark--offer-missing-repo`.
+- Add-worktree uses the resolver's checkout, no source prompt, branch prompt
+  remains, off main, re-resolve once and decline otherwise:
+  `git-worktrees.org` `jf/workspace--add-worktree` (`:source-repo`,
+  `read-string "Worktree branch: "`, `magit-worktree-branch dir branch main`);
+  `portable-bookmarks.org` § Add worktree here.
+- View read-only: view-mode, `[canonical …]` mode-line marker surviving
+  `C-x C-q` and `revert-buffer`: § View read-only,
+  `workspace-bookmark--mark-canonical-view`.
+- Cancel opens nothing (quit): § The choice; `…--handle-bookmark-advice`.
+- No prompt during layout restore / non-interactive / inhibit-interaction:
+  § The choice ("No prompt where nobody can answer"),
+  `workspace-bookmark--can-prompt-p`; `layouts.org` § Buffer reincarnation
+  ("Asking is not declining").
+- Layout decline gate, error buffer text, one message per restore:
+  `layouts.org` `workspace--error-buffer`,
+  `workspace--report-reincarnation-declines`, `workspace--restore-frameset`.
+- Picker candidates (in-view canonical, then magit `~/src` depth 1, canonical
+  only): `git-worktrees.org` § Repo-source seam; `major-modes/magit.org`
+  `magit-repository-directories`.
+- Off-workspace: registry not tabs, holders first + annotated, first holder
+  default, broken not offered, `workspace-restore`, same window no split, C-g
+  ends, empty answer / nothing offerable → no-workspace plan (chooser without
+  add-worktree, or decline), non-interactive declines, unstamped unaffected:
+  § Off-workspace (all subsections), `workspace-bookmark--off-workspace-plan`,
+  `…--no-workspace-plan`, `…--choose-workspace`, `…--workspace-table`.
+- Remembered like any visit: § Remembered like any visit.
+- Stale stamps after `bookmark-relocate`: § Known limitation: stale stamps.
+- Droppable: `workspaces.org` loader line 148; § Droppable; § Advice
+  installation (`workspace-bookmark-remove-advice`); core names no
+  `workspace-bookmark-*` symbol (grep of `config/workspaces/*.org`: only
+  `git-worktrees.org`, a consumer, with `fboundp` guards).
+- `state/bookmarks/README.md`: `.gitignore` lines 20-22 (`state/**`,
+  `!state/**/`, `!state/**/README.md`); `config/core/defaults.org` (default
+  file + `bookmark-save-flag 1`); `config/local/apploi-mac.el` (the only
+  override; the other three local files do not set it); `init.org`
+  `jf/emacs-dir` = directory of the loaded init file; `git grep` at tag
+  `v0.2.0-rc2` finds no `bookmark-default-file`, and its `early-init.el`
+  points `user-emacs-directory` at `runtime/`. I did not inspect `~/.emacs.d`,
+  so the README names the tag, not "production".
+
+- Coordinator request mid-task: `* Creating workspaces` › `C-u` anchor, the
+  double-registration guard line no longer says `file-equal-p`; it now says
+  directories are compared by device and inode (two spellings of one directory
+  recognised; remote/TRAMP homes not supported). Checked against
+  `workspace--same-file-p` in `data-model.org` at commit 37d04c45 (task
+  `workspaces-file-equal-p-timestamp-race`, merging in parallel): truename,
+  then device+inode; nil for remote or missing paths. At my base 6d061857 the
+  guard still used `file-equal-p`, so this line describes the post-merge code.
+
+**Latent issue noticed:** see disc-docs-readme-1 (the literate claim that the
+add-worktree option is absent without magit is false).
+
+Tests not run: documentation-only change (two prose files and this task file);
+no `.org` source or `.el` touched.
+
+## Discoveries
+
+- discovery_id: disc-docs-readme-1
+  class: invariant-gap
+  description: |
+    portable-bookmarks.org § "What is offered, and why not" says the
+    add-worktree option is fboundp-guarded "so with magit absent the option
+    is absent rather than an error". But git-worktrees.el defines
+    jf/workspace--add-worktree unconditionally (only the integration
+    REGISTRATION sits under with-eval-after-load 'magit), so the fboundp
+    guard is always true once git-worktrees loads. With magit absent the
+    option is offered and, when chosen, signals void-function
+    magit-main-branch, which the chooser's barrier turns into a decline
+    ("the missing-repo choice failed (...)"). Safe (nothing opens), but the
+    literate claim is wrong. No effect in this config, which always loads
+    magit. The README avoids the claim ("needs ... the git-worktree module
+    loaded").
+  affected_register_entry: register/boundary/portable-bookmarks-consumer
+  recommendation: |
+    Either gate the offer on (featurep 'magit) as well, or correct the prose
+    in portable-bookmarks.org to say the option is offered and declines.
+
+- discovery_id: disc-docs-readme-2
+  class: spec-signal
+  description: |
+    Planning text contradicts the code at base on three points the README had
+    to settle: (1) design.md D9's title "…and is not remembered" is superseded
+    by the 2026-09-27 user decision (remembered like any visit); (2)
+    proposal.md § Impact says layout records in workspaces.eld are
+    "untouched by this slice", but seam 1 stamps them and seam 2 resolves
+    them on restore (with the layouts.el decline gate); (3) proposal.md
+    § Impact says the module is registered in jf/enabled-modules in init.org,
+    but it is loaded from config/workspaces/workspaces.org.
+  recommendation: |
+    Fold into disposition-spec-design-amendments (or its successor) so
+    design.md/proposal.md match the code and the README.
