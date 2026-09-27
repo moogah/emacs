@@ -343,15 +343,33 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                     :to-equal portable-bookmarks-jump-spec--position))
           (expect (bookmark-get-bookmark "plain") :to-equal snapshot)))))
 
-  (it "passes a stamped record through unchanged when there is no current workspace (until off-workspace-restore lands)"
+  (it "hands a stamped record off-workspace to the workspace prompt, restores the choice, then resolves against it"
+    ;; The off-workspace flow's own specs (real tabs, real restore,
+    ;; the anti-save flag) are portable-bookmarks-off-workspace-spec.el.
+    ;; Here the two core calls are stubbed so the seam's shape is what
+    ;; is under test: the prompt is asked BEFORE the resolver, the
+    ;; chosen workspace is restored, and resolution runs against it —
+    ;; the record is NOT passed through to its stored path.
     (portable-bookmarks-jump-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
              (stored (portable-bookmarks-jump-spec--set a-path "readme"))
-             (snapshot (copy-tree stored)))
-        (spy-on 'workspace-bookmark--resolve :and-call-through)
-        (let ((buffer (portable-bookmarks-jump-spec--jump "readme" nil)))
-          (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be-truthy))
-        (expect 'workspace-bookmark--resolve :not :to-have-been-called)
+             (snapshot (copy-tree stored))
+             (restored nil)
+             (events nil)
+             (resolve (symbol-function 'workspace-bookmark--resolve)))
+        (cl-letf (((symbol-function 'workspace-bookmark--resolve)
+                   (lambda (&rest args) (push 'resolve events) (apply resolve args)))
+                  ((symbol-function 'completing-read)
+                   (lambda (&rest _) (push 'prompt events) "wsbm-jump-b"))
+                  ((symbol-function 'workspace-restore)
+                   (lambda (name) (push 'restore events) (setq restored name) name)))
+          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" nil)))
+            (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy)
+            (expect (file-equal-p (buffer-file-name buffer) a-path) :to-be nil)))
+        (expect restored :to-equal "wsbm-jump-b")
+        (expect (reverse events) :to-equal '(prompt restore resolve))
+        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot)))))
 
 
