@@ -692,17 +692,29 @@ FUNCTION is simply applied.  A nil answer is memoised like any other."
 
 (defun workspace-bookmark--discovery-memo-key (dir)
   "Return the key under which DIR's position is memoised: its truename.
-Falls back to DIR's expanded spelling when the truename cannot be read."
-  (let ((dir (directory-file-name (expand-file-name dir))))
-    (condition-case nil (file-truename dir) (error dir))))
+Falls back to DIR's expanded spelling when the truename cannot be read,
+and to DIR itself when not even that can be.  DIR must already be a
+LOCAL name: the caller tests `file-remote-p' first, because both
+`expand-file-name' and `file-truename' dispatch to a file-name handler,
+and for a TRAMP name `file-truename' would open the connection."
+  (condition-case nil
+      (let ((dir (directory-file-name (expand-file-name dir))))
+        (condition-case nil (file-truename dir) (error dir)))
+    (error dir)))
 
 (defun workspace-bookmark--shared-position (dir)
   "Return `workspace-bookmark--checkout-position' of DIR, once per discovery call.
 Two spellings of one directory share the answer (see
-`workspace-bookmark--discovery-memo-key')."
-  (workspace-bookmark--memoised-in-call
-   (cons 'position (workspace-bookmark--discovery-memo-key dir))
-   #'workspace-bookmark--checkout-position dir))
+`workspace-bookmark--discovery-memo-key').  A DIR that is not a string,
+or is remote, is nil at once — `file-remote-p' is the ONLY file
+operation asked of it, the same answer and the same discipline as
+`workspace-bookmark--git', which is where a remote DIR was refused
+before the memo existed."
+  (and (stringp dir)
+       (not (file-remote-p dir))
+       (workspace-bookmark--memoised-in-call
+        (cons 'position (workspace-bookmark--discovery-memo-key dir))
+        #'workspace-bookmark--checkout-position dir)))
 
 (defun workspace-bookmark--shared-worktree-entries (dir git-common-dir)
   "Return `workspace-bookmark--worktree-entries' of DIR, once per repository.
@@ -1202,29 +1214,36 @@ error and signals: nothing here returns a location it did not anchor."
 
 (defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name)
   "Decide the outcome for the stamped IDENTITY and RELPATH in WORKSPACE-NAME.
-See `workspace-bookmark--resolve'.  May signal; the caller catches."
-  (let ((checkouts (workspace-bookmark--workspace-checkouts
-                    identity workspace-name)))
-    (cond
-     ((and checkouts (null (cdr checkouts)))
-      (workspace-bookmark--resolve-anchored
-       'resolved relpath (car checkouts) identity))
-     (checkouts
-      (workspace-bookmark--outcome 'ambiguous :identity identity
-                                   :relpath relpath :candidates checkouts))
-     (t
-      (let ((canonical (workspace-bookmark--canonical-checkouts-for-identity
-                        identity)))
-        (cond
-         ((and canonical (null (cdr canonical)))
-          (workspace-bookmark--resolve-anchored
-           'missing-repo relpath (car canonical) identity))
-         (canonical
-          (workspace-bookmark--outcome 'ambiguous :identity identity
-                                       :relpath relpath :candidates canonical))
-         (t
-          (workspace-bookmark--outcome 'no-clone :identity identity
-                                       :relpath relpath))))))))
+See `workspace-bookmark--resolve'.  May signal; the caller catches.
+
+The whole decision is ONE discovery call
+\(`workspace-bookmark--with-discovery-memo'): the current workspace's
+checkouts, which both plural discovery functions examine, are
+positioned once.  Nothing between the two calls can change the layout,
+so the outcome is the same as with two."
+  (workspace-bookmark--with-discovery-memo
+    (let ((checkouts (workspace-bookmark--workspace-checkouts
+                      identity workspace-name)))
+      (cond
+       ((and checkouts (null (cdr checkouts)))
+        (workspace-bookmark--resolve-anchored
+         'resolved relpath (car checkouts) identity))
+       (checkouts
+        (workspace-bookmark--outcome 'ambiguous :identity identity
+                                     :relpath relpath :candidates checkouts))
+       (t
+        (let ((canonical (workspace-bookmark--canonical-checkouts-for-identity
+                          identity)))
+          (cond
+           ((and canonical (null (cdr canonical)))
+            (workspace-bookmark--resolve-anchored
+             'missing-repo relpath (car canonical) identity))
+           (canonical
+            (workspace-bookmark--outcome 'ambiguous :identity identity
+                                         :relpath relpath :candidates canonical))
+           (t
+            (workspace-bookmark--outcome 'no-clone :identity identity
+                                         :relpath relpath)))))))))
 
 (defun workspace-bookmark--resolve (record workspace-name)
   "Decide where bookmark RECORD points in workspace WORKSPACE-NAME.

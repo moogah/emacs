@@ -1555,7 +1555,11 @@ through it:
   workspace home or magit spells it and the same directory as =git
   worktree list= spells it (resolved, =/private/var/…=) share one
   answer.  Nothing is normalised beyond that: two different directories
-  are two questions.
+  are two questions.  The truename is taken only AFTER =file-remote-p=
+  has said the name is local — the same barrier the runner keeps, and
+  for the same reason: =file-truename= on a TRAMP name opens the
+  connection.  A remote or non-string name has no position, which is
+  the answer the runner gave it before the memo existed.
 - A WORKTREE LISTING is keyed by the repository's shared git directory,
   which the position supplies; git's listing is a property of the
   repository, not of the checkout it was asked in.  Without a position
@@ -1564,7 +1568,10 @@ through it:
 
 What this memo is NOT: it is not a cache across calls.  It exists only
 inside one =--workspace-checkouts=, =--canonical-checkouts-among= or
-=--canonical-checkouts-for-identity= call and is dropped on return, so
+=--canonical-checkouts-for-identity= call — or one
+=--resolve-coordinates= decision, which binds it once around the two
+plural calls it makes so the current home's checkouts are positioned
+once, not once per call — and is dropped on return, so
 it can never answer from a layout that has changed since; the only
 state that survives a call is the identity memo above, which is
 revalidated on every use.  Outside a discovery call the memo is nil and
@@ -1580,9 +1587,12 @@ The resulting costs, on a warm identity memo, are the cost contract of
 - =--canonical-checkouts-for-identity=: one per checkout in view, plus,
   per matching repository, one worktree listing and one =ls-files= for
   the main worktree's tracked-file check (the =--show-toplevel= check
-  is answered by the position already held).  Three checkouts in view,
-  one of them the workspace's own, one matching repository: 1 + 3 + 2 =
-  6 subprocesses, against 10 before.
+  is answered by the position already held).  Inside a resolve
+  decision the workspace's own checkouts were positioned by
+  =--workspace-checkouts= in the same scope and cost nothing again.
+  Four checkouts in view, one of them the workspace's own, one matching
+  repository: 4 + 2 = 6 subprocesses, against 16 before (the cost spec's
+  =missing-repo= fixture).
 - the picker, per magit entry that is a canonical main clone: THREE
   (position, worktree listing, tracked-file check); each further
   checkout of a repository already seen: ONE.  Against about five.
@@ -1628,17 +1638,29 @@ FUNCTION is simply applied.  A nil answer is memoised like any other."
 
 (defun workspace-bookmark--discovery-memo-key (dir)
   "Return the key under which DIR's position is memoised: its truename.
-Falls back to DIR's expanded spelling when the truename cannot be read."
-  (let ((dir (directory-file-name (expand-file-name dir))))
-    (condition-case nil (file-truename dir) (error dir))))
+Falls back to DIR's expanded spelling when the truename cannot be read,
+and to DIR itself when not even that can be.  DIR must already be a
+LOCAL name: the caller tests `file-remote-p' first, because both
+`expand-file-name' and `file-truename' dispatch to a file-name handler,
+and for a TRAMP name `file-truename' would open the connection."
+  (condition-case nil
+      (let ((dir (directory-file-name (expand-file-name dir))))
+        (condition-case nil (file-truename dir) (error dir)))
+    (error dir)))
 
 (defun workspace-bookmark--shared-position (dir)
   "Return `workspace-bookmark--checkout-position' of DIR, once per discovery call.
 Two spellings of one directory share the answer (see
-`workspace-bookmark--discovery-memo-key')."
-  (workspace-bookmark--memoised-in-call
-   (cons 'position (workspace-bookmark--discovery-memo-key dir))
-   #'workspace-bookmark--checkout-position dir))
+`workspace-bookmark--discovery-memo-key').  A DIR that is not a string,
+or is remote, is nil at once — `file-remote-p' is the ONLY file
+operation asked of it, the same answer and the same discipline as
+`workspace-bookmark--git', which is where a remote DIR was refused
+before the memo existed."
+  (and (stringp dir)
+       (not (file-remote-p dir))
+       (workspace-bookmark--memoised-in-call
+        (cons 'position (workspace-bookmark--discovery-memo-key dir))
+        #'workspace-bookmark--checkout-position dir)))
 
 (defun workspace-bookmark--shared-worktree-entries (dir git-common-dir)
   "Return `workspace-bookmark--worktree-entries' of DIR, once per repository.
@@ -2835,29 +2857,36 @@ error and signals: nothing here returns a location it did not anchor."
 
 (defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name)
   "Decide the outcome for the stamped IDENTITY and RELPATH in WORKSPACE-NAME.
-See `workspace-bookmark--resolve'.  May signal; the caller catches."
-  (let ((checkouts (workspace-bookmark--workspace-checkouts
-                    identity workspace-name)))
-    (cond
-     ((and checkouts (null (cdr checkouts)))
-      (workspace-bookmark--resolve-anchored
-       'resolved relpath (car checkouts) identity))
-     (checkouts
-      (workspace-bookmark--outcome 'ambiguous :identity identity
-                                   :relpath relpath :candidates checkouts))
-     (t
-      (let ((canonical (workspace-bookmark--canonical-checkouts-for-identity
-                        identity)))
-        (cond
-         ((and canonical (null (cdr canonical)))
-          (workspace-bookmark--resolve-anchored
-           'missing-repo relpath (car canonical) identity))
-         (canonical
-          (workspace-bookmark--outcome 'ambiguous :identity identity
-                                       :relpath relpath :candidates canonical))
-         (t
-          (workspace-bookmark--outcome 'no-clone :identity identity
-                                       :relpath relpath))))))))
+See `workspace-bookmark--resolve'.  May signal; the caller catches.
+
+The whole decision is ONE discovery call
+\(`workspace-bookmark--with-discovery-memo'): the current workspace's
+checkouts, which both plural discovery functions examine, are
+positioned once.  Nothing between the two calls can change the layout,
+so the outcome is the same as with two."
+  (workspace-bookmark--with-discovery-memo
+    (let ((checkouts (workspace-bookmark--workspace-checkouts
+                      identity workspace-name)))
+      (cond
+       ((and checkouts (null (cdr checkouts)))
+        (workspace-bookmark--resolve-anchored
+         'resolved relpath (car checkouts) identity))
+       (checkouts
+        (workspace-bookmark--outcome 'ambiguous :identity identity
+                                     :relpath relpath :candidates checkouts))
+       (t
+        (let ((canonical (workspace-bookmark--canonical-checkouts-for-identity
+                          identity)))
+          (cond
+           ((and canonical (null (cdr canonical)))
+            (workspace-bookmark--resolve-anchored
+             'missing-repo relpath (car canonical) identity))
+           (canonical
+            (workspace-bookmark--outcome 'ambiguous :identity identity
+                                         :relpath relpath :candidates canonical))
+           (t
+            (workspace-bookmark--outcome 'no-clone :identity identity
+                                         :relpath relpath)))))))))
 
 (defun workspace-bookmark--resolve (record workspace-name)
   "Decide where bookmark RECORD points in workspace WORKSPACE-NAME.
