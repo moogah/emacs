@@ -170,6 +170,18 @@ Saves with `bookmark-save', empties the alist, loads the file back."
        t))
 
 
+;;; A native handler of our own making, for the handler-preservation spec.
+;;; A symbol, not a closure, so the record survives bookmark-save / -load.
+
+(defvar portable-bookmarks-jump-spec--handled nil
+  "Records `portable-bookmarks-jump-spec--recording-handler' received, newest first.")
+
+(defun portable-bookmarks-jump-spec--recording-handler (record)
+  "Record RECORD, then do what the default handler does with it."
+  (push record portable-bookmarks-jump-spec--handled)
+  (bookmark-default-handler record))
+
+
 ;;; Behavioral — resolved jumps through the real jump path
 
 (describe "jump seam: resolved jumps (real git, real jump path)"
@@ -236,7 +248,7 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (bookmark-get-filename stored) :to-equal a-path)
         (expect (bookmark-get-bookmark "readme") :to-be stored))))
 
-  (it "opens a directory record in the current workspace's checkout, in Dired"
+  (it "opens a directory record in the current workspace's checkout (default handler visiting a directory: Dired)"
     (portable-bookmarks-jump-spec--hermetic
       (let* ((a-dir (expand-file-name "sub/" (plist-get world :wt-a)))
              (b-dir (expand-file-name "sub/" (plist-get world :wt-b)))
@@ -251,6 +263,31 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (bookmark-get-filename "sub") :to-equal a-dir)
         (portable-bookmarks-jump-spec--reload-bookmarks)
         (expect (bookmark-get-filename "sub") :to-equal a-dir))))
+
+  (it "hands a record's own handler the substituted copy, handler intact, stored record untouched"
+    ;; Emacs 30 dired records carry no handler; this is the case org,
+    ;; pdf-view and bufferlo present: a record whose `handler' is set.
+    (portable-bookmarks-jump-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
+             (stored (portable-bookmarks-jump-spec--set a-path "readme")))
+        (bookmark-prop-set stored 'handler
+                           #'portable-bookmarks-jump-spec--recording-handler)
+        (let ((snapshot (copy-tree stored)))
+          (setq portable-bookmarks-jump-spec--handled nil)
+          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
+            (expect (file-equal-p (buffer-file-name buffer) b-path) :to-be-truthy))
+          (expect (length portable-bookmarks-jump-spec--handled) :to-equal 1)
+          (let ((copy (car portable-bookmarks-jump-spec--handled)))
+            (expect copy :not :to-be stored)
+            (expect (bookmark-get-filename copy) :to-equal b-path)
+            (expect (bookmark-get-handler copy)
+                    :to-be #'portable-bookmarks-jump-spec--recording-handler))
+          (expect (bookmark-get-bookmark "readme") :to-equal snapshot)
+          (portable-bookmarks-jump-spec--reload-bookmarks)
+          (expect (bookmark-get-filename "readme") :to-equal a-path)
+          (expect (bookmark-get-handler "readme")
+                  :to-be #'portable-bookmarks-jump-spec--recording-handler)))))
 
   (it "resolves through bookmark-jump-other-window too (the choke point is bookmark-handle-bookmark)"
     (portable-bookmarks-jump-spec--hermetic
@@ -461,25 +498,34 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                   :to-throw 'error '("Handler boom")))
         (expect calls :to-equal 1))))
 
-  (it "neither prompts to relocate nor signals when a resolved path vanishes before the visit"
-    ;; The host's relocate arm is gated on a STRING argument; a substituted
-    ;; RECORD suppresses the offer and, measured against bookmark.el 30.2,
-    ;; the signal with it.  Pinned so an upstream change is a failure here,
-    ;; not a silent change of the degraded path.
+  (it "declines when a resolved path vanished before the visit, touching neither the originating buffer nor the stored record"
+    ;; The seam pre-flights the resolved :path.  Without it the host, given a
+    ;; RECORD, swallows bookmark-error-no-filename and returns nil, and
+    ;; bookmark--jump-via then fringe-marks and hooks the buffer the user
+    ;; was already in.  Driven from a scratch ORIGIN buffer so that tail
+    ;; would be visible.
     (portable-bookmarks-jump-spec--hermetic
       (let* ((wt-b (plist-get world :wt-b))
              (a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (vanished (expand-file-name "vanished.el" wt-b))
              (stored (portable-bookmarks-jump-spec--set a-path "readme"))
-             (snapshot (copy-tree stored)))
-        (cl-letf (((symbol-function 'workspace-bookmark--resolve)
-                   (lambda (&rest _)
-                     (workspace-bookmark--outcome
-                      'resolved :path vanished
-                      :identity portable-bookmarks-jump-spec--identity
-                      :relpath "vanished.el" :checkout wt-b))))
-          (expect (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")
-                  :not :to-throw))
+             (snapshot (copy-tree stored))
+             (origin (generate-new-buffer "wsbm-jump-origin")))
+        (with-current-buffer origin
+          (insert "origin\n")
+          (let ((overlays (length (overlays-in (point-min) (point-max)))))
+            (cl-letf (((symbol-function 'workspace-bookmark--resolve)
+                       (lambda (&rest _)
+                         (workspace-bookmark--outcome
+                          'resolved :path vanished
+                          :identity portable-bookmarks-jump-spec--identity
+                          :relpath "vanished.el" :checkout wt-b))))
+              (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+                (expect message :to-match "vanished.el")
+                (expect message :to-match "nothing opened")))
+            (expect (current-buffer) :to-be origin)
+            (expect (length (overlays-in (point-min) (point-max))) :to-equal overlays)
+            (expect (local-variable-p 'bookmark-current-bookmark origin) :to-be nil)))
         (expect (file-exists-p vanished) :to-be nil)
         (expect (portable-bookmarks-jump-spec--visits-p vanished) :to-be nil)
         (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
