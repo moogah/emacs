@@ -395,14 +395,108 @@ stamp must not prevent a bookmark from being created."
           record))
     (error record)))
 
+(defun workspace-bookmark--substituted-record (record path)
+  "Return a copy of bookmark RECORD whose `filename' is PATH.
+
+The copy shares no cons cell with RECORD: `copy-tree' copies the
+\(NAME . ALIST) cons, the alist and every property cons, so setting
+`filename' on the copy cannot reach `bookmark-alist'.  Every other
+property — the handler above all — is kept.  This is the ONLY place a
+substituted record is built.  Signals when PATH is not a string."
+  (unless (stringp path)
+    (error "Not a path to substitute into %S: %S"
+           (bookmark-name-from-full-record record) path))
+  (let ((copy (copy-tree record)))
+    (bookmark-prop-set copy 'filename path)
+    copy))
+
+(defun workspace-bookmark--decline-message (record resolution)
+  "Return the report for declining to jump to RECORD.
+
+RESOLUTION is the plist `workspace-bookmark--resolve' returned; its
+outcome must be one that opens nothing (`not-on-branch', `ambiguous',
+`missing-repo' or `no-clone').  Signals for any other outcome."
+  (let ((name (bookmark-name-from-full-record record))
+        (identity (plist-get resolution :identity))
+        (relpath (plist-get resolution :relpath))
+        (checkout (plist-get resolution :checkout))
+        (candidates (plist-get resolution :candidates))
+        (abbreviate (lambda (dir)
+                      (if (stringp dir) (abbreviate-file-name dir) "?"))))
+    (pcase (plist-get resolution :outcome)
+      ('not-on-branch
+       (format "Bookmark %S: %s is not on this branch of %s (%s); nothing opened"
+               name relpath identity (funcall abbreviate checkout)))
+      ('ambiguous
+       (format "Bookmark %S: %d checkouts of %s in view, none chosen: %s"
+               name (length candidates) identity
+               (mapconcat abbreviate candidates ", ")))
+      ('missing-repo
+       (format "Bookmark %S: this workspace holds no checkout of %s (canonical checkout %s); nothing opened"
+               name identity (funcall abbreviate checkout)))
+      ('no-clone
+       (format "Bookmark %S: no checkout of %s in view; nothing opened"
+               name identity))
+      (outcome (error "Not an outcome that declines: %S" outcome)))))
+
+(defun workspace-bookmark--jump-plan (bookmark-name-or-record)
+  "Decide what the jump seam does with BOOKMARK-NAME-OR-RECORD.
+
+Returns (call-through . ARG), meaning hand ARG to the host — ARG is
+the original argument, or a substituted copy for `resolved' — or
+\(decline . MESSAGE), meaning open nothing and report MESSAGE.
+
+Decided before the resolver is asked: a value that is not a bookmark
+record calls through (the host signals for it); no current workspace
+on a STAMPED record is the off-workspace hand-off and calls through
+unchanged until `off-workspace-restore' lands.  May signal; the
+seam's barrier catches."
+  (let ((record (bookmark-get-bookmark bookmark-name-or-record 'noerror))
+        (workspace (workspace-bookmark--current-workspace)))
+    (cond
+     ((not (consp record))
+      (cons 'call-through bookmark-name-or-record))
+     ((and (null workspace)
+           (workspace-bookmark--stamped-coordinates record))
+      (cons 'call-through bookmark-name-or-record))
+     (t
+      (let ((resolution (workspace-bookmark--resolve record workspace)))
+        (pcase (plist-get resolution :outcome)
+          ('non-portable
+           (cons 'call-through bookmark-name-or-record))
+          ('resolved
+           (cons 'call-through
+                 (workspace-bookmark--substituted-record
+                  record (plist-get resolution :path))))
+          ((or 'not-on-branch 'ambiguous 'missing-repo 'no-clone)
+           (cons 'decline
+                 (workspace-bookmark--decline-message record resolution)))
+          (outcome
+           (error "Not a bookmark-resolution outcome: %S" outcome))))))))
+
 (defun workspace-bookmark--handle-bookmark-advice (orig-fn bookmark-name-or-record &rest args)
   "Resolve BOOKMARK-NAME-OR-RECORD against the current workspace, then jump.
 
-Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is the
-advised function and ARGS its remaining arguments.  Any internal error
-falls through to ORIG-FN with the ORIGINAL argument, so a failure
-affecting one bookmark cannot affect another or the bookmark file."
-  (apply orig-fn bookmark-name-or-record args))
+Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is
+the advised function and ARGS its remaining arguments.  Calls ORIG-FN
+with the original argument (`non-portable', or a stamped record with
+no current workspace), with a substituted copy (`resolved'), or not at
+all: every other outcome signals a `user-error' naming the bookmark
+and opens nothing.  Any error in this seam's own decision falls
+through to ORIG-FN with the ORIGINAL argument, so a failure affecting
+one bookmark cannot affect another or the bookmark file; `quit'
+propagates.  After a substituted jump by name,
+`bookmark-current-bookmark' is set as the host sets it for a plain
+one."
+  (let ((plan (condition-case nil
+                  (workspace-bookmark--jump-plan bookmark-name-or-record)
+                (error (cons 'call-through bookmark-name-or-record)))))
+    (if (eq (car plan) 'decline)
+        (user-error "%s" (cdr plan))
+      (prog1 (apply orig-fn (cdr plan) args)
+        (when (and (stringp bookmark-name-or-record)
+                   (not (eq (cdr plan) bookmark-name-or-record)))
+          (setq bookmark-current-bookmark bookmark-name-or-record))))))
 
 (require 'seq)
 
