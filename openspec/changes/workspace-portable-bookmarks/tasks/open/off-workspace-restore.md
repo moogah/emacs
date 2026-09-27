@@ -2,10 +2,11 @@
 name: off-workspace-restore
 description: When not in a workspace, prompt from the registry and restore the chosen workspace before resolving, without capturing the perturbation
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: feature
 on_critical_path: true
 cycle: cycle-1790453714
+merge_commit: 83a022c6
 cites_register_entries:
   - register/invariant/bookmark-jump-not-captured-as-working-state
   - register/boundary/portable-bookmarks-consumer
