@@ -2,10 +2,11 @@
 name: discovery-identity-memo-and-cost-contract
 description: Route discovery through the identity memo, memoise the canonical test per common dir within a call, and pin a spawn budget for the resolve and picker paths
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: refactor
 on_critical_path: false
 cycle: cycle-1790453714
+merge_commit: 6736b02a
 cites_register_entries:
   - register/boundary/git-derived-checkout-discovery
 relations:
