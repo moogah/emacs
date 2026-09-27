@@ -1097,7 +1097,7 @@ error barrier (below) can wrap the decision alone.
 | =not-on-branch= | decline: report, open nothing                                         |
 | =ambiguous=     | decline: report the =:candidates=, choose nothing                     |
 | =no-clone=      | decline: report, open nothing                                         |
-| =missing-repo=  | decline: report, open nothing (the prompt is =missing-repo-choice='s) |
+| =missing-repo=  | offer: hand the resolution to the bounded choice (see "Missing repo") |
 
 Two decisions are made BEFORE the resolver is asked:
 
@@ -1110,11 +1110,15 @@ Two decisions are made BEFORE the resolver is asked:
   is an ordinary =non-portable= pass-through and needs no arm of its
   own.
 
-=missing-repo= hands the whole resolution plist to the prompt once
-=missing-repo-choice= lands; until then it is reported like the other
-non-opening outcomes.  The seam never dispatches on anything but the
-closed set: an outcome it has no arm for signals, and the barrier
-turns that into stock behaviour rather than into an open.
+=missing-repo= hands the whole resolution plist to
+=workspace-bookmark--offer-missing-repo= (section "Missing repo"),
+which prompts and returns a plan of its own: a read-only =view= of the
+canonical copy, a =call-through= once a worktree was added and the
+record re-resolved, a =decline=, or =cancel=.  The seam never
+dispatches on anything but the closed set: an outcome it has no arm
+for signals, and the barrier turns that into stock behaviour rather
+than into an open.  The plan vocabulary is closed the same way — the
+advice has an arm per plan and signals for any other.
 
 ** The copy rule
 
@@ -1145,9 +1149,9 @@ exists to remove.  =user-error= aborts the whole jump at the command
 loop with the report in the echo area, and it is not
 =bookmark-error-no-filename=, the condition the host's relocate arm
 catches (=register/invariant/no-silent-wrong-file-open=).  The
-"cancel opens nothing AND signals nothing" rule belongs to the
-missing-repo prompt, where cancel is an answer the user gave; a
-declined outcome is not.
+missing-repo prompt's =cancel= is an answer the user gave, not a
+declined outcome; it ends the jump with =quit= for reasons given in
+"Missing repo".
 
 ** The record handed to the host
 
@@ -1230,6 +1234,41 @@ substituted record is built.  Signals when PATH is not a string."
 #+end_src
 
 #+begin_src emacs-lisp
+(defun workspace-bookmark--plan-to-open (record resolution kind)
+  "Return the plan that opens RESOLUTION's :path for RECORD, or a decline.
+
+KIND is `call-through' — the seam's own `resolved' jump — or `view',
+the canonical read-only view chosen at the missing-repo prompt.  The
+:path is pre-flighted with `file-exists-p' immediately before the copy
+is built (a directory counts); one that has vanished since the resolver
+looked declines with `workspace-bookmark--vanished-message'.  The copy
+comes from `workspace-bookmark--substituted-record', the only place one
+is built.  Returns (call-through . COPY), (view COPY . CHECKOUT) or
+\(decline . MESSAGE); signals for any other KIND."
+  (let ((path (plist-get resolution :path)))
+    (cond
+     ((not (and (stringp path) (file-exists-p path)))
+      (cons 'decline (workspace-bookmark--vanished-message record resolution)))
+     ((eq kind 'call-through)
+      (cons 'call-through (workspace-bookmark--substituted-record record path)))
+     ((eq kind 'view)
+      (cons 'view (cons (workspace-bookmark--substituted-record record path)
+                        (plist-get resolution :checkout))))
+     (t (error "Not a jump plan kind: %S" kind)))))
+
+(defun workspace-bookmark--landed-p (origin record)
+  "Return non-nil when the jump of the substituted RECORD landed somewhere.
+ORIGIN is the buffer that was current before the host was called.  The
+jump landed when the current buffer is no longer ORIGIN, or now visits
+RECORD's `filename' (compared by file identity)."
+  (or (not (eq (current-buffer) origin))
+      (let ((file (buffer-file-name)))
+        (and file
+             (workspace-bookmark--same-file-p
+              file (bookmark-get-filename record))))))
+#+end_src
+
+#+begin_src emacs-lisp
 (defun workspace-bookmark--decline-message (record resolution)
   "Return the report for declining to jump to RECORD.
 
@@ -1279,15 +1318,20 @@ reason, not a resolution outcome."
   "Decide what the jump seam does with BOOKMARK-NAME-OR-RECORD.
 
 Returns (call-through . ARG), meaning hand ARG to the host — ARG is
-the original argument, or a substituted copy for `resolved' — or
-\(decline . MESSAGE), meaning open nothing and report MESSAGE.
+the original argument, or a substituted copy for `resolved' —
+\(decline . MESSAGE), meaning open nothing and report MESSAGE, or,
+from the missing-repo prompt, (view COPY . CHECKOUT) — hand COPY to
+the host, then mark the buffer as a read-only view of CHECKOUT — or
+\(cancel), meaning open nothing and say nothing.
 
 Decided before the resolver is asked: a value that is not a bookmark
 record calls through (the host signals for it); no current workspace
 on a STAMPED record is the off-workspace hand-off and calls through
 unchanged until `off-workspace-restore' lands.  A `resolved' :path is
 pre-flighted with `file-exists-p' right before the copy is built; one
-that has vanished declines.  May signal; the seam's barrier catches."
+that has vanished declines.  `missing-repo' is handed to
+`workspace-bookmark--offer-missing-repo'.  May signal; the seam's
+barrier catches."
   (let ((record (bookmark-get-bookmark bookmark-name-or-record 'noerror))
         (workspace (workspace-bookmark--current-workspace)))
     (cond
@@ -1302,13 +1346,10 @@ that has vanished declines.  May signal; the seam's barrier catches."
           ('non-portable
            (cons 'call-through bookmark-name-or-record))
           ('resolved
-           (let ((path (plist-get resolution :path)))
-             (if (file-exists-p path)
-                 (cons 'call-through
-                       (workspace-bookmark--substituted-record record path))
-               (cons 'decline
-                     (workspace-bookmark--vanished-message record resolution)))))
-          ((or 'not-on-branch 'ambiguous 'missing-repo 'no-clone)
+           (workspace-bookmark--plan-to-open record resolution 'call-through))
+          ('missing-repo
+           (workspace-bookmark--offer-missing-repo record resolution))
+          ((or 'not-on-branch 'ambiguous 'no-clone)
            (cons 'decline
                  (workspace-bookmark--decline-message record resolution)))
           (outcome
@@ -1320,31 +1361,408 @@ that has vanished declines.  May signal; the seam's barrier catches."
   "Resolve BOOKMARK-NAME-OR-RECORD against the current workspace, then jump.
 
 Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is
-the advised function and ARGS its remaining arguments.  Calls ORIG-FN
-with the original argument (`non-portable', or a stamped record with
-no current workspace), with a substituted copy (`resolved'), or not at
-all: every other outcome signals a `user-error' naming the bookmark
-and opens nothing.  Any error in this seam's own decision falls
-through to ORIG-FN with the ORIGINAL argument, so a failure affecting
-one bookmark cannot affect another or the bookmark file; `quit'
-propagates.  After a substituted jump by name that landed in a buffer
-\(the current buffer changed, or visits the substituted location),
-`bookmark-current-bookmark' is set there as the host sets it for a
-plain one; the originating buffer is never touched."
+the advised function and ARGS its remaining arguments.  Acts on the
+plan `workspace-bookmark--jump-plan' returns: calls ORIG-FN with the
+original argument (`non-portable', or a stamped record with no current
+workspace), with a substituted copy (`resolved', or the canonical
+read-only view chosen at the missing-repo prompt), or not at all — a
+decline signals a `user-error' naming the bookmark and opens nothing;
+a cancel at that prompt signals `quit'.  Any error in this seam's own
+decision falls through to ORIG-FN with the ORIGINAL argument, so a
+failure affecting one bookmark cannot affect another or the bookmark
+file; `quit' propagates.  After a substituted jump that landed in a
+buffer (the current buffer changed, or visits the substituted
+location): a view is marked read-only there by
+`workspace-bookmark--mark-canonical-view', and a jump by name sets
+`bookmark-current-bookmark' there as the host sets it for a plain one.
+The originating buffer is never touched."
   (let ((plan (condition-case nil
                   (workspace-bookmark--jump-plan bookmark-name-or-record)
                 (error (cons 'call-through bookmark-name-or-record))))
         (origin (current-buffer)))
-    (if (eq (car plan) 'decline)
-        (user-error "%s" (cdr plan))
-      (prog1 (apply orig-fn (cdr plan) args)
-        (when (and (stringp bookmark-name-or-record)
-                   (not (eq (cdr plan) bookmark-name-or-record))
-                   (or (not (eq (current-buffer) origin))
-                       (let ((file (buffer-file-name)))
-                         (and file (file-equal-p
-                                    file (bookmark-get-filename (cdr plan)))))))
-          (setq bookmark-current-bookmark bookmark-name-or-record))))))
+    (pcase plan
+      (`(decline . ,message)
+       (user-error "%s" message))
+      (`(cancel)
+       (signal 'quit nil))
+      ((or `(call-through . ,arg) `(view ,arg . ,_))
+       (let ((checkout (and (eq (car plan) 'view) (cddr plan))))
+         (prog1 (apply orig-fn arg args)
+           (when (and (not (eq arg bookmark-name-or-record))
+                      (workspace-bookmark--landed-p origin arg))
+             (when checkout
+               (workspace-bookmark--mark-canonical-view arg checkout))
+             (when (stringp bookmark-name-or-record)
+               (setq bookmark-current-bookmark bookmark-name-or-record))))))
+      (_ (error "Not a jump plan: %S" plan)))))
+#+end_src
+
+* Missing repo
+
+=missing-repo= is the one outcome where a useful action exists but the
+user has to choose it.  The workspace holds no checkout of the
+repository; exactly one canonical checkout is in view; the canonical
+checkout usually HAS the file.  Opening it silently would be the
+tempting thing and the wrong one: an edit there is an edit of =main=
+without anyone noticing, which is what worktrees exist to prevent
+(=register/invariant/no-silent-wrong-file-open= prohibition 2: the
+canonical checkout is opened ONLY on an explicit choice, never as a
+fallback).
+
+So the seam hands the whole resolution plist to a bounded choice.
+=read-multiple-choice=, not =completing-read= over action strings: the
+option set is closed by construction, each option carries its own help
+text, and nothing free-form can be typed.  The set is the nested
+"missing-repo action" vocabulary of
+=register/vocabulary/bookmark-resolution-outcome=: =add-worktree=,
+=view-canonical-read-only=, =cancel=.  Adding a fourth answer is a
+deliberate two-place change — the table below and the dispatch in
+=workspace-bookmark--offer-missing-repo=, which has no permissive arm.
+
+The chooser is a function of =(record resolution)= so that the
+off-workspace flow (task =off-workspace-restore=) can call the same
+prompt for its empty-registry fallback; it reads the current workspace
+itself, and with no current workspace =add-worktree= is simply not
+offered.
+
+** What is offered, and why not
+
+Every option is offered unless a stated reason withholds it, and the
+prompt says so, so the user knows what is missing where:
+
+| option                      | withheld when                                                             |
+|-----------------------------+---------------------------------------------------------------------------|
+| =add-worktree=              | no current workspace; =jf/workspace--add-worktree= not =fboundp=; no home |
+| =view-canonical-read-only=  | =:path= is nil — the relpath is absent under the canonical checkout      |
+| =cancel=                    | never                                                                     |
+
+=jf/workspace--add-worktree= is git-worktrees' command and git-worktrees
+is magit's; this module requires neither (DD-6).  The symbol is quoted
+and =fboundp=-guarded at call time, the same discipline git-worktrees
+uses towards this module (DD-10), so with magit absent the option is
+absent rather than an error — the git-worktrees spec's own rule.
+
+A nil =:path= is a real case, not a defensive one: the resolver anchors
+the relpath under the canonical checkout and answers =missing-repo=
+with =:path= nil when nothing of the relpath's kind is there — a file
+that exists only on the workspace branch where it was bookmarked (ask
+16).  There is nothing to view, and visiting a path that does not exist
+would hand the user a fresh empty buffer, the quiet trap
+=not-on-branch= already closes.  With both options withheld the prompt
+is cancel-only and still states both reasons.
+
+#+begin_src emacs-lisp
+(require 'view)
+
+(defconst workspace-bookmark--missing-repo-actions
+  '((add-worktree ?a "add worktree here"
+     "Add a worktree of the repository to the current workspace, resolve the bookmark again and open it there")
+    (view-canonical-read-only ?v "view read-only"
+     "Open the canonical checkout's copy in view-mode, marked as the canonical checkout")
+    (cancel ?c "cancel"
+     "Open nothing"))
+  "The closed set of answers to the `missing-repo' prompt, in prompt order.
+Each entry is (ACTION KEY NAME DESCRIPTION): ACTION names the answer;
+KEY, NAME and DESCRIPTION are its `read-multiple-choice' entry.  Which
+entries are offered is decided by
+`workspace-bookmark--missing-repo-withheld'; what each does, by
+`workspace-bookmark--offer-missing-repo'.")
+
+(defun workspace-bookmark--missing-repo-withheld (resolution workspace)
+  "Return the `missing-repo' actions not offered for RESOLUTION, with reasons.
+
+An alist of (ACTION . REASON), REASON a phrase for the prompt.
+`add-worktree' needs a current WORKSPACE (a name) with a home and the
+git-worktrees command `jf/workspace--add-worktree' loaded;
+`view-canonical-read-only' needs a non-nil :path, the relpath present
+under the canonical checkout.  `cancel' is always offered."
+  (let ((withheld nil))
+    (cond
+     ((null workspace)
+      (push (cons 'add-worktree "no workspace is current to add a worktree to")
+            withheld))
+     ((not (fboundp 'jf/workspace--add-worktree))
+      (push (cons 'add-worktree "the git worktree integration is not loaded")
+            withheld))
+     ((not (workspace-bookmark--workspace-home workspace))
+      (push (cons 'add-worktree
+                  (format "workspace %S has no home to add a worktree to" workspace))
+            withheld)))
+    (unless (plist-get resolution :path)
+      (push (cons 'view-canonical-read-only
+                  (format "%s is absent there" (plist-get resolution :relpath)))
+            withheld))
+    (nreverse withheld)))
+
+(defun workspace-bookmark--missing-repo-choices (withheld)
+  "Return the `read-multiple-choice' entries for the actions not in WITHHELD."
+  (seq-keep (lambda (entry)
+              (unless (assq (car entry) withheld) (cdr entry)))
+            workspace-bookmark--missing-repo-actions))
+
+(defun workspace-bookmark--missing-repo-action (answer)
+  "Return the action symbol for ANSWER, the entry `read-multiple-choice' returned."
+  (or (car (seq-find (lambda (entry) (eq (nth 1 entry) (car answer)))
+                     workspace-bookmark--missing-repo-actions))
+      (error "Not a missing-repo answer: %S" answer)))
+#+end_src
+
+** The prompt
+
+The prompt names the bookmark, the current workspace, the repository
+identity and the canonical checkout, then every withheld option with
+its reason.  =read-multiple-choice= appends the offered keys itself.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--missing-repo-prompt (record resolution workspace withheld)
+  "Return the prompt for RECORD, whose RESOLUTION is `missing-repo', in WORKSPACE.
+Names the bookmark, WORKSPACE (a name, or nil for none), the repository
+identity and the canonical checkout, then states each entry of WITHHELD
+\(see `workspace-bookmark--missing-repo-withheld') so the user knows why
+an option is absent."
+  (let ((checkout (plist-get resolution :checkout)))
+    (concat
+     (format "Bookmark %S: workspace %s holds no checkout of %s; canonical checkout %s."
+             (bookmark-name-from-full-record record)
+             (if workspace (format "%S" workspace) "(none)")
+             (plist-get resolution :identity)
+             (if (stringp checkout) (abbreviate-file-name checkout) "?"))
+     (mapconcat (lambda (entry)
+                  (format " (%s not offered: %s)"
+                          (nth 2 (assq (car entry) workspace-bookmark--missing-repo-actions))
+                          (cdr entry)))
+                withheld ""))))
+#+end_src
+
+** The choice
+
+The chooser returns a jump PLAN for the seam to act on — it opens
+nothing itself, so the host is still called at most once, by the
+advice, outside the barrier.  Three properties are deliberate:
+
+- *Cancel is a =quit=, not a return and not an error.*  The register
+  asks that cancel "open nothing and signal nothing".  Inside
+  =bookmark--jump-via= a silent return is not nothing: the host then
+  runs the display function on the buffer the user was already in
+  (=bookmark-jump-other-window= would show it in another window), drops
+  a bookmark fringe mark on the current line there, and runs
+  =bookmark-after-jump-hook= — the same tail that made declining a
+  =user-error= (see "Declining is a ~user-error~").  A =user-error=
+  would be wrong the other way: it is caught by every caller's
+  =(error ...)= barrier, and =layouts.el='s reincarnation chain answers
+  a caught error by opening the leaf's STORED filename — prohibition 4
+  by way of a cancel.  =quit= is the one signal that means "the user
+  chose not to": no error, no debugger, not caught by =(error ...)=,
+  and already the answer the seam lets through both barriers for C-g.
+  C-g at the prompt and the =cancel= option therefore do the same
+  thing, which is what a user expects of both.
+- *An error inside the choice declines.*  The seam's barrier answers an
+  error in its decision by calling through with the ORIGINAL argument,
+  which for a stamped record is the stored absolute path — tolerable
+  for a programming error in the seam, not for one in the prompt for
+  the very outcome that exists to keep that path shut.  The chooser
+  has its own barrier: any error in the choice becomes a decline
+  naming the error.  =quit= passes.
+- *The stored record is never touched.*  Every open goes through a
+  copy built by =workspace-bookmark--plan-to-open=, the seam's own
+  pre-flighted path to =workspace-bookmark--substituted-record=; this
+  section builds no record of its own.
+- *No prompt where nobody can answer.*  A non-interactive Emacs
+  (=noninteractive=: =--batch=, the test harness) has no one at the
+  keyboard; =read-multiple-choice= would read stdin and block or fail.
+  There the chooser declines with the seam's own =missing-repo= report
+  — exactly what the seam did before this section existed, and what
+  =layouts.el='s reincarnation chain relied on: its
+  =workspace--bookmark-buffer= catches the =user-error= and falls back
+  to the leaf's filename (measured: the workspaces save-restore spec
+  round-trips a bookmark for =init.el= with a fake workspace current,
+  which is =missing-repo= wherever the configuration checkout is in
+  view).  In a GUI that same chain now reaches this prompt once per
+  such leaf; aggregating it is the off-workspace flow's business.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--can-prompt-p ()
+  "Return non-nil when someone can answer a prompt: Emacs is interactive."
+  (not noninteractive))
+
+(defun workspace-bookmark--offer-missing-repo (record resolution)
+  "Offer the bounded choice for RECORD, whose RESOLUTION is `missing-repo'.
+
+Prompts with `read-multiple-choice' over the actions
+`workspace-bookmark--missing-repo-withheld' leaves offered — add a
+worktree of the canonical checkout to the current workspace, view the
+canonical copy read-only, or cancel — and returns the seam's plan for
+the answer: (view COPY . CHECKOUT), (call-through . COPY) once a
+worktree was added and RECORD re-resolved, (decline . MESSAGE), or
+\(cancel).  Opens nothing itself.  Signals `quit' when the prompt is
+quit; any other error inside the choice declines, so the seam's
+barrier can never answer it with the stored path.  When no one can
+answer (`workspace-bookmark--can-prompt-p' is nil) declines with the
+seam's `missing-repo' report instead of prompting."
+  (condition-case err
+      (if (not (workspace-bookmark--can-prompt-p))
+          (cons 'decline (workspace-bookmark--decline-message record resolution))
+        (let* ((workspace (workspace-bookmark--current-workspace))
+               (withheld (workspace-bookmark--missing-repo-withheld
+                          resolution workspace))
+               (answer (read-multiple-choice
+                        (workspace-bookmark--missing-repo-prompt
+                         record resolution workspace withheld)
+                        (workspace-bookmark--missing-repo-choices withheld))))
+          (pcase (workspace-bookmark--missing-repo-action answer)
+            ('cancel (list 'cancel))
+            ('view-canonical-read-only
+             (workspace-bookmark--plan-to-open record resolution 'view))
+            ('add-worktree
+             (workspace-bookmark--add-worktree-and-replan
+              record resolution workspace))
+            (action (error "Not a missing-repo action: %S" action)))))
+    (error
+     (cons 'decline
+           (format "Bookmark %S: the missing-repo choice failed (%s); nothing opened"
+                   (bookmark-name-from-full-record record)
+                   (error-message-string err))))))
+#+end_src
+
+** View read-only
+
+The copy is opened by the host through the record's own handler, like
+any substituted jump; the seam then calls
+=workspace-bookmark--mark-canonical-view= in the buffer it landed in —
+and only if it landed (the host's silent nil must never make the
+ORIGINATING buffer read-only).  Three things make the view
+unmistakable, and they are layered because each one alone fades:
+
+- =view-mode=: read-only plus the standard view keymap.  Not in Dired,
+  which is read-only already and whose keymap view-mode would shadow.
+- A buffer-local suffix on =mode-line-buffer-identification= naming the
+  canonical checkout.  It is set once and it is NOT tied to view-mode:
+  a message disappears, and =view-mode= ends with =C-x C-q=, but the
+  marker stays for the life of the buffer, so the buffer still says
+  what it is after the user has made it writable.
+- One =message= naming the path and the branch the canonical checkout
+  has checked out (a stale stamp may show a pre-relocation path; ask 5
+  accepts that and nothing is said about it here).
+
+A stock =C-x C-q= (=read-only-mode=) leaves view-mode and makes the
+buffer writable.  That is the deliberate way out and the only one;
+nothing here binds or advises it.
+
+#+begin_src emacs-lisp
+(defvar-local workspace-bookmark--canonical-view nil
+  "The canonical checkout this buffer views from the missing-repo prompt, or nil.
+Set once by `workspace-bookmark--mark-canonical-view'; survives `C-x C-q'.")
+
+(defun workspace-bookmark--canonical-branch (checkout)
+  "Return the branch CHECKOUT has checked out, or a phrase for a detached HEAD."
+  (or (workspace-bookmark--git checkout "symbolic-ref" "--short" "--quiet" "HEAD")
+      "detached HEAD"))
+
+(defun workspace-bookmark--mark-canonical-view (record checkout)
+  "Make the current buffer an unmistakable read-only view of CHECKOUT's copy.
+
+The current buffer is where the host landed RECORD's substituted copy.
+Turns on `view-mode' (not in Dired, which is read-only already), appends
+a marker naming CHECKOUT to the buffer's `mode-line-buffer-identification'
+— once, buffer-locally, so it outlives the echo-area message and a
+later `C-x C-q' — and reports the path and CHECKOUT's branch in one
+message."
+  (unless (derived-mode-p 'dired-mode)
+    (view-mode 1))
+  (unless workspace-bookmark--canonical-view
+    (setq workspace-bookmark--canonical-view checkout)
+    (setq mode-line-buffer-identification
+          (list "" mode-line-buffer-identification
+                (propertize
+                 (format " [canonical %s]"
+                         (abbreviate-file-name (directory-file-name checkout)))
+                 'face 'warning
+                 'help-echo (format "Canonical checkout %s, not a workspace checkout: opened read-only from a bookmark"
+                                    checkout)))))
+  (message "Bookmark %S: viewing %s read-only in the canonical checkout %s (branch %s)"
+           (bookmark-name-from-full-record record)
+           (abbreviate-file-name (or (buffer-file-name) default-directory))
+           (abbreviate-file-name (directory-file-name checkout))
+           (workspace-bookmark--canonical-branch checkout)))
+#+end_src
+
+** Add worktree here
+
+Worktree creation is magit's job and lives in git-worktrees'
+=jf/workspace--add-worktree=, the =:menu= command of the =git-worktree=
+integration.  It takes the anchor payload
+(=register/shape/workspace-integration-anchor-payload=), so the payload
+is built here the way =integrations.el= builds it for the current
+workspace — =:name=, =:home=, =:context= — plus =:source-repo=, the
+canonical checkout the resolver chose.  The source is decided, not
+discovered: discovery already ran once and =:checkout= is its answer;
+running it again would be a second prompt over the same candidates.
+The payload is the channel the shape entry leaves open ("flat and
+extensible: handlers read only the keys they need"); honouring
+=:source-repo= in place of the source prompt is the git-worktrees side
+of that channel.
+
+On =ok= the resolver runs ONCE more against the workspace, and a
+=resolved= answer continues through the seam's normal path, pre-flight
+included.  Any other answer declines with its report — a worktree
+added off =main= lacks a file that exists only on the bookmarked
+branch, and that is =not-on-branch=, reported like any other — and
+never prompts again.  =(failed . REASON)= and =skipped= decline naming
+the reason; the outcome vocabulary is closed
+(=register/vocabulary/workspace-integration-outcome=), and anything
+else is an error the chooser's barrier turns into a decline.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--add-worktree-payload (workspace checkout)
+  "Return the anchor payload for adding a worktree of CHECKOUT to WORKSPACE.
+The keys `integrations.el' builds for the current workspace — :name,
+:home and :context — plus :source-repo, the canonical checkout the
+resolver chose, so the git-worktrees command need not ask for one."
+  (list :name workspace
+        :home (workspace-bookmark--workspace-home workspace)
+        :context 'bookmark-jump
+        :source-repo checkout))
+
+(defun workspace-bookmark--after-add-message (record resolution)
+  "Return the report for RECORD when RESOLUTION opens nothing after a worktree add."
+  (let ((outcome (plist-get resolution :outcome)))
+    (if (memq outcome '(not-on-branch ambiguous missing-repo no-clone))
+        (format "%s (after adding a worktree)"
+                (workspace-bookmark--decline-message record resolution))
+      (format "Bookmark %S: resolves %s after adding a worktree; nothing opened"
+              (bookmark-name-from-full-record record) outcome))))
+
+(defun workspace-bookmark--add-worktree-and-replan (record resolution workspace)
+  "Add a worktree of RESOLUTION's :checkout to WORKSPACE, then replan RECORD.
+
+Calls git-worktrees' `jf/workspace--add-worktree', which must be
+`fboundp', with `workspace-bookmark--add-worktree-payload'.  On `ok'
+the resolver runs once more against WORKSPACE: a `resolved' answer
+continues through `workspace-bookmark--plan-to-open', pre-flight
+included; any other answer declines with its report, never a second
+prompt.  (failed . REASON) and `skipped' decline naming the reason.
+Signals on an unknown result; the caller's barrier declines."
+  (unless (fboundp 'jf/workspace--add-worktree)
+    (error "jf/workspace--add-worktree is not loaded"))
+  (let ((name (bookmark-name-from-full-record record))
+        (result (funcall 'jf/workspace--add-worktree
+                         (workspace-bookmark--add-worktree-payload
+                          workspace (plist-get resolution :checkout)))))
+    (pcase result
+      ('ok
+       (let ((again (workspace-bookmark--resolve record workspace)))
+         (if (eq (plist-get again :outcome) 'resolved)
+             (workspace-bookmark--plan-to-open record again 'call-through)
+           (cons 'decline (workspace-bookmark--after-add-message record again)))))
+      (`(failed . ,reason)
+       (cons 'decline
+             (format "Bookmark %S: no worktree added (%s); nothing opened"
+                     name reason)))
+      ('skipped
+       (cons 'decline
+             (format "Bookmark %S: the git worktree integration skipped the add; nothing opened"
+                     name)))
+      (_ (error "Not a workspace-integration outcome: %S" result)))))
 #+end_src
 
 * Checkout discovery

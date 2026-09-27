@@ -413,16 +413,31 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (portable-bookmarks-jump-spec--visits-p path) :to-be nil)
         (expect (bookmark-get-filename "elsewhere") :to-equal path))))
 
-  (it "declines missing-repo, opening neither the canonical copy nor the stored one (until missing-repo-choice lands)"
+  (it "hands missing-repo to the bounded choice, opening neither the canonical copy nor the stored one until the user chooses"
+    ;; The choice itself is portable-bookmarks-missing-repo-spec.el's.
+    ;; Here: the seam prompts instead of declining or opening, the prompt
+    ;; is the missing-repo one, and cancel ends the jump with `quit'.
     (portable-bookmarks-jump-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
-             (canonical-path (expand-file-name "README.md" (plist-get world :repo))))
+             (canonical-path (expand-file-name "README.md" (plist-get world :repo)))
+             (prompts nil)
+             (quit-p nil))
         (workspace-bookmark-fixtures-make-workspace "wsbm-jump-c")
         (portable-bookmarks-jump-spec--set a-path "readme")
-        (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-c")))
-          (expect message :to-match "holds no checkout")
-          (expect message :to-match
-                  (regexp-quote (abbreviate-file-name (plist-get world :repo)))))
+        (cl-letf (((symbol-function 'workspace-bookmark--can-prompt-p)
+                   (lambda () t))
+                  ((symbol-function 'read-multiple-choice)
+                   (lambda (prompt choices &rest _)
+                     (push prompt prompts)
+                     (assq ?c choices))))
+          (condition-case nil
+              (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-c")
+            (quit (setq quit-p t))))
+        (expect quit-p :to-be t)
+        (expect (length prompts) :to-equal 1)
+        (expect (car prompts) :to-match "holds no checkout")
+        (expect (car prompts) :to-match
+                (regexp-quote (abbreviate-file-name (plist-get world :repo))))
         (expect (portable-bookmarks-jump-spec--visits-p canonical-path) :to-be nil)
         (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
