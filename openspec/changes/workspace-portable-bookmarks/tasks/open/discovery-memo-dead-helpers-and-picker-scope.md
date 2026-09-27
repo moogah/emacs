@@ -2,10 +2,11 @@
 name: discovery-memo-dead-helpers-and-picker-scope
 description: Remove or re-home the three discovery helpers left without a production caller by the memo work, and let the worktree picker build its candidates in one discovery-memo scope
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: refactor
 on_critical_path: false
 cycle: cycle-1790453714
+merge_commit: 4dec801c
 cites_register_entries:
   - register/boundary/git-derived-checkout-discovery
   - register/boundary/workspace-git-worktrees-consumer
