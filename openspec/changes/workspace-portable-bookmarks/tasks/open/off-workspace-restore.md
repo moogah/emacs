@@ -292,3 +292,200 @@ prompt per leaf; aggregate).
     Note under the nested missing-repo action set that the chooser's guard
     is `workspace-bookmark--can-prompt-p` = interactive AND not inhibited,
     and why. Candidate for an upstream Emacs bug report.
+
+## Fix pass (cycle-1790453714)
+
+This fix pass covers review Findings 1, 2, 4 and 5 and architect on-touch findings 37, 38, 40, 41, 42, 43 and 45, under the binding user decisions of 2026-09-27 (asks 1, 2 and 3).
+
+### Observations
+
+- **Core binds no `inhibit-interaction` (review 1, arch 37/41).**
+  - `layouts.el` now binds one neutral, core-owned variable around each leaf's `bookmark-jump`: `workspace--restoring-layout-leaf` (a `defvar` in layouts.org § reincarnation; docstring "Non-nil while a layout leaf is being restored; consumers must not prompt"). It suppresses nothing by itself.
+  - Stock handlers behave exactly as before this task. The large-file question (`read-multiple-choice`), the unsafe-local-variables query and `vc-follow-symlinks` all ask as they would on any other visit.
+  - The seam's `workspace-bookmark--can-prompt-p` now reads the variable, `boundp`-guarded. It still also checks `noninteractive` and `inhibit-interaction`. So the missing-repo chooser still declines, with the seam's own `user-error`, for every leaf of a layout restore.
+  - `grep -n inhibit-interaction config/workspaces/layouts.el` is empty. Core names no `workspace-bookmark-*` symbol.
+- **How core now tells "declined" from "failed".** `workspace--bookmark-buffer` has exactly three answers:
+  - a buffer other than the probe → success;
+  - a `user-error` out of the jump → `(declined . MESSAGE)`;
+  - any other `error`, or a jump that returns without moving off the probe buffer → nil, meaning FAILED.
+
+  `quit` propagates. The `inhibited-interaction` arm is gone: it existed only because core bound `inhibit-interaction` itself. If an outer caller binds that variable, an `inhibited-interaction` from a leaf is now an ordinary error, i.e. a failure, which was the pre-task behaviour.
+
+  The dispatch in `workspace--deserialize-buffer` now has one arm per answer:
+  - `bufferp`;
+  - `declined` → the error buffer with the reason;
+  - `(null jumped)` → steps 2, 3 and 4 in order;
+  - a `t` arm that SIGNALS "Not a reincarnation step-1 result". That signal lands in `workspace--apply-saved-layout`'s barrier ("layout restore failed"), so an unexpected value can never reach the filename step (arch 42).
+
+  The decline protocol is the seam's own `user-error`. It keys on the standard condition alone, so a third-party handler's `user-error` is a decline too. That is deliberate (arch 41's "accept and record") and is in the Discoveries below.
+- **Jump target is the OUTER jump's only (review 2, arch 38).**
+  - `workspace-bookmark--restore-for-jump` raises `workspace-bookmark--awaiting-jump-target` and clears the target only AFTER `workspace-restore` has returned. The restore's own leaf jumps pass through the seam while the flag is down and record nothing.
+  - The first host call after that (the outer jump's) calls `workspace-bookmark--note-jump-target ORIGIN ARG`, which lowers the flag. It records the current buffer when `workspace-bookmark--landed-p` says the jump landed: the buffer changed, OR it visits ARG's location. The second clause covers a jump whose file is the very buffer the new tab inherited (arch 38 probe G).
+  - A decline or cancel after the restore never reaches the host, so nothing is recorded and the painted layout stays as painted.
+  - Residual, stated: a DIRECTORY bookmark whose Dired buffer is the inherited buffer is not recorded, because Dired has no `buffer-file-name`. The paint then covers it. This is rare and harmless: nothing wrong is opened.
+- **Timer ordering by construction (arch 40).** The finish step is queued with `(run-at-time workspace-bookmark--finish-delay nil ...)`, where the delay is 0.001 s, not `nil`. The paint was stamped earlier by `run-at-time nil`, so the finish time is strictly later, and timer.el's time-sorted list fires the paint first. Equal times fire newest first, which the spec forces.
+  - Remaining residual: a wall clock stepped backwards by more than 1 ms between the two calls.
+  - Chaining from the paint was rejected: core would have to call back into the module or grow a hook.
+- **Ask 3: the anti-save mechanism is gone.**
+  - Removed: `workspace-bookmark--suppress-autosave-p`, its `add-hook`/`remove-hook` in `workspace-bookmark-install-advice`/`-remove-advice` (the advice section is now byte-identical to its pre-task text), the `(defvar workspace-anti-save-predicates)` declaration, and `workspace-bookmark--restore-in-progress`.
+  - WHAT THE FLAG STILL DOES: the renamed `workspace-bookmark--awaiting-jump-target` does one thing only. It scopes the deferred display target to the outer jump, from the return of `workspace-restore` until the outer jump's host call or the finish step. It has nothing to do with autosave.
+  - `grep -n suppress-autosave config/workspaces/*.el` is empty.
+  - Superseded by the decision, and NOT edited here (out of remit): design D9's "is not remembered" half, the register invariant `bookmark-jump-not-captured-as-working-state`, and this task's step 5, its step-6 regression-guard bullet and its manual check ("switching tabs afterwards does not alter that workspace's remembered layout"). D9's display half stands: paint, then show in the selected window, no split.
+  - A live session that loaded the old module keeps the old predicate symbol in `workspace-anti-save-predicates` until restart. It returns the old flag, which is nil, so it is harmless.
+- **Off-workspace edges (arch 45).**
+  - The workspace picker now sits behind `workspace-bookmark--can-prompt-p`. When workspaces are offerable but no one can answer, the jump declines: "no workspace is current, and no one can be asked which to restore; nothing opened".
+  - C-g at the picker is no longer caught. `quit` ends the jump: nothing is restored, opened or asked, and there is no second prompt (DD-4).
+  - An EMPTY answer is still "no workspace" and takes the fallback. That fallback may put the missing-repo chooser, which is a second question, but for a deliberate "none" answer.
+  - `choose-workspace` now takes the candidate list, so offerability is computed once, in `off-workspace-plan`.
+  - **`non-portable` policy: unchanged, still declines.** A record reaches the off-workspace plan only when `workspace-bookmark--stamped-coordinates` has read a usable, confined stamp. After that the resolver never answers `non-portable` except through its pre-identity error barrier, whose `:path` is the record's stored filename. Calling through would open a stamped record's stored absolute path, which is prohibition 4. That makes declining the invariant, not a defect.
+- **Prose (review 4, arch 42).** Updated:
+  - the seam docstring (call-through is `non-portable` only; the off-workspace case goes through the establish-then-resolve plan and never calls through with the original argument);
+  - the Overview's "Scaffold status" paragraph, now "Status", describing the live seams;
+  - the Boundary list (the module reads `workspace--restoring-layout-leaf` and no longer names `workspace-anti-save-predicates`);
+  - the reincarnation defconst docstring and the org sentence before it (the order is load-bearing via the dispatch, gated by step 1's decline);
+  - layouts.org § "A decline is not a failure" (the three answers, the signalling default, "Asking is not declining");
+  - the chain section of `config/workspaces/docs/README.org` (three answers of step 1, the decline gate, and that restoring a leaf suppresses no questions).
+- **Scope in `* Missing repo`.** The only touch there is `workspace-bookmark--can-prompt-p`, its `(defvar workspace--restoring-layout-leaf)` declaration and its prose bullet, as fix item 1 requires. The chooser itself, the discovery sections and `git-worktrees.org` are untouched.
+- **Spec hygiene (review 5, arch 43).**
+  - New `workspace-bookmark-fixtures-reset-jump-state` in the fixtures, called first in `workspace-bookmark-fixtures-teardown`. It cancels `workspace-bookmark--finish-restore` timers and clears both jump globals, all guarded so it is safe before the module loads.
+  - The off-workspace spec's `--reset-frame` calls it too.
+  - The rewritten jump-spec arm now lifts the prompt guard and asserts that its finish step IS queued. A following spec asserts that nothing is pending after the teardown.
+  - `portable-bookmarks-missing-repo-spec.el`'s structural end marker moved to `(declare-function workspace--broken-p `, the Off-workspace section's first form now that the `defvar` it keyed on is gone.
+- **Spec changes.**
+  - buffer-reincarnation-spec.el, "the gate": the old "handler that tries to ask is a decline" spec (y-or-n-p under `inhibit-interaction`) is replaced by three specs:
+    - the large-file regression spec: a plain file record over the threshold goes through the REAL `read-multiple-choice`, with only `read-event` stubbed. The stub answers ?y, honours `inhibit-interaction` as the C primitive does, and throws after 5 calls. The leaf is asked exactly once and restores.
+    - `workspace--restoring-layout-leaf` is bound around the jump only.
+    - the signalling default arm.
+
+    Why stub `read-event` rather than rmc: an rmc stub that simply answers would pass against the old code too, because the hang is inside rmc's own loop.
+  - portable-bookmarks-off-workspace-spec.el:
+    - The jump helper answers the prompt guard as an interactive Emacs would: whatever `--can-prompt-p` is at call time, with `noninteractive` masked, so it still refuses during a leaf restore.
+    - The "paints the saved layout first" spec is rewritten. It checks paint-then-finish order by events, that no anti-save predicate fires right after the jump, and that a REAL `tab-bar-select-tab 1` then writes `:working-state` whose leaves include the jumped-to file, with `:saved-state` untouched.
+    - New specs: timers forced equal (every `run-at-time` with a nil TIME gets one fixed time); a decline after restoring a two-leaf bookmarked layout keeps the painted windows; a jump from the inherited buffer shows the file; C-g at the picker ends the jump with no second prompt (the canonical checkout is in view, so the fallback WOULD ask); no picker when no one can answer. The old "quit is no workspace" spec is replaced by the C-g spec.
+    - The missing-repo leaf chain spec now uses the guard with `noninteractive` masked. The `--can-prompt-p` unit gains a "nil while core restores a layout leaf" case.
+- **Every new spec fails at e42e7a99.**
+  - Method: the integration HEAD's tangled `layouts.el` and `portable-bookmarks.el` were written over the worktree copies, and the four spec files were run through the harness (`buffer-reincarnation-spec.el`, `portable-bookmarks-jump-spec.el`, `portable-bookmarks-missing-repo-spec.el`, `portable-bookmarks-off-workspace-spec.el`). Then the fixed `.el`s were restored and compared with `cmp` against a fresh re-tangle.
+  - Result: 85 specs, 16 failed:
+    - rmc: asked 6 times, the spin;
+    - leaf variable seen as nil;
+    - the default arm returned the filename's buffer;
+    - anti-save predicate t right after the jump;
+    - the two-leaf decline painted the wrong windows;
+    - the equal-times order: the selected window showed no file;
+    - the inherited buffer: no file shown;
+    - C-g reached the chooser;
+    - the no-one-can-answer case prompted;
+    - `can-prompt-p` t during a leaf restore;
+    - six specs that name the renamed flag, which is void there.
+  - The jump-spec "nothing pending" spec fails at e42e7a99 on the void flag. A second demonstration isolates its real content: with the FIXED module but the teardown's reset replaced by `(ignore)`, it fails on the queued finish timer.
+  - With the change in place the same four files pass: 85 specs, 0 failed.
+- **Gates.**
+  - `./bin/tangle-org.sh` exits 0 on `layouts.org` and `portable-bookmarks.org`, and a re-tangle is byte-identical.
+  - `./bin/run-tests.sh -d config/workspaces </dev/null`: 726 specs, 0 failed, exit 0.
+  - The full suite's report goes through `compare-baseline.py`: NO-REGRESSION (ERT 9 failing and Buttercup 5 failing, all baseline names).
+
+### Discoveries
+
+- discovery_id: disc-off-workspace-restore-fix-1
+  class: interface-drift
+  description: |
+    Core exposes ONE new symbol to consumers: `workspace--restoring-layout-leaf`
+    (layouts.el defvar, bound t by `workspace--bookmark-buffer` around each
+    layout leaf's `bookmark-jump`, nil otherwise). The module reads it,
+    boundp-guarded, in `workspace-bookmark--can-prompt-p` only. Core no
+    longer binds `inhibit-interaction`. The module no longer names
+    `workspace-anti-save-predicates` (ask 3). Core protocol, for EVERY
+    bookmark handler: a `user-error` out of a leaf jump is a DECLINE (reason
+    buffer, no filename or name fallback, one report per restore); any other
+    error is a failure (falls through as before); prompts are not suppressed.
+  affected_register_entry: register/boundary/portable-bookmarks-consumer
+  recommendation: |
+    Add `workspace--restoring-layout-leaf` to directionality.permitted (read
+    only, boundp-guarded); drop or mark unused `workspace-anti-save-predicates`.
+    Add a core_protocol field with the sentence above. Validator:
+    `grep -n inhibit-interaction config/workspaces/layouts.el` empty;
+    `grep -n restoring-layout-leaf config/workspaces/portable-bookmarks.el`
+    shows only `--can-prompt-p` and its defvar.
+
+- discovery_id: disc-off-workspace-restore-fix-2
+  class: spec-signal
+  description: |
+    User ask 3 (2026-09-27) reverses the entry's statement: a jump-triggered
+    restore IS remembered like any find-file in the workspace. The anti-save
+    predicate and the flag it read are deleted. What remains of the
+    restore-then-jump mechanism is display only: the layout is painted, then
+    the outer jump's buffer is shown in its selected window, by
+    `workspace-bookmark--finish-restore`. That step is queued
+    `workspace-bookmark--finish-delay` (1 ms) after the restore returns, which
+    is strictly later than the paint. The target is recorded only from the
+    outer jump (`workspace-bookmark--awaiting-jump-target`, raised after
+    `workspace-restore` returns).
+  affected_register_entry: register/invariant/bookmark-jump-not-captured-as-working-state
+  recommendation: |
+    Retire the entry, or restate it as "restore-then-jump display order and
+    target scoping". Proposed statement: the paint precedes the display by a
+    strictly later timestamp; only the outer jump sets the target; a declined
+    or cancelled jump leaves the painted layout as painted; nothing suppresses
+    autosave. Validators are portable-bookmarks-off-workspace-spec.el:
+    "paints the saved layout first ...", "keeps the paint-then-show order
+    when the two timers read the same clock value", "leaves the painted
+    layout alone when the jump declines ...", "shows the file when the jump
+    starts from a buffer visiting it ...". design.md D9's "not remembered"
+    half needs the same restatement.
+
+- discovery_id: disc-off-workspace-restore-fix-3
+  class: interface-drift
+  description: |
+    Step 1 of the chain has a closed three-member result set: a buffer; nil
+    (FAILED: an `error` other than `user-error`, or no buffer change); or
+    `(declined . MESSAGE)` (a `user-error`). The dispatch tests `null` for the
+    failure arm and SIGNALS for any other value. Asking is not declining: the
+    leaf jump runs with `workspace--restoring-layout-leaf` bound, and nothing
+    else is changed.
+  affected_register_entry: register/vocabulary/buffer-reincarnation-fallback-chain
+  recommendation: |
+    Apply arch-on-touch-1790453714-42's paragraph with these changes:
+    - member `bookmark`: "runs with `workspace--restoring-layout-leaf` bound;
+      a `user-error` is a decline; prompts are asked as on any visit" (NOT
+      "runs with inhibit-interaction bound");
+    - canonical_mapping_function: the `cond` with a `null` failure arm and a
+      signalling default;
+    - drop the OPEN note about `read-multiple-choice`.
+    The test corpus gains three specs in buffer-reincarnation-spec.el "the
+    gate": the large-file prompt asked once, the leaf variable scope, and the
+    signalling default.
+
+- discovery_id: disc-off-workspace-restore-fix-4
+  class: invariant-gap
+  description: |
+    Three off-workspace policies are now settled in code and spec:
+    - C-g at the workspace picker ends the jump with `quit`: nothing is
+      restored, opened or asked, and there is no fallback prompt.
+    - An empty answer is "no workspace" and takes the fallback.
+    - The picker is behind `workspace-bookmark--can-prompt-p`, and declines
+      when no one can answer.
+    `non-portable` after a restore still declines. It is reachable only
+    through the resolver's pre-identity error barrier, whose :path is the
+    stored filename, so declining it is prohibition 4, not a loss.
+  affected_register_entry: register/invariant/no-silent-wrong-file-open
+  recommendation: |
+    Cancel wording: "C-g at the off-workspace workspace prompt aborts the
+    jump (quit), like cancel at the missing-repo prompt; an empty answer is
+    'no workspace'". Record that off-workspace `non-portable` declines, and
+    why. Validators are off-workspace-spec's "ends the jump on C-g ..." and
+    "puts no workspace prompt where no one can answer ...".
+
+- discovery_id: disc-off-workspace-restore-fix-5
+  class: invariant-gap
+  description: |
+    Module globals outside the registry now have a fixtures-owned reset:
+    `workspace-bookmark-fixtures-reset-jump-state`, run first by
+    `workspace-bookmark-fixtures-teardown`. It cancels
+    `workspace-bookmark--finish-restore` timers and clears
+    `workspace-bookmark--awaiting-jump-target` and
+    `workspace-bookmark--jump-target`. The jump spec pins it: the off-workspace
+    arm leaves a finish step queued, and the next spec sees none.
+  affected_register_entry: register/invariant/spec-registry-isolation-via-fixtures
+  recommendation: |
+    Record the generalisation as resolved for these globals. The reset has
+    one owner, the fixtures teardown.

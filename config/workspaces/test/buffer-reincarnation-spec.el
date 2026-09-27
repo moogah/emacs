@@ -244,10 +244,17 @@
   "A bookmark handler that DECLINES, as the portable-bookmarks seam does."
   (user-error "Bookmark \"declines\": not on this branch; nothing opened"))
 
-(defun br-spec--asking-handler (record)
-  "A bookmark handler that wants to ASK before visiting the record's file."
-  (when (y-or-n-p "Really visit? ")
-    (set-buffer (find-file-noselect (bookmark-get-filename record)))))
+(defvar br-spec--leaf-flag-seen nil
+  "What `br-spec--flag-reading-handler' saw, newest first.")
+
+(defun br-spec--flag-reading-handler (_record)
+  "A bookmark handler that records whether a layout leaf is being restored.
+Reads `workspace--restoring-layout-leaf' as a consumer must: guarded by
+`boundp'.  Then lands in the buffer \" *br-spec-flag*\"."
+  (push (and (boundp 'workspace--restoring-layout-leaf)
+             (symbol-value 'workspace--restoring-layout-leaf))
+        br-spec--leaf-flag-seen)
+  (set-buffer (get-buffer-create " *br-spec-flag*")))
 
 (describe "the gate: a bookmark handler that declines"
   ;; A `user-error' from the handler is a DECISION for the user to see,
@@ -284,28 +291,75 @@
         (when (buffer-live-p same-name) (kill-buffer same-name))
         (when (buffer-live-p result) (kill-buffer result)))))
 
-  (it "treats a handler that tries to ask as a decline: no prompt, filename skipped, reason recorded"
-    ;; The leaf jump runs with `inhibit-interaction' bound, so the real
-    ;; `y-or-n-p' signals `inhibited-interaction' instead of reading.
-    (let* ((path (br-spec--make-temp-file "asked for"))
+  (it "asks a stock handler's own question exactly once, as on any other visit, and the leaf restores (the large-file prompt via read-multiple-choice)"
+    ;; Core binds nothing that suppresses interaction around a leaf.  A
+    ;; plain file record over `large-file-warning-threshold' makes the
+    ;; stock `find-file-noselect' ask through the REAL
+    ;; `read-multiple-choice'.  Only `read-event' — the Emacs primitive
+    ;; under it — is stubbed: it answers ?y, honours `inhibit-interaction'
+    ;; as the C primitive does (signals `inhibited-interaction', which
+    ;; rmc swallows and re-prompts on), and is bounded, so a restore that
+    ;; spins ends the spec instead of hanging it.
+    (let* ((path (br-spec--make-temp-file (make-string 200 ?x)))
            (wb (make-workspace-buffer
-                :bookmark `("asks" (handler . br-spec--asking-handler)
-                            (filename . ,path))
+                :bookmark `("big" (filename . ,path) (position . 1))
                 :filename path
-                :name "asks.txt"))
+                :name (file-name-nondirectory path)))
+           (asked 0)
            (collector (list nil))
-           (result (let ((workspace--reincarnation-declines collector))
-                     (workspace--deserialize-buffer wb))))
+           (result
+            (catch 'br-spec--spun
+              (cl-letf (((symbol-function 'read-event)
+                         (lambda (&rest _)
+                           (setq asked (1+ asked))
+                           (when (> asked 5) (throw 'br-spec--spun 'spun))
+                           (when inhibit-interaction
+                             (signal 'inhibited-interaction nil))
+                           ?y)))
+                (let ((large-file-warning-threshold 10)
+                      (inhibit-message t)
+                      (workspace--reincarnation-declines collector))
+                  (workspace--deserialize-buffer wb))))))
       (unwind-protect
           (progn
-            (expect (buffer-name result) :to-equal "*workspace-restore: asks.txt*")
-            (expect (find-buffer-visiting path) :to-be nil)
-            (with-current-buffer result
-              (expect (buffer-string) :to-match "needed to ask"))
-            (expect (length (car collector)) :to-equal 1)
-            (expect (cdr (car (car collector))) :to-match "needed to ask"))
+            (expect asked :to-equal 1)
+            (expect (bufferp result) :to-be t)
+            (expect (file-truename (buffer-file-name result))
+                    :to-equal (file-truename path))
+            (expect (car collector) :to-be nil))
         (delete-file path)
+        (when (bufferp result) (kill-buffer result)))))
+
+  (it "binds workspace--restoring-layout-leaf around the leaf's jump, and only there"
+    ;; Core's one neutral signal to consumers; a consumer reads it
+    ;; boundp-guarded and declines rather than asking per leaf.
+    (setq br-spec--leaf-flag-seen nil)
+    (let* ((wb (make-workspace-buffer
+                :bookmark '("flag" (handler . br-spec--flag-reading-handler))
+                :name " *br-spec-flag*"))
+           (result (workspace--deserialize-buffer wb)))
+      (unwind-protect
+          (progn
+            (expect br-spec--leaf-flag-seen :to-equal '(t))
+            (expect (buffer-name result) :to-equal " *br-spec-flag*")
+            (expect (boundp 'workspace--restoring-layout-leaf) :to-be t)
+            (expect (symbol-value 'workspace--restoring-layout-leaf) :to-be nil))
         (when (buffer-live-p result) (kill-buffer result)))))
+
+  (it "signals, never opening the saved filename, when step 1 answers anything but a buffer, nil or a decline"
+    ;; register/invariant/no-silent-wrong-file-open: a catch-all arm
+    ;; errors or does nothing; it never opens.
+    (let* ((path (br-spec--make-temp-file "not this one"))
+           (wb (make-workspace-buffer
+                :bookmark '("odd" (handler . ignore))
+                :filename path
+                :name (file-name-nondirectory path))))
+      (unwind-protect
+          (cl-letf (((symbol-function 'workspace--bookmark-buffer)
+                     (lambda (_ws-buffer) '(surprise . "unexpected"))))
+            (expect (workspace--deserialize-buffer wb) :to-throw 'error)
+            (expect (find-buffer-visiting path) :to-be nil))
+        (delete-file path))))
 
   (it "still falls through to the filename when the handler merely FAILS"
     ;; The pre-existing contract, kept: a plain error is not a decision.

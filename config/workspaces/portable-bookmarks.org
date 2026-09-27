@@ -20,7 +20,9 @@ core (=register/boundary/portable-bookmarks-consumer=).  The one-way rule:
 
 - It MAY name =bookmark=, =git=, and workspaces registry internals
   (=workspace--registry=, =workspace--current-name=, =workspace--broken-p=,
-  =workspace-restore=, =workspace-anti-save-predicates=).
+  =workspace-restore=), and it reads core's one signal to consumers,
+  =workspace--restoring-layout-leaf= (bound by =layouts.el= while a
+  layout leaf is restored), guarded by =boundp=.
 - Workspaces CORE (=data-model= / =integrations= / =workspaces= / =tabs= /
   =persistence= / =layouts= / =workspaces-mode= / =workspaces-transient=)
   MUST NEVER name a =workspace-bookmark-*= symbol.  The single permitted
@@ -61,16 +63,20 @@ and after =persistence.el= (which defines =workspace-restore=), so the
 loader line sits between =workspaces-mode.el= and
 =workspaces-transient.el=.
 
-** Scaffold status
+** Status
 
-Both advice seams are installed.  The STAMP seam is live: a new bookmark
+Both advice seams are live.  The STAMP seam stamps a new bookmark
 record for a single tracked file or directory inside a repository that
-has a remote is stamped with the repository's identity, the location's
+has a remote with the repository's identity, the location's
 repository-relative path, and the stamp-format version.  The RESOLVER
 (see "Resolution") decides, for a record and a workspace, which of six
-outcomes applies, and acts on none of them.  The JUMP seam is still
-deliberately PASS-THROUGH: it does not call the resolver yet.  A later
-task (=jump-seam=) fills in its body without moving it.
+outcomes applies.  The JUMP seam acts on that decision: it opens the
+current workspace's copy, declines with a report, or hands
+=missing-repo= to a bounded choice (see "Seam 2" and "Missing repo"),
+and with no current workspace it first establishes one (see
+"Off-workspace").  No route of the seam opens a stamped record's
+stored absolute path for an outcome; the one residual is the seam's
+error barrier, stated under "The barrier".
 
 * Header Block
 
@@ -1374,11 +1380,15 @@ barrier catches."
 Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is
 the advised function and ARGS its remaining arguments.  Acts on the
 plan `workspace-bookmark--jump-plan' returns: calls ORIG-FN with the
-original argument (`non-portable', or a stamped record with no current
-workspace), with a substituted copy (`resolved', or the canonical
+original argument (`non-portable' only: a record with no usable
+stamp), with a substituted copy (`resolved', or the canonical
 read-only view chosen at the missing-repo prompt), or not at all — a
 decline signals a `user-error' naming the bookmark and opens nothing;
-a cancel at that prompt signals `quit'.  Any error in this seam's own
+a cancel at that prompt signals `quit'.  A stamped record with no
+current workspace goes through the off-workspace plan
+\(`workspace-bookmark--off-workspace-plan'), which establishes a
+workspace and resolves against it, and never calls through with the
+original argument.  Any error in this seam's own
 decision falls through to ORIG-FN with the ORIGINAL argument, so a
 failure affecting one bookmark cannot affect another or the bookmark
 file; `quit' propagates.  After a substituted jump that landed in a
@@ -1386,8 +1396,9 @@ buffer (the current buffer changed, or visits the substituted
 location): a view is marked read-only there by
 `workspace-bookmark--mark-canonical-view', and a jump by name sets
 `bookmark-current-bookmark' there as the host sets it for a plain one.
-Before either, the buffer the host landed in is noted for a pending
-restore-then-jump (`workspace-bookmark--note-jump-target').  The
+Before either, the host call is offered to
+`workspace-bookmark--note-jump-target', which records where the jump
+landed when it is the outer jump of a restore-then-jump.  The
 originating buffer is never touched."
   (let ((plan (condition-case nil
                   (workspace-bookmark--jump-plan bookmark-name-or-record)
@@ -1401,7 +1412,7 @@ originating buffer is never touched."
       ((or `(call-through . ,arg) `(view ,arg . ,_))
        (let ((checkout (and (eq (car plan) 'view) (cddr plan))))
          (prog1 (apply orig-fn arg args)
-           (workspace-bookmark--note-jump-target origin)
+           (workspace-bookmark--note-jump-target origin arg)
            (when (and (not (eq arg bookmark-name-or-record))
                       (workspace-bookmark--landed-p origin arg))
              (when (eq (car plan) 'view)
@@ -1584,16 +1595,18 @@ advice, outside the barrier.  Three properties are deliberate:
 - *No prompt where nobody can answer, and none where nobody may ask.*
   A non-interactive Emacs (=noninteractive=: =--batch=, the test
   harness) has no one at the keyboard; =read-multiple-choice= would
-  read stdin and block or fail.  And a caller that has bound
-  =inhibit-interaction= — =layouts.el='s reincarnation chain does, for
-  every leaf it restores, so that a layout restore never becomes a
-  series of per-leaf questions — has said no prompt may be put.  In
-  either case the chooser declines with the seam's own =missing-repo=
+  read stdin and block or fail.  A caller that has bound
+  =inhibit-interaction= has said no prompt may be put.  And while a
+  layout leaf is being restored — core's =layouts.el= binds
+  =workspace--restoring-layout-leaf= around each leaf's jump — a
+  question per leaf is exactly what a restore must never become.  In
+  each case the chooser declines with the seam's own =missing-repo=
   report instead of prompting.  For the reincarnation chain that
   decline is the answer it wants: it treats a =user-error= from a leaf
   as "skip this leaf's filename", shows the reason in the leaf's
   window and reports every declined leaf in ONE message after the walk
-  (see layouts.org, "A decline is not a failure").  The
+  (see layouts.org, "A decline is not a failure").  Core suppresses
+  nothing itself; the decision not to ask is this module's.  The
   =inhibit-interaction= check has to happen HERE, before
   =read-multiple-choice= is called, and not be left to the primitive:
   rmc.el wraps its =read-event= in =(condition-case nil ... (error
@@ -1601,14 +1614,19 @@ advice, outside the barrier.  Three properties are deliberate:
   on the prompt forever (measured, Emacs 30.2).
 
 #+begin_src emacs-lisp
+(defvar workspace--restoring-layout-leaf)
+
 (defun workspace-bookmark--can-prompt-p ()
   "Return non-nil when a prompt may be put and someone can answer it.
-Nil in a non-interactive Emacs, and nil while `inhibit-interaction' is
-bound — a caller restoring a layout leaf, for one — because
-`read-multiple-choice' does not honour that variable itself: it
-swallows the `inhibited-interaction' signal and loops."
+Nil in a non-interactive Emacs; nil while `inhibit-interaction' is
+bound, because `read-multiple-choice' does not honour that variable
+itself (it swallows the `inhibited-interaction' signal and loops); and
+nil while core restores a layout leaf (`workspace--restoring-layout-leaf',
+read only when bound), where a prompt would be one question per leaf."
   (and (not noninteractive)
-       (not inhibit-interaction)))
+       (not inhibit-interaction)
+       (not (and (boundp 'workspace--restoring-layout-leaf)
+                 workspace--restoring-layout-leaf))))
 
 (defun workspace-bookmark--offer-missing-repo (record resolution)
   "Offer the bounded choice for RECORD, whose RESOLUTION is `missing-repo'.
@@ -1895,24 +1913,34 @@ is one, is the default.  Holding is asked with the plural
 workspace and never a second time; the resolver's own call for the
 chosen workspace is the resolver's business.
 
-** One prompt; quitting is an answer
+** One prompt; C-g ends the jump
 
-=completing-read= with =require-match=.  =C-g= at this prompt is caught
-HERE and answers nil — "no workspace" — instead of aborting the jump,
-because the fallback below is a real choice the user has not yet been
-offered; an empty input with no default is the same answer.  An empty
-registry asks nothing and answers nil.  One prompt, one message (DD-4):
-nothing here interrogates per buffer.
+=completing-read= with =require-match=, the first holder as the
+default.  =C-g= at this prompt is NOT caught: =quit= ends the jump
+there — nothing restored, nothing opened, nothing else asked.  The user
+has abandoned the jump, and answering a C-g with the fallback's own
+question would be a second prompt for one gesture (DD-4: one prompt,
+one message).  An EMPTY answer is different: it is an answer, "no
+workspace", and the fallback below acts on it.  An empty registry asks
+nothing and goes straight to the fallback.
+
+*No prompt where no one can answer.*  The picker sits behind the same
+guard as the missing-repo chooser, =workspace-bookmark--can-prompt-p=:
+in a non-interactive Emacs, under =inhibit-interaction=, or while core
+restores a layout leaf, the jump declines with a message saying no
+workspace could be chosen, instead of calling =completing-read= (which
+in batch would read stdin, and under =inhibit-interaction= would only
+be declined by this section's barrier).
 
 ** The fallback never opens the stored path
 
-With no workspace chosen — empty registry, or the user quit — the seam
-still holds a stamped record with a stored absolute path, and the one
-thing it must not do is open that path as though it were a workspace
-copy (=register/invariant/no-silent-wrong-file-open=, prohibition 4;
-the fallback is "read-only canonical, or cancel").  The record is
-resolved with NO workspace — rows 4–6 of the resolver's table — and
-the fallback has no arm that calls through:
+With no workspace chosen — empty registry, or an empty answer — the
+seam still holds a stamped record with a stored absolute path, and the
+one thing it must not do is open that path as though it were a
+workspace copy (=register/invariant/no-silent-wrong-file-open=,
+prohibition 4; the fallback is "read-only canonical, or cancel").  The
+record is resolved with NO workspace — rows 4–6 of the resolver's
+table — and the fallback has no arm that calls through:
 
 - =missing-repo=, one canonical checkout in view, goes to the SAME
   bounded chooser the in-workspace outcome uses,
@@ -1925,51 +1953,63 @@ the fallback has no arm that calls through:
 - Nothing else can be reached by a stamped record; anything else
   declines as well.
 
-** Not remembered
+** Remembered like any visit
 
-The restore is triggered by navigation, not by a wish about how the
-workspace should look, so the perturbation it causes — the bookmark's
-file replacing one window of the restored layout — is not captured as
-the workspace's =:working-state= (design D9;
-=register/invariant/bookmark-jump-not-captured-as-working-state=).
-Every autosave path (the tab-switch advice, the kill-emacs flush, the
-idle tick) consults =workspace-anti-save-predicates= first, so this
-module adds ONE predicate there,
-=workspace-bookmark--suppress-autosave-p=, which reads a module flag
-and nothing else — never the call stack, never bookmark internals.
-=:saved-state= needs no guard: no autosave writes it.  An explicit
-=workspace-save= after a jump ignores the predicates and captures what
-is on screen, which is right — the user asked.
+A jump-triggered restore is navigation INTO a workspace, and it is
+remembered exactly as any =find-file= inside that workspace is (user
+decision, 2026-09-27): this module adds nothing to
+=workspace-anti-save-predicates=, so the next ordinary autosave — the
+tab switch that leaves the workspace, the idle tick, the kill-emacs
+flush — records the arrangement on screen, the jumped-to file in the
+selected window of the restored layout, as the workspace's
+=:working-state=.  =:saved-state= is untouched, as by every autosave;
+an explicit =workspace-save= captures what is on screen, as always.
 
-*The flag has an explicit reset, not a =let=.*  =layouts.el= paints a
-restored layout with =window-state-put= DEFERRED through =run-at-time=
-(to avoid racing =bookmark--jump-via='s own display call), so a
-=let=-binding around =workspace-restore= would unwind before the layout
-is painted, and the paint — and any autosave in its wake — would run
-unsuppressed.  The flag =workspace-bookmark--restore-in-progress= is
-set before =workspace-restore= and cleared by
-=workspace-bookmark--finish-restore=, a one-shot timer queued with
-=run-at-time nil nil= AFTER =workspace-restore= has returned.  That is
-the event that clears the flag, and it is ordered after the deferred
-paint by construction: =run-at-time nil= stamps a timer with the
-current time and the timer list is kept in stamp order, so a timer
-queued after the restore's own fires after it.  The same step is what
-puts the bookmark's buffer into the selected window of the painted
-layout (D9: the layout is painted, THEN the file replaces the selected
-window — plain same-window display, no split).  The host has already
-opened the file synchronously, in the selected window of the tab the
-restore selected, so bufferlo membership and point are settled before
-the paint; the finish step only re-shows the buffer the paint covered.
+*The layout is painted, THEN the file is shown* (design D9's display
+half).  =layouts.el= paints a restored layout with =window-state-put=
+DEFERRED through =run-at-time= (to avoid racing =bookmark--jump-via='s
+own display call).  The host opens the bookmark's file synchronously,
+in the selected window of the tab the restore selected — so bufferlo
+membership and point are settled — and the deferred paint then covers
+it.  The finish step, =workspace-bookmark--finish-restore=, re-shows
+that buffer in the selected window of the painted layout: same window,
+no split.
 
-*The reset runs on every path.*  The finish step is queued from an
+*Only the outer jump names that buffer.*  The restore itself
+reincarnates the layout's leaves through =bookmark-jump=, that is,
+through this very seam, and none of those is the jump.  So the target
+is recorded only once =workspace-restore= has RETURNED:
+=workspace-bookmark--restore-for-jump= clears any target and raises
+=workspace-bookmark--awaiting-jump-target= after the call, and the
+first host call after that — the outer jump's own — records where it
+landed and lowers the flag.  "Landed" is
+=workspace-bookmark--landed-p=: the current buffer changed, OR it now
+visits the substituted location, which is the case when the file is
+the very buffer the new tab inherited from the tab the jump started
+in.  A jump that declines or is cancelled after the restore never
+reaches the host and records nothing, so the restored layout is left
+exactly as painted.  That flag is all that is left of the anti-save
+flag this section once had: it does not touch autosave, it only scopes
+the target to the outer jump.  (When a post-restore prompt runs the
+event loop — the missing-repo chooser waiting in =read-event= — the
+paint and the finish step fire while the prompt is up; the host then
+displays the chosen buffer itself, in the already painted layout.)
+
+*Strictly after the paint, by construction.*  The finish step is
+queued with =run-at-time= =workspace-bookmark--finish-delay= seconds
+from now, not with =nil=.  timer.el keeps its list sorted by time and
+inserts a timer BEFORE any already queued at an equal time, so two
+=run-at-time nil= calls that read the same clock value fire newest
+first — the finish step would run before the paint, and the paint
+would cover the file.  The paint was stamped while the restore ran,
+before the finish step is queued; a time strictly past the current
+clock is strictly later than that stamp, so the paint fires first
+whatever the clock's resolution.
+
+*Released on every path.*  The finish step is queued from an
 =unwind-protect= cleanup around =workspace-restore=, so a restore that
-signals or is quit still queues it; the finish step's own body is
-wrapped the same way, so a display that fails still clears the flag.  A
-flag that leaked would silently disable autosave for the rest of the
-session — which is why the leak guard (a later ordinary autosave still
-writes =:working-state=) is a spec, not a comment.  The predicate is
-added by =workspace-bookmark-install-advice= and removed by
-=workspace-bookmark-remove-advice=, next to the advice.
+signals or is quit still queues it, and the finish step clears the
+target and the flag in an =unwind-protect= cleanup of its own.
 
 *Errors in this flow decline; they do not fall through.*  The seam's
 barrier answers an error in its decision by calling through with the
@@ -1978,34 +2018,43 @@ seam, but here the original argument IS the stored path, and a restore
 that failed half-way is no reason to open it.  So this section has its
 own barrier: an error in choosing, restoring or resolving becomes a
 decline naming the error, and a plan that would call through with the
-original argument is turned into a decline as well.  =quit= passes.
+original argument is turned into a decline as well.  After a restore
+that plan can only come from =non-portable=, which a record that took
+this hand-off (its stamp already read as usable) reaches only through
+the resolver's pre-identity error barrier — whose =:path= is the
+stored filename — so declining it is the invariant, not a loss.
+=quit= passes.
 
 #+begin_src emacs-lisp
-(defvar workspace-anti-save-predicates)
 (declare-function workspace--broken-p "data-model" (ws))
 (declare-function workspace-restore "persistence" (name))
 
-(defvar workspace-bookmark--restore-in-progress nil
-  "Non-nil from a jump-triggered `workspace-restore' until its deferred paint ran.
-Set by `workspace-bookmark--restore-for-jump' and cleared, explicitly,
-by `workspace-bookmark--finish-restore'; never `let'-bound, because the
-layout is painted by a timer that fires after any `let' has unwound.
-Read by `workspace-bookmark--suppress-autosave-p' and by
-`workspace-bookmark--note-jump-target', nothing else.")
+(defvar workspace-bookmark--awaiting-jump-target nil
+  "Non-nil from the return of a jump-triggered restore until the jump is noted.
+Raised by `workspace-bookmark--restore-for-jump' once `workspace-restore'
+has RETURNED — after the restore's own leaf jumps, so none of those can
+be taken for the jump — and lowered by the first
+`workspace-bookmark--note-jump-target' after it (the outer jump's own
+host call) or, when that jump never reached the host, by
+`workspace-bookmark--finish-restore'.  Never `let'-bound: the finish
+step runs from a timer.  Read by `workspace-bookmark--note-jump-target'
+only; it has nothing to do with autosave.")
 
 (defvar workspace-bookmark--jump-target nil
-  "The buffer a restore-then-jump landed in, until the deferred paint ran, or nil.
-Noted by `workspace-bookmark--note-jump-target' after the host ran;
-shown in the selected window by `workspace-bookmark--finish-restore'.")
+  "The buffer the outer jump of a restore-then-jump landed in, or nil.
+Recorded by `workspace-bookmark--note-jump-target'; shown in the
+selected window of the painted layout, then cleared, by
+`workspace-bookmark--finish-restore'.")
+
+(defconst workspace-bookmark--finish-delay 0.001
+  "Seconds from queuing until the restore-then-jump finish step fires.
+Non-zero on purpose: the restore's deferred paint was queued earlier
+with `run-at-time' nil, and timer.el fires equal-time timers newest
+first, so only a strictly later time orders the finish step after the
+paint whatever the clock read.")
 
 (defvar workspace-bookmark--workspace-history nil
   "Minibuffer history for the off-workspace workspace prompt.")
-
-(defun workspace-bookmark--suppress-autosave-p ()
-  "Return non-nil while a jump-triggered restore is under way.
-This module's one entry in `workspace-anti-save-predicates'.  Keys on
-`workspace-bookmark--restore-in-progress' ONLY."
-  workspace-bookmark--restore-in-progress)
 #+end_src
 
 #+begin_src emacs-lisp
@@ -2057,64 +2106,75 @@ holds a checkout of IDENTITY."
                     "  no checkout"))))
         (complete-with-action action names string predicate)))))
 
-(defun workspace-bookmark--choose-workspace (identity)
-  "Ask which workspace should serve a jump into IDENTITY; return its name, or nil.
-Offers `workspace-bookmark--offerable-workspaces' through
-`completing-read' with a required match, the first holder as the
-default when there is one.  Returns nil without asking when nothing is
-offerable, and nil — not a signal — when the user quits or enters
-nothing: \"no workspace\" is an answer the fallback acts on."
-  (let ((candidates (workspace-bookmark--offerable-workspaces identity)))
-    (when candidates
-      (let* ((default (and (cdr (car candidates)) (car (car candidates))))
-             (choice (condition-case nil
-                         (completing-read
-                          (format-prompt "Restore a workspace for %s" default identity)
-                          (workspace-bookmark--workspace-table candidates identity)
-                          nil t nil 'workspace-bookmark--workspace-history default)
-                       (quit nil))))
-        (and (stringp choice) (not (string-empty-p choice)) choice)))))
+(defun workspace-bookmark--choose-workspace (candidates identity)
+  "Ask which of CANDIDATES should serve a jump into IDENTITY; return its name, or nil.
+CANDIDATES is the non-empty list `workspace-bookmark--offerable-workspaces'
+returned for IDENTITY; it is offered through `completing-read' with a
+required match, the first holder as the default when there is one.
+Returns nil for an empty answer — \"no workspace\", which the fallback
+acts on.  Does not catch `quit': C-g ends the jump, nothing else is
+asked.  The caller has checked `workspace-bookmark--can-prompt-p'."
+  (let* ((default (and (cdr (car candidates)) (car (car candidates))))
+         (choice (completing-read
+                  (format-prompt "Restore a workspace for %s" default identity)
+                  (workspace-bookmark--workspace-table candidates identity)
+                  nil t nil 'workspace-bookmark--workspace-history default)))
+    (and (stringp choice) (not (string-empty-p choice)) choice)))
 #+end_src
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--finish-restore ()
-  "Deferred tail of a jump-triggered restore: show the jump's buffer, release the flag.
-Queued by `workspace-bookmark--restore-for-jump' with `run-at-time'
-after `workspace-restore' returned, so it fires after the layout's own
-deferred `window-state-put'.  Shows `workspace-bookmark--jump-target',
-when the jump landed in a live buffer, in the selected window of the
-painted layout — same window, no split — then clears the flag and the
-target.  The reset is an `unwind-protect' cleanup: a display that
-signals still releases autosave."
+  "Deferred tail of a restore-then-jump: show the jump's buffer in the painted layout.
+Queued by `workspace-bookmark--restore-for-jump' to fire strictly after
+the layout's own deferred `window-state-put' (see
+`workspace-bookmark--finish-delay').  Shows
+`workspace-bookmark--jump-target', when the outer jump landed in a live
+buffer, in the selected window of the painted layout — same window, no
+split — then clears the target and
+`workspace-bookmark--awaiting-jump-target'.  The clearing is an
+`unwind-protect' cleanup, so a display that signals still clears both."
   (unwind-protect
       (let ((target workspace-bookmark--jump-target))
         (when (buffer-live-p target)
           (pop-to-buffer-same-window target)))
     (setq workspace-bookmark--jump-target nil
-          workspace-bookmark--restore-in-progress nil)))
+          workspace-bookmark--awaiting-jump-target nil)))
 
 (defun workspace-bookmark--restore-for-jump (name)
   "Restore workspace NAME for a bookmark jump; return NAME.
-Sets `workspace-bookmark--restore-in-progress' before `workspace-restore'
-and queues `workspace-bookmark--finish-restore' after it — from an
-`unwind-protect' cleanup, so the flag is released later whether the
-restore returned, signalled or was quit.  Queued after the restore, the
-finish step is ordered after the restore's own deferred paint."
+Calls `workspace-restore', and only once it has RETURNED clears any
+target and raises `workspace-bookmark--awaiting-jump-target', so the
+restore's own leaf jumps are never taken for the jump.  Queues
+`workspace-bookmark--finish-restore' from an `unwind-protect' cleanup —
+whether the restore returned, signalled or was quit — at
+`workspace-bookmark--finish-delay' seconds from now: strictly later
+than the restore's own `run-at-time' nil paint, so the paint fires
+first."
   (setq workspace-bookmark--jump-target nil
-        workspace-bookmark--restore-in-progress t)
+        workspace-bookmark--awaiting-jump-target nil)
   (unwind-protect
-      (workspace-restore name)
-    (run-at-time nil nil #'workspace-bookmark--finish-restore))
+      (progn
+        (workspace-restore name)
+        (setq workspace-bookmark--jump-target nil
+              workspace-bookmark--awaiting-jump-target t))
+    (run-at-time workspace-bookmark--finish-delay nil
+                 #'workspace-bookmark--finish-restore))
   name)
 
-(defun workspace-bookmark--note-jump-target (origin)
-  "Remember the current buffer as where a restore-then-jump landed.
-Called by the seam right after the host ran, with ORIGIN the buffer that
-was current before.  A no-op unless a jump-triggered restore is pending
-and the jump landed somewhere other than ORIGIN."
-  (when (and workspace-bookmark--restore-in-progress
-             (not (eq (current-buffer) origin)))
-    (setq workspace-bookmark--jump-target (current-buffer))))
+(defun workspace-bookmark--note-jump-target (origin arg)
+  "Record where the outer jump of a restore-then-jump landed.
+Called by the seam right after every host call, with ORIGIN the buffer
+current before the host ran and ARG the argument it was handed.  A
+no-op unless `workspace-bookmark--awaiting-jump-target' is raised — only
+the first host call after a jump-triggered restore returned, the outer
+jump's own, gets past it — and it lowers the flag.  The current buffer
+is recorded when the jump landed (`workspace-bookmark--landed-p'): it is
+no longer ORIGIN, or it visits ARG's location, as it does when the file
+is the buffer the new tab inherited."
+  (when workspace-bookmark--awaiting-jump-target
+    (setq workspace-bookmark--awaiting-jump-target nil)
+    (when (workspace-bookmark--landed-p origin arg)
+      (setq workspace-bookmark--jump-target (current-buffer)))))
 #+end_src
 
 #+begin_src emacs-lisp
@@ -2142,32 +2202,44 @@ read-only canonical view only when :path is non-nil; `ambiguous' and
 Establishes a workspace first — `workspace-bookmark--choose-workspace',
 then `workspace-bookmark--restore-for-jump' — and re-enters
 `workspace-bookmark--jump-plan' with the chosen name, so the outcome is
-decided by the seam's normal path against that workspace.  With no
-workspace chosen (empty registry, quit) the plan is
-`workspace-bookmark--no-workspace-plan''s.  BOOKMARK-NAME-OR-RECORD is
-the seam's original argument, passed on for the plan.  Any error in
+decided by the seam's normal path against that workspace.  With nothing
+offerable (empty or all-broken registry) or an empty answer, the plan
+is `workspace-bookmark--no-workspace-plan''s.  When workspaces are
+offerable but no one can be asked (`workspace-bookmark--can-prompt-p'
+is nil) the jump declines without prompting.  BOOKMARK-NAME-OR-RECORD
+is the seam's original argument, passed on for the plan.  Any error in
 this flow declines naming the error, and a plan that would call
 through with the ORIGINAL argument — the stored path — declines too;
-`quit' passes."
-  (condition-case err
-      (let* ((identity (car (workspace-bookmark--stamped-coordinates record)))
-             (name (workspace-bookmark--choose-workspace identity)))
-        (if (null name)
-            (workspace-bookmark--no-workspace-plan record)
-          (let ((plan (workspace-bookmark--jump-plan
-                       bookmark-name-or-record
-                       (workspace-bookmark--restore-for-jump name))))
-            (if (and (eq (car plan) 'call-through)
-                     (eq (cdr plan) bookmark-name-or-record))
-                (cons 'decline
-                      (format "Bookmark %S: cannot be resolved in workspace %s; nothing opened"
-                              (bookmark-name-from-full-record record) name))
-              plan))))
-    (error
-     (cons 'decline
-           (format "Bookmark %S: could not establish a workspace for it (%s); nothing opened"
-                   (bookmark-name-from-full-record record)
-                   (error-message-string err))))))
+`quit', at the prompt or anywhere else, passes."
+  (let ((name (bookmark-name-from-full-record record)))
+    (condition-case err
+        (let* ((identity (car (workspace-bookmark--stamped-coordinates record)))
+               (candidates (workspace-bookmark--offerable-workspaces identity)))
+          (cond
+           ((null candidates)
+            (workspace-bookmark--no-workspace-plan record))
+           ((not (workspace-bookmark--can-prompt-p))
+            (cons 'decline
+                  (format "Bookmark %S: no workspace is current, and no one can be asked which to restore; nothing opened"
+                          name)))
+           (t
+            (let ((workspace (workspace-bookmark--choose-workspace
+                              candidates identity)))
+              (if (null workspace)
+                  (workspace-bookmark--no-workspace-plan record)
+                (let ((plan (workspace-bookmark--jump-plan
+                             bookmark-name-or-record
+                             (workspace-bookmark--restore-for-jump workspace))))
+                  (if (and (eq (car plan) 'call-through)
+                           (eq (cdr plan) bookmark-name-or-record))
+                      (cons 'decline
+                            (format "Bookmark %S: cannot be resolved in workspace %s; nothing opened"
+                                    name workspace))
+                    plan)))))))
+      (error
+       (cons 'decline
+             (format "Bookmark %S: could not establish a workspace for it (%s); nothing opened"
+                     name (error-message-string err)))))))
 #+end_src
 
 * Checkout discovery
@@ -3787,37 +3859,22 @@ not duplicate an advice that names the same function symbol, so
 exists for =M-x workspace-bookmark-remove-advice= during development and
 for tests that need stock bookmark behaviour.
 
-The module's one anti-save predicate (section "Off-workspace") is
-installed and removed here too, next to the advice, so that dropping
-the module leaves =workspace-anti-save-predicates= as the package
-defined it.  It is added only when the package's variable is bound:
-=add-hook= on an unbound symbol would create it, and the package's
-later =defcustom= would then keep that value and lose its own default
-predicates.
-
 #+begin_src emacs-lisp
 (defun workspace-bookmark-install-advice ()
-  "Install the two portable-bookmark advice seams and the anti-save predicate.
-Idempotent."
+  "Install the two portable-bookmark advice seams.  Idempotent."
   (interactive)
   (advice-add 'bookmark-make-record :filter-return
               #'workspace-bookmark--stamp-record)
   (advice-add 'bookmark-handle-bookmark :around
-              #'workspace-bookmark--handle-bookmark-advice)
-  (when (boundp 'workspace-anti-save-predicates)
-    (add-hook 'workspace-anti-save-predicates
-              #'workspace-bookmark--suppress-autosave-p)))
+              #'workspace-bookmark--handle-bookmark-advice))
 
 (defun workspace-bookmark-remove-advice ()
-  "Remove the two advice seams and the anti-save predicate, restoring stock behaviour."
+  "Remove the two portable-bookmark advice seams, restoring stock behaviour."
   (interactive)
   (advice-remove 'bookmark-make-record
                  #'workspace-bookmark--stamp-record)
   (advice-remove 'bookmark-handle-bookmark
-                 #'workspace-bookmark--handle-bookmark-advice)
-  (when (boundp 'workspace-anti-save-predicates)
-    (remove-hook 'workspace-anti-save-predicates
-                 #'workspace-bookmark--suppress-autosave-p)))
+                 #'workspace-bookmark--handle-bookmark-advice))
 
 (workspace-bookmark-install-advice)
 #+end_src
