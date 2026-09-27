@@ -305,9 +305,12 @@
         (puthash "bar"
                  (workspace--make "bar" bar-home)
                  workspace--registry))
+      ;; A DIFFERENT directory whose basename is "bar": re-anchoring onto
+      ;; bar's own home is the duplicate-home guard's case, not this one.
       (let* ((collision-home (file-name-as-directory
-                              (expand-file-name "bar"
+                              (expand-file-name "elsewhere/bar"
                                                 broken-home-runtime-spec--tmp-dir)))
+             (_ (make-directory collision-home t))
              (err (condition-case e
                       (progn (workspace-re-anchor "foo" collision-home) nil)
                     (user-error e)))
@@ -323,6 +326,66 @@
         (expect (workspace--broken-p foo) :to-be t)
         (expect bar :not :to-be nil)
         (expect (workspace--broken-p bar) :to-be nil)))))
+
+(describe "workspace-re-anchor refuses another workspace's home (duplicate-home guard)"
+  ;; Re-anchoring onto a different SPELLING of another workspace's home
+  ;; passes the rename-collision check (the basename differs) and, without
+  ;; the guard, makes two workspaces share one directory.  Identity is by
+  ;; `workspace--same-file-p', so a symlinked or case-variant spelling is
+  ;; caught.
+  :var (bar-home bar)
+  (before-each
+    (broken-home-runtime-spec--reset)
+    (setq bar-home (file-name-as-directory
+                    (expand-file-name "bar" broken-home-runtime-spec--tmp-dir)))
+    (make-directory bar-home t)
+    (setq bar (workspace--make "bar" bar-home))
+    (puthash "bar" bar workspace--registry)
+    (spy-on 'workspace--flush-state))
+  (after-each (broken-home-runtime-spec--cleanup))
+
+  (it "refuses a symlinked spelling of another workspace's home; registry unchanged"
+    (let* ((foo (broken-home-runtime-spec--make-broken "foo"))
+           (link (expand-file-name "link-to-bar" broken-home-runtime-spec--tmp-dir))
+           (link-home (file-name-as-directory link)))
+      (make-symbolic-link (directory-file-name bar-home) link)
+      (expect (workspace--same-file-p link-home bar-home) :to-be-truthy)
+      (expect (workspace-re-anchor "foo" link-home)
+              :to-throw 'user-error
+              (list (format "Already a registered workspace: %s" link-home)))
+      (expect (gethash "foo" workspace--registry) :to-be foo)
+      (expect (gethash "bar" workspace--registry) :to-be bar)
+      (expect (gethash "link-to-bar" workspace--registry) :to-be nil)
+      (expect (hash-table-count workspace--registry) :to-equal 2)
+      (expect 'workspace--flush-state :not :to-have-been-called)))
+
+  (it "refuses a case-variant spelling of another workspace's home"
+    (let* ((foo (broken-home-runtime-spec--make-broken "foo"))
+           (upper-home (file-name-as-directory
+                        (expand-file-name "BAR" broken-home-runtime-spec--tmp-dir))))
+      ;; Only meaningful on a case-insensitive filesystem (this machine's
+      ;; APFS volume); elsewhere "BAR" is simply a missing directory.
+      (assume (file-directory-p upper-home)
+              "the temporary directory is on a case-insensitive filesystem")
+      (expect (workspace-re-anchor "foo" upper-home)
+              :to-throw 'user-error
+              (list (format "Already a registered workspace: %s" upper-home)))
+      (expect (gethash "foo" workspace--registry) :to-be foo)
+      (expect (gethash "BAR" workspace--registry) :to-be nil)
+      (expect 'workspace--flush-state :not :to-have-been-called)))
+
+  (it "lets a workspace re-anchor onto its OWN home when it reappears"
+    ;; NAME's own entry is excluded from the guard: the broken home came
+    ;; back (a remounted disk), and re-anchoring onto it must succeed.
+    (let* ((foo (broken-home-runtime-spec--make-broken "foo"))
+           (own-home (workspace--home foo)))
+      (make-directory own-home t)
+      (workspace-re-anchor "foo" own-home)
+      (let ((after (gethash "foo-missing" workspace--registry)))
+        (expect after :not :to-be nil)
+        (expect (workspace--broken-p after) :to-be nil)
+        (expect (workspace--home after) :to-equal own-home))
+      (expect 'workspace--flush-state :to-have-been-called))))
 
 (describe "workspace-re-anchor refuses a non-existent target"
   (before-each (broken-home-runtime-spec--reset))

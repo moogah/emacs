@@ -74,8 +74,11 @@ from NAME, the registry entry is renamed to match the new basename
 (per the registry-name-equals-basename invariant).
 
 The new path must be local (remote workspace homes are not supported;
-refused before any filesystem work), must exist and must be a
-directory."
+refused before any filesystem work), must exist, must be a directory,
+and must not be ANOTHER workspace's =:home= (compared by
+`workspace--same-file-p', so a case or symlink variant of another
+workspace's home is refused too: two workspaces never share one
+directory)."
   (interactive
    (list (completing-read "Re-anchor workspace: "
                           (workspace--registered-names) nil t)
@@ -87,6 +90,8 @@ directory."
     (workspace--refuse-remote-home new-home)
     (unless (file-directory-p new-home)
       (user-error "Not a directory: %s" new-home))
+    (when (workspace--registered-for-home-p new-home name)
+      (user-error "Already a registered workspace: %s" new-home))
     (let* ((new-name (file-name-nondirectory
                       (directory-file-name new-home)))
            ;; Update :home AND :name in lockstep (per
@@ -122,12 +127,15 @@ directory."
       (message "Workspace re-anchored: %s → %s" name new-home))))
 
 (defun workspace--purge-in-scope-p (home)
-  "Return non-nil when HOME lies inside `workspaces-default-parent-directory'.
-Decided by `workspace--path-within-p' (file identity, never spelling).
-A HOME that no longer exists (a broken workspace) is judged by its
-nearest existing ancestor, so a vanished home under the parent is in
-scope and one under an external tree is not.  Nil for a remote HOME.
-Never signals."
+  "Return non-nil when HOME lies STRICTLY below `workspaces-default-parent-directory'.
+Decided by `workspace--path-within-p' and `workspace--same-file-p' (file
+identity, never spelling).  The parent itself is NOT in scope: purging a
+workspace anchored at the parent would delete every workspace below it,
+so, like any external home, it needs the prefix-argument opt-in.  A HOME
+that no longer exists (a broken workspace) is judged by its nearest
+existing ancestor, so a vanished home under (or directly in) the parent
+is in scope and one under an external tree is not.  Nil for a remote
+HOME.  Never signals."
   (and (stringp home)
        (not (file-remote-p home))
        (let ((path (directory-file-name (expand-file-name home)))
@@ -137,7 +145,14 @@ Never signals."
          (while (and (not (file-exists-p path)) (not (equal path previous)))
            (setq previous path
                  path (directory-file-name (file-name-directory path))))
-         (workspace--path-within-p path workspaces-default-parent-directory))))
+         (and (workspace--path-within-p path workspaces-default-parent-directory)
+              ;; PREVIOUS is non-nil only when HOME itself was missing:
+              ;; PATH is then a proper ancestor of HOME, so HOME is below
+              ;; the parent even when PATH is the parent.  An existing
+              ;; HOME must not BE the parent.
+              (or previous
+                  (not (workspace--same-file-p
+                        path workspaces-default-parent-directory)))))))
 
 (defun workspace-delete (name)
   "Remove workspace NAME from the registry and close its tab.
@@ -168,10 +183,11 @@ Interactively, completes over registered workspace names."
   "Unregister workspace NAME and recursively delete its home directory.
 Prompts for `yes-or-no-p' confirmation showing the absolute path.
 
-Refuses to operate when `:home' is not a descendant of
-`workspaces-default-parent-directory' unless a prefix argument is
-supplied.  This guards against accidentally purging an anchored
-external project (e.g., =~/code/myproj/=).
+Refuses to operate when `:home' is not a proper descendant of
+`workspaces-default-parent-directory' (the parent itself included)
+unless a prefix argument is supplied.  This guards against accidentally
+purging an anchored external project (e.g., =~/code/myproj/=), or the
+parent that holds every scaffolded workspace.
 
 For broken-state workspaces (=:home= missing on disk), no
 filesystem deletion is attempted — the registry entry is still

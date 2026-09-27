@@ -277,26 +277,42 @@ compares timestamps too).  This
 preserves the registry-key uniqueness invariant (broken entries are
 not exempt: a broken workspace's =:home= is still a registered home).
 
-A registry-NAME guard follows it: the registry is keyed by the
-directory's basename (=register/invariant/registry-name-equals-basename=),
-so anchoring a DIFFERENT directory with the same basename as an existing
-workspace — =~/b/proj= while "proj" is =~/a/proj= — would pass the home
-guard and then REPLACE that workspace's registry entry, losing its saved
-layouts, buffer membership and recent-layout pointer at the next save.
-It is refused instead, naming the existing workspace's home, exactly as
-=workspace-re-anchor= refuses a rename onto a taken name.  Comparing
-registry keys is a key lookup, not a path comparison.
+A registry-NAME guard follows it, on BOTH branches of =workspace-new=:
+the registry is keyed by the directory's basename
+(=register/invariant/registry-name-equals-basename=), so registering a
+DIFFERENT directory under the name of an existing workspace — anchoring
+=~/b/proj= while "proj" is =~/a/proj=, or =M-x workspace-new RET proj=
+scaffolding =<default-parent>/proj= while "proj" is anchored elsewhere —
+would pass the home guard and then REPLACE that workspace's registry
+entry, losing its saved layouts, buffer membership and recent-layout
+pointer at the next save.  It is refused instead, naming the existing
+workspace's home, exactly as =workspace-re-anchor= refuses a rename onto
+a taken name.  A broken entry is not exempt (its layouts are just as
+real); the refusal then names =workspace-re-anchor= and
+=workspace-purge=, the commands that resolve it.  Both branches call ONE
+helper, =workspace--refuse-taken-name=, so they cannot drift apart.
+Comparing registry keys is a key lookup, not a path comparison.
 
 *Remote workspace homes are not supported* (user decision,
 2026-09-27).  Every command that puts a home into the registry —
 =workspace-new= on both branches and =workspace-re-anchor= — refuses a
-remote (TRAMP) directory with a =user-error= naming it, before any
-filesystem work.  The reason is the guard above: the identity predicate
-never opens a connection and answers nil for a remote name, so for a
-remote home "not registered" would only mean "cannot tell", and a
-second anchor of the same remote home would replace the first
-workspace's entry.  Refusing the home up front means the guard's nil is
-never asked to mean "different" for a remote path.
+remote (TRAMP) directory with a =user-error= naming it, before the
+command body does any filesystem work (the interactive
+=read-directory-name= prompt, which must match an existing directory,
+runs first and may itself reach the remote host for the path the user
+typed).  The reason is the duplicate-home guard above: the
+identity predicate never opens a connection and answers nil for a
+remote name, so for a remote home "not registered" would only mean
+"cannot tell".  The name guard already refuses a second anchor of the
+SAME remote spelling (same basename), so the case only the remote
+refusal catches is an ALIAS: another mount path or symlinked spelling of
+a registered remote directory whose basename differs.  The home guard
+cannot see that it is the same directory, so without the refusal it
+would register a second workspace on it.  Refusing the home up front
+means the guard's nil is never asked to mean "different" for a remote
+path.  A remote home already in the state file (written before this
+decision, or by hand) is loaded tagged broken without being contacted
+(=persistence.org= § Serialize / deserialize).
 
 The construction order mirrors the default-path branch — work first,
 register last — so a scaffold failure leaves the registry and
@@ -314,8 +330,29 @@ is opened.  Returns nil for a local HOME."
      "Workspace homes must be local; remote (TRAMP) directories are not supported: %s"
      home)))
 
-(defun workspace--registered-for-home-p (home)
+(defun workspace--refuse-taken-name (name)
+  "Signal `user-error' when a workspace is already registered as NAME.
+The registry is keyed by name, so registering another workspace under
+NAME would REPLACE that entry, losing its saved layouts, buffer
+membership and recent-layout pointer at the next save.  Both branches
+of `workspace-new' call this before any tab, scaffold or registry work.
+A broken entry is not exempt: its layouts are just as real, and the
+message points at `workspace-re-anchor' and `workspace-purge', the two
+commands that resolve it.  A key lookup, not a path comparison.
+Returns nil when NAME is free."
+  (let ((existing (gethash name workspace--registry)))
+    (when existing
+      (user-error "A workspace named %s already exists (home %s)%s"
+                  name (workspace--home existing)
+                  (if (workspace--broken-p existing)
+                      "; it is broken: use `workspace-re-anchor' or `workspace-purge'"
+                    "")))))
+
+(defun workspace--registered-for-home-p (home &optional except-name)
   "Return non-nil if any workspace in the registry has =:home= equal to HOME.
+The workspace registered as EXCEPT-NAME, when given, is not considered
+\(`workspace-re-anchor' re-points that workspace itself, so its own
+current home is not a conflict).
 
 Path comparison is by `workspace--same-file-p' (device and inode of
 the truenames), so trailing-slash, =~=, symlink and case variants do
@@ -329,8 +366,9 @@ exempt: a broken workspace's =:home= remains a registered home for
 the purposes of the uniqueness invariant."
   (catch 'found
     (maphash
-     (lambda (_name ws)
-       (when (workspace--same-file-p (workspace--home ws) home)
+     (lambda (name ws)
+       (when (and (not (equal name except-name))
+                  (workspace--same-file-p (workspace--home ws) home))
          (throw 'found t)))
      workspace--registry)
     nil))
@@ -391,10 +429,7 @@ Returns the freshly-registered workspace plist on success."
     (workspace--refuse-remote-home home)
     (when (workspace--registered-for-home-p home)
       (user-error "Already a registered workspace: %s" home))
-    (let ((existing (gethash name workspace--registry)))
-      (when existing
-        (user-error "A workspace named %s already exists (home %s)"
-                    name (workspace--home existing))))
+    (workspace--refuse-taken-name name)
     (let* ((is-repo? (file-directory-p (expand-file-name ".git" home)))
            (has-home-org? (workspace-home-org-exists-p home))
            ;; The per-case integration :context label.  Each cond
@@ -438,7 +473,9 @@ Scaffold a fresh workspace directory at
 =(expand-file-name NAME workspaces-default-parent-directory)=.
 
 Signal `user-error' if that directory is remote (remote homes are not
-supported; checked before any filesystem work) or already exists (the
+supported; checked before any filesystem work), if a workspace is
+already registered as NAME (`workspace--refuse-taken-name': registering
+would replace its entry), or if the directory already exists (the
 user's remedy is the prefix-arg form, which anchors an existing dir).
 Otherwise: scaffold first (creates the directory, git-inits it,
 writes home.org and the empty sessions/ directory, commits); only on
@@ -453,6 +490,7 @@ never blocks the already-clean workspace (design Decision 4)."
                 name
                 workspaces-default-parent-directory)))
     (workspace--refuse-remote-home home)
+    (workspace--refuse-taken-name name)
     (when (file-exists-p home)
       (user-error
        "Cannot scaffold %s: %s already exists. Use `C-u %s' to anchor an existing dir."

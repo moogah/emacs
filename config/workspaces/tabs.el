@@ -141,8 +141,29 @@ is opened.  Returns nil for a local HOME."
      "Workspace homes must be local; remote (TRAMP) directories are not supported: %s"
      home)))
 
-(defun workspace--registered-for-home-p (home)
+(defun workspace--refuse-taken-name (name)
+  "Signal `user-error' when a workspace is already registered as NAME.
+The registry is keyed by name, so registering another workspace under
+NAME would REPLACE that entry, losing its saved layouts, buffer
+membership and recent-layout pointer at the next save.  Both branches
+of `workspace-new' call this before any tab, scaffold or registry work.
+A broken entry is not exempt: its layouts are just as real, and the
+message points at `workspace-re-anchor' and `workspace-purge', the two
+commands that resolve it.  A key lookup, not a path comparison.
+Returns nil when NAME is free."
+  (let ((existing (gethash name workspace--registry)))
+    (when existing
+      (user-error "A workspace named %s already exists (home %s)%s"
+                  name (workspace--home existing)
+                  (if (workspace--broken-p existing)
+                      "; it is broken: use `workspace-re-anchor' or `workspace-purge'"
+                    "")))))
+
+(defun workspace--registered-for-home-p (home &optional except-name)
   "Return non-nil if any workspace in the registry has =:home= equal to HOME.
+The workspace registered as EXCEPT-NAME, when given, is not considered
+\(`workspace-re-anchor' re-points that workspace itself, so its own
+current home is not a conflict).
 
 Path comparison is by `workspace--same-file-p' (device and inode of
 the truenames), so trailing-slash, =~=, symlink and case variants do
@@ -156,8 +177,9 @@ exempt: a broken workspace's =:home= remains a registered home for
 the purposes of the uniqueness invariant."
   (catch 'found
     (maphash
-     (lambda (_name ws)
-       (when (workspace--same-file-p (workspace--home ws) home)
+     (lambda (name ws)
+       (when (and (not (equal name except-name))
+                  (workspace--same-file-p (workspace--home ws) home))
          (throw 'found t)))
      workspace--registry)
     nil))
@@ -218,10 +240,7 @@ Returns the freshly-registered workspace plist on success."
     (workspace--refuse-remote-home home)
     (when (workspace--registered-for-home-p home)
       (user-error "Already a registered workspace: %s" home))
-    (let ((existing (gethash name workspace--registry)))
-      (when existing
-        (user-error "A workspace named %s already exists (home %s)"
-                    name (workspace--home existing))))
+    (workspace--refuse-taken-name name)
     (let* ((is-repo? (file-directory-p (expand-file-name ".git" home)))
            (has-home-org? (workspace-home-org-exists-p home))
            ;; The per-case integration :context label.  Each cond
@@ -265,7 +284,9 @@ Scaffold a fresh workspace directory at
 =(expand-file-name NAME workspaces-default-parent-directory)=.
 
 Signal `user-error' if that directory is remote (remote homes are not
-supported; checked before any filesystem work) or already exists (the
+supported; checked before any filesystem work), if a workspace is
+already registered as NAME (`workspace--refuse-taken-name': registering
+would replace its entry), or if the directory already exists (the
 user's remedy is the prefix-arg form, which anchors an existing dir).
 Otherwise: scaffold first (creates the directory, git-inits it,
 writes home.org and the empty sessions/ directory, commits); only on
@@ -280,6 +301,7 @@ never blocks the already-clean workspace (design Decision 4)."
                 name
                 workspaces-default-parent-directory)))
     (workspace--refuse-remote-home home)
+    (workspace--refuse-taken-name name)
     (when (file-exists-p home)
       (user-error
        "Cannot scaffold %s: %s already exists. Use `C-u %s' to anchor an existing dir."

@@ -58,7 +58,15 @@ argument:
 Workspace homes must be local.  Remote (TRAMP) directories are not
 supported as workspace homes: =workspace-new= (either flow) and
 =workspace-re-anchor= refuse one with a =user-error= naming it, before
-touching the filesystem.
+the command touches the filesystem.  A remote home already in the state
+file (saved before this rule, or written by hand) is loaded /broken/
+without being contacted, with one warning naming it (see *Broken
+workspaces*).
+
+Every command that registers a workspace refuses a name that is already
+registered — including a broken workspace's — because the registry is
+keyed by name and registering would replace that workspace, losing its
+saved layouts.
 
 ** No prefix arg — scaffold a fresh directory
 
@@ -76,9 +84,12 @@ Only after scaffolding succeeds is the workspace registered, a tab
 created, =workspace-home-builder= called, and the integration
 =:on-create= handlers dispatched.
 
-If the target directory already exists, =workspace-new= signals a
-hard =user-error= and tells you to use the prefix-arg form to anchor
-an existing directory.  Scaffold failures (=git= missing, permission
+If a workspace named NAME is already registered (anchored elsewhere,
+or broken), =workspace-new= refuses with a =user-error= naming its home
+instead of replacing it; for a broken one the message points at
+=workspace-re-anchor= and =workspace-purge=.  If the target directory
+already exists, =workspace-new= signals a hard =user-error= and tells
+you to use the prefix-arg form to anchor an existing directory.  Scaffold failures (=git= missing, permission
 denied) propagate verbatim; partial filesystem state is left in
 place for manual inspection (design.md §D2 — auto-cleanup of a
 typo'd path would risk =rm -rf= on user data).
@@ -104,15 +115,16 @@ device and inode, not by spelling, so two spellings of the same
 directory (a trailing slash, a =~= prefix, a symlinked parent, a
 different letter case on a case-insensitive disk) are recognised as
 one.  That comparison never opens a remote connection and cannot tell
-two remote spellings apart, which is one reason remote homes are
+two remote spellings apart (another mount path of the same remote
+directory would register it twice), which is why remote homes are
 refused outright (above).
 
-A second guard refuses to anchor a directory whose basename is
-already a registered workspace's name — =~/b/proj= while "proj" lives at
-=~/a/proj= — because the workspace name IS the basename, and anchoring
-would replace the existing workspace (losing its saved layouts).  The
-error names the existing workspace's home; rename one of the
-directories to anchor both.
+A second guard, shared with the no-prefix flow, refuses to anchor a
+directory whose basename is already a registered workspace's name —
+=~/b/proj= while "proj" lives at =~/a/proj= — because the workspace name
+IS the basename, and anchoring would replace the existing workspace
+(losing its saved layouts).  The error names the existing workspace's
+home; rename one of the directories to anchor both.
 
 * Deleting and purging workspaces
 
@@ -137,13 +149,16 @@ Unregisters the workspace and recursively deletes the =:home=
 directory after a =yes-or-no-p= confirmation showing the absolute
 path.
 
-A scope safeguard refuses to operate when =:home= is not a
-descendant of =workspaces-default-parent-directory= unless you
-supply a prefix argument.  This protects anchored existing projects
-(e.g. =~/code/myproj/=) from accidental destruction: you must invoke
-=C-u M-x workspace-purge= to opt in to deleting a dir outside the
-default parent.  Inside the default parent (=~/emacs-workspaces/=)
-the safeguard is silent and only =yes-or-no-p= guards the delete.
+A scope safeguard refuses to operate when =:home= is not strictly
+below =workspaces-default-parent-directory= unless you supply a
+prefix argument.  This protects anchored existing projects (e.g.
+=~/code/myproj/=) from accidental destruction: you must invoke =C-u
+M-x workspace-purge= to opt in to deleting a dir outside the default
+parent.  The default parent ITSELF (in any spelling) is outside too: a
+workspace anchored at =~/emacs-workspaces/= would otherwise be purged,
+with every workspace below it, after a single "yes".  Strictly inside
+the default parent the safeguard is silent and only =yes-or-no-p=
+guards the delete.
 
 Order is deliberate: unregister first, =delete-directory= second.
 If the filesystem delete errors (permission denied, file busy), the
@@ -163,6 +178,13 @@ down).  The loader tags the in-memory entry with a runtime-only
 =:broken= flag and emits a =*Messages*= notice naming the workspace
 and its missing =:home=.
 
+A workspace whose saved =:home= is remote (TRAMP) is also loaded
+broken, but WITHOUT any filesystem call on the home (checking it would
+open a connection at startup), and with one warning naming it.  Remote
+homes are not supported; the entry is kept so its layouts survive the
+next save.  Re-anchor it to a local directory, or =workspace-delete=
+it.
+
 The =:broken= tag never persists to disk: it lives on the registry
 plist at runtime only, recomputed on every load from the current
 state of the filesystem.  No surgery on the persistence file is
@@ -175,7 +197,10 @@ Three operations are /allowed/ on a broken workspace:
   new path; the path must exist and be a directory.  If the new
   basename differs from the registry key, the registry entry is
   renamed in place (and the live tab relabelled) to honour the
-  invariant that the registry name equals the basename.
+  invariant that the registry name equals the basename.  The new
+  path must not be another workspace's home, in any spelling (a
+  symlink or a different letter case): two workspaces never share
+  one directory.
 - =workspace-purge= (=C-x w P=) — remove the registry entry.  The
   filesystem step is skipped automatically when =:home= is already
   missing.
@@ -342,7 +367,8 @@ single window.  Example override that opens an index file instead:
 =workspaces-default-parent-directory= — directory under which
 =workspace-new= scaffolds new workspace homes.  Default:
 =~/emacs-workspaces/=.  Also acts as the scope-safeguard boundary
-for =workspace-purge= (purges outside this dir require =C-u=).
+for =workspace-purge= (purges of this dir itself, or outside it,
+require =C-u=).
 
 =workspace-save-idle-delay= — seconds of idle time before the
 debounced disk save fires.  Default: 2.
