@@ -604,7 +604,9 @@ Returns the error's message; fails the spec when nothing was signalled."
                                         portable-bookmarks-missing-repo-spec--this-dir))
                      (buffer-string)))
            (start (string-match-p "(defconst workspace-bookmark--missing-repo-actions" source))
-           (end (string-match-p "(defvar workspace--registry)" source))
+           ;; The section ends where the next one, "Off-workspace", begins:
+           ;; its first form is the anti-save predicate's `defvar'.
+           (end (string-match-p "(defvar workspace-anti-save-predicates)" source))
            (section (and start end (< start end) (substring source start end))))
       (expect section :not :to-be nil)
       (expect section :to-match "read-multiple-choice")

@@ -240,6 +240,105 @@
           (funcall newer)
           (expect put-count :to-be-weakly-greater-than 0))))))
 
+(defun br-spec--declining-handler (_record)
+  "A bookmark handler that DECLINES, as the portable-bookmarks seam does."
+  (user-error "Bookmark \"declines\": not on this branch; nothing opened"))
+
+(defun br-spec--asking-handler (record)
+  "A bookmark handler that wants to ASK before visiting the record's file."
+  (when (y-or-n-p "Really visit? ")
+    (set-buffer (find-file-noselect (bookmark-get-filename record)))))
+
+(describe "the gate: a bookmark handler that declines"
+  ;; A `user-error' from the handler is a DECISION for the user to see,
+  ;; not a failure to fall through: steps 2 (filename) and 3 (name) are
+  ;; skipped and the leaf lands on the error buffer carrying the reason.
+  ;; Register: no-silent-wrong-file-open prohibitions 1 and 4 — the
+  ;; stored filename is the path the buffer had when captured, which the
+  ;; handler has just refused to open.
+  (it "skips the filename AND the same-name live buffer, and lands on the error buffer with the reason"
+    (let* ((path (br-spec--make-temp-file "wrong copy"))
+           (same-name (get-buffer-create "declines.el"))
+           (wb (make-workspace-buffer
+                :bookmark '("declines" (handler . br-spec--declining-handler))
+                :filename path
+                :name "declines.el"))
+           (collector (list nil))
+           (result (let ((workspace--reincarnation-declines collector))
+                     (workspace--deserialize-buffer wb))))
+      (unwind-protect
+          (progn
+            (expect (buffer-live-p result) :to-be t)
+            (expect (buffer-name result) :to-equal "*workspace-restore: declines.el*")
+            (expect result :not :to-be same-name)
+            (expect (find-buffer-visiting path) :to-be nil)
+            (with-current-buffer result
+              (expect (buffer-string) :to-match "declined to restore")
+              (expect (buffer-string) :to-match "not on this branch")
+              (expect (buffer-string) :to-match "NOT opened"))
+            ;; Noted once for the restore's single report.
+            (expect (length (car collector)) :to-equal 1)
+            (expect (car (car (car collector))) :to-equal "declines.el")
+            (expect (cdr (car (car collector))) :to-match "not on this branch"))
+        (delete-file path)
+        (when (buffer-live-p same-name) (kill-buffer same-name))
+        (when (buffer-live-p result) (kill-buffer result)))))
+
+  (it "treats a handler that tries to ask as a decline: no prompt, filename skipped, reason recorded"
+    ;; The leaf jump runs with `inhibit-interaction' bound, so the real
+    ;; `y-or-n-p' signals `inhibited-interaction' instead of reading.
+    (let* ((path (br-spec--make-temp-file "asked for"))
+           (wb (make-workspace-buffer
+                :bookmark `("asks" (handler . br-spec--asking-handler)
+                            (filename . ,path))
+                :filename path
+                :name "asks.txt"))
+           (collector (list nil))
+           (result (let ((workspace--reincarnation-declines collector))
+                     (workspace--deserialize-buffer wb))))
+      (unwind-protect
+          (progn
+            (expect (buffer-name result) :to-equal "*workspace-restore: asks.txt*")
+            (expect (find-buffer-visiting path) :to-be nil)
+            (with-current-buffer result
+              (expect (buffer-string) :to-match "needed to ask"))
+            (expect (length (car collector)) :to-equal 1)
+            (expect (cdr (car (car collector))) :to-match "needed to ask"))
+        (delete-file path)
+        (when (buffer-live-p result) (kill-buffer result)))))
+
+  (it "still falls through to the filename when the handler merely FAILS"
+    ;; The pre-existing contract, kept: a plain error is not a decision.
+    (let* ((path (br-spec--make-temp-file "still here"))
+           (wb (make-workspace-buffer
+                :bookmark '("fails" (handler . ignore))
+                :filename path
+                :name (file-name-nondirectory path)))
+           (collector (list nil))
+           (result (cl-letf (((symbol-function 'bookmark-jump)
+                              (lambda (&rest _) (error "handler exploded"))))
+                     (let ((workspace--reincarnation-declines collector))
+                       (workspace--deserialize-buffer wb)))))
+      (unwind-protect
+          (progn
+            (expect (file-truename (buffer-file-name result))
+                    :to-equal (file-truename path))
+            (expect (car collector) :to-be nil))
+        (delete-file path)
+        (when (buffer-live-p result) (kill-buffer result)))))
+
+  (it "reports the collected declines in ONE message, or none when there were none"
+    (let ((messages nil))
+      (cl-letf (((symbol-function 'message)
+                 (lambda (fmt &rest args) (push (apply #'format fmt args) messages))))
+        (workspace--report-reincarnation-declines nil)
+        (expect messages :to-be nil)
+        (workspace--report-reincarnation-declines
+         '(("second.el" . "reason two") ("first.el" . "reason one")))
+        (expect (length messages) :to-equal 1)
+        (expect (car messages) :to-match "2 buffers not restored")
+        (expect (car messages) :to-match "first.el (reason one); second.el (reason two)")))))
+
 (describe "reincarnation step closed-set"
   ;; Mirrors the `workspace--valid-state-slots' / `workspace--state-slot-p'
   ;; pair: pins the four step symbols in chain order and asserts the
