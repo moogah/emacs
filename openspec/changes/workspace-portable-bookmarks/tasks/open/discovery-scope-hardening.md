@@ -2,7 +2,7 @@
 name: discovery-scope-hardening
 description: Error barrier around git-worktrees' call into the public discovery scope; keep the add-worktree re-resolve out of the discovery memo; refresh two stale docstrings
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
 task_class: refactor
 on_critical_path: false
 cycle: cycle-1790453714
