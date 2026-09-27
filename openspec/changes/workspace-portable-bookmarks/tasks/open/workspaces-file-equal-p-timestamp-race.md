@@ -2,7 +2,7 @@
 name: workspaces-file-equal-p-timestamp-race
 description: "workspaces core (tabs.el, git-worktrees.el) uses file-equal-p for path identity; file-equal-p compares full file-attributes (timestamps included), so a directory modified between the two reads compares unequal. Replace with a device+inode comparison."
 source: wave3-review-fixes (cycle-1789935943, workspace-portable-bookmarks)
-status: needs_review
+status: done
 task_class: bug
 change: workspace-portable-bookmarks
 on_critical_path: false
