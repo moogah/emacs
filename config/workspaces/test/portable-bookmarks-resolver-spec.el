@@ -60,26 +60,11 @@
   "/nonexistent/stored/elsewhere/README.md"
   "A stored `filename' that no outcome but `non-portable' may return.")
 
-(defvar portable-bookmarks-resolver-spec--saved-registry nil
-  "The real `workspace--registry', set aside for the duration of a spec.")
-
 (defvar portable-bookmarks-resolver-spec--results nil
   "Every plist `portable-bookmarks-resolver-spec--resolve' returned.")
 
 
 ;;; Helpers
-
-(defun portable-bookmarks-resolver-spec--setup ()
-  "Open a fixture scope with an empty registry."
-  (setq portable-bookmarks-resolver-spec--saved-registry workspace--registry
-        workspace--registry (make-hash-table :test 'equal))
-  (workspace-bookmark-fixtures-setup))
-
-(defun portable-bookmarks-resolver-spec--teardown ()
-  "Close the fixture scope and restore the real registry."
-  (workspace-bookmark-fixtures-teardown)
-  (setq workspace--registry portable-bookmarks-resolver-spec--saved-registry
-        portable-bookmarks-resolver-spec--saved-registry nil))
 
 (defconst portable-bookmarks-resolver-spec--interaction-functions
   '(find-file find-file-noselect find-file-other-window find-file-read-only
@@ -158,19 +143,6 @@ Fails the spec when FILE does not get stamped."
             :not :to-be nil)
     record))
 
-(defun portable-bookmarks-resolver-spec--commit-file (repo relpath &optional contents)
-  "Create RELPATH in REPO with CONTENTS, commit it, and return its path."
-  (let ((path (expand-file-name relpath repo)))
-    (make-directory (file-name-directory path) t)
-    (with-temp-file path (insert (or contents "x\n")))
-    (workspace-bookmark-fixtures-git repo "config" "user.email"
-                                     "fixtures@example.invalid")
-    (workspace-bookmark-fixtures-git repo "config" "user.name" "Fixtures")
-    (workspace-bookmark-fixtures-git repo "config" "commit.gpgsign" "false")
-    (workspace-bookmark-fixtures-git repo "add" "--" relpath)
-    (workspace-bookmark-fixtures-git repo "commit" "--quiet" "-m" relpath)
-    path))
-
 (defun portable-bookmarks-resolver-spec--no-discovery (thunk)
   "Call THUNK, failing the spec if it runs either discovery function.
 The decision is expected before any git runs.  Returns THUNK's value."
@@ -200,19 +172,16 @@ WORKSPACE and CANONICAL are the lists they return."
 (describe "Resolution against real checkouts"
   :var (repo home-a home-b wt)
 
-  (before-each
-    (portable-bookmarks-resolver-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq repo (workspace-bookmark-fixtures-make-repo
                 :remote portable-bookmarks-resolver-spec--remote))
-    (portable-bookmarks-resolver-spec--commit-file repo "sub/deep.el")
-    (portable-bookmarks-resolver-spec--commit-file repo " lead.txt")
-    (portable-bookmarks-resolver-spec--commit-file repo "trail.txt ")
+    (workspace-bookmark-fixtures-commit-file repo "sub/deep.el")
+    (workspace-bookmark-fixtures-commit-file repo " lead.txt")
+    (workspace-bookmark-fixtures-commit-file repo "trail.txt ")
     (setq home-a (workspace-bookmark-fixtures-make-workspace "wsbm-res-a")
           home-b (workspace-bookmark-fixtures-make-workspace "wsbm-res-b")
           wt (workspace-bookmark-fixtures-add-worktree
               repo (expand-file-name "proj" home-a) :branch "a")))
-
-  (after-each (portable-bookmarks-resolver-spec--teardown))
 
   (describe "resolved"
     (it "answers with the workspace's own copy, never the stored filename"
@@ -261,7 +230,7 @@ WORKSPACE and CANONICAL are the lists they return."
         (expect (get-file-buffer (expand-file-name "README.md" wt)) :to-be nil)))
 
     (it "reports a file committed on another branch only"
-      (portable-bookmarks-resolver-spec--commit-file repo "main-only.el")
+      (workspace-bookmark-fixtures-commit-file repo "main-only.el")
       (let ((result (portable-bookmarks-resolver-spec--resolve
                      (portable-bookmarks-resolver-spec--stamp
                       (expand-file-name "main-only.el" repo))
@@ -304,7 +273,7 @@ WORKSPACE and CANONICAL are the lists they return."
               :to-be 'missing-repo))
 
     (it "has a nil :path when the canonical checkout lacks the relpath"
-      (let* ((file (portable-bookmarks-resolver-spec--commit-file
+      (let* ((file (workspace-bookmark-fixtures-commit-file
                     wt "branch-a-only.el"))
              (result (portable-bookmarks-resolver-spec--resolve
                       (portable-bookmarks-resolver-spec--stamp file)
@@ -503,11 +472,10 @@ WORKSPACE and CANONICAL are the lists they return."
 (describe "Resolution from a second workspace through links (DD-16)"
   :var (repo home-a home-b wt-a wt-b)
 
-  (before-each
-    (portable-bookmarks-resolver-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq repo (workspace-bookmark-fixtures-make-repo
                 :remote portable-bookmarks-resolver-spec--remote))
-    (portable-bookmarks-resolver-spec--commit-file repo "sub/f.txt")
+    (workspace-bookmark-fixtures-commit-file repo "sub/f.txt")
     ;; A tracked link that points out of whichever checkout holds it.
     (make-symbolic-link "../shared/x.txt" (expand-file-name "link-rel" repo))
     (workspace-bookmark-fixtures-git repo "add" "--" "link-rel")
@@ -521,8 +489,6 @@ WORKSPACE and CANONICAL are the lists they return."
                 repo (expand-file-name "proj" home-a) :branch "a")
           wt-b (workspace-bookmark-fixtures-add-worktree
                 repo (expand-file-name "proj" home-b) :branch "b")))
-
-  (after-each (portable-bookmarks-resolver-spec--teardown))
 
   (it "resolves a tracked link that leaves the checkout to the second workspace's spelling"
     (let* ((record (portable-bookmarks-resolver-spec--stamp
@@ -584,12 +550,9 @@ WORKSPACE and CANONICAL are the lists they return."
 (describe "Resolution with discovery mocked"
   :var (dir)
 
-  (before-each
-    (portable-bookmarks-resolver-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq dir (workspace-bookmark-fixtures-temp-dir "wsbm-res-unit-"))
     (with-temp-file (expand-file-name "README.md" dir) (insert "x")))
-
-  (after-each (portable-bookmarks-resolver-spec--teardown))
 
   (describe "no-clone"
     (it "answers when neither discovery function finds anything"

@@ -57,21 +57,6 @@
   "example.com/fixtures/discovery"
   "The identity `portable-bookmarks-discovery-spec--remote' normalizes to.")
 
-(defvar portable-bookmarks-discovery-spec--saved-registry nil
-  "The real `workspace--registry', set aside for the duration of a spec.")
-
-(defun portable-bookmarks-discovery-spec--setup ()
-  "Open a fixture scope with an empty registry and no config checkout."
-  (setq portable-bookmarks-discovery-spec--saved-registry workspace--registry
-        workspace--registry (make-hash-table :test 'equal))
-  (workspace-bookmark-fixtures-setup))
-
-(defun portable-bookmarks-discovery-spec--teardown ()
-  "Close the fixture scope and restore the real registry."
-  (workspace-bookmark-fixtures-teardown)
-  (setq workspace--registry portable-bookmarks-discovery-spec--saved-registry
-        portable-bookmarks-discovery-spec--saved-registry nil))
-
 (defmacro portable-bookmarks-discovery-spec--hermetic (&rest body)
   "Run BODY with no current workspace and `jf/emacs-dir' unbound from view."
   (declare (indent 0))
@@ -90,8 +75,7 @@
 (describe "Checkout discovery against a real repository"
   :var (repo owned stale home)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq repo (workspace-bookmark-fixtures-make-repo
                 :remote portable-bookmarks-discovery-spec--remote)
           home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-a")
@@ -102,8 +86,6 @@
                        "stale sibling"
                        (workspace-bookmark-fixtures-temp-dir "wsbm-stale-"))
                  :branch "stale")))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (describe "workspace-bookmark--checkouts-of"
 
@@ -292,8 +274,7 @@
 
 (describe "Canonical checkout when git's two signals disagree"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "is nil for a worktree of a bare main repository"
     (let* ((seed (workspace-bookmark-fixtures-make-repo
@@ -377,25 +358,15 @@
   (equal (directory-files husk nil directory-files-no-dot-files-regexp)
          '(".git")))
 
-(defun portable-bookmarks-discovery-spec--commit-file (repo name)
-  "Create the file NAME in REPO and commit it (forced past any ignore rule)."
-  (with-temp-file (expand-file-name name repo) (insert "tracked"))
-  (workspace-bookmark-fixtures-git repo "add" "-f" "--" name)
-  (workspace-bookmark-fixtures-git repo "commit" "--quiet" "-m"
-                                   (concat "track " name)))
-
 (describe "Canonical checkout when a `.git'-named git directory lives outside the work tree"
   :var (main store husk)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq main (workspace-bookmark-fixtures-make-repo
                 :remote portable-bookmarks-discovery-spec--remote)
           store (workspace-bookmark-fixtures-temp-dir "wsbm-store-")
           husk (file-name-as-directory (expand-file-name "husk" store)))
     (make-directory husk))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "is nil for `git init --separate-git-dir=<dir>/.git', not the husk"
     ;; Re-running init with --separate-git-dir MOVES the git directory and
@@ -460,7 +431,7 @@
   ;; OS also writes into the husk.
 
   (it "is nil for a husk holding a .DS_Store the repository tracks"
-    (portable-bookmarks-discovery-spec--commit-file main ".DS_Store")
+    (workspace-bookmark-fixtures-commit-file main ".DS_Store")
     (workspace-bookmark-fixtures-git
      main "init" "--quiet"
      (concat "--separate-git-dir=" (expand-file-name ".git" husk)))
@@ -492,7 +463,7 @@
     (let ((artifacts '(".DS_Store" "._README.md" ".localized" "Icon\r"
                        "thumbs.db" "ehthumbs.db" "Desktop.ini" ".directory")))
       (dolist (name artifacts)
-        (portable-bookmarks-discovery-spec--commit-file main name))
+        (workspace-bookmark-fixtures-commit-file main name))
       (rename-file (expand-file-name ".git" main) (expand-file-name ".git" husk))
       (make-symbolic-link (expand-file-name ".git" husk)
                           (expand-file-name ".git" main))
@@ -506,7 +477,7 @@
       (expect (workspace-bookmark--canonical-checkout main) :to-be nil)))
 
   (it "still returns a main worktree that tracks .DS_Store beside real files"
-    (portable-bookmarks-discovery-spec--commit-file main ".DS_Store")
+    (workspace-bookmark-fixtures-commit-file main ".DS_Store")
     (expect (workspace-bookmark--canonical-checkout main) :to-equal main)
     (expect (workspace-bookmark--offerable-canonical-p main) :to-be-truthy)))
 
@@ -515,8 +486,7 @@
 
 (describe "Canonical safety with a full clone inside a workspace home"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "never offers another workspace's clone as canonical"
     (let* ((origin (workspace-bookmark-fixtures-make-repo))
@@ -578,8 +548,7 @@
 
 (describe "A workspace anchored at an existing repository"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "resolves its identity to the home, and never offers the home as canonical"
     (assume (fboundp 'workspace-new) "tabs.el is not loaded")
@@ -630,13 +599,10 @@
 (describe "Several checkouts of one identity in one workspace home"
   :var (repo home)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq repo (workspace-bookmark-fixtures-make-repo
                 :remote portable-bookmarks-discovery-spec--remote)
           home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-sib")))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "lists every sibling worktree, and names none as THE checkout"
     (let ((zeta (workspace-bookmark-fixtures-add-worktree
@@ -695,13 +661,10 @@ Returns DIR as a directory name."
 (describe "Canonical safety while the workspace home is being written to"
   :var (home clone)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-race")
           clone (portable-bookmarks-discovery-spec--clone-into
                  (expand-file-name "clone" home))))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "still owns a full clone when every read of a file sees new timestamps"
     ;; Deterministic model of a concurrent writer (or reader: on APFS the
@@ -789,8 +752,7 @@ HOME-A or HOME-B (B's own worktree included)."
 (describe "Symbolic links in a workspace home are ignored"
   :var (outer main home-a home-b)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     ;; MAIN is a full clone outside every home, inside a directory of its
     ;; own; workspace B holds a linked worktree of it, so the identity is
     ;; in view whatever workspace A links to.
@@ -807,8 +769,6 @@ HOME-A or HOME-B (B's own worktree included)."
       (expect (workspace-bookmark--canonical-for-identity
                portable-bookmarks-discovery-spec--identity)
               :to-equal main)))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "does not list a symlinked child among the workspace's checkouts"
     (make-symbolic-link (directory-file-name main)
@@ -886,8 +846,7 @@ HOME-A or HOME-B (B's own worktree included)."
 
 (describe "Checkout discovery with repository-locating variables in the environment"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "finds the workspace's checkout of the identity, not of GIT_DIR's repository"
     (let* ((other (workspace-bookmark-fixtures-make-repo
@@ -914,8 +873,7 @@ HOME-A or HOME-B (B's own worktree included)."
 
 (describe "A checkout whose directory name ends in a space"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "has its own identity, not that of the repository enclosing it"
     ;; The home is itself a repository (scaffolded homes are), with a
@@ -945,8 +903,7 @@ HOME-A or HOME-B (B's own worktree included)."
 (describe "Workspace containment across path spellings"
   :var (raw real child)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     ;; `make-temp-file' hands back /var/... on macOS; its truename is
     ;; /private/var/....  Register the home under the RAW spelling, as a
     ;; user-typed path would be, and name the child by the truename, as git
@@ -957,8 +914,6 @@ HOME-A or HOME-B (B's own worktree included)."
     (workspace-bookmark-fixtures-track-dir real)
     (make-directory (expand-file-name ".git" child) t)
     (workspace-bookmark-fixtures-register-workspace "wsbm-spell" raw))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "matches a truenamed checkout against a raw-spelled home"
     (expect (workspace-bookmark--classify child) :to-be 'workspace-owned))
@@ -991,8 +946,7 @@ HOME-A or HOME-B (B's own worktree included)."
 
 (describe "Checkout discovery failure paths"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "workspace-bookmark--checkouts-of is nil when git fails"
     (cl-letf (((symbol-function 'workspace-bookmark--git)
@@ -1111,8 +1065,7 @@ HOME-A or HOME-B (B's own worktree included)."
 
 (describe "workspace-bookmark--checkouts-in-view"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "orders the current workspace, then the others, then jf/emacs-dir"
     (let* ((other-home (workspace-bookmark-fixtures-make-workspace "wsbm-view-b"))
@@ -1146,8 +1099,7 @@ HOME-A or HOME-B (B's own worktree included)."
 (describe "workspace-bookmark--offerable-canonical-p"
   :var (repo home linked)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq repo (workspace-bookmark-fixtures-make-repo
                 :remote portable-bookmarks-discovery-spec--remote)
           home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-pred")
@@ -1155,8 +1107,6 @@ HOME-A or HOME-B (B's own worktree included)."
                   repo (expand-file-name
                         "linked" (workspace-bookmark-fixtures-temp-dir))
                   :branch "linked")))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "admits a main worktree that no workspace owns"
     (expect (workspace-bookmark--offerable-canonical-p repo) :to-be-truthy))
@@ -1202,8 +1152,7 @@ HOME-A or HOME-B (B's own worktree included)."
 (describe "workspace-bookmark-canonical-checkouts-in-view"
   :var (r1 r2 home-a home-b a1 a2 b1 elsewhere)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq r1 (workspace-bookmark-fixtures-make-repo
               :remote "git@example.com:fixtures/view-one.git"
               :prefix "wsbm-view-r1-")
@@ -1222,8 +1171,6 @@ HOME-A or HOME-B (B's own worktree included)."
                      r1 (expand-file-name
                          "config" (workspace-bookmark-fixtures-temp-dir))
                      :branch "config")))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "returns each in-view repository's main worktree once, current workspace first"
     (portable-bookmarks-discovery-spec--hermetic
@@ -1275,8 +1222,7 @@ HOME-A or HOME-B (B's own worktree included)."
 
 (describe "A child of an anchored home whose .git is an empty directory"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "is not listed as a checkout, so the home stays the unique checkout"
     (let* ((repo (workspace-bookmark-fixtures-make-repo
@@ -1306,8 +1252,7 @@ HOME-A or HOME-B (B's own worktree included)."
 
 (describe "A workspace anchored at a subdirectory of a main clone"
 
-  (before-each (portable-bookmarks-discovery-spec--setup))
-  (after-each (portable-bookmarks-discovery-spec--teardown))
+  (workspace-bookmark-fixtures-with-empty-registry)
 
   (it "owns the clone, so the clone is offered to no other workspace"
     (assume (fboundp 'workspace-new) "tabs.el is not loaded")
@@ -1318,7 +1263,7 @@ HOME-A or HOME-B (B's own worktree included)."
            (ws nil))
       ;; "My package in the monorepo": a tracked subdirectory of MAIN.
       (make-directory pkg)
-      (portable-bookmarks-discovery-spec--commit-file main "pkg/pkg.el")
+      (workspace-bookmark-fixtures-commit-file main "pkg/pkg.el")
       (let ((home-z (workspace-bookmark-fixtures-make-workspace
                      "wsbm-disc-inner-z")))
         (workspace-bookmark-fixtures-add-worktree
@@ -1367,8 +1312,7 @@ HOME-A or HOME-B (B's own worktree included)."
   ;; clone's, so anchoring a workspace there does not make main owned.
   :var (main feat)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq main (portable-bookmarks-discovery-spec--clone-into
                 (expand-file-name "main" (workspace-bookmark-fixtures-temp-dir
                                           "wsbm-nested-wt-"))))
@@ -1380,8 +1324,6 @@ HOME-A or HOME-B (B's own worktree included)."
            "wt" (workspace-bookmark-fixtures-make-workspace "wsbm-nested-z"))
      :branch "z")
     (workspace-bookmark-fixtures-make-workspace "wsbm-nested-feat" feat))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "leaves the main clone canonical and offered to other workspaces"
     ;; Precondition: the home really lies inside MAIN.
@@ -1416,16 +1358,13 @@ HOME-A or HOME-B (B's own worktree included)."
   ;; The widening withdraws only clones that really contain a home.
   :var (outer main home-b)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq outer (workspace-bookmark-fixtures-temp-dir "wsbm-nowiden-")
           main (portable-bookmarks-discovery-spec--clone-into
                 (expand-file-name "main" outer))
           home-b (workspace-bookmark-fixtures-make-workspace "wsbm-disc-link-b"))
     (workspace-bookmark-fixtures-add-worktree
      main (expand-file-name "discovery" home-b) :branch "b"))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "does not own a clone whose path is a string prefix of a home"
     (let ((sibling (file-name-as-directory
@@ -1466,8 +1405,7 @@ HOME-A or HOME-B (B's own worktree included)."
 (describe "Two separate main clones of one identity"
   :var (x1 x2)
 
-  (before-each
-    (portable-bookmarks-discovery-spec--setup)
+  (workspace-bookmark-fixtures-with-empty-registry
     (setq x1 (portable-bookmarks-discovery-spec--clone-into
               (expand-file-name "x" (workspace-bookmark-fixtures-temp-dir
                                      "wsbm-two-src-")))
@@ -1483,8 +1421,6 @@ HOME-A or HOME-B (B's own worktree included)."
          "x" (workspace-bookmark-fixtures-make-workspace "wsbm-two-b"))
      :branch "b")
     (workspace-bookmark-fixtures-make-workspace "wsbm-two-c"))
-
-  (after-each (portable-bookmarks-discovery-spec--teardown))
 
   (it "lists both, the current workspace's first, and names neither as THE checkout"
     (portable-bookmarks-discovery-spec--hermetic
