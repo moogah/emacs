@@ -145,20 +145,16 @@ A no-op otherwise."
   "Isolate the registry, start a fixture scope, then call SETUP.
 
 SETUP is a function of no arguments that builds the per-spec fixtures,
-or nil.  If starting the scope or SETUP signals, the scope is torn down
-and the live registry restored BEFORE the signal propagates, so a broken
-fixture cannot leak an empty registry into the specs that run next.
-`workspace-bookmark-fixtures-with-empty-registry' installs this as the
-`before-each' of a `describe'."
-  (let ((done nil))
-    (unwind-protect
-        (progn
-          (workspace-bookmark-fixtures-isolate-registry)
-          (workspace-bookmark-fixtures-setup)
-          (when setup (funcall setup))
-          (setq done t))
-      (unless done
-        (workspace-bookmark-fixtures-teardown)))))
+or nil.  If SETUP signals, the scope is left OPEN: the registry stays
+isolated and the fixtures created so far stay registered, so the spec
+body buttercup runs anyway after a failed `before-each' still sees the
+fresh table and the scratch bookmark file, never the live ones.  The
+`after-each' that `workspace-bookmark-fixtures-with-empty-registry'
+installs (buttercup runs it even after a failed hook) tears the scope
+down and puts the live registry back."
+  (workspace-bookmark-fixtures-isolate-registry)
+  (workspace-bookmark-fixtures-setup)
+  (when setup (funcall setup)))
 
 (defmacro workspace-bookmark-fixtures-with-empty-registry (&rest setup-body)
   "Run every spec of the current `describe' against an empty registry.
@@ -170,10 +166,11 @@ SETUP-BODY (the per-spec fixture building, which may `setq' the
 describe's `:var' variables), and an `after-each' that tears the scope
 down and puts the live table back.
 
-The live table comes back on every exit: a signal in SETUP-BODY restores
-it before propagating (see
-`workspace-bookmark-fixtures-setup-with-empty-registry'), and buttercup
-runs the `after-each' even when the spec body or an earlier hook fails.
+The live table comes back on every exit because buttercup runs the
+`after-each' even when the spec body or an earlier hook fails; a signal
+in SETUP-BODY deliberately leaves the scope open until then, so the
+failing spec's body still runs isolated (see
+`workspace-bookmark-fixtures-setup-with-empty-registry').
 Needs buttercup loaded at the expansion site, as any spec has."
   (declare (indent 0) (debug (&rest form)))
   `(progn
@@ -288,7 +285,8 @@ may be a main worktree or a linked one; the commit lands on whatever
 branch it has checked out.  Committer identity is whatever REPO's
 configuration provides: repositories from
 `workspace-bookmark-fixtures-make-repo', and their linked worktrees,
-carry a local one."
+carry a local one.  A `git clone' of one does NOT inherit it; give clones
+their own local identity before committing there."
   (let ((path (workspace-bookmark-fixtures-write-file repo relpath contents)))
     (workspace-bookmark-fixtures-git repo "add" "-f" "--" relpath)
     (workspace-bookmark-fixtures-git repo "commit" "--quiet" "-m"

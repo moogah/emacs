@@ -656,6 +656,12 @@ Returns DIR as a directory name."
                                      (directory-file-name dir))
     (workspace-bookmark-fixtures-git dir "remote" "set-url" "origin"
                                      portable-bookmarks-discovery-spec--remote)
+    ;; A clone copies no local config: give it the fixtures' identity so
+    ;; `workspace-bookmark-fixtures-commit-file' never depends on the
+    ;; runner's global git configuration.
+    (workspace-bookmark-fixtures-git dir "config" "user.email" "fixtures@example.invalid")
+    (workspace-bookmark-fixtures-git dir "config" "user.name" "Portable Bookmarks Fixtures")
+    (workspace-bookmark-fixtures-git dir "config" "commit.gpgsign" "false")
     dir))
 
 (describe "Canonical safety while the workspace home is being written to"
