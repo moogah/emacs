@@ -220,29 +220,70 @@ and IDENTITY may be nil.")
 (defun workspace-bookmark-clear-identity-cache ()
   "Forget every memoised repository identity.
 
-Each memoised identity is revalidated against the modification time of
-its repository's own git config, so `git remote add', `set-url' and
-`remove' are picked up without this command.  It is needed only after a
+Each memoised identity is revalidated against the modification times of
+its repository's own git config and of its checkout's `config.worktree',
+so `git remote add', `set-url' and `remove', and `git config --worktree'
+changes, are picked up without this command.  It is needed only after a
 change the memo cannot see: a `url.*.insteadOf' rule (or anything else
 `git remote get-url' honours) added to the global, XDG or system
-gitconfig, to an included config file, or to `config.worktree'.  Loading
-this module clears the memo too."
+gitconfig, or to an included config file.  Loading this module clears
+the memo too."
   (interactive)
   (clrhash workspace-bookmark--identity-memo))
 
-(defun workspace-bookmark--config-stamp (git-common-dir)
-  "Return the modification time of GIT-COMMON-DIR's config file, or nil."
-  (and git-common-dir
-       (file-attribute-modification-time
-        (file-attributes (expand-file-name "config" git-common-dir)))))
+(defun workspace-bookmark--checkout-git-dir (root)
+  "Return the git directory of the checkout at ROOT, or nil.  Runs no git.
+
+ROOT's `.git' entry is the git directory itself when it is a directory
+\(a main worktree), and names it when it is a file — the one-line
+`gitdir: PATH' that git leaves at the root of a linked worktree, a
+`--separate-git-dir' main worktree or a submodule, PATH being absolute
+or relative to ROOT.  Nil when ROOT has no readable `.git' entry of
+either kind.  Never signals."
+  (condition-case nil
+      (let ((dot-git (expand-file-name ".git" root)))
+        (cond
+         ((file-directory-p dot-git) dot-git)
+         ((file-regular-p dot-git)
+          (with-temp-buffer
+            (insert-file-contents dot-git nil 0 4096)
+            (goto-char (point-min))
+            (when (looking-at "gitdir: \\(.+\\)$")
+              (expand-file-name (match-string 1) root))))))
+    (error nil)))
+
+(defun workspace-bookmark--config-stamp (git-common-dir &optional root)
+  "Return the stamp that validates a memoised identity, or nil.
+
+The stamp is the list of two modification times: of GIT-COMMON-DIR's
+`config', which `git remote' writes, and of the `config.worktree' in
+the git directory of the checkout at ROOT (`workspace-bookmark--checkout-git-dir'),
+which `git config --worktree' writes and `git remote get-url' honours
+under `extensions.worktreeConfig'.  The second is nil while that file,
+or ROOT, does not exist.  The whole stamp is nil when the shared
+config's modification time cannot be read."
+  (let ((shared (and git-common-dir
+                     (file-attribute-modification-time
+                      (file-attributes
+                       (expand-file-name "config" git-common-dir))))))
+    (and shared
+         (list shared
+               (let ((git-dir (and root
+                                   (workspace-bookmark--checkout-git-dir root))))
+                 (and git-dir
+                      (file-attribute-modification-time
+                       (file-attributes
+                        (expand-file-name "config.worktree" git-dir)))))))))
 
 (defun workspace-bookmark--memoised-identity (root git-common-dir)
   "Return the identity of the checkout at ROOT, memoised per ROOT.
-GIT-COMMON-DIR is the repository's shared git directory; the memoised
-value is reused only while its config file is unchanged, and never when
-that file's modification time cannot be read.  A nil identity is
-memoised like any other."
-  (let ((stamp (workspace-bookmark--config-stamp git-common-dir))
+GIT-COMMON-DIR is the repository's shared git directory.  The memoised
+value is reused only while `workspace-bookmark--config-stamp' — the
+shared config's modification time and that of ROOT's own
+`config.worktree' — is unchanged, and never when the shared config's
+modification time cannot be read.  A nil identity is memoised like any
+other."
+  (let ((stamp (workspace-bookmark--config-stamp git-common-dir root))
         (hit (gethash root workspace-bookmark--identity-memo)))
     (if (and hit stamp (equal (car hit) stamp))
         (cdr hit)
@@ -573,22 +614,84 @@ Returns nil when git fails."
   (workspace-bookmark--parse-worktree-porcelain
    (workspace-bookmark--git dir "worktree" "list" "--porcelain")))
 
+(defun workspace-bookmark--usable-checkout (entry)
+  "Return the checkout a worktree-list ENTRY names, or nil when it is not usable.
+ENTRY is a plist from `workspace-bookmark--parse-worktree-porcelain'.
+Usable means not bare, not prunable, and an existing local directory
+containing `.git'.  The value is an absolute directory name with a
+trailing slash."
+  (let ((path (plist-get entry :path)))
+    (and (not (plist-get entry :bare))
+         (not (plist-get entry :prunable))
+         (workspace-bookmark--checkout-dir-p path)
+         (file-name-as-directory (expand-file-name path)))))
+
 (defun workspace-bookmark--checkouts-of (dir)
   "Return every usable checkout of the repository containing DIR.
 
 The value is a list of absolute directory names (trailing slash), in the
 order git lists them, which puts the main worktree first when it is
 usable.  Bare, prunable and missing entries are dropped, as is anything
-that is not an existing local directory containing `.git'.  Returns nil
-when git fails or DIR is in no repository, and never signals."
-  (delq nil
-        (mapcar (lambda (entry)
-                  (let ((path (plist-get entry :path)))
-                    (and (not (plist-get entry :bare))
-                         (not (plist-get entry :prunable))
-                         (workspace-bookmark--checkout-dir-p path)
-                         (file-name-as-directory (expand-file-name path)))))
-                (workspace-bookmark--worktree-entries dir))))
+that is not an existing local directory containing `.git' (see
+`workspace-bookmark--usable-checkout').  Returns nil when git fails or
+DIR is in no repository, and never signals."
+  (delq nil (mapcar #'workspace-bookmark--usable-checkout
+                    (workspace-bookmark--worktree-entries dir))))
+
+(defvar workspace-bookmark--discovery-memo nil
+  "Answers git gave earlier in the current discovery call, or nil outside one.
+A hash table (test `equal') keyed by (QUESTION . KEY) — see
+`workspace-bookmark--shared-position' and
+`workspace-bookmark--shared-worktree-entries' — and bound by
+`workspace-bookmark--with-discovery-memo'.  It never outlives the call
+that bound it.")
+
+(defmacro workspace-bookmark--with-discovery-memo (&rest body)
+  "Run BODY as one discovery call, asking git each question at most once.
+A call nested inside another shares the outer call's memo rather than
+starting its own."
+  (declare (indent 0) (debug t))
+  `(let ((workspace-bookmark--discovery-memo
+          (or workspace-bookmark--discovery-memo
+              (make-hash-table :test #'equal))))
+     ,@body))
+
+(defun workspace-bookmark--memoised-in-call (key function &rest args)
+  "Return (apply FUNCTION ARGS), asked once per KEY within a discovery call.
+Outside a discovery call (`workspace-bookmark--discovery-memo' nil)
+FUNCTION is simply applied.  A nil answer is memoised like any other."
+  (let ((memo workspace-bookmark--discovery-memo))
+    (if (null memo)
+        (apply function args)
+      (let ((hit (gethash key memo 'workspace-bookmark--unasked)))
+        (if (eq hit 'workspace-bookmark--unasked)
+            (puthash key (apply function args) memo)
+          hit)))))
+
+(defun workspace-bookmark--discovery-memo-key (dir)
+  "Return the key under which DIR's position is memoised: its truename.
+Falls back to DIR's expanded spelling when the truename cannot be read."
+  (let ((dir (directory-file-name (expand-file-name dir))))
+    (condition-case nil (file-truename dir) (error dir))))
+
+(defun workspace-bookmark--shared-position (dir)
+  "Return `workspace-bookmark--checkout-position' of DIR, once per discovery call.
+Two spellings of one directory share the answer (see
+`workspace-bookmark--discovery-memo-key')."
+  (workspace-bookmark--memoised-in-call
+   (cons 'position (workspace-bookmark--discovery-memo-key dir))
+   #'workspace-bookmark--checkout-position dir))
+
+(defun workspace-bookmark--shared-worktree-entries (dir git-common-dir)
+  "Return `workspace-bookmark--worktree-entries' of DIR, once per repository.
+GIT-COMMON-DIR is DIR's shared git directory; every checkout of the
+repository it names shares the listing within a discovery call.  With
+GIT-COMMON-DIR nil the listing is asked without memoisation."
+  (if git-common-dir
+      (workspace-bookmark--memoised-in-call
+       (cons 'worktrees git-common-dir)
+       #'workspace-bookmark--worktree-entries dir)
+    (workspace-bookmark--worktree-entries dir)))
 
 (defconst workspace-bookmark--os-artifact-names
   '(".DS_Store" ".localized" "Icon\r" "Thumbs.db" "ehthumbs.db"
@@ -653,9 +756,17 @@ or the candidate's work tree is elsewhere (`core.worktree'), or the
 candidate is a husk holding only a `.git'-named git directory whose
 work tree lives elsewhere (`--separate-git-dir=<dir>/.git', or a `.git'
 symlink), or any answer is unavailable, the answer is nil: no canonical
-checkout is better than a guessed one.  Never signals."
-  (let ((common (workspace-bookmark--git
-                 dir "rev-parse" "--path-format=absolute" "--git-common-dir")))
+checkout is better than a guessed one.  Never signals.
+
+Within a discovery call (`workspace-bookmark--with-discovery-memo') the
+position and the worktree listing are shared with the rest of the
+call, and the top-level check is answered from DIR's own position when
+DIR's top level is the candidate; the answer is the same either way."
+  (let* ((position (workspace-bookmark--shared-position dir))
+         (common (if position
+                     (nth 1 position)
+                   (workspace-bookmark--git
+                    dir "rev-parse" "--path-format=absolute" "--git-common-dir"))))
     (when (and common
                (file-name-absolute-p common)
                (equal ".git" (file-name-nondirectory
@@ -663,13 +774,18 @@ checkout is better than a guessed one.  Never signals."
                (condition-case nil (file-directory-p common) (error nil)))
       (let ((candidate (file-name-directory
                         (directory-file-name (expand-file-name common))))
-            (first (car (workspace-bookmark--worktree-entries dir))))
+            (first (car (workspace-bookmark--shared-worktree-entries
+                         dir common))))
         (when (and first
                    (not (plist-get first :bare))
                    (workspace-bookmark--same-file-p (plist-get first :path)
                                                     candidate))
-          (let ((top (workspace-bookmark--git
-                      candidate "rev-parse" "--show-toplevel")))
+          (let ((top (if (and position
+                              (workspace-bookmark--same-file-p (nth 0 position)
+                                                               candidate))
+                         (nth 0 position)
+                       (workspace-bookmark--git
+                        candidate "rev-parse" "--show-toplevel"))))
             (when (and top
                        (workspace-bookmark--same-file-p top candidate)
                        (workspace-bookmark--holds-tracked-file-p candidate))
@@ -799,15 +915,21 @@ root (a child whose `.git' git does not accept, which git resolves to
 the repository enclosing it) is dropped.  Each is an absolute directory
 name with a trailing slash.  Returns nil when IDENTITY or
 WORKSPACE-NAME is nil, when the workspace is not registered, or when
-nothing matches.  Never signals."
+nothing matches.  Never signals.
+
+One subprocess per candidate (its position); the identity comes from
+`workspace-bookmark--memoised-identity'."
   (when (and identity workspace-name)
-    (seq-filter (lambda (checkout)
-                  (let ((root (workspace-bookmark--repo-root checkout)))
-                    (and (workspace-bookmark--same-file-p root checkout)
-                         (equal identity
-                                (workspace-bookmark--root-identity root)))))
-                (workspace-bookmark--home-checkouts
-                 (workspace-bookmark--workspace-home workspace-name)))))
+    (workspace-bookmark--with-discovery-memo
+      (seq-filter (lambda (checkout)
+                    (let ((position (workspace-bookmark--shared-position checkout)))
+                      (and position
+                           (workspace-bookmark--same-file-p (nth 0 position) checkout)
+                           (equal identity
+                                  (workspace-bookmark--memoised-identity
+                                   (nth 0 position) (nth 1 position))))))
+                  (workspace-bookmark--home-checkouts
+                   (workspace-bookmark--workspace-home workspace-name))))))
 
 (defun workspace-bookmark--workspace-checkout (identity workspace-name)
   "Return the one checkout of IDENTITY in WORKSPACE-NAME's home, or nil.
@@ -859,6 +981,16 @@ signals."
        (workspace-bookmark--same-file-p
         dir (workspace-bookmark--canonical-checkout dir))))
 
+(defun workspace-bookmark--main-worktree-of (checkout)
+  "Return the first usable checkout git lists for CHECKOUT's repository, or nil.
+The same answer as the first of `workspace-bookmark--checkouts-of',
+asked through the discovery memo: CHECKOUT's position and its
+repository's worktree listing are shared with the rest of the call."
+  (let ((position (workspace-bookmark--shared-position checkout)))
+    (seq-some #'workspace-bookmark--usable-checkout
+              (workspace-bookmark--shared-worktree-entries
+               checkout (nth 1 position)))))
+
 (defun workspace-bookmark--canonical-checkouts-among (checkouts)
   "Return the canonical checkouts of the repositories of CHECKOUTS.
 
@@ -866,14 +998,17 @@ For each of CHECKOUTS, in order, the main-worktree entry git lists for
 its repository is a candidate; candidates are de-duplicated by file
 identity (first occurrence kept) and only those that pass
 `workspace-bookmark--offerable-canonical-p' are returned.  Each is an
-absolute directory name with a trailing slash.  Never signals."
-  (seq-filter
-   #'workspace-bookmark--offerable-canonical-p
-   (seq-uniq (delq nil (mapcar (lambda (checkout)
-                                 (car (workspace-bookmark--checkouts-of
-                                       checkout)))
-                               checkouts))
-             #'workspace-bookmark--same-file-p)))
+absolute directory name with a trailing slash.  Never signals.
+
+Runs as one discovery call: on a canonical main clone the whole test
+costs three subprocesses, and further checkouts of a repository already
+seen cost one each."
+  (workspace-bookmark--with-discovery-memo
+    (seq-filter
+     #'workspace-bookmark--offerable-canonical-p
+     (seq-uniq (delq nil (mapcar #'workspace-bookmark--main-worktree-of
+                                 checkouts))
+               #'workspace-bookmark--same-file-p))))
 
 (defun workspace-bookmark--canonical-checkouts-for-identity (identity)
   "Return every distinct canonical checkout of IDENTITY, or nil.
@@ -884,12 +1019,21 @@ checkouts of their repositories that pass
 `workspace-bookmark--offerable-canonical-p', de-duplicated by file
 identity, in order of first appearance.  A workspace-owned or `other'
 checkout is never returned.  Nil when IDENTITY is nil, when no checkout
-of it is in view, or when none passes.  Never signals."
+of it is in view, or when none passes.  Never signals.
+
+One subprocess per checkout in view (its position); identities come
+from `workspace-bookmark--memoised-identity', and the positions are
+shared with the canonical test that follows."
   (when identity
-    (workspace-bookmark--canonical-checkouts-among
-     (seq-filter (lambda (checkout)
-                   (equal identity (workspace-bookmark--identity checkout)))
-                 (workspace-bookmark--checkouts-in-view)))))
+    (workspace-bookmark--with-discovery-memo
+      (workspace-bookmark--canonical-checkouts-among
+       (seq-filter (lambda (checkout)
+                     (let ((position (workspace-bookmark--shared-position checkout)))
+                       (and position
+                            (equal identity
+                                   (workspace-bookmark--memoised-identity
+                                    (nth 0 position) (nth 1 position))))))
+                   (workspace-bookmark--checkouts-in-view))))))
 
 (defun workspace-bookmark--canonical-for-identity (identity)
   "Return THE canonical checkout of IDENTITY, or nil.

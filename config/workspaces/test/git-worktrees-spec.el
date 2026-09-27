@@ -511,6 +511,78 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
             (expect (jf/workspace--worktree-git-derived-candidates)
                     :to-be nil)))))))
 
+(describe "repo picker subprocess budget"
+  ;; The cost contract of register/boundary/git-derived-checkout-discovery,
+  ;; picker side (validator 6).  Real git, one fixture: three canonical
+  ;; main clones and two linked worktrees of the first, all reported by
+  ;; magit and none in view of a workspace, so every subprocess counted is
+  ;; portable-bookmarks classifying magit's list.  Every git subprocess of
+  ;; that module goes through `workspace-bookmark--git', so a call-through
+  ;; spy on it is the count (portable-bookmarks-cost-spec.el has the
+  ;; resolver side and the arithmetic).
+  ;;
+  ;; A canonical main clone costs THREE (its position, its repository's
+  ;; worktree listing, the tracked-file check); a further checkout of a
+  ;; repository already seen costs ONE (its position).  Three is the
+  ;; floor: the three are different git commands.  The plan's "<= 2 per
+  ;; magit entry" is not reachable without dropping one of the canonical
+  ;; test's signals.  17 at 20944160 on this fixture.
+  :var (repo-a repo-b repo-c w1 w2)
+
+  (workspace-bookmark-fixtures-with-empty-registry
+    (setq repo-a (workspace-bookmark-fixtures-make-repo
+                  :remote "git@example.com:fixtures/gw-cost-a.git" :prefix "gw-cost-a-")
+          repo-b (workspace-bookmark-fixtures-make-repo
+                  :remote "git@example.com:fixtures/gw-cost-b.git" :prefix "gw-cost-b-")
+          repo-c (workspace-bookmark-fixtures-make-repo
+                  :remote "git@example.com:fixtures/gw-cost-c.git" :prefix "gw-cost-c-"))
+    (let ((plain (workspace-bookmark-fixtures-temp-dir "gw-cost-plain-")))
+      (setq w1 (workspace-bookmark-fixtures-add-worktree
+                repo-a (expand-file-name "w1" plain) :branch "gw-cost-w1")
+            w2 (workspace-bookmark-fixtures-add-worktree
+                repo-a (expand-file-name "w2" plain) :branch "gw-cost-w2")))
+    (workspace-bookmark-clear-identity-cache))
+
+  (after-each
+    (workspace-bookmark-clear-identity-cache))
+
+  (defun git-worktrees-spec--picker-spawns (magit-repos)
+    "Run the picker over MAGIT-REPOS; return (CANDIDATES . SPAWNS)."
+    (spy-on 'workspace-bookmark--git :and-call-through)
+    (let ((jf/emacs-dir nil))
+      (git-worktrees-spec--with-sources '(magit) magit-repos
+        (cons (jf/workspace--worktree-repo-candidates)
+              (spy-calls-count 'workspace-bookmark--git)))))
+
+  (it "costs three subprocesses per canonical main clone magit lists"
+    (let ((run (git-worktrees-spec--picker-spawns
+                (mapcar #'directory-file-name (list repo-a repo-b repo-c)))))
+      (expect (car run) :to-equal (list repo-a repo-b repo-c))
+      (expect (cdr run) :to-equal 9)))
+
+  (it "costs one more per further checkout of a repository already listed"
+    (let ((run (git-worktrees-spec--picker-spawns
+                (mapcar #'directory-file-name (list w1 repo-a w2 repo-b repo-c)))))
+      (expect (car run) :to-equal (list repo-a repo-b repo-c))
+      (expect (cdr run) :to-equal 11)))
+
+  (it "would cost nineteen for the same five entries with the per-call memo bypassed"
+    (cl-letf (((symbol-function 'workspace-bookmark--memoised-in-call)
+               (lambda (_key function &rest args) (apply function args))))
+      (let ((run (git-worktrees-spec--picker-spawns
+                  (mapcar #'directory-file-name (list w1 repo-a w2 repo-b repo-c)))))
+        (expect (car run) :to-equal (list repo-a repo-b repo-c))
+        (expect (cdr run) :to-equal 19))))
+
+  (it "does not depend on the identity memo: the picker computes no identity"
+    (spy-on 'workspace-bookmark--memoised-identity :and-call-through)
+    (spy-on 'workspace-bookmark--remote-url :and-call-through)
+    (let ((run (git-worktrees-spec--picker-spawns
+                (mapcar #'directory-file-name (list w1 repo-a w2 repo-b repo-c)))))
+      (expect (cdr run) :to-equal 11)
+      (expect 'workspace-bookmark--memoised-identity :not :to-have-been-called)
+      (expect 'workspace-bookmark--remote-url :not :to-have-been-called))))
+
 (describe "git-worktrees.el's portable-bookmarks surface"
 
   (it "names no private portable-bookmarks function in its code"
