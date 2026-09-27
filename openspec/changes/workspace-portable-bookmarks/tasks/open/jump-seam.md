@@ -2,11 +2,15 @@
 name: jump-seam
 description: Substitute a resolved copy of the record at bookmark-handle-bookmark, never mutating the stored record
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 task_class: feature
 on_critical_path: true
 cycle: cycle-1790453714
 merge_commit: 99b335fd
+fix_commits: [ff07e61c, 345c8c65]
+fix_merge_commit: c7f77a35
+findings_path: .orchestrator/cycles/cycle-1790453714/reviews/jump-seam.md
+reviewed_at: 2026-09-27T08:30:00+00:00
 cites_register_entries:
   - register/boundary/bookmark-advice-seams
   - register/invariant/stored-record-never-mutated-by-jump
