@@ -1014,17 +1014,232 @@ the record but cannot decline to call through, and
 resolution "open nothing AND signal nothing" — an explicit no-op that only
 an =:around= can express.
 
-Scaffold: pass-through.
+** What the seam does with each outcome
+
+The seam is a thin actor over the resolver's closed vocabulary
+(=register/vocabulary/bookmark-resolution-outcome=).  It normalizes
+its argument with =bookmark-get-bookmark=, decides on a PLAN — call
+through with some argument, or decline with a message — and acts on
+it.  The decision and the action are separate functions so that the
+error barrier (below) can wrap the decision alone.
+
+| outcome         | plan                                                                  |
+|-----------------+-----------------------------------------------------------------------|
+| =non-portable=  | call through with the ORIGINAL argument, untouched                    |
+| =resolved=      | call through with a COPY whose =filename= is =:path=                  |
+| =not-on-branch= | decline: report, open nothing                                         |
+| =ambiguous=     | decline: report the =:candidates=, choose nothing                     |
+| =no-clone=      | decline: report, open nothing                                         |
+| =missing-repo=  | decline: report, open nothing (the prompt is =missing-repo-choice='s) |
+
+Two decisions are made BEFORE the resolver is asked:
+
+- A value =bookmark-get-bookmark= cannot turn into a record — an
+  unknown name, nil — passes through: the host signals its own
+  "Invalid bookmark" error exactly as stock Emacs does.
+- No current workspace AND a stamped record is the off-workspace
+  hand-off (task =off-workspace-restore=).  Until that flow lands the
+  record passes through unchanged.  An unstamped record off-workspace
+  is an ordinary =non-portable= pass-through and needs no arm of its
+  own.
+
+=missing-repo= hands the whole resolution plist to the prompt once
+=missing-repo-choice= lands; until then it is reported like the other
+non-opening outcomes.  The seam never dispatches on anything but the
+closed set: an outcome it has no arm for signals, and the barrier
+turns that into stock behaviour rather than into an open.
+
+** The copy rule
+
+=resolved= substitutes =:path= VERBATIM — confinement is lexical and
+already decided inside the resolver (DD-16); the seam checks neither
+links nor staleness — into a copy of the record made with =copy-tree=
+on the =(NAME . ALIST)= cons.  =copy-tree=, not =copy-alist= and not
+=copy-sequence=: the alist AND every property cons are fresh, so
+=bookmark-prop-set= on the copy cannot reach =bookmark-alist=
+(=register/invariant/stored-record-never-mutated-by-jump=).  With
+=bookmark-save-flag= at 1 an in-place edit would be written to disk
+on the first jump and destroy the absolute fallback that makes every
+degraded outcome safe.  The copy keeps every other property — the
+handler above all, which is what leaves dired, org and pdf-view
+restoration intact.  =workspace-bookmark--substituted-record= is the
+ONLY place a substituted record is built.
+
+** Declining is a ~user-error~
+
+A decline signals =user-error=; it does not return silently.  Measured
+against bookmark.el 30.2: when =bookmark-handle-bookmark= returns nil
+without changing the current buffer, =bookmark--jump-via= carries on
+as if the jump had happened — it runs the display function on the
+buffer the user was already in, drops a bookmark fringe mark there,
+and runs =bookmark-after-jump-hook=.  A stray fringe mark in an
+unrelated buffer is exactly the quiet wrongness this capability
+exists to remove.  =user-error= aborts the whole jump at the command
+loop with the report in the echo area, and it is not
+=bookmark-error-no-filename=, the condition the host's relocate arm
+catches (=register/invariant/no-silent-wrong-file-open=).  The
+"cancel opens nothing AND signals nothing" rule belongs to the
+missing-repo prompt, where cancel is an answer the user gave; a
+declined outcome is not.
+
+** The record handed to the host
+
+On substitution the host receives a RECORD, never the bookmark's
+name.  The host's relocate arm is gated on =(stringp
+bookmark-name-or-record)=, so a substituted jump can never turn into
+an offer to relocate the bookmark to the stored path.  Measured, and
+pinned by the jump spec so an upstream change surfaces as a failure:
+for a record argument the host does not merely skip the =y-or-n-p=,
+it swallows =bookmark-error-no-filename= altogether and returns nil.
+The consequence is narrow — a =resolved= path that vanishes between
+the resolver's existence check and the visit opens nothing and
+signals nothing — and it is the desired direction.
+
+Stock Emacs ends a jump by name by setting =bookmark-current-bookmark=
+to that name, the default that the next =C-x r b= and =C-x r m=
+offer.  The host does that only for a string argument, so after a
+substituted jump the seam does it itself; otherwise every resolved
+jump would silently drop the default.
+
+In THIS configuration the string case is rarer than bookmark.el
+suggests: =bufferlo-mode= (=buffer-membership.org=) advises
+=bookmark--jump-via= and calls it with the RECORD
+(=bufferlo--bookmark--jump-via-advice=, bufferlo 1.2), so every jump
+that goes through =bookmark-jump= already reaches the host with a
+cons.  The host's string-gated tail — the relocate offer and the
+=bookmark-current-bookmark= default — is therefore skipped for every
+jump here, substituted or not.  Nothing above depends on which form
+arrives: normalization accepts both, and the seam's bookkeeping is
+what a stock Emacs, or a caller reaching =bookmark-handle-bookmark=
+with a name, observes.
+
+** The barrier
+
+The seam's =condition-case= is the SECOND barrier: the resolver's own
+already maps discovery errors to =no-clone= and reads to
+=non-portable=.  This one covers the seam's own code — normalization,
+the copy, the message — and falls through to ORIG-FN with the
+ORIGINAL argument, so a failure affecting one bookmark cannot affect
+another or the bookmark file.  It wraps the DECISION only: the call
+to ORIG-FN sits outside it, so the handler's own errors propagate
+exactly as in stock Emacs and the host is never called twice.
+=quit= is not an =error= and propagates through both barriers: C-g is
+not a failure.
+
+The residual is stated rather than hidden: a programming error in the
+seam degrades to today's behaviour, which for a stamped record is the
+stored absolute path.  It is reached only by a bug in this section,
+never by an outcome.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--substituted-record (record path)
+  "Return a copy of bookmark RECORD whose `filename' is PATH.
+
+The copy shares no cons cell with RECORD: `copy-tree' copies the
+\(NAME . ALIST) cons, the alist and every property cons, so setting
+`filename' on the copy cannot reach `bookmark-alist'.  Every other
+property — the handler above all — is kept.  This is the ONLY place a
+substituted record is built.  Signals when PATH is not a string."
+  (unless (stringp path)
+    (error "Not a path to substitute into %S: %S"
+           (bookmark-name-from-full-record record) path))
+  (let ((copy (copy-tree record)))
+    (bookmark-prop-set copy 'filename path)
+    copy))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--decline-message (record resolution)
+  "Return the report for declining to jump to RECORD.
+
+RESOLUTION is the plist `workspace-bookmark--resolve' returned; its
+outcome must be one that opens nothing (`not-on-branch', `ambiguous',
+`missing-repo' or `no-clone').  Signals for any other outcome."
+  (let ((name (bookmark-name-from-full-record record))
+        (identity (plist-get resolution :identity))
+        (relpath (plist-get resolution :relpath))
+        (checkout (plist-get resolution :checkout))
+        (candidates (plist-get resolution :candidates))
+        (abbreviate (lambda (dir)
+                      (if (stringp dir) (abbreviate-file-name dir) "?"))))
+    (pcase (plist-get resolution :outcome)
+      ('not-on-branch
+       (format "Bookmark %S: %s is not on this branch of %s (%s); nothing opened"
+               name relpath identity (funcall abbreviate checkout)))
+      ('ambiguous
+       (format "Bookmark %S: %d checkouts of %s in view, none chosen: %s"
+               name (length candidates) identity
+               (mapconcat abbreviate candidates ", ")))
+      ('missing-repo
+       (format "Bookmark %S: this workspace holds no checkout of %s (canonical checkout %s); nothing opened"
+               name identity (funcall abbreviate checkout)))
+      ('no-clone
+       (format "Bookmark %S: no checkout of %s in view; nothing opened"
+               name identity))
+      (outcome (error "Not an outcome that declines: %S" outcome)))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--jump-plan (bookmark-name-or-record)
+  "Decide what the jump seam does with BOOKMARK-NAME-OR-RECORD.
+
+Returns (call-through . ARG), meaning hand ARG to the host — ARG is
+the original argument, or a substituted copy for `resolved' — or
+\(decline . MESSAGE), meaning open nothing and report MESSAGE.
+
+Decided before the resolver is asked: a value that is not a bookmark
+record calls through (the host signals for it); no current workspace
+on a STAMPED record is the off-workspace hand-off and calls through
+unchanged until `off-workspace-restore' lands.  May signal; the
+seam's barrier catches."
+  (let ((record (bookmark-get-bookmark bookmark-name-or-record 'noerror))
+        (workspace (workspace-bookmark--current-workspace)))
+    (cond
+     ((not (consp record))
+      (cons 'call-through bookmark-name-or-record))
+     ((and (null workspace)
+           (workspace-bookmark--stamped-coordinates record))
+      (cons 'call-through bookmark-name-or-record))
+     (t
+      (let ((resolution (workspace-bookmark--resolve record workspace)))
+        (pcase (plist-get resolution :outcome)
+          ('non-portable
+           (cons 'call-through bookmark-name-or-record))
+          ('resolved
+           (cons 'call-through
+                 (workspace-bookmark--substituted-record
+                  record (plist-get resolution :path))))
+          ((or 'not-on-branch 'ambiguous 'missing-repo 'no-clone)
+           (cons 'decline
+                 (workspace-bookmark--decline-message record resolution)))
+          (outcome
+           (error "Not a bookmark-resolution outcome: %S" outcome))))))))
+#+end_src
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--handle-bookmark-advice (orig-fn bookmark-name-or-record &rest args)
   "Resolve BOOKMARK-NAME-OR-RECORD against the current workspace, then jump.
 
-Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is the
-advised function and ARGS its remaining arguments.  Any internal error
-falls through to ORIG-FN with the ORIGINAL argument, so a failure
-affecting one bookmark cannot affect another or the bookmark file."
-  (apply orig-fn bookmark-name-or-record args))
+Intended as `:around' advice on `bookmark-handle-bookmark'; ORIG-FN is
+the advised function and ARGS its remaining arguments.  Calls ORIG-FN
+with the original argument (`non-portable', or a stamped record with
+no current workspace), with a substituted copy (`resolved'), or not at
+all: every other outcome signals a `user-error' naming the bookmark
+and opens nothing.  Any error in this seam's own decision falls
+through to ORIG-FN with the ORIGINAL argument, so a failure affecting
+one bookmark cannot affect another or the bookmark file; `quit'
+propagates.  After a substituted jump by name,
+`bookmark-current-bookmark' is set as the host sets it for a plain
+one."
+  (let ((plan (condition-case nil
+                  (workspace-bookmark--jump-plan bookmark-name-or-record)
+                (error (cons 'call-through bookmark-name-or-record)))))
+    (if (eq (car plan) 'decline)
+        (user-error "%s" (cdr plan))
+      (prog1 (apply orig-fn (cdr plan) args)
+        (when (and (stringp bookmark-name-or-record)
+                   (not (eq (cdr plan) bookmark-name-or-record)))
+          (setq bookmark-current-bookmark bookmark-name-or-record))))))
 #+end_src
 
 * Checkout discovery
