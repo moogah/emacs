@@ -2,7 +2,9 @@
 name: outcome-action-mapping
 description: One outcome-to-action mapping for the jump seam, chooser and off-workspace flow; the seam declines (not falls through) for stamped records; drop the unreachable fallback payload builder
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
+reviewed_at: 2026-09-28T19:40:00+00:00
+findings_path: .orchestrator/cycles/cycle-1790604160/reviews/outcome-action-mapping.md
 merge_commit: 755483a5
 task_class: refactor
 on_critical_path: true
