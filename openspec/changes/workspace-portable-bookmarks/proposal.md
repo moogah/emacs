@@ -1,7 +1,22 @@
 ---
-status: speculated
-status_set_at: 2026-09-20T00:00:00Z
+status: confirmed
+status_set_at: 2026-09-28T14:02:40+00:00
 status_set_by: architect
+confirmed_after_cycle: cycle-1790453714
+confirmed_basis: |
+  Two consecutive clean cycles of the forward chain against this proposal:
+  cycle-1789935943 (handshake `user_resolved_goal_drift` query_fired=false,
+  recommendation `continue`) and cycle-1790453714 (same; 13/13 batch tasks
+  done, 0 divergent register entries, the end-of-cycle audit's goal-drift
+  verdict "NO goal drift — the outcome is reached at 45df6dfd": every
+  proposal outcome has a live code path and a behavioural spec). The 16
+  cycle-1 and 4 cycle-2 user decisions narrowed behaviour INSIDE the stated
+  outcome; the one design reversal (D9, ask-cycle-1790453714-3) is design,
+  not a proposal outcome. Set at cycle-1790604160 plan per the template's
+  `speculated -> confirmed` lifecycle hook. Scope note carried, not drift:
+  the change also hardened core workspaces (proposal says core is "not
+  affected"); doc-sync-cycle2 records it in the body and two new delta
+  specs (ask-cycle-1790453714-8).
 status_note: |
   Set at cycle-1789935943 plan (the change's first orchestrated cycle). The
   forward chain has not yet executed against this proposal, so `speculated` is
@@ -16,6 +31,10 @@ status_note: |
   clean cycles promotion requires. The remaining outcome chain is
   jump-seam -> missing-repo-choice / off-workspace-restore -> docs-readme,
   all in the cycle-2 batch.
+
+  cycle-1790604160 plan (2026-09-28, cycle 3): speculated -> CONFIRMED (see
+  confirmed_basis). Cycle 3 is doc-sync plus three follow-ups from the
+  cycle-2 end-of-cycle audit; then verify / sync / archive.
 ---
 
 ## Why

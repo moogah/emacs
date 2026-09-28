@@ -12,6 +12,7 @@ relations:
   - discovered-from:arch-on-touch-1790453714-70
   - discovered-from:arch-on-touch-1790453714-71
   - discovered-from:arch-on-touch-1790453714-72
+  - discovered-from:arch-cycle-1790604160-plan-01
 ---
 
 Evidence: `.orchestrator/cycles/cycle-1790453714/findings/on-touch-guards.md` (70-72). Remote workspace homes are unsupported (user
@@ -24,3 +25,10 @@ decision 2026-09-27) and loaded broken; the user never uses them, so these are l
 3. **(72)** Duplicate names or homes in a hand-edited state file load silently (the later entry wins); a case-variant name duplicate is
    still possible on case-insensitive filesystems; the purge refusal says "outside" for the default parent itself and for remote homes.
    Warn on duplicates at load; word the refusal per case.
+4. **(plan-01, cycle-1790604160)** `workspace--menu-healthy-p` (workspaces-transient.el:11-14) tests the runtime-only broken tag
+   alone, so a home deleted AFTER load still reaches `jf/workspace--add-worktree` via `workspace--menu-invoke-integration`, and
+   `git worktree add <home>/<repo>` recreates the missing parent (same cell as eoc-1790453714-01, core side). Fix: the predicate also
+   requires `:home` to be an existing local directory; one transient-menu-spec row (home deleted after load → Integrations group
+   hidden). When core publishes that predicate, portable-bookmarks' health predicate routes to it
+   (`register/invariant/add-worktree-offer-shares-workspace-health-gate`, enforcement_locus_check). Evidence:
+   `.orchestrator/cycles/cycle-1790604160/findings/plan-forward-mode.md`.
