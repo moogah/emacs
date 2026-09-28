@@ -1431,11 +1431,13 @@ offered.
 Every option is offered unless a stated reason withholds it, and the
 prompt says so, so the user knows what is missing where:
 
-| option                      | withheld when                                                             |
-|-----------------------------+---------------------------------------------------------------------------|
-| =add-worktree=              | no current workspace; the add-worktree command cannot run; no home        |
-| =view-canonical-read-only=  | =:path= is nil — the relpath is absent under the canonical checkout      |
-| =cancel=                    | never                                                                     |
+| option                      | withheld when                                                                  |
+|-----------------------------+--------------------------------------------------------------------------------|
+| =add-worktree=              | no current workspace; the add-worktree command cannot run; the workspace is    |
+|                             | unusable — not registered, broken, no home, a remote home, a home gone from   |
+|                             | disk                                                                           |
+| =view-canonical-read-only=  | =:path= is nil — the relpath is absent under the canonical checkout           |
+| =cancel=                    | never                                                                          |
 
 =jf/workspace--add-worktree= is git-worktrees' command and git-worktrees
 is magit's; this module requires neither (DD-6).  The symbol is quoted
@@ -1453,6 +1455,28 @@ offers it as "w".  With
 magit absent the option is therefore absent, with its reason, rather
 than an error.  The question is asked of core's registry, so this
 module still names no magit symbol and no second git-worktrees symbol.
+
+Runnable is REGISTRATION, not health.  Core's workspace menu offers the
+same command only in a healthy workspace: its Integrations group sits
+behind a health gate that lives in the transient module, which this
+consumer may not name (it loads after this module, deferred).  So the
+offer carries its own gate — and it is the ONE health notion of this
+module, =workspace-bookmark--workspace-unusable= (defined with the
+off-workspace picker, which reads it too).  A workspace is usable when
+it is registered, not tagged broken (=workspace--broken-p=, the flag
+persistence sets when the home is missing at load), and its =:home= is
+an existing LOCAL directory — asked of the disk at offer time, because
+the broken tag is load-time only and cannot record a home deleted
+mid-session (=register/invariant/broken-tag-runtime-only=); a remote
+home is refused before it is ever stat'ed.  The on-disk check matters
+here more than anywhere: =jf/workspace--add-worktree= runs =git
+worktree add= under the home, and git creates a missing parent, so an
+offer in a broken workspace would bring the home back as a bare
+directory holding one worktree and no =home.org=, which the next load
+would find present and call healthy.  Each reason is stated in the
+prompt, so the user knows to re-anchor or purge the workspace rather
+than wonder where the option went
+(=register/invariant/add-worktree-offer-shares-workspace-health-gate=).
 
 A nil =:path= is a real case, not a defensive one: the resolver anchors
 the relpath under the canonical checkout and answers =missing-repo=
@@ -1493,16 +1517,42 @@ waits for the command's own dependencies."
        (workspace--integration-menu-command-p 'jf/workspace--add-worktree)
        t))
 
+(defun workspace-bookmark--unusable-phrase (workspace reason)
+  "Return the prompt phrase for WORKSPACE (a name) being unusable for REASON.
+REASON is what `workspace-bookmark--workspace-unusable' returned for
+WORKSPACE; the phrase names it and, for a home that is remote or gone,
+the home."
+  (let ((home (workspace-bookmark--workspace-home workspace)))
+    (pcase reason
+      ('unregistered
+       (format "workspace %S is not registered" workspace))
+      ('broken
+       (format "workspace %S is broken (its home was missing when workspaces were loaded); re-anchor or purge it first"
+               workspace))
+      ('no-home
+       (format "workspace %S has no home to add a worktree to" workspace))
+      ('home-remote
+       (format "the home of workspace %S, %s, is remote" workspace home))
+      ('home-missing
+       (format "the home of workspace %S, %s, no longer exists; re-anchor or purge it first"
+               workspace (abbreviate-file-name home)))
+      (_ (error "Not an unusable-workspace reason: %S" reason)))))
+
 (defun workspace-bookmark--missing-repo-withheld (resolution workspace)
   "Return the `missing-repo' actions not offered for RESOLUTION, with reasons.
 
 An alist of (ACTION . REASON), REASON a phrase for the prompt.
-`add-worktree' needs a current WORKSPACE (a name) with a home and the
-git-worktrees command `jf/workspace--add-worktree' runnable
-\(`workspace-bookmark--add-worktree-runnable-p');
-`view-canonical-read-only' needs a non-nil :path, the relpath present
-under the canonical checkout.  `cancel' is always offered."
-  (let ((withheld nil))
+`add-worktree' needs a current WORKSPACE (a name), the git-worktrees
+command `jf/workspace--add-worktree' runnable
+\(`workspace-bookmark--add-worktree-runnable-p'), and WORKSPACE usable
+\(`workspace-bookmark--workspace-unusable' nil: registered, not broken,
+its home an existing local directory) — asked in that order, the first
+failing condition giving the reason; `view-canonical-read-only' needs
+a non-nil :path, the relpath present under the canonical checkout.
+`cancel' is always offered."
+  (let ((withheld nil)
+        (unusable (and workspace
+                       (workspace-bookmark--workspace-unusable workspace))))
     (cond
      ((null workspace)
       (push (cons 'add-worktree "no workspace is current to add a worktree to")
@@ -1510,9 +1560,9 @@ under the canonical checkout.  `cancel' is always offered."
      ((not (workspace-bookmark--add-worktree-runnable-p))
       (push (cons 'add-worktree "the git worktree integration is not loaded")
             withheld))
-     ((not (workspace-bookmark--workspace-home workspace))
+     (unusable
       (push (cons 'add-worktree
-                  (format "workspace %S has no home to add a worktree to" workspace))
+                  (workspace-bookmark--unusable-phrase workspace unusable))
             withheld)))
     (unless (plist-get resolution :path)
       (push (cons 'view-canonical-read-only
@@ -1909,11 +1959,18 @@ builder when no layout was saved, and refuses a broken workspace — so
 this section calls it and reimplements none of it (design D8).
 =workspace-switch= is not used here.
 
-Broken workspaces — =workspace--broken-p= on the registry plist, the
-flag persistence sets when a =:home= is missing at load — are not
-offered: the package refuses to switch to or restore them with a
+Unusable workspaces are not offered.  Which those are is decided by
+=workspace-bookmark--workspace-unusable=, the module's ONE health
+notion, shared with the missing-repo chooser's add-worktree offer (§
+Missing repo): a workspace tagged broken — =workspace--broken-p= on
+the registry plist, the flag persistence sets when a =:home= is
+missing at load — is refused by =workspace-restore= itself with a
 =user-error= naming =workspace-re-anchor= / =workspace-purge=, and an
-offer the package would refuse is noise.
+offer the package would refuse is noise; a workspace whose home is
+remote, or has gone from disk since load (the tag is load-time only),
+would be restored only to fail on its first file operation, so it is
+dropped too.  The predicate never stats a remote home: =file-remote-p=
+is asked before =file-directory-p=.
 
 ** Holders first
 
@@ -2083,26 +2140,46 @@ paint whatever the clock read.")
 #+end_src
 
 #+begin_src emacs-lisp
-(defun workspace-bookmark--broken-workspace-p (name)
-  "Return non-nil when the registered workspace NAME is broken.
-Reads the registry plist's flag through `workspace--broken-p'; nil when
-NAME is not registered or the registry is not loaded."
-  (and name
-       (boundp 'workspace--registry)
-       (hash-table-p workspace--registry)
-       (fboundp 'workspace--broken-p)
-       (let ((ws (gethash name workspace--registry)))
-         (and ws (workspace--broken-p ws) t))))
+(defun workspace-bookmark--workspace-unusable (name)
+  "Return why the workspace NAME cannot be used, or nil when it can.
+
+The one health notion of this module, read by
+`workspace-bookmark--missing-repo-withheld' (the add-worktree offer)
+and `workspace-bookmark--offerable-workspaces' (the off-workspace
+picker).  NAME is usable when it is registered, not tagged broken
+\(`workspace--broken-p') and its `:home' is an existing local
+directory.  Otherwise the reason, a symbol, the first that applies:
+`unregistered' (NAME is nil, not in the registry, or the registry is
+not loaded), `broken' (the tag persistence sets when the home was
+missing at load), `no-home' (no `:home' on the plist), `home-remote'
+\(remote homes are unsupported), `home-missing' (the home is not a
+directory on disk, however it went — the broken tag is load-time only
+and cannot record a deletion since).  `file-remote-p' is asked before
+`file-directory-p', so a remote home is never stat'ed."
+  (let ((ws (and name
+                 (boundp 'workspace--registry)
+                 (hash-table-p workspace--registry)
+                 (gethash name workspace--registry))))
+    (cond
+     ((null ws) 'unregistered)
+     ((and (fboundp 'workspace--broken-p) (workspace--broken-p ws)) 'broken)
+     (t
+      (let ((home (workspace-bookmark--workspace-home name)))
+        (cond
+         ((not (stringp home)) 'no-home)
+         ((file-remote-p home) 'home-remote)
+         ((not (file-directory-p home)) 'home-missing)))))))
 
 (defun workspace-bookmark--offerable-workspaces (identity)
   "Return the workspaces that may serve a jump into IDENTITY, holders first.
 An ordered list of (NAME . HOLDS-P): every registered workspace that is
-not broken, those holding one or more checkouts of IDENTITY (HOLDS-P
-non-nil) before those holding none, registry order within each group.
-Asks `workspace-bookmark--workspace-checkouts' once per workspace."
+usable (`workspace-bookmark--workspace-unusable' nil), those holding
+one or more checkouts of IDENTITY (HOLDS-P non-nil) before those
+holding none, registry order within each group.  Asks
+`workspace-bookmark--workspace-checkouts' once per workspace."
   (let (holders others)
     (dolist (name (workspace-bookmark--registered-names))
-      (unless (workspace-bookmark--broken-workspace-p name)
+      (unless (workspace-bookmark--workspace-unusable name)
         (if (workspace-bookmark--workspace-checkouts identity name)
             (push (cons name t) holders)
           (push (cons name nil) others))))

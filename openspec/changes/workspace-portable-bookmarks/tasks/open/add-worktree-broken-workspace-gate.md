@@ -88,3 +88,122 @@ name, the off-workspace routing and the prompt wording), `register/vocabulary/wo
 `register/boundary/portable-bookmarks-consumer` (registration-vs-visibility correction) and
 `register/vocabulary/bookmark-resolution-outcome` (the add-worktree member's withheld clause). Neighbours are listed in
 `.orchestrator/cycles/cycle-1790604160/briefs/entries-add-worktree-broken-workspace-gate.txt`.
+
+## Observations
+
+- Predicate settled as `workspace-bookmark--workspace-unusable (name)` (portable-bookmarks.org § Off-workspace, beside
+  `--offerable-workspaces`): nil when usable, else the first applying reason symbol — `unregistered` / `broken` / `no-home` /
+  `home-remote` / `home-missing`. Not a `-p` name: the return shape is a reason, not a boolean. `file-remote-p` is asked before
+  `file-directory-p`; a remote home is never stat'ed (pinned by the unit row that fails the spec on a `file-directory-p` of it).
+- A FIFTH reason, `unregistered`, beyond the task's four: "registered" is part of the predicate's definition, and a tab carrying a name
+  the registry does not hold is a real case (desktop-restored / hand-renamed tab). Before, that case fell through to the "has no home"
+  arm with a misleading phrase; now the prompt says `workspace "X" is not registered`. The `no-home` phrase is the old one, unchanged.
+- `--broken-workspace-p` is DELETED, not kept as a helper: it had one caller (`--offerable-workspaces`), and keeping it would leave
+  two defuns testing `workspace--broken-p`. `workspace--broken-p` now appears in the `.el` only at the `declare-function` and inside
+  the predicate.
+- Prompt phrases (`workspace-bookmark--unusable-phrase`, one `pcase` next to `--missing-repo-withheld`): `broken` → `workspace "X" is
+  broken (its home was missing when workspaces were loaded); re-anchor or purge it first`; `home-missing` → `the home of workspace
+  "X", ~/path/, no longer exists; re-anchor or purge it first`; `home-remote` → `the home of workspace "X", /ssh:…, is remote` (the
+  raw home, not `abbreviate-file-name`, which on a TRAMP path consults tramp's connection cache); `unregistered` → `workspace "X" is
+  not registered`; `no-home` → unchanged. The re-anchor/purge remedy mirrors core's `:refused` user-errors.
+- `--missing-repo-withheld` evaluates the predicate once, up front (`(and workspace (--workspace-unusable workspace))`), so the arm
+  order no workspace → not runnable → unusable is kept and the reason is computed at most once; the cost is one `file-directory-p`
+  even when the not-runnable arm wins. `--offerable-workspaces` calls the same predicate per registered name.
+- The task's Verification grep 1 (`workspace--broken-p\|file-directory-p`) was imprecise: besides the predicate and `--checkout-dir-p`
+  there are ten PRE-EXISTING `file-directory-p` sites in the `.el` that are not about workspace health (git cwd resolution :82/:86,
+  `.git` resolution :211, stamping :328/:355, `--common-dir` :1378, :1414, :1456, `--home-checkouts` :1472 "only a home that exists
+  confers ownership", :1744). The register's validator 1 as actually worded ("exactly ONE defun tests BOTH `workspace--broken-p` and
+  `file-directory-p` of a workspace home") holds. Suggest the lint be `grep -n 'workspace--broken-p'` → declare-function + one defun.
+- Existing off-workspace row "excludes a broken workspace" (off-workspace-spec) now tags through the new fixtures helper
+  `workspace-bookmark-fixtures-mark-broken` instead of its inline `workspace--mark-broken` + `puthash` — a one-line touch outside the
+  task's named rows, so wave 3's stand-in counting validator does not find an inline copy. The helper tags only; the caller deletes the
+  home when it wants the load-time picture.
+- Specs beyond the three rows the task names: a unit `describe "missing-repo choice: the workspace health gate"` (7 rows: healthy → nil;
+  unregistered/nil; tagged with and without the home on disk → `broken`; plist without `:home` → `no-home`; remote → `home-remote`
+  with `file-remote-p`/`file-directory-p` stood in at the Emacs-primitive boundary for the ONE call, no TRAMP; deleted → `home-missing`;
+  and the withheld phrase after the no-workspace / not-runnable arms). The offer rows use a prompt stand-in that takes add-worktree
+  WHENEVER it is offered (`--preferring ?a ?c`) so the spy assertion is itself load-bearing.
+- Revert check. Variant A (gate arms reverted to HEAD's — nil-`:home` arm and bare broken-p filter — predicate kept): 806 specs, 4
+  failed: "tagged broken … never calls the command" and "home was deleted mid-session … never calls the command" both go red on
+  `Expected 'jf/workspace--add-worktree :not :to-have-been-called` (the command RAN — probes P1/P2 reproduced as specs);
+  "withholds add-worktree with the reason's phrase" goes red on `(cdr (assq 'add-worktree …)) :to-match "no longer exists"`
+  (nil: still offered); "excludes a workspace whose home vanished mid-session" goes red on the candidates `:to-equal`, showing
+  `("wsbm-off-a" "wsbm-off-b" "wsbm-off-gone")`. Variant B (HEAD's `.el`): 806 specs, 10 failed — the four above plus the six
+  predicate unit rows on `void-function workspace-bookmark--workspace-unusable`.
+- Latent, out of scope: persistence tags a REMOTE home broken at load (persistence.el:136-155), so `home-remote` can only fire for a
+  remote home registered mid-session; the order (broken first) makes that harmless. `--home-checkouts` (:1472) also stats the home
+  during discovery — a second stat of the same directory per jump, but a checkout-discovery question, not a health one.
+- Core's menu gap (`workspace--menu-healthy-p` is broken-p only; finding arch-cycle-1790604160-plan-01) is untouched, as instructed.
+  No core `.org` changed; validator 2 grep over the seven core `.el` files is empty; the `jf/` surface is unchanged from HEAD
+  (4 × `jf/emacs-dir`, 8 × `jf/workspace--add-worktree`).
+
+## Discoveries
+
+- discovery_id: disc-add-worktree-broken-workspace-gate-1
+  class: vocabulary-mismatch
+  description: |
+    The speculated predicate was named `workspace-bookmark--workspace-usable-p
+    (name)` with three new withheld reasons (broken / home missing / home
+    remote). The code wanted a reason-returning function, so the name is
+    `workspace-bookmark--workspace-unusable (name)` (nil = usable, else a
+    symbol), and the reason set is FIVE: `unregistered`, `broken`, `no-home`,
+    `home-remote`, `home-missing` — `unregistered` because "registered" is in
+    the predicate's own definition and an unregistered current name is a real
+    case that previously fell into the nil-:home arm with a wrong phrase;
+    `no-home` because the existing arm folds in. Phrases live in one `pcase`,
+    `workspace-bookmark--unusable-phrase`. `--broken-workspace-p` is gone.
+  affected_register_entry: register/invariant/add-worktree-offer-shares-workspace-health-gate
+  recommendation: |
+    Reconcile: name = workspace-bookmark--workspace-unusable; return shape =
+    nil | unregistered | broken | no-home | home-remote | home-missing (first
+    applying); phrase helper = workspace-bookmark--unusable-phrase; callers =
+    --missing-repo-withheld (third arm) and --offerable-workspaces. Narrow
+    validator 1's lint to `grep -n 'workspace--broken-p'` (declare-function +
+    the one defun) — `file-directory-p` has ten unrelated sites in the module.
+    Add validator 4's spec anchor: unit row "names a remote home `home-remote'
+    without ever asking the disk about it".
+
+- discovery_id: disc-add-worktree-broken-workspace-gate-2
+  class: interface-drift
+  description: |
+    The boundary entry's guard-site list (interfaces.org ~7709 and ~7794) names
+    `--broken-workspace-p` among the permitted-surface guards. That defun no
+    longer exists; its role is inside `--workspace-unusable`. The permitted
+    core surface did NOT grow: the predicate reads `workspace--broken-p` and
+    `workspace--home` (already listed) plus the Emacs primitives
+    `file-remote-p` / `file-directory-p`; the transient module and its gate are
+    still not named anywhere in the module (prose refers to "a health gate
+    that lives in the transient module").
+  affected_register_entry: register/boundary/portable-bookmarks-consumer
+  recommendation: |
+    Replace `--broken-workspace-p` with `--workspace-unusable` in the guard
+    lists; re-run validators 1, 2, 5 (all hold at this commit: zero
+    magit/projectile; core names no workspace-bookmark symbol; jf/ surface
+    unchanged).
+
+- discovery_id: disc-add-worktree-broken-workspace-gate-3
+  class: spec-signal
+  description: |
+    The sixth consumer row (the add-worktree offer, `:refused`) is confirmed
+    as speculated, with one refinement: the guard is the `unusable` arm of
+    `--missing-repo-withheld`, decided by `--workspace-unusable`, whose reason
+    set is the five above rather than the row's three; the prompt phrases for
+    `broken` and `home-missing` carry the same remedy as core's `:refused`
+    user-errors ("re-anchor or purge it first").
+  affected_register_entry: register/vocabulary/workspace-broken-disposition
+  recommendation: |
+    Confirm the sixth row; list the five reasons in guard_location. The five
+    core guards are unchanged.
+
+- discovery_id: disc-add-worktree-broken-workspace-gate-4
+  class: spec-signal
+  description: |
+    The `add-worktree` member's withheld clause now reads: no current
+    workspace; the command not runnable (registration); the workspace
+    unusable — unregistered / broken / no home / remote home / home gone from
+    disk. The six members, the result shape and the chooser's plan variants
+    are untouched (owner: outcome-action-mapping).
+  affected_register_entry: register/vocabulary/bookmark-resolution-outcome
+  recommendation: |
+    Re-state the add-worktree member's withheld clause at integrate with the
+    text above; no member added or removed.

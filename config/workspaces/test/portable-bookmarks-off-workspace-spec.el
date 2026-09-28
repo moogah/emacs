@@ -530,10 +530,28 @@ both."
         ;; What persistence does when a :home is missing at load: the
         ;; entry stays registered, flagged broken.
         (delete-directory home t)
-        (puthash "wsbm-off-broken"
-                 (workspace--mark-broken (gethash "wsbm-off-broken" workspace--registry))
-                 workspace--registry)
+        (workspace-bookmark-fixtures-mark-broken "wsbm-off-broken")
         (expect (member "wsbm-off-broken" (workspace--registered-names)) :to-be-truthy)
+        (expect (mapcar #'car (workspace-bookmark--offerable-workspaces
+                               portable-bookmarks-off-workspace-spec--identity))
+                :to-equal '("wsbm-off-a" "wsbm-off-b"))
+        (portable-bookmarks-off-workspace-spec--set a-path "readme")
+        (portable-bookmarks-off-workspace-spec--jump "readme" "wsbm-off-a")
+        (expect (cdr (car portable-bookmarks-off-workspace-spec--prompted))
+                :to-equal '("wsbm-off-a" "wsbm-off-b"))
+        (portable-bookmarks-off-workspace-spec--drain-timers))))
+
+  (it "excludes a workspace whose home vanished mid-session (untagged) from the candidates and from the prompt"
+    ;; The broken tag is load-time only: a home deleted after load leaves
+    ;; the entry registered and untagged.  Restoring it would fail on its
+    ;; first file operation, so the picker drops it through the same
+    ;; health predicate as the add-worktree offer.
+    (portable-bookmarks-off-workspace-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (home (workspace-bookmark-fixtures-make-workspace "wsbm-off-gone")))
+        (delete-directory home t)
+        (expect (member "wsbm-off-gone" (workspace--registered-names)) :to-be-truthy)
+        (expect (workspace--broken-p (gethash "wsbm-off-gone" workspace--registry)) :to-be nil)
         (expect (mapcar #'car (workspace-bookmark--offerable-workspaces
                                portable-bookmarks-off-workspace-spec--identity))
                 :to-equal '("wsbm-off-a" "wsbm-off-b"))

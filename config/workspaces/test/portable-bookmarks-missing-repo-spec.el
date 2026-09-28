@@ -22,9 +22,10 @@
 ;;   the chooser relies on — the command honours `:source-repo' — is
 ;;   pinned across the two modules, not against a stub.
 ;;
-;; * UNIT — the offered option set and the prompt text, the payload handed
-;;   to the worktree command, the chooser's own barrier, and a structural
-;;   read of the tangled section.
+;; * UNIT — the offered option set and the prompt text, the workspace
+;;   health gate behind the add-worktree offer, the payload handed to the
+;;   worktree command, the chooser's own barrier, and a structural read of
+;;   the tangled section.
 ;;
 ;; The "current workspace" is bound per jump (`workspace--current-name'),
 ;; as in portable-bookmarks-jump-spec.el.  Registry isolation goes
@@ -160,6 +161,20 @@ and returns the offered entry for KEY; signals when KEY is not offered."
         (error "Option %c is not offered; offered: %S"
                key (mapcar #'cadr choices)))))
 
+(defun portable-bookmarks-missing-repo-spec--preferring (key fallback)
+  "Return a `read-multiple-choice' stand-in answering KEY when offered, else FALLBACK.
+Records (PROMPT CHOICES) as `portable-bookmarks-missing-repo-spec--answering'
+does.  For the health-gate specs: the user who wants a worktree here
+takes that option whenever it is on the menu, so a gate that wrongly
+offers it is caught by the command being CALLED, not only by the
+option set."
+  (lambda (prompt choices &rest _)
+    (push (list prompt choices) portable-bookmarks-missing-repo-spec--prompts)
+    (or (assq key choices)
+        (assq fallback choices)
+        (error "Neither %c nor %c is offered; offered: %S"
+               key fallback (mapcar #'cadr choices)))))
+
 (defun portable-bookmarks-missing-repo-spec--jump (name workspace answer &optional jumper)
   "Jump to bookmark NAME with WORKSPACE current; return the buffer left current.
 ANSWER is the key the stubbed prompt answers with, or a function to use
@@ -291,6 +306,53 @@ Returns the error's message; fails the spec when nothing was signalled."
         (expect (portable-bookmarks-missing-repo-spec--prompt-text)
                 :to-match "add worktree here not offered: the git worktree integration is not loaded"))))
 
+  (it "omits add worktree when the current workspace is tagged broken, says so, and never calls the command"
+    ;; Audit eoc-1790453714-01, probe P1, as a spec: the tab still carries
+    ;; the workspace's name, persistence tagged the entry broken at load,
+    ;; and the home IS present on disk (what a recreated home looks like),
+    ;; so the tag alone must withhold the offer.  The prompt stand-in takes
+    ;; add-worktree whenever it is offered: a gate that offers it is caught
+    ;; by the command being called.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let ((a-path (expand-file-name "README.md" (plist-get world :wt-a))))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (workspace-bookmark-fixtures-mark-broken "wsbm-mr-c")
+        (expect (file-directory-p (plist-get world :home-c)) :to-be-truthy)
+        (spy-on 'jf/workspace--add-worktree :and-return-value 'skipped)
+        (portable-bookmarks-missing-repo-spec--quits-p
+         (lambda ()
+           (portable-bookmarks-missing-repo-spec--jump
+            "readme" "wsbm-mr-c"
+            (portable-bookmarks-missing-repo-spec--preferring ?a ?c))))
+        (expect 'jf/workspace--add-worktree :not :to-have-been-called)
+        (expect (portable-bookmarks-missing-repo-spec--offered-keys) :to-equal '(?v ?c))
+        (expect (portable-bookmarks-missing-repo-spec--prompt-text)
+                :to-match "add worktree here not offered: workspace \"wsbm-mr-c\" is broken"))))
+
+  (it "omits add worktree when the current workspace's home was deleted mid-session, names the home, and never calls the command"
+    ;; Probe P2: no broken tag (the tag is load-time only), the tab is
+    ;; still current, the home is gone.  Offered, `git worktree add' would
+    ;; recreate the home as a bare directory holding one worktree.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (home-c (plist-get world :home-c)))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (delete-directory home-c t)
+        (expect (workspace--broken-p (gethash "wsbm-mr-c" workspace--registry)) :to-be nil)
+        (spy-on 'jf/workspace--add-worktree :and-return-value 'skipped)
+        (portable-bookmarks-missing-repo-spec--quits-p
+         (lambda ()
+           (portable-bookmarks-missing-repo-spec--jump
+            "readme" "wsbm-mr-c"
+            (portable-bookmarks-missing-repo-spec--preferring ?a ?c))))
+        (expect 'jf/workspace--add-worktree :not :to-have-been-called)
+        (expect (file-directory-p home-c) :to-be nil)
+        (expect (portable-bookmarks-missing-repo-spec--offered-keys) :to-equal '(?v ?c))
+        (let ((prompt (portable-bookmarks-missing-repo-spec--prompt-text)))
+          (expect prompt :to-match "add worktree here not offered: the home of workspace \"wsbm-mr-c\"")
+          (expect prompt :to-match (regexp-quote (file-name-nondirectory (directory-file-name home-c))))
+          (expect prompt :to-match "no longer exists")))))
+
   (it "omits view read-only when the relpath is absent under the canonical checkout (:path nil), and says so"
     (portable-bookmarks-missing-repo-spec--hermetic
       (let ((a-path (workspace-bookmark-fixtures-commit-file
@@ -362,6 +424,82 @@ Returns the error's message; fails the spec when nothing was signalled."
         (expect (portable-bookmarks-missing-repo-spec--visits-p canonical-path) :to-be nil)
         (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil)))))
 
+
+(describe "missing-repo choice: the workspace health gate"
+  ;; UNIT — `workspace-bookmark--workspace-unusable', the module's ONE
+  ;; health notion (register/invariant/add-worktree-offer-shares-workspace-
+  ;; health-gate): the add-worktree offer and the off-workspace picker both
+  ;; read it.  Nil means usable; otherwise the reason, which the offer
+  ;; turns into its prompt phrase.
+  (workspace-bookmark-fixtures-with-empty-registry)
+
+  (it "answers nil for a registered workspace whose home is a local directory"
+    (workspace-bookmark-fixtures-make-workspace "wsbm-mr-ok")
+    (expect (workspace-bookmark--workspace-unusable "wsbm-mr-ok") :to-be nil))
+
+  (it "names an unregistered name, and nil, `unregistered'"
+    (expect (workspace-bookmark--workspace-unusable "wsbm-mr-nope") :to-be 'unregistered)
+    (expect (workspace-bookmark--workspace-unusable nil) :to-be 'unregistered))
+
+  (it "names a tagged workspace `broken', whether or not its home is on disk"
+    (let ((home (workspace-bookmark-fixtures-make-workspace "wsbm-mr-tagged")))
+      (workspace-bookmark-fixtures-mark-broken "wsbm-mr-tagged")
+      (expect (workspace-bookmark--workspace-unusable "wsbm-mr-tagged") :to-be 'broken)
+      (delete-directory home t)
+      (expect (workspace-bookmark--workspace-unusable "wsbm-mr-tagged") :to-be 'broken)))
+
+  (it "names a plist without a :home `no-home'"
+    ;; A stale or hand-constructed plist: `workspace--home' answers nil.
+    (workspace-bookmark-fixtures-make-workspace "wsbm-mr-homeless")
+    (puthash "wsbm-mr-homeless"
+             (plist-put (copy-sequence (gethash "wsbm-mr-homeless" workspace--registry))
+                        :home nil)
+             workspace--registry)
+    (expect (workspace-bookmark--workspace-unusable "wsbm-mr-homeless") :to-be 'no-home))
+
+  (it "names a remote home `home-remote' without ever asking the disk about it"
+    ;; Boundary stand-ins on the two Emacs primitives, scoped to the one
+    ;; call: `file-remote-p' says the fixture home is remote, and a
+    ;; `file-directory-p' of it fails the spec.
+    (let ((home (workspace-bookmark-fixtures-make-workspace "wsbm-mr-remote")))
+      (cl-letf* ((real-remote-p (symbol-function 'file-remote-p))
+                 (real-directory-p (symbol-function 'file-directory-p))
+                 ((symbol-function 'file-remote-p)
+                  (lambda (file &rest args)
+                    (if (string-prefix-p home (file-name-as-directory (expand-file-name file)))
+                        "/ssh:example.com:"
+                      (apply real-remote-p file args))))
+                 ((symbol-function 'file-directory-p)
+                  (lambda (file)
+                    (if (string-prefix-p home (file-name-as-directory (expand-file-name file)))
+                        (error "stat'ed the remote home %s" file)
+                      (funcall real-directory-p file)))))
+        (expect (workspace-bookmark--workspace-unusable "wsbm-mr-remote") :to-be 'home-remote))))
+
+  (it "names a home gone from disk `home-missing', untagged"
+    (let ((home (workspace-bookmark-fixtures-make-workspace "wsbm-mr-gone")))
+      (delete-directory home t)
+      (expect (workspace--broken-p (gethash "wsbm-mr-gone" workspace--registry)) :to-be nil)
+      (expect (workspace-bookmark--workspace-unusable "wsbm-mr-gone") :to-be 'home-missing)))
+
+  (it "withholds add-worktree with the reason's phrase, after the no-workspace and not-runnable arms"
+    (let ((home (workspace-bookmark-fixtures-make-workspace "wsbm-mr-phrase"))
+          (resolution '(:path "/nonexistent/README.md" :relpath "README.md"))
+          (workspace--integrations
+           (portable-bookmarks-missing-repo-spec--git-worktree-registry)))
+      (expect (assq 'add-worktree (workspace-bookmark--missing-repo-withheld resolution "wsbm-mr-phrase"))
+              :to-be nil)
+      (delete-directory home t)
+      (expect (cdr (assq 'add-worktree (workspace-bookmark--missing-repo-withheld resolution "wsbm-mr-phrase")))
+              :to-match "no longer exists")
+      (expect (cdr (assq 'add-worktree (workspace-bookmark--missing-repo-withheld resolution "wsbm-mr-absent")))
+              :to-equal "workspace \"wsbm-mr-absent\" is not registered")
+      ;; No workspace, then not runnable, come first.
+      (expect (cdr (assq 'add-worktree (workspace-bookmark--missing-repo-withheld resolution nil)))
+              :to-equal "no workspace is current to add a worktree to")
+      (let ((workspace--integrations nil))
+        (expect (cdr (assq 'add-worktree (workspace-bookmark--missing-repo-withheld resolution "wsbm-mr-phrase")))
+                :to-equal "the git worktree integration is not loaded")))))
 
 (describe "missing-repo choice: the add-worktree offer follows git-worktrees' real registration"
   ;; Cross-module pin: no hand-copied registration.  git-worktrees.el's
