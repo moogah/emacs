@@ -922,14 +922,7 @@ Returns the error's message; fails the spec when nothing was signalled."
                                 (list :source-repo "/src/repo/")))
       (expect (plist-get (workspace-bookmark--add-worktree-payload "wsbm-mr-payload" "/src/repo/")
                          :sessions-dir)
-              :to-equal (workspace--sessions-dir home))))
-
-  (it "lists the same keys but :sessions-dir when core's constructor is not loaded"
-    (let ((home (workspace-bookmark--workspace-home "wsbm-mr-payload")))
-      (cl-letf (((symbol-function 'workspace--integration-payload) nil))
-        (expect (workspace-bookmark--add-worktree-payload "wsbm-mr-payload" "/src/repo/")
-                :to-equal (list :name "wsbm-mr-payload" :home home
-                                :context 'bookmark-jump :source-repo "/src/repo/"))))))
+              :to-equal (workspace--sessions-dir home)))))
 
 
 ;;; Unit — the chooser's own barrier

@@ -30,6 +30,7 @@
 ;; puts the live registry back when the fixtures swapped it out.
 
 (require 'cl-lib)
+(require 'seq)
 (require 'bookmark)
 
 ;; `workspace--make' (the workspace plist constructor) and
@@ -401,6 +402,71 @@ that does NOT exist yet, `bookmark-alist' to nil and
           bookmark-bookmarks-timestamp
           (plist-get workspace-bookmark-fixtures--bookmark-state :timestamp))
     (setq workspace-bookmark-fixtures--bookmark-state nil)))
+
+
+
+;;; Stand-ins for the seam's collaborators
+;;
+;; The shared forms of "a record with no stamp", "a collaborator that
+;; fails" and "the seam's openers replaced by markers".  Specs use these
+;; rather than an inline copy, so that the counting validator of
+;; portable-bookmarks-spec.el keeps finding one of each.
+
+(defun workspace-bookmark-fixtures-strip-stamp (record)
+  "Remove the three stamped properties from bookmark RECORD, in place; return RECORD.
+
+RECORD may be (NAME . ALIST) or (NAME ALIST).  What remains is the
+stock record `bookmark-set' stores before seam 1 stamps it, so
+`workspace-bookmark--stamped-coordinates' answers nil for it.  Signals
+when the stamp is still readable afterwards."
+  (let* ((alist (bookmark-get-bookmark-record record))
+         (props (list workspace-bookmark-repo-property
+                      workspace-bookmark-relpath-property
+                      workspace-bookmark-format-property))
+         (stripped (seq-remove (lambda (cell) (memq (car-safe cell) props))
+                               alist)))
+    (if (eq alist (cdr record))
+        (setcdr record stripped)
+      (setcar (cdr record) stripped))
+    (when (workspace-bookmark--stamped-coordinates record)
+      (error "Fixture could not strip the stamp from %S" (car record)))
+    record))
+
+(defmacro workspace-bookmark-fixtures-signalling (function message &rest body)
+  "Run BODY with FUNCTION (a quoted symbol) replaced by one that signals MESSAGE.
+Every call of FUNCTION inside BODY signals an `error' whose message is
+MESSAGE, whatever the arguments — the stand-in for a collaborator that
+fails.  Scoped to BODY with `cl-letf'."
+  (declare (indent 2) (debug (sexp sexp body)))
+  `(cl-letf (((symbol-function ,function)
+              (lambda (&rest _) (error "%s" ,message))))
+     ,@body))
+
+(defconst workspace-bookmark-fixtures-copy-marker 'workspace-bookmark-fixtures-copy
+  "What the marker `workspace-bookmark--plan-to-open' hands the host instead of a copy.")
+
+(defconst workspace-bookmark-fixtures-offer-marker 'workspace-bookmark-fixtures-offered
+  "The COPY of the (view COPY . CHECKOUT) plan the marker chooser returns.")
+
+(defmacro workspace-bookmark-fixtures-with-marker-plans (&rest body)
+  "Run BODY with the seam's two opening collaborators replaced by markers.
+
+`workspace-bookmark--plan-to-open' returns (KIND . MARKER) with
+`workspace-bookmark-fixtures-copy-marker', pre-flighting and copying
+nothing; `workspace-bookmark--offer-missing-repo' returns
+\(view MARKER . \"canonical\") with
+`workspace-bookmark-fixtures-offer-marker', prompting for nothing.  For
+specs of the outcome-to-plan mapping alone, which need to see WHICH
+collaborator a cell reached, not what it does."
+  (declare (indent 0) (debug (body)))
+  `(cl-letf (((symbol-function 'workspace-bookmark--plan-to-open)
+              (lambda (_record _resolution kind)
+                (cons kind workspace-bookmark-fixtures-copy-marker)))
+             ((symbol-function 'workspace-bookmark--offer-missing-repo)
+              (lambda (_record _resolution)
+                (cons 'view (cons workspace-bookmark-fixtures-offer-marker
+                                  "canonical")))))
+     ,@body))
 
 (provide 'portable-bookmarks-fixtures)
 ;;; portable-bookmarks-fixtures.el ends here
