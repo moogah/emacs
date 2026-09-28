@@ -131,3 +131,125 @@ On-touch fires on `register/invariant/no-silent-wrong-file-open` (validator 1'; 
 `register/vocabulary/bookmark-resolution-outcome` (`canonical_mapping_function`; validator 6). `workspace-integration-anchor-payload`
 (load_bearing false) is re-stated at integrate once the fallback is gone. Neighbours:
 `.orchestrator/cycles/cycle-1790604160/briefs/entries-outcome-action-mapping.txt`.
+
+## Observations
+
+- **Mapper shape (deviation from the register sketch, not from the task).** `register/vocabulary/bookmark-resolution-outcome`
+  › `canonical_mapping_function` sketches `(pcase (list (plist-get resolution :outcome) context) ...)`, but its own validator 6 and
+  this task's Verification grep for the literal `pcase (plist-get`, which that sketch does not contain. Implemented the mapper as
+  `(pcase (plist-get resolution :outcome) ((and 'OUTCOME (guard CONTEXT-TEST)) ...) (outcome (error ...)))` — one arm per cell
+  group, the default arm signalling for an unknown outcome AND an unknown context (a `guard` that fails falls to the default, so no
+  separate context check is needed). Semantically identical to the sketch; chosen only so the grep finds the mapper.
+  `grep -n "pcase (plist-get" config/workspaces/portable-bookmarks.el` → `542:` (the mapper) only.
+- **`--decline-message` keeps a pcase, on the bound `outcome`, not on `(plist-get ...)`.** It formats a different report per
+  member, so it must dispatch; it now reads `workspace-bookmark--declining-outcomes` as its membership contract (signals for a
+  non-member before formatting) and its pcase default arm is an unreachable belt. Validator 6's parenthetical ("plus
+  `--decline-message` and `--after-add-message`, which read the constant") is what holds; the structural spec pins that neither
+  re-lists the members (`'(not-on-branch` absent from both bodies).
+- **The barrier's decision is a named helper, `workspace-bookmark--plan-after-error` (.el:596).** The advice body keeps validator
+  3's shape — one `condition-case` around `--jump-plan` only (.el:646), `(apply orig-fn arg args)` outside it (.el:658). The helper
+  guards its own `bookmark-get-bookmark ... 'noerror` with a `condition-case` → nil, because `bookmark-get-bookmark-by-name`
+  calls `bookmark-maybe-load-default-file`, which can in principle signal on an unreadable bookmark file; an argument that cannot
+  be normalised is therefore treated as unstamped (stock fall-through), and `--stamped-coordinates` never signals, so the barrier's
+  test cannot fail. `bookmark-insert` aborting on a decline is stated in the seam docstring and in the org "The barrier" prose.
+- **Fail-on-revert, measured (isolated suite, 811 specs each run):**
+  - Step 2 reverted (barrier always `(cons 'call-through bookmark-name-or-record)`): **3 red** — jump-spec "an error inside the
+    seam's decision for a STAMPED record opens nothing: the resolver signals, the jump declines" and "... the copy step signals
+    ..." both fail at `--decline`'s `(expect message :not :to-be nil)` (no `user-error`; the stored path opened); off-workspace-spec
+    "restores a layout whose STAMPED leaf meets an internal seam error WITHOUT visiting the stored path ..." fails at
+    `(expect (visits-p a-path) :to-be nil)` → `t`. The unstamped twin stays green (as it must).
+  - Step 1 reverted for ONE planner (`--no-workspace-plan` given its old private pcase back): **1 red** — jump-spec "is the only
+    outcome dispatch in the seam, missing-repo and off-workspace sections, and every planner calls it" (the `(pcase (plist-get`
+    count in the section becomes 2, and that planner's body no longer calls the mapper). NOTE: the behavioural matrix spec does
+    NOT go red on this revert by itself — the mapper is untouched by it — so the structural assertion is the pin for "no private
+    pcase"; the two are in the same describe.
+- **Spec count 806 → 811:** −1 (deleted "lists the same keys but :sessions-dir when core's constructor is not loaded"), the two
+  rewritten pins replace two, +1 unstamped twin, +4 in "jump seam: one outcome-to-action mapping" (3 behavioural, 1 structural),
+  +1 layout-leaf spec.
+- **Weakly pinned cells.** In the `none` column, `resolved` and `not-on-branch` cannot come out of the real resolver with no
+  workspace (both need a workspace checkout), and `non-portable` only through the resolver's pre-identity error barrier; those
+  cells are pinned by the mapper spec alone (with `--plan-to-open` / `--offer-missing-repo` replaced by markers), not by a
+  behavioural jump. I chose `--decline-message` for `not-on-branch`/`ambiguous`/`no-clone` in `none` (the "usual report"), and
+  the "no workspace chosen, and it cannot be resolved without one (%s)" report for `non-portable`/`resolved` there — the previous
+  `--no-workspace-plan` used the latter for `not-on-branch` too; both are declines, and no spec pinned the old wording.
+- **Adjacent prose.** The org's "The choice" bullet and the off-workspace "Errors in this flow decline" paragraph both described
+  the seam's barrier as calling through with the ORIGINAL argument; rewritten to "belt and braces" over the new barrier. The
+  README (`docs-readme`, not mine) may still describe residual (c) as "degrades to stock"; worth a one-line check there.
+- **missing-repo-spec "structure" still expects `(fboundp 'jf/workspace--add-worktree)` in the section** — satisfied by the offer
+  gate `--add-worktree-runnable-p` (.el:692), not by the deleted replan check; nobody should read that spec as pinning the
+  deletion's reverse.
+- **Stand-ins.** Three new helpers in `portable-bookmarks-fixtures.el` (`workspace-bookmark-fixtures-strip-stamp` :415,
+  `workspace-bookmark-fixtures-signalling` :435, `workspace-bookmark-fixtures-with-marker-plans` :451); every new or rewritten
+  spec uses them. Pre-existing inline `(lambda (&rest _) (error "Boom"))` copies elsewhere (off-workspace-spec:504,
+  missing-repo-spec:950, stamp-spec, resolver-spec) were left for `test-stand-in-consolidation` (wave 3), whose counting
+  validator does not count that family today; `workspace-bookmark-fixtures-signalling` is the shared form if it starts to.
+- **Two `(call-through . ORIGINAL)` producers remain outside the matrix, by design:** `--jump-plan`'s pre-resolver pass-through
+  for an argument that is no record (the host signals "Invalid bookmark"), and the barrier's unstamped fall-through. Neither is a
+  cell; both are for arguments that are not stamped records. The mapper spec asserts the ONE cell; the barrier twin asserts the
+  fall-through only for an unstamped record.
+
+## Discoveries
+
+- discovery_id: disc-outcome-action-mapping-1
+  class: interface-drift
+  description: |
+    The entry's `canonical_mapping_function` sketch (`pcase (list (plist-get resolution :outcome) context)`) and its
+    validator 6 grep (`pcase (plist-get`) contradict each other: the sketch's text does not match the grep. Implemented as
+    `(pcase (plist-get resolution :outcome)` with a `guard` on the context per arm (same cells, same signalling default for an
+    unknown outcome or context), so the grep is meaningful. `--decline-message` keeps a pcase on the bound `outcome` (it formats
+    per member) and reads the constant as its membership contract. Three cells of the `none` column are unreachable from the
+    real resolver (`resolved` / `not-on-branch` need a workspace checkout; `non-portable` only via the pre-identity error barrier)
+    and are pinned by the mapper spec only.
+  affected_register_entry: register/vocabulary/bookmark-resolution-outcome
+  recommendation: |
+    Re-state `canonical_mapping_function` to the guard form as implemented (portable-bookmarks.el:511-562), keep validator 6's
+    grep as is (→ .el:542 only), record `--decline-message`'s pcase-on-bound-outcome as the accepted shape, and annotate the
+    three unreachable `none` cells as "pinned by the mapping spec, not by a jump". `--valid-outcomes`' docstring now names the
+    mapper as the one dispatch site (a seventh member = constant + resolver + mapper, plus `--declining-outcomes` if it declines).
+- discovery_id: disc-outcome-action-mapping-2
+  class: invariant-gap
+  description: |
+    Residual (c) is closed for STAMPED records: the barrier answers an error in the decision with
+    `workspace-bookmark--plan-after-error` (.el:596-614) — decline naming the error when `--stamped-coordinates` is non-nil for
+    the (guarded) normalised argument; `(call-through . ORIGINAL)` otherwise. Validator 1' holds: jump-spec "an error inside the
+    seam's decision for a STAMPED record opens nothing: the resolver signals ..." (:515) / "... the copy step signals ..." (:531),
+    the unstamped twin "keeps stock behaviour for an UNSTAMPED record when the resolver signals ..." (:547), and the leaf spec
+    off-workspace-spec "restores a layout whose STAMPED leaf meets an internal seam error WITHOUT visiting the stored path ..."
+    (:880). The fourth actor's consequence is measured: the leaf lands on the reason buffer with "jump decision failed", one
+    report. Residual (g) untouched.
+  affected_register_entry: register/invariant/no-silent-wrong-file-open
+  recommendation: |
+    Promote validator 1' over validator 1's first sentence; rewrite known_residual (c) to "closed for stamped records (cycle
+    1790604160); an unstamped record still degrades to stock, which for it is the correct answer"; anchor the barrier at
+    `--plan-after-error` .el:596 and the condition-case at .el:646. Add to the statement's LAYOUT RESTORE clause that an internal
+    seam error on a stamped leaf is a decline (reason buffer), not a fall-through.
+- discovery_id: disc-outcome-action-mapping-3
+  class: interface-drift
+  description: |
+    degradation_contract narrows as specified (stamped → decline; unstamped / non-record → stock; `quit` passes both
+    barriers). plan_shape's producer list changes: the outcome-decided variants come from `--plan-for-outcome` (.el:511) via
+    `--plan-to-open` (.el:419) and `--offer-missing-repo` (.el:795); `--add-worktree-and-replan` (.el:936) produces only the
+    `(failed . R)` / `skipped` declines itself; `--no-workspace-plan` (.el:1144) produces nothing itself; `--off-workspace-plan`
+    (.el:1157) keeps its own declines and its ORIGINAL→decline conversion; the barrier's two variants come from
+    `--plan-after-error` (.el:596). Validator 3's seam-2 half as re-armed holds (condition-case at .el:646 around `--jump-plan`
+    only; `(apply orig-fn arg args)` at .el:658). Seam 1 unchanged. All line anchors in the entry shift (+~55 from the mapper and
+    the helper).
+  affected_register_entry: register/boundary/bookmark-advice-seams
+  recommendation: |
+    Re-base anchors; re-state plan_shape's producer list as above; add `--plan-for-outcome` and `--plan-after-error` to
+    producer_side.functions; keep the "stated residual" sentence only for unstamped records. Record that `bookmark-insert`
+    (direct caller) now aborts on a decline — documented in the seam docstring.
+- discovery_id: disc-outcome-action-mapping-4
+  class: dead-branch
+  description: |
+    The hand-built payload fallback in `--add-worktree-payload` and its keep-alive spec are deleted; the constructor is called
+    unconditionally (.el:911-923). The `(unless (fboundp 'jf/workspace--add-worktree) ...)` in the replan is deleted; the only
+    `fboundp` on the command is the offer gate (.el:692). The `skipped` arm is KEPT with a comment stating the strict reading of
+    `register/vocabulary/workspace-integration-outcome` (unknown → signal → chooser barrier declines) versus core's lenient
+    `--run-one-integration`.
+  affected_register_entry: register/shape/workspace-integration-anchor-payload
+  recommendation: |
+    Re-state second_producer as "appends :source-repo to the constructor's output; builds nothing of its own" with no
+    unbound-constructor clause; drop the missing-repo-spec.el:789-795 anchor. Consider a one-line note on
+    `register/vocabulary/workspace-integration-outcome` that portable-bookmarks reads the vocabulary strictly where core reads it
+    leniently (now stated in the arm's comment, .el:948-954).

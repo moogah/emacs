@@ -292,7 +292,12 @@ identity, resolver, discovery, cost, jump, missing-repo, off-workspace).
 - **Advice on core bookmark functions** → Both seams are narrow and additive: the
   stamp advice returns the record unchanged when it cannot stamp, and the jump
   advice passes the record through untouched when there are no coordinates. A
-  failure in either degrades to today's behaviour instead of breaking jumps.
+  failure in the stamp seam degrades to today's behaviour instead of breaking
+  bookmark creation. An error in the jump seam's own decision declines for a
+  STAMPED record (reported, nothing opened) and falls through to today's
+  behaviour only for an unstamped one. An error inside the missing-repo chooser
+  or the off-workspace flow declines likewise, so no path falls back to the
+  stored path for a stamped record.
 
 - **Per-jump git subprocess latency** → The warm set is small (seven checkouts
   for the largest repo here) and a jump is an interactive action. Latency is

@@ -10,9 +10,12 @@
 ;;   points (`bookmark-jump', `bookmark-jump-other-window'), never the
 ;;   advice in isolation.  The bookmark file is the fixtures' scratch file.
 ;;
-;; * UNIT — the seam's own error barrier, `quit' propagation and the host's
-;;   relocate arm, forced with `cl-letf' scoped to one spec; plus the
-;;   structural half of the copy rule, read off the tangled module.
+;; * UNIT — the seam's own error barrier (declining for a stamped record,
+;;   stock for an unstamped one), `quit' propagation and the host's
+;;   relocate arm, forced with the fixtures' stand-ins scoped to one spec;
+;;   the one outcome-to-action mapping, cell by cell, with the openers
+;;   replaced by markers; plus the structural half of the copy rule and of
+;;   the mapping, read off the tangled module.
 ;;
 ;; The "current workspace" is the one boundary mocked: `workspace--current-name'
 ;; (tabs.el) is bound per jump, because a tab-bar tab is not a thing a batch
@@ -509,26 +512,50 @@ Saves with `bookmark-save', empties the alist, loads the file back."
     (workspace-bookmark-clear-identity-cache)
     (setq world (portable-bookmarks-jump-spec--world)))
 
-  (it "still opens the stored location when the resolver signals"
+  (it "an error inside the seam's decision for a STAMPED record opens nothing: the resolver signals, the jump declines"
     (portable-bookmarks-jump-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
              (stored (portable-bookmarks-jump-spec--set a-path "readme"))
              (snapshot (copy-tree stored)))
-        (cl-letf (((symbol-function 'workspace-bookmark--resolve)
-                   (lambda (&rest _) (error "Boom"))))
-          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
-            (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)))
+        (expect (workspace-bookmark--stamped-coordinates stored) :to-be-truthy)
+        (workspace-bookmark-fixtures-signalling 'workspace-bookmark--resolve "Boom"
+          (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+            (expect message :to-match "jump decision failed")
+            (expect message :to-match "Boom")
+            (expect message :to-match "nothing opened")))
+        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
-  (it "still opens the stored location when the seam's own copy step signals"
+  (it "an error inside the seam's decision for a STAMPED record opens nothing: the copy step signals, the jump declines"
     (portable-bookmarks-jump-spec--hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
              (stored (portable-bookmarks-jump-spec--set a-path "readme"))
              (snapshot (copy-tree stored)))
-        (cl-letf (((symbol-function 'workspace-bookmark--substituted-record)
-                   (lambda (&rest _) (error "Boom"))))
+        (expect (workspace-bookmark--stamped-coordinates stored) :to-be-truthy)
+        (workspace-bookmark-fixtures-signalling 'workspace-bookmark--substituted-record "Boom"
+          (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+            (expect message :to-match "jump decision failed")
+            (expect message :to-match "Boom")
+            (expect message :to-match "nothing opened")))
+        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be nil)
+        (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
+
+  (it "keeps stock behaviour for an UNSTAMPED record when the resolver signals: the stored location opens, the record is untouched"
+    (portable-bookmarks-jump-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (stored (workspace-bookmark-fixtures-strip-stamp
+                      (portable-bookmarks-jump-spec--set a-path "readme")))
+             (snapshot (copy-tree stored)))
+        (expect (workspace-bookmark--stamped-coordinates stored) :to-be nil)
+        (workspace-bookmark-fixtures-signalling 'workspace-bookmark--resolve "Boom"
           (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
-            (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)))
+            (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)
+            (expect (with-current-buffer buffer (point))
+                    :to-equal portable-bookmarks-jump-spec--position)))
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
   (it "lets quit propagate through the barrier"
@@ -590,6 +617,137 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (portable-bookmarks-jump-spec--visits-p vanished) :to-be nil)
         (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot)))))
+
+
+;;; Unit — the one outcome-to-action mapping, cell by cell
+
+(defconst portable-bookmarks-jump-spec--contexts '(in-workspace none after-add)
+  "The three contexts `workspace-bookmark--plan-for-outcome' has a column for.")
+
+(defconst portable-bookmarks-jump-spec--matrix
+  '((non-portable  original decline decline)
+    (resolved      copy     decline copy)
+    (missing-repo  offer    offer   decline)
+    (not-on-branch decline  decline decline)
+    (ambiguous     decline  decline decline)
+    (no-clone      decline  decline decline))
+  "The expected plan per (OUTCOME IN-WORKSPACE NONE AFTER-ADD) row.
+`original' is (call-through . ORIGINAL); `copy' a call-through of what
+`workspace-bookmark--plan-to-open' returned; `offer' what
+`workspace-bookmark--offer-missing-repo' returned; `decline' a
+\(decline . MESSAGE) naming the bookmark.")
+
+(defun portable-bookmarks-jump-spec--cell-resolution (outcome)
+  "A resolution plist for OUTCOME with every key a consumer might read."
+  (workspace-bookmark--outcome
+   outcome
+   :path (and (memq outcome '(resolved missing-repo non-portable)) "/nowhere/checkout/cell.el")
+   :identity (and (not (eq outcome 'non-portable)) "example.com/fixtures/cell")
+   :relpath (and (not (eq outcome 'non-portable)) "cell.el")
+   :candidates (and (eq outcome 'ambiguous) '("/nowhere/one/" "/nowhere/two/"))
+   :checkout (and (memq outcome '(resolved not-on-branch missing-repo)) "/nowhere/checkout/")))
+
+(describe "jump seam: one outcome-to-action mapping"
+
+  (it "returns a known plan variant for every outcome x context, and hands the host the ORIGINAL argument in exactly one cell"
+    (let ((record (list "cell" (cons 'filename "/nowhere/stored/cell.el")))
+          (original 'the-original-argument)
+          (cells nil))
+      (expect (mapcar #'car portable-bookmarks-jump-spec--matrix)
+              :to-have-same-items-as workspace-bookmark--valid-outcomes)
+      (workspace-bookmark-fixtures-with-marker-plans
+        (dolist (row portable-bookmarks-jump-spec--matrix)
+          (cl-loop for context in portable-bookmarks-jump-spec--contexts
+                   for want in (cdr row)
+                   do (let* ((outcome (car row))
+                             (plan (workspace-bookmark--plan-for-outcome
+                                    record (portable-bookmarks-jump-spec--cell-resolution outcome)
+                                    context original)))
+                        (push (list outcome context plan) cells)
+                        (expect (memq (car plan) '(call-through decline view cancel))
+                                :to-be-truthy)
+                        (pcase want
+                          ('original
+                           (expect plan :to-equal (cons 'call-through original)))
+                          ('copy
+                           (expect plan :to-equal
+                                   (cons 'call-through workspace-bookmark-fixtures-copy-marker)))
+                          ('offer
+                           (expect (car plan) :to-be 'view)
+                           (expect (cadr plan) :to-be workspace-bookmark-fixtures-offer-marker))
+                          ('decline
+                           (expect (car plan) :to-be 'decline)
+                           (expect (cdr plan) :to-match "Bookmark \"cell\"")
+                           (expect (cdr plan) :to-match "nothing opened\\|none chosen")
+                           (when (eq context 'after-add)
+                             (expect (cdr plan) :to-match "after adding a worktree"))
+                           (when (eq context 'none)
+                             (expect (cdr plan) :not :to-match "after adding")))
+                          (_ (error "Unknown expectation %S" want)))))))
+      (expect (length cells) :to-equal 18)
+      (let ((originals (seq-filter (lambda (cell)
+                                     (equal (nth 2 cell) (cons 'call-through original)))
+                                   cells)))
+        (expect (length originals) :to-equal 1)
+        (expect (car originals) :to-equal (list 'non-portable 'in-workspace
+                                                (cons 'call-through original))))))
+
+  (it "signals for an outcome outside the closed set, in every context"
+    (let ((record (list "cell" (cons 'filename "/nowhere/stored/cell.el"))))
+      (workspace-bookmark-fixtures-with-marker-plans
+        (dolist (context portable-bookmarks-jump-spec--contexts)
+          (expect (workspace-bookmark--plan-for-outcome
+                   record (list :outcome 'seventh :path "/nowhere/stored/cell.el")
+                   context 'the-original-argument)
+                  :to-throw 'error)))))
+
+  (it "signals for a context it has no column for, whatever the outcome"
+    (let ((record (list "cell" (cons 'filename "/nowhere/stored/cell.el"))))
+      (workspace-bookmark-fixtures-with-marker-plans
+        (dolist (outcome workspace-bookmark--valid-outcomes)
+          (expect (workspace-bookmark--plan-for-outcome
+                   record (portable-bookmarks-jump-spec--cell-resolution outcome)
+                   'elsewhere 'the-original-argument)
+                  :to-throw 'error)))))
+
+  (it "is the only outcome dispatch in the seam, missing-repo and off-workspace sections, and every planner calls it"
+    (let* ((source (with-temp-buffer
+                     (insert-file-contents
+                      (expand-file-name "../portable-bookmarks.el"
+                                        portable-bookmarks-jump-spec--this-dir))
+                     (buffer-string)))
+           (start (string-match-p "(defun workspace-bookmark--substituted-record " source))
+           ;; The three sections end where "Checkout discovery" begins:
+           ;; its first form declares `workspace--registry'.
+           (end (string-match-p "(defvar workspace--registry)" source))
+           (section (and start end (< start end) (substring source start end)))
+           (defun-of (lambda (name)
+                       (let* ((from (string-match-p (concat "(defun " (regexp-quote name) " ") section))
+                              (to (and from (string-match-p "\n(\\(defun\\|defconst\\|defvar\\|declare-function\\) "
+                                                            section (1+ from)))))
+                         (expect from :not :to-be nil)
+                         (substring section from to)))))
+      (expect section :not :to-be nil)
+      ;; One dispatch over the outcome in these sections: the mapping.
+      (expect (length (seq-filter (lambda (line) (string-match-p "(pcase (plist-get" line))
+                                  (split-string section "\n")))
+              :to-equal 1)
+      (expect (funcall defun-of "workspace-bookmark--plan-for-outcome")
+              :to-match "(pcase (plist-get resolution :outcome)")
+      ;; Every planner calls it and reads no outcome of its own.
+      (dolist (planner '("workspace-bookmark--jump-plan"
+                         "workspace-bookmark--no-workspace-plan"
+                         "workspace-bookmark--add-worktree-and-replan"))
+        (let ((body (funcall defun-of planner)))
+          (expect body :to-match "(workspace-bookmark--plan-for-outcome")
+          (expect body :not :to-match ":outcome)")
+          (expect body :not :to-match "(pcase (plist-get")))
+      ;; The two message functions read the constant, not a list of their own.
+      (dolist (reader '("workspace-bookmark--decline-message"
+                        "workspace-bookmark--after-add-message"))
+        (let ((body (funcall defun-of reader)))
+          (expect body :to-match "(memq outcome workspace-bookmark--declining-outcomes)")
+          (expect body :not :to-match "'(not-on-branch"))))))
 
 
 ;;; Structural — the copy rule, read off the tangled module

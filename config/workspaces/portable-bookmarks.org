@@ -1072,14 +1072,40 @@ through with some argument, or decline with a message — and acts on
 it.  The decision and the action are separate functions so that the
 error barrier (below) can wrap the decision alone.
 
-| outcome         | plan                                                                  |
-|-----------------+-----------------------------------------------------------------------|
-| =non-portable=  | call through with the ORIGINAL argument, untouched                    |
-| =resolved=      | call through with a COPY whose =filename= is =:path=                  |
-| =not-on-branch= | decline: report, open nothing                                         |
-| =ambiguous=     | decline: report the =:candidates=, choose nothing                     |
-| =no-clone=      | decline: report, open nothing                                         |
-| =missing-repo=  | offer: hand the resolution to the bounded choice (see "Missing repo") |
+An outcome is mapped to a plan in ONE place,
+=workspace-bookmark--plan-for-outcome=, and three planners call it:
+the seam's own decision (=workspace-bookmark--jump-plan=, context
+=in-workspace=), the off-workspace fallback with no workspace chosen
+(=workspace-bookmark--no-workspace-plan=, context =none=; section
+"Off-workspace") and the re-resolve after a worktree was added
+(=workspace-bookmark--add-worktree-and-replan=, context =after-add=;
+section "Missing repo").  The matrix — rows the six outcomes, columns
+the three contexts:
+
+| outcome         | =in-workspace=                            | =none=                                | =after-add=                               |
+|-----------------+-------------------------------------------+---------------------------------------+-------------------------------------------|
+| =non-portable=  | call through with the ORIGINAL argument   | decline: no workspace to resolve in   | decline: the after-add report             |
+| =resolved=      | call through with a COPY, pre-flighted    | decline: no workspace to resolve in   | call through with a COPY, pre-flighted    |
+| =missing-repo=  | offer: the bounded choice ("Missing repo") | offer: the bounded choice             | decline: the after-add report             |
+| =not-on-branch= | decline: report, open nothing             | decline: report, open nothing         | decline: the after-add report             |
+| =ambiguous=     | decline: report the =:candidates=         | decline: report the =:candidates=     | decline: the after-add report             |
+| =no-clone=      | decline: report, open nothing             | decline: report, open nothing         | decline: the after-add report             |
+| anything else   | SIGNAL                                    | SIGNAL                                | SIGNAL                                    |
+
+=(call-through . ORIGINAL)= — the host handed the very argument the
+seam received, i.e. the stored path — is produced by exactly ONE
+cell, (=non-portable=, =in-workspace=): the outcome for which the
+stored path IS today's correct answer, decided in a workspace.  Every
+other call-through carries a COPY built by
+=workspace-bookmark--plan-to-open=.  An unknown outcome, or an unknown
+context, signals from the mapping's default arm into the caller's
+barrier; no cell is a permissive default.  The four outcomes that
+=workspace-bookmark--decline-message= can report are listed once, in
+=workspace-bookmark--declining-outcomes=, which that function and
+=workspace-bookmark--after-add-message= read rather than re-listing
+the members.  A seventh outcome is therefore a change to the constant
+of outcomes, the resolver and this ONE mapping — never a stray arm in
+a planner.
 
 Two decisions are made BEFORE the resolver is asked:
 
@@ -1100,10 +1126,11 @@ Two decisions are made BEFORE the resolver is asked:
 which prompts and returns a plan of its own: a read-only =view= of the
 canonical copy, a =call-through= once a worktree was added and the
 record re-resolved, a =decline=, or =cancel=.  The seam never
-dispatches on anything but the closed set: an outcome it has no arm
-for signals, and the barrier turns that into stock behaviour rather
-than into an open.  The plan vocabulary is closed the same way — the
-advice has an arm per plan and signals for any other.
+dispatches on anything but the closed set: an outcome the mapping has
+no arm for signals, and the barrier turns that into a decline for a
+stamped record (below), never into an open.  The plan vocabulary is
+closed the same way — the advice has an arm per plan and signals for
+any other.
 
 ** The copy rule
 
@@ -1188,18 +1215,37 @@ with a name, observes.
 The seam's =condition-case= is the SECOND barrier: the resolver's own
 already maps discovery errors to =no-clone= and reads to
 =non-portable=.  This one covers the seam's own code — normalization,
-the copy, the message — and falls through to ORIG-FN with the
-ORIGINAL argument, so a failure affecting one bookmark cannot affect
-another or the bookmark file.  It wraps the DECISION only: the call
-to ORIG-FN sits outside it, so the handler's own errors propagate
+the mapping, the copy, the message.  It wraps the DECISION only: the
+call to ORIG-FN sits outside it, so the handler's own errors propagate
 exactly as in stock Emacs and the host is never called twice.
 =quit= is not an =error= and propagates through both barriers: C-g is
 not a failure.
 
-The residual is stated rather than hidden: a programming error in the
-seam degrades to today's behaviour, which for a stamped record is the
-stored absolute path.  It is reached only by a bug in this section,
-never by an outcome.
+What the barrier answers depends on the record
+(=workspace-bookmark--plan-after-error=).  For a STAMPED record —
+=workspace-bookmark--stamped-coordinates= non-nil for the normalised
+argument; that predicate never signals and the normalisation is
+guarded, so the barrier's own test cannot fail — an error in the
+decision DECLINES, naming the error: a =user-error= before ORIG-FN,
+nothing opened.  "Today's behaviour" for a stamped record is the
+stored absolute path, which may be another workspace's copy — the
+silent wrong-file open this capability exists to remove
+(=register/invariant/no-silent-wrong-file-open=, prohibition 4) — and
+a bug in this section must not reopen that route.  For an UNSTAMPED
+record, or an argument that is no record at all, the barrier falls
+through to ORIG-FN with the ORIGINAL argument: stock behaviour, which
+for such a record is the right answer, so a failure affecting one
+bookmark cannot affect another or the bookmark file.  The missing-repo
+chooser and the off-workspace flow keep their own barriers (belt and
+braces): each declines on an error of its own before this one is
+reached, and names what failed.
+
+A decline reaches every caller of =bookmark-handle-bookmark= the same
+way, =bookmark-insert= included: it calls the host directly
+(bookmark.el:1534), so a declined stamped record aborts the insert
+with the =user-error=.  That is the acceptable consequence —
+inserting the contents of the wrong workspace's file is the same
+defect as visiting it.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark--substituted-record (record path)
@@ -1260,20 +1306,32 @@ RECORD's `filename' (compared by file identity)."
 #+end_src
 
 #+begin_src emacs-lisp
+(defconst workspace-bookmark--declining-outcomes
+  '(not-on-branch ambiguous missing-repo no-clone)
+  "The outcomes `workspace-bookmark--decline-message' can report.
+The four that open nothing by themselves: `not-on-branch', `ambiguous',
+`missing-repo' (where it is not offered) and `no-clone'.  Read by
+`workspace-bookmark--decline-message' and
+`workspace-bookmark--after-add-message'; which outcome gets which plan
+is decided only by `workspace-bookmark--plan-for-outcome'.")
+
 (defun workspace-bookmark--decline-message (record resolution)
   "Return the report for declining to jump to RECORD.
 
 RESOLUTION is the plist `workspace-bookmark--resolve' returned; its
-outcome must be one that opens nothing (`not-on-branch', `ambiguous',
-`missing-repo' or `no-clone').  Signals for any other outcome."
+outcome must be a member of `workspace-bookmark--declining-outcomes'.
+Signals for any other outcome."
   (let ((name (bookmark-name-from-full-record record))
+        (outcome (plist-get resolution :outcome))
         (identity (plist-get resolution :identity))
         (relpath (plist-get resolution :relpath))
         (checkout (plist-get resolution :checkout))
         (candidates (plist-get resolution :candidates))
         (abbreviate (lambda (dir)
                       (if (stringp dir) (abbreviate-file-name dir) "?"))))
-    (pcase (plist-get resolution :outcome)
+    (unless (memq outcome workspace-bookmark--declining-outcomes)
+      (error "Not an outcome that declines: %S" outcome))
+    (pcase outcome
       ('not-on-branch
        (format "Bookmark %S: %s is not on this branch of %s (%s); nothing opened"
                name relpath identity (funcall abbreviate checkout)))
@@ -1287,7 +1345,7 @@ outcome must be one that opens nothing (`not-on-branch', `ambiguous',
       ('no-clone
        (format "Bookmark %S: no checkout of %s in view; nothing opened"
                name identity))
-      (outcome (error "Not an outcome that declines: %S" outcome)))))
+      (_ (error "No report written for the declining outcome %S" outcome)))))
 #+end_src
 
 #+begin_src emacs-lisp
@@ -1302,6 +1360,61 @@ reason, not a resolution outcome."
           (plist-get resolution :relpath)
           (let ((checkout (plist-get resolution :checkout)))
             (if (stringp checkout) (abbreviate-file-name checkout) "?"))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--plan-for-outcome (record resolution context original)
+  "Return the jump plan for RECORD, whose RESOLUTION was decided in CONTEXT.
+
+The ONE site that maps a resolution outcome to a plan.  RESOLUTION is
+the plist `workspace-bookmark--resolve' returned for RECORD, a bookmark
+record.  CONTEXT says where it was decided: `in-workspace', the seam's
+own decision against a current or chosen workspace
+\(`workspace-bookmark--jump-plan'); `none', the off-workspace fallback
+resolved with no workspace (`workspace-bookmark--no-workspace-plan');
+`after-add', the re-resolve after a worktree was added
+\(`workspace-bookmark--add-worktree-and-replan').  ORIGINAL is the
+argument the seam received; exactly one cell reads it.
+
+Returns (call-through . ARG), (decline . MESSAGE),
+\(view COPY . CHECKOUT) or (cancel).  The cells, by outcome:
+  non-portable    in-workspace: (call-through . ORIGINAL) — the ONLY
+                  cell that hands the host the stored path, the answer
+                  stock Emacs gives for a record with no usable stamp;
+                  none / after-add: decline.
+  resolved        in-workspace / after-add:
+                  `workspace-bookmark--plan-to-open' (pre-flight, then
+                  a copy); none: decline.
+  missing-repo    in-workspace / none:
+                  `workspace-bookmark--offer-missing-repo'; after-add:
+                  decline.
+  not-on-branch, ambiguous, no-clone: decline in every context.
+A decline carries `workspace-bookmark--decline-message' in
+`in-workspace' and `none' — except `non-portable' and `resolved' with
+no workspace, which name the missing workspace — and
+`workspace-bookmark--after-add-message' in `after-add'.  Any other
+outcome, and any other context, signals; the caller's barrier catches."
+  (pcase (plist-get resolution :outcome)
+    ((and 'non-portable (guard (eq context 'in-workspace)))
+     (cons 'call-through original))
+    ((and 'resolved (guard (memq context '(in-workspace after-add))))
+     (workspace-bookmark--plan-to-open record resolution 'call-through))
+    ((and 'missing-repo (guard (memq context '(in-workspace none))))
+     (workspace-bookmark--offer-missing-repo record resolution))
+    ((and (or 'not-on-branch 'ambiguous 'no-clone)
+          (guard (memq context '(in-workspace none))))
+     (cons 'decline (workspace-bookmark--decline-message record resolution)))
+    ((and (or 'non-portable 'resolved) (guard (eq context 'none)))
+     (cons 'decline
+           (format "Bookmark %S: no workspace chosen, and it cannot be resolved without one (%s); nothing opened"
+                   (bookmark-name-from-full-record record)
+                   (plist-get resolution :outcome))))
+    ((and (or 'non-portable 'missing-repo 'not-on-branch 'ambiguous 'no-clone)
+          (guard (eq context 'after-add)))
+     (cons 'decline (workspace-bookmark--after-add-message record resolution)))
+    (outcome
+     (error "Not a bookmark-resolution outcome in a jump context: %S in %S"
+            outcome context))))
 #+end_src
 
 #+begin_src emacs-lisp
@@ -1320,11 +1433,10 @@ defaults to the current one.  Decided before the resolver is asked: a
 value that is not a bookmark record calls through (the host signals
 for it); no workspace on a STAMPED record is the off-workspace
 hand-off, `workspace-bookmark--off-workspace-plan', which establishes
-a workspace and re-enters here with its name.  A `resolved' :path is
-pre-flighted with `file-exists-p' right before the copy is built; one
-that has vanished declines.  `missing-repo' is handed to
-`workspace-bookmark--offer-missing-repo'.  May signal; the seam's
-barrier catches."
+a workspace and re-enters here with its name.  Otherwise the record is
+resolved against WORKSPACE and the outcome mapped in context
+`in-workspace' by `workspace-bookmark--plan-for-outcome', the one
+outcome-to-plan mapping.  May signal; the seam's barrier catches."
   (let ((record (bookmark-get-bookmark bookmark-name-or-record 'noerror))
         (workspace (or workspace (workspace-bookmark--current-workspace))))
     (cond
@@ -1334,22 +1446,32 @@ barrier catches."
            (workspace-bookmark--stamped-coordinates record))
       (workspace-bookmark--off-workspace-plan record bookmark-name-or-record))
      (t
-      (let ((resolution (workspace-bookmark--resolve record workspace)))
-        (pcase (plist-get resolution :outcome)
-          ('non-portable
-           (cons 'call-through bookmark-name-or-record))
-          ('resolved
-           (workspace-bookmark--plan-to-open record resolution 'call-through))
-          ('missing-repo
-           (workspace-bookmark--offer-missing-repo record resolution))
-          ((or 'not-on-branch 'ambiguous 'no-clone)
-           (cons 'decline
-                 (workspace-bookmark--decline-message record resolution)))
-          (outcome
-           (error "Not a bookmark-resolution outcome: %S" outcome))))))))
+      (workspace-bookmark--plan-for-outcome
+       record (workspace-bookmark--resolve record workspace)
+       'in-workspace bookmark-name-or-record)))))
 #+end_src
 
 #+begin_src emacs-lisp
+(defun workspace-bookmark--plan-after-error (bookmark-name-or-record err)
+  "Return the seam's plan when ERR was signalled deciding BOOKMARK-NAME-OR-RECORD's.
+
+The barrier's answer.  A STAMPED record — `workspace-bookmark--stamped-coordinates'
+non-nil for the normalised argument — declines, naming ERR: its stored
+path may be another workspace's copy, and a bug in the decision is no
+licence to open it.  An unstamped record, or an argument that is no
+record, calls through with the ORIGINAL argument: stock behaviour, the
+right answer for such a record.  Never signals: the normalisation is
+guarded and the stamp test cannot fail."
+  (let ((record (condition-case nil
+                    (bookmark-get-bookmark bookmark-name-or-record 'noerror)
+                  (error nil))))
+    (if (workspace-bookmark--stamped-coordinates record)
+        (cons 'decline
+              (format "Bookmark %S: the jump decision failed (%s); nothing opened"
+                      (bookmark-name-from-full-record record)
+                      (error-message-string err)))
+      (cons 'call-through bookmark-name-or-record))))
+
 (defun workspace-bookmark--handle-bookmark-advice (orig-fn bookmark-name-or-record &rest args)
   "Resolve BOOKMARK-NAME-OR-RECORD against the current workspace, then jump.
 
@@ -1364,21 +1486,26 @@ a cancel at that prompt signals `quit'.  A stamped record with no
 current workspace goes through the off-workspace plan
 \(`workspace-bookmark--off-workspace-plan'), which establishes a
 workspace and resolves against it, and never calls through with the
-original argument.  Any error in this seam's own
-decision falls through to ORIG-FN with the ORIGINAL argument, so a
-failure affecting one bookmark cannot affect another or the bookmark
-file; `quit' propagates.  After a substituted jump that landed in a
-buffer (the current buffer changed, or visits the substituted
-location): a view is marked read-only there by
-`workspace-bookmark--mark-canonical-view', and a jump by name sets
+original argument.  An error in this seam's own decision is answered
+by `workspace-bookmark--plan-after-error': a STAMPED record declines,
+naming the error, and opens nothing; an unstamped record, or an
+argument that is no record, falls through to ORIG-FN with the ORIGINAL
+argument, so a failure affecting one bookmark cannot affect another or
+the bookmark file; `quit' propagates.  A decline reaches every caller
+of the host alike — `bookmark-insert' calls it directly, so a declined
+stamped record aborts the insert with the `user-error'.  After a
+substituted jump that landed in a buffer (the current buffer changed,
+or visits the substituted location): a view is marked read-only there
+by `workspace-bookmark--mark-canonical-view', and a jump by name sets
 `bookmark-current-bookmark' there as the host sets it for a plain one.
 Before either, the host call is offered to
 `workspace-bookmark--note-jump-target', which records where the jump
 landed when it is the outer jump of a restore-then-jump.  The
 originating buffer is never touched."
-  (let ((plan (condition-case nil
+  (let ((plan (condition-case err
                   (workspace-bookmark--jump-plan bookmark-name-or-record)
-                (error (cons 'call-through bookmark-name-or-record))))
+                (error (workspace-bookmark--plan-after-error
+                        bookmark-name-or-record err))))
         (origin (current-buffer)))
     (pcase plan
       (`(decline . ,message)
@@ -1632,13 +1759,14 @@ advice, outside the barrier.  Three properties are deliberate:
   and already the answer the seam lets through both barriers for C-g.
   C-g at the prompt and the =cancel= option therefore do the same
   thing, which is what a user expects of both.
-- *An error inside the choice declines.*  The seam's barrier answers an
-  error in its decision by calling through with the ORIGINAL argument,
-  which for a stamped record is the stored absolute path — tolerable
-  for a programming error in the seam, not for one in the prompt for
-  the very outcome that exists to keep that path shut.  The chooser
-  has its own barrier: any error in the choice becomes a decline
-  naming the error.  =quit= passes.
+- *An error inside the choice declines.*  The chooser has its own
+  barrier: any error in the choice becomes a decline naming the
+  error; =quit= passes.  The seam's barrier declines for a stamped
+  record as well (see "The barrier" under "Seam 2"), and a record
+  reaches this prompt only stamped, so this barrier is belt and
+  braces — but it is the one that names the CHOICE as what failed,
+  and it holds whatever the seam does.  =missing-repo= is the very
+  outcome that exists to keep the stored path shut.
 - *The stored record is never touched.*  Every open goes through a
   copy built by =workspace-bookmark--plan-to-open=, the seam's own
   pre-flighted path to =workspace-bookmark--substituted-record=; this
@@ -1841,10 +1969,13 @@ integration.  It takes the anchor payload
 is built by the shape's ONE constructor, core's
 =workspace--integration-payload= (=:name=, =:home=, =:sessions-dir=,
 =:context=, here =bookmark-jump=), with =:source-repo= appended: the
-canonical checkout the resolver chose.  The constructor is reached the
-way this module reaches the rest of core — declared, =fboundp=-guarded
-at call time, never required — and only when it is unbound is the same
-plist spelled out here, so the two cannot drift while core is loaded.
+canonical checkout the resolver chose.  The constructor is called
+unconditionally and nothing is spelled out here: =add-worktree= is
+offered only when =workspace-bookmark--add-worktree-runnable-p= holds,
+which asks core's =workspace--integration-menu-command-p= — defined in
+the same file as the constructor — so by the time a payload is built
+the constructor is loaded, and there is no second spelling of the
+plist to drift from it.
 The source is decided, not discovered: discovery already ran once and
 =:checkout= is its answer; running it again would be a second prompt
 over the same candidates.  The payload is the channel the shape entry
@@ -1853,9 +1984,12 @@ need"), and git-worktrees' command honours =:source-repo= in place of
 its source prompt: given one, it asks for no source and runs no
 discovery.
 
-On =ok= the resolver runs ONCE more against the workspace, and a
-=resolved= answer continues through the seam's normal path, pre-flight
-included.  The add changed the repository, so that second resolve runs
+On =ok= the resolver runs ONCE more against the workspace, and the
+answer goes through the one outcome mapping in context =after-add=
+(=workspace-bookmark--plan-for-outcome=, section "Seam 2"): =resolved=
+continues through the seam's normal path, pre-flight included, and
+every other outcome declines with the after-add report.  The add
+changed the repository, so that second resolve runs
 in a FRESH discovery memo (=workspace-bookmark--discovery-memo= bound to
 nil), never in one a caller may have opened around this function: an
 enclosing memo holds the repository's worktree listing from before the
@@ -1876,18 +2010,21 @@ else is an error the chooser's barrier turns into a decline.
 What `workspace--integration-payload' builds for WORKSPACE, its home
 and the context `bookmark-jump', plus :source-repo, the canonical
 checkout the resolver chose, so the git-worktrees command need not ask
-for one.  When that constructor is not loaded, the same keys but
-:sessions-dir are listed here."
-  (let ((home (workspace-bookmark--workspace-home workspace)))
-    (append (if (fboundp 'workspace--integration-payload)
-                (workspace--integration-payload workspace home 'bookmark-jump)
-              (list :name workspace :home home :context 'bookmark-jump))
-            (list :source-repo checkout))))
+for one.  Builds nothing of its own: the add-worktree action is
+offered only when `workspace-bookmark--add-worktree-runnable-p' holds,
+which asks core's `workspace--integration-menu-command-p', defined
+beside the constructor, so the constructor is loaded by the time a
+payload is built."
+  (append (workspace--integration-payload
+           workspace (workspace-bookmark--workspace-home workspace) 'bookmark-jump)
+          (list :source-repo checkout)))
 
 (defun workspace-bookmark--after-add-message (record resolution)
-  "Return the report for RECORD when RESOLUTION opens nothing after a worktree add."
+  "Return the report for RECORD when RESOLUTION opens nothing after a worktree add.
+A member of `workspace-bookmark--declining-outcomes' gets its usual
+report, marked as coming after the add; any other outcome is named."
   (let ((outcome (plist-get resolution :outcome)))
-    (if (memq outcome '(not-on-branch ambiguous missing-repo no-clone))
+    (if (memq outcome workspace-bookmark--declining-outcomes)
         (format "%s (after adding a worktree)"
                 (workspace-bookmark--decline-message record resolution))
       (format "Bookmark %S: resolves %s after adding a worktree; nothing opened"
@@ -1896,31 +2033,38 @@ for one.  When that constructor is not loaded, the same keys but
 (defun workspace-bookmark--add-worktree-and-replan (record resolution workspace)
   "Add a worktree of RESOLUTION's :checkout to WORKSPACE, then replan RECORD.
 
-Calls git-worktrees' `jf/workspace--add-worktree', which must be
-`fboundp', with `workspace-bookmark--add-worktree-payload'.  On `ok'
-the resolver runs once more against WORKSPACE, outside any enclosing
-discovery memo (the add changed the repository): a `resolved' answer
+Calls git-worktrees' `jf/workspace--add-worktree' with
+`workspace-bookmark--add-worktree-payload'; the action is offered only
+when `workspace-bookmark--add-worktree-runnable-p' holds, so the
+command is loaded by the time this runs.  On `ok' the resolver runs
+once more against WORKSPACE, outside any enclosing discovery memo (the
+add changed the repository), and the answer is mapped in context
+`after-add' by `workspace-bookmark--plan-for-outcome': `resolved'
 continues through `workspace-bookmark--plan-to-open', pre-flight
-included; any other answer declines with its report, never a second
-prompt.  (failed . REASON) and `skipped' decline naming the reason.
-Signals on an unknown result; the caller's barrier declines."
-  (unless (fboundp 'jf/workspace--add-worktree)
-    (error "jf/workspace--add-worktree is not loaded"))
+included; anything else declines with
+`workspace-bookmark--after-add-message', never a second prompt.
+\(failed . REASON) and `skipped' decline naming the reason.  Signals
+on an unknown result; the caller's barrier declines."
   (let ((name (bookmark-name-from-full-record record))
         (result (funcall 'jf/workspace--add-worktree
                          (workspace-bookmark--add-worktree-payload
                           workspace (plist-get resolution :checkout)))))
     (pcase result
       ('ok
-       (let* ((workspace-bookmark--discovery-memo nil)
-              (again (workspace-bookmark--resolve record workspace)))
-         (if (eq (plist-get again :outcome) 'resolved)
-             (workspace-bookmark--plan-to-open record again 'call-through)
-           (cons 'decline (workspace-bookmark--after-add-message record again)))))
+       (let ((workspace-bookmark--discovery-memo nil))
+         (workspace-bookmark--plan-for-outcome
+          record (workspace-bookmark--resolve record workspace) 'after-add nil)))
       (`(failed . ,reason)
        (cons 'decline
              (format "Bookmark %S: no worktree added (%s); nothing opened"
                      name reason)))
+      ;; `skipped' is a legitimate handler result
+      ;; (register/vocabulary/workspace-integration-outcome).  The
+      ;; vocabulary is read STRICTLY here — `ok', (failed . REASON) and
+      ;; `skipped' are the whole of it, and anything else signals into
+      ;; the chooser's barrier, i.e. declines — where core's
+      ;; `workspace--run-one-integration' reads an unknown handler value
+      ;; leniently as `ok'.
       ('skipped
        (cons 'decline
              (format "Bookmark %S: the git worktree integration skipped the add; nothing opened"
@@ -2022,7 +2166,9 @@ one thing it must not do is open that path as though it were a
 workspace copy (=register/invariant/no-silent-wrong-file-open=,
 prohibition 4; the fallback is "read-only canonical, or cancel").  The
 record is resolved with NO workspace — rows 4–6 of the resolver's
-table — and the fallback has no arm that calls through:
+table — and the outcome is mapped in context =none= by the one
+outcome mapping (=workspace-bookmark--plan-for-outcome=, section "Seam
+2"), whose =none= column has no cell that calls through:
 
 - =missing-repo=, one canonical checkout in view, goes to the SAME
   bounded chooser the in-workspace outcome uses,
@@ -2032,8 +2178,9 @@ table — and the fallback has no arm that calls through:
   only when =:path= is non-nil (ask 16) — and =cancel=.  One chooser
   and one action vocabulary, not a second prompt with a second set.
 - =ambiguous= and =no-clone= decline with their usual report.
-- Nothing else can be reached by a stamped record; anything else
-  declines as well.
+- Nothing else can be reached by a stamped record resolved with no
+  workspace; the remaining cells of the column decline as well, naming
+  the missing workspace.
 
 ** Remembered like any visit
 
@@ -2093,14 +2240,15 @@ whatever the clock's resolution.
 signals or is quit still queues it, and the finish step clears the
 target and the flag in an =unwind-protect= cleanup of its own.
 
-*Errors in this flow decline; they do not fall through.*  The seam's
-barrier answers an error in its decision by calling through with the
-ORIGINAL argument — tolerable for a programming error elsewhere in the
-seam, but here the original argument IS the stored path, and a restore
-that failed half-way is no reason to open it.  So this section has its
-own barrier: an error in choosing, restoring or resolving becomes a
-decline naming the error, and a plan that would call through with the
-original argument is turned into a decline as well.  After a restore
+*Errors in this flow decline; they do not fall through.*  Every
+record that takes this hand-off is stamped, and the seam's barrier
+declines for a stamped record (section "Seam 2", "The barrier"); this
+section keeps its own barrier anyway, belt and braces, because here
+the original argument IS the stored path and a restore that failed
+half-way is no reason to open it: an error in choosing, restoring or
+resolving becomes a decline naming the error, and a plan that would
+call through with the original argument is turned into a decline as
+well.  After a restore
 that plan can only come from =non-portable=, which a record that took
 this hand-off (its stamp already read as usable) reaches only through
 the resolver's pre-identity error barrier — whose =:path= is the
@@ -2286,21 +2434,15 @@ is the buffer the new tab inherited."
 (defun workspace-bookmark--no-workspace-plan (record)
   "Plan the jump to stamped RECORD when no workspace will serve it.
 Resolves RECORD with no workspace (rows 4–6 of the resolver's table)
-and acts on the outcome without ever calling through: `missing-repo' is
-handed to `workspace-bookmark--offer-missing-repo', whose chooser
-withholds `add-worktree' when no workspace is current and offers the
-read-only canonical view only when :path is non-nil; `ambiguous' and
-`no-clone' decline with their report; any other outcome declines too."
-  (let ((resolution (workspace-bookmark--resolve record nil)))
-    (pcase (plist-get resolution :outcome)
-      ('missing-repo
-       (workspace-bookmark--offer-missing-repo record resolution))
-      ((or 'ambiguous 'no-clone)
-       (cons 'decline (workspace-bookmark--decline-message record resolution)))
-      (outcome
-       (cons 'decline
-             (format "Bookmark %S: no workspace chosen, and it cannot be resolved without one (%s); nothing opened"
-                     (bookmark-name-from-full-record record) outcome))))))
+and maps the outcome in context `none' with
+`workspace-bookmark--plan-for-outcome', whose `none' column never
+calls through: `missing-repo' is handed to
+`workspace-bookmark--offer-missing-repo', whose chooser withholds
+`add-worktree' when no workspace is current and offers the read-only
+canonical view only when :path is non-nil; every other outcome
+declines with its report."
+  (workspace-bookmark--plan-for-outcome
+   record (workspace-bookmark--resolve record nil) 'none nil))
 
 (defun workspace-bookmark--off-workspace-plan (record bookmark-name-or-record)
   "Plan the jump to stamped RECORD when no workspace is current.
@@ -3606,8 +3748,10 @@ cannot leak into it.
 ** The closed set of outcomes
 
 Six outcomes.  The set is closed so that a new one is a deliberate
-two-place change (this constant and the resolver), never a stray symbol
-that a caller might treat as "just open the stored path".  It mirrors
+three-place change (this constant, the resolver and the ONE
+outcome-to-plan mapping, =workspace-bookmark--plan-for-outcome= in
+section "Seam 2"), never a stray symbol that a caller might treat as
+"just open the stored path".  It mirrors
 =workspace--valid-reincarnation-steps= in =layouts.el=.
 
 | outcome         | =:path=                                   | meaning                                                            |
@@ -3654,8 +3798,10 @@ as an unknown symbol.
   '(resolved not-on-branch missing-repo no-clone non-portable ambiguous)
   "Closed set of bookmark-resolution outcomes.
 `workspace-bookmark--resolve' returns exactly one of these.  Adding a
-member is a deliberate change here AND in the resolver, and in every
-caller that dispatches on the outcome.")
+member is a deliberate change here, in the resolver, and in
+`workspace-bookmark--plan-for-outcome' — the ONE site that maps an
+outcome to a jump plan (plus `workspace-bookmark--declining-outcomes'
+and `workspace-bookmark--decline-message' when the member declines).")
 
 (defun workspace-bookmark--valid-outcome-p (outcome)
   "Return non-nil when OUTCOME is a member of `workspace-bookmark--valid-outcomes'."

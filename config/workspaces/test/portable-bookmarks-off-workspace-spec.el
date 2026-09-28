@@ -875,7 +875,49 @@ both."
           (expect (length declines) :to-equal 1)
           (expect (car declines) :to-match "1 buffer not restored")
           (expect (car declines) :to-match "holds no checkout")
-          (expect (car declines) :not :to-match "choice failed"))))))
+          (expect (car declines) :not :to-match "choice failed")))))
+
+  (it "restores a layout whose STAMPED leaf meets an internal seam error WITHOUT visiting the stored path: the window shows why, one report"
+    ;; The seam's barrier declines for a stamped record instead of
+    ;; falling through to the stored path; core's chain answers the
+    ;; decline with the reason buffer, as for any other declined leaf.
+    (portable-bookmarks-off-workspace-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
+             (reports nil))
+        ;; Capture a layout holding A's README beside *scratch*; give it
+        ;; to B, whose checkout holds the file too — only the seam's own
+        ;; failure keeps it shut.
+        (portable-bookmarks-off-workspace-spec--give-saved-layout
+         "wsbm-off-b" (portable-bookmarks-off-workspace-spec--layout-beside-scratch a-path))
+        (portable-bookmarks-off-workspace-spec--recording-messages reports
+          (workspace-bookmark-fixtures-signalling 'workspace-bookmark--resolve "Boom"
+            (cl-letf (((symbol-function 'y-or-n-p)
+                       #'portable-bookmarks-off-workspace-spec--prompted!)
+                      ((symbol-function 'read-multiple-choice)
+                       #'portable-bookmarks-off-workspace-spec--prompted!))
+              (workspace-restore "wsbm-off-b")
+              (portable-bookmarks-off-workspace-spec--drain-timers))))
+        (expect (workspace--current-name) :to-equal "wsbm-off-b")
+        (expect (length (window-list nil 'no-mini)) :to-equal 2)
+        ;; Neither the stored path (A's copy) nor B's copy was visited.
+        (expect (portable-bookmarks-off-workspace-spec--visits-p a-path) :to-be nil)
+        (expect (portable-bookmarks-off-workspace-spec--visits-p b-path) :to-be nil)
+        (let ((window (portable-bookmarks-off-workspace-spec--window-showing
+                       "*workspace-restore: README.md*")))
+          (expect window :not :to-be nil)
+          (with-current-buffer (window-buffer window)
+            (expect (buffer-string) :to-match "declined")
+            (expect (buffer-string) :to-match "jump decision failed")
+            (expect (buffer-string) :to-match "Boom")
+            (expect (buffer-string) :to-match "NOT opened")))
+        (let ((declines (seq-filter (lambda (report)
+                                      (string-match-p "not restored" report))
+                                    reports)))
+          (expect (length declines) :to-equal 1)
+          (expect (car declines) :to-match "1 buffer not restored")
+          (expect (car declines) :to-match (regexp-quote "README.md"))
+          (expect (car declines) :to-match "jump decision failed"))))))
 
 
 ;;; Unit — the chooser's prompt guard, which the chain relies on
