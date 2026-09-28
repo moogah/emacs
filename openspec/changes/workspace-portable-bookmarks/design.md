@@ -153,8 +153,10 @@ No recursive directory scanning (only each registered home's immediate children
 are listed) and no machine-local configuration. Two in-memory memos bound the
 git cost and nothing is persisted: repo identity per checkout root, revalidated
 against the repository's config mtimes (DD-7), and a per-call discovery memo.
-The scanning cold path (declared clone roots, replacing projectile for
-*creating* worktrees) belongs to the git-worktrees candidate seam and is deferred.
+The scanning cold path (declared clone roots, for repositories no checkout
+in view reaches) belongs to the git-worktrees candidate seam and is
+deferred; projectile and project.el are already not worktree sources
+(DD-12).
 
 Git is invoked as a subprocess; **magit is not used**, so bookmark resolution
 does not inherit git-worktrees' magit dependency. Note the overlap with

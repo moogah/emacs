@@ -1530,24 +1530,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      four. (4) consumed_by was missing git-worktrees' two surfaces. Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/shape-workspace-integration-anchor-payload.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Constructor
-     unchanged (integrations.el:53-67); the second producer's fallback is
-     still spelled at portable-bookmarks.el:813-817 and still pinned by
-     missing-repo-spec.el:789-795. # owner: outcome-action-mapping
-     (cycle-1790604160) — eoc-1790453714-04: the fallback list is
-     UNREACHABLE (the offer gate at :605-616 requires
-     =workspace--integration-menu-command-p=, defined in the same file as
-     the constructor); the task calls the constructor unconditionally and
-     deletes the fallback and its spec, after which second_producer reads
-     "appends :source-repo to the constructor's output; builds nothing of
-     its own" with no unbound-constructor clause — re-stated at integrate. #
-     owner: doc-sync-cycle2 (cycle-1790604160) — the new
-     =specs/workspace-integrations/spec.md= carries the NARROWED payload
-     clause (ask-cycle-1790453714-5): workspaces itself adds no domain keys;
-     a caller invoking a :menu command directly MAY add keys that command
-     documents (=:source-repo=). load_bearing stays false: one constructor,
-     one optional key, consumers read only what they need.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled). Constructor
+     unchanged (integrations.el:53-67). The second producer's unreachable
+     hand-built fallback (eoc-1790453714-04) and its spec are DELETED
+     (outcome-action-mapping, merge 755483a5):
+     =workspace-bookmark--add-worktree-payload= calls
+     =workspace--integration-payload= unconditionally and appends
+     =:source-repo=. Reachability is gated by the add-worktree offer
+     (=--add-worktree-runnable-p= requires core's
+     =workspace--integration-menu-command-p=, defined beside the
+     constructor), so the constructor is loaded whenever a payload is built;
+     an unbound one would signal inside the chooser's barrier, i.e. a
+     decline. Pinned by missing-repo-spec "is core's anchor payload for the
+     workspace, with context bookmark-jump, plus :source-repo". The change's
+     delta spec (=specs/workspace-integrations/spec.md=, doc-sync-cycle2)
+     carries the NARROWED payload clause (ask-cycle-1790453714-5):
+     workspaces itself adds no domain keys to a payload it dispatches
+     through the registry or the transient; a caller invoking a =:menu=
+     command directly MAY add keys that command documents (=:source-repo=).
+     The main spec's scenario "payload carries no integration-domain data"
+     still reads as binding every handler call and takes the narrowed text
+     at sync. load_bearing stays false: one constructor, one optional key,
+     consumers read only what they need.
    load_bearing: false
    title: integration anchor payload (the plist pushed to every handler)
    purpose: |
@@ -1598,9 +1603,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        (cycle-1790453714) config/workspaces/portable-bookmarks.org § Add
        worktree here — =workspace-bookmark--add-worktree-payload= APPENDS
        =:source-repo= to the constructor's output for context
-       =bookmark-jump=; it builds nothing of its own while the constructor
-       is loaded. The payload is FUNCALLED into =jf/workspace--add-worktree=,
-       never dispatched through the registry.
+       =bookmark-jump=; it builds nothing of its own (the constructor is
+       called unconditionally). The payload is FUNCALLED into
+       =jf/workspace--add-worktree=, never dispatched through the registry.
    consumed_by:
      - config/gptel/sessions/workspace-integration.org (jf/gptel--workspace-on-create / -add-session)
      - config/workspaces/git-worktrees.org (jf/workspace--add-worktree — reads :name, :home, :source-repo; jf/workspace--worktree-on-purge — reads :home)
@@ -2979,23 +2984,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      never shipped) and are corrected to the code. Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/vocabulary-buffer-reincarnation-fallback-chain.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Code
-     unchanged at c65efb86 (layouts.el:213-258 =workspace--bookmark-buffer=,
-     :260-286 collector + report, :288-329 =workspace--deserialize-buffer=;
-     the =user-error= arm at :248-250). # owner: doc-sync-cycle2
-     (cycle-1790604160) — the DECLINE GATE has no delta spec
-     (eoc-1790453714-02): the new =specs/workspaces/spec.md= MODIFIED
-     "Buffer reincarnation across restart" requirement records "a handler's
-     =user-error= is a DECLINE: steps 2-3 skipped, reason buffer, one
-     aggregated report per restore"; entry text is the source, the delta
-     spec must not contradict it. # owner: outcome-action-mapping
-     (cycle-1790604160) — CONSEQUENCE, not a change here: once the seam
-     declines (instead of falling through) on an internal error for a
-     STAMPED record, such a leaf reaches this gate as =(declined . MESSAGE)=
-     and lands on the reason buffer; previously it reached step 1 as a
-     buffer of the STORED path. The four-step set and the three-answer shape
-     are unchanged.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled). layouts.el is
+     unchanged this cycle (=workspace--bookmark-buffer=, the collector and
+     report, =workspace--deserialize-buffer= with its signalling default).
+     The DECLINE GATE now has its delta spec (doc-sync-cycle2, merge
+     24496974): the change's =specs/workspaces/spec.md= MODIFIED "Buffer
+     reincarnation across restart" requirement states step 1 as
+     =bookmark-jump= on the saved record (which dispatches through
+     =bookmark-handle-bookmark=, so every consumer seam applies), a
+     handler's =user-error= as a DECLINE (steps 2-3 skipped, reason buffer,
+     one aggregated report per restore), and a mere failure as falling
+     through; the main spec (openspec/specs/workspaces/spec.md, which still
+     names =bookmark-handle-bookmark= as step 1 and has no decline gate)
+     takes it at sync. CONSEQUENCE of outcome-action-mapping (merge
+     755483a5), with no change here: a leaf whose STAMPED bookmark meets an
+     internal seam error now reaches this gate as =(declined . MESSAGE)=
+     and lands on the reason buffer (off-workspace-spec "restores a layout
+     whose STAMPED leaf meets an internal seam error WITHOUT visiting the
+     stored path"). A host-side failure AFTER a correct decision still
+     reaches step 2 (=register/invariant/no-silent-wrong-file-open=
+     residual (h)). The four-step set and the three-answer shape are
+     unchanged.
    load_bearing: true
    title: Buffer-reincarnation fallback steps (closed, ordered)
    purpose: |
@@ -3178,30 +3188,29 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      the boundary clearly. Scaffold archived; remains as audit reference.
      See .orchestrator/cycles/cycle-20260525-200459/reconciliations/vocabulary-workspace-broken-disposition.md.
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. (First cited
-     by a workspace-portable-bookmarks task.) The five members and their
-     guards are unchanged; =workspace--broken-p= data-model.el:238; guards
-     at tabs.el:173 / :376, persistence.el:462, workspaces.el:285. THE
-     MOTIVATING FAILURE HAPPENED, in a CONSUMER (eoc-1790453714-01,
-     BLOCKING): portable-bookmarks' "add worktree here" offer
-     (=workspace-bookmark--missing-repo-withheld=,
-     portable-bookmarks.el:618-643) is never withheld for a broken current
-     workspace, and =jf/workspace--add-worktree= then recreates the missing
-     home as a bare directory (probe P1/P2). The offer is not one of the
-     five commands, so it is recorded as a SIXTH consumer_mapping row below,
-     =:refused=, SPECULATED. # owner: add-worktree-broken-workspace-gate
-     (cycle-1790604160). The rule that the offer and core's Integrations
-     menu share ONE health notion is the new
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): entry stays CONFIRMED; the SIXTH consumer_mapping
+     row (the add-worktree OFFER and its CALL in portable-bookmarks, not a
+     command) is CONFIRMED as =:refused= (add-worktree-broken-workspace-gate,
+     merge 360ad60c, fix pass 36ff20cf). The five members and their CORE
+     guards are unchanged (no core .el changed this cycle):
+     =workspace--broken-p= data-model.el:238; guards tabs.el:173 / :376,
+     persistence.el:462, workspaces.el:285. The motivating failure had
+     happened in that consumer (eoc-1790453714-01, BLOCKING): the offer was
+     never withheld for a broken current workspace and
+     =jf/workspace--add-worktree= recreated the missing home as a bare
+     directory (probe P1/P2). The rule that the offer and core's
+     Integrations menu share ONE health notion is
      =register/invariant/add-worktree-offer-shares-workspace-health-gate=;
-     this entry keeps only the disposition. NOTE for core (not this batch):
-     the menu's own gate =workspace--menu-healthy-p=
+     this entry keeps only the disposition. NOTE for core (not this
+     change): the menu's own gate =workspace--menu-healthy-p=
      (workspaces-transient.el:11-14) is =broken-p= only, so a home deleted
      MID-SESSION (untagged — the broken tag is load-time,
      =register/invariant/broken-tag-runtime-only=) still reaches the same
-     directory-creating command through =workspace--menu-invoke-
-     integration= (:25-38) — finding arch-cycle-1790604160-plan-01, routed
-     to .tasks/workspaces-registration-hardening-leftovers.
+     directory-creating command through
+     =workspace--menu-invoke-integration= (:25-38) — finding
+     arch-cycle-1790604160-plan-01, routed to
+     .tasks/workspaces-registration-hardening-leftovers.
    load_bearing: true
    title: Per-command disposition for broken-state workspaces
    purpose: |
@@ -3294,16 +3303,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        broken_disposition: :allowed
        guard_location: N/A (no filesystem-touching code path)
 
-     - consumer: workspace-bookmark--missing-repo-withheld   # portable-bookmarks.el:618; the add-worktree OFFER, not a command (cycle-1790604160, SPECULATED, owner add-worktree-broken-workspace-gate)
+     - consumer: workspace-bookmark--missing-repo-withheld   # the add-worktree OFFER and its CALL, not a command (cycle-1790604160, CONFIRMED)
        broken_disposition: :refused
        guard_location: |
-         an arm of the withheld alist: add-worktree is withheld (with its
-         reason in the prompt) when the current workspace is broken OR its
-         :home is not an existing local directory (file-remote-p first, then
-         file-directory-p — the mid-session case the load-time tag misses);
-         decided by the ONE module health predicate, shared with the
-         off-workspace candidate filter (--offerable-workspaces :903-915).
-         Two offer-matrix specs: tagged-broken; home-vanished.
+         the third cond arm of the withheld alist, after "no workspace is
+         current" and "not runnable": add-worktree is withheld, with its
+         reason in the prompt, when =workspace-bookmark--workspace-unusable=
+         names a reason — the workspace is tagged broken (=workspace--broken-p=,
+         asked before any on-disk check) OR its :home is not an existing
+         local directory (file-remote-p first, then file-directory-p: the
+         mid-session case the load-time tag misses). The same predicate is
+         asked again in =workspace-bookmark--add-worktree-and-replan=
+         immediately before =jf/workspace--add-worktree= is called (a
+         reason declines as (failed . PHRASE), the command not called), and
+         filters the off-workspace candidates (=--offerable-workspaces=).
+         Genuinely refused: for a tagged-broken workspace the add-worktree
+         entry is absent from the choices and the command is not called even
+         when the stand-in would pick it, home present on disk or not; the
+         prompt directs to re-anchor / purge, matching the =:refused=
+         wording of the five commands. Specs: missing-repo-spec § "the
+         offer" (tagged broken; home deleted mid-session; home deleted while
+         the prompt is up) and § "the workspace health gate";
+         off-workspace-spec § "candidates" (broken; home vanished).
 
    canonical_mapping_function: |
      ;; The single source of truth for "is this command allowed on a
@@ -3416,15 +3437,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      cites this entry (integrations.el:53-66). Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/vocabulary-workspace-creation-context.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Six members,
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled). Six members,
      unchanged (integrations.el:53-63 docstring enumerates them; =purge=
-     dispatched at workspaces.el =workspace--dispatch-purge-integrations=;
-     =bookmark-jump= built at portable-bookmarks.el:815). # owner:
-     doc-sync-cycle2 (cycle-1790604160) — the new
-     =specs/workspace-integrations/spec.md= MODIFIED "Creation-time
-     dispatch" requirement lists the six members (eoc-1790453714-02); the
-     entry is the source of the list. No code task touches the set.
+     dispatched by =workspace--dispatch-purge-integrations=; =bookmark-jump=
+     built by =workspace-bookmark--add-worktree-payload=, now through core's
+     constructor unconditionally). The change's delta spec
+     (=specs/workspace-integrations/spec.md=, MODIFIED "Creation-time
+     dispatch", doc-sync-cycle2) lists the six; the main spec takes it at
+     sync. No code task touched the set.
    load_bearing: false
    title: workspace creation/invocation context labels
    purpose: |
@@ -3452,8 +3473,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      - value: "bookmark-jump"
        meaning: NOT a birth context and NOT a transient invocation — built by
                 portable-bookmarks' missing-repo chooser
-                (=workspace-bookmark--add-worktree-payload=, portable-bookmarks.el:806-817,
-                via core's =workspace--integration-payload=) for a DIRECT call of
+                (=workspace-bookmark--add-worktree-payload=, which calls core's
+                =workspace--integration-payload= unconditionally) for a DIRECT call of
                 git-worktrees' =:menu= command when the user answers "add worktree
                 here" at a bookmark jump. The payload also carries =:source-repo=.
                 It is funcalled, never dispatched through the registry, so no other
@@ -3855,28 +3876,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      re-based (arch-on-touch-1790453714-12). Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/vocabulary-bookmark-resolution-outcome.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Code at
-     c65efb86 is identical to 45df6dfd in portable-bookmarks.el (every
-     anchor above holds: =--jump-plan= :499-540, =--decline-message=
-     :458-485, =--no-workspace-plan= :1009-1026, =--after-add-message=
-     :819-826, =--valid-outcomes= :1597, =--outcome= :1610). TWO OWNERS this
-     cycle. # owner: outcome-action-mapping (cycle-1790604160) — SPECULATED,
-     execute settles: the five consumer dispatches collapse into ONE mapping
-     function =workspace-bookmark--plan-for-outcome (record resolution
-     context)= (context in-workspace | none | after-add) plus a
-     =workspace-bookmark--declining-outcomes= constant read by
-     =--decline-message= and =--after-add-message=; the new
-     =canonical_mapping_function= field below is the speculated matrix and
-     validator 6 is its structural check. The nested missing-repo action set
-     is NOT touched by that task. # owner:
-     add-worktree-broken-workspace-gate (cycle-1790604160) — the
-     =add-worktree= member's WITHHELD clause gains two reasons (current
-     workspace broken; home not an existing local directory), decided by the
-     ONE module health predicate of
-     =register/invariant/add-worktree-offer-shares-workspace-health-gate=;
-     the member text is re-stated at integrate, not now. Doc-corrections P2
-     / S1 are owned by doc-sync-cycle2 and change no member.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): STAYS RECONCILED; the six members, their order,
+     the result shape and =--outcome= / =--valid-outcomes= are unchanged.
+     =canonical_mapping_function= and validator 6 move speculated ->
+     RECONCILED (outcome-action-mapping, merge 755483a5, doc fix 84c0ee2d):
+     the five consumer dispatches collapsed into ONE mapping,
+     =workspace-bookmark--plan-for-outcome (record resolution context
+     original)=, realised as a guard-form =pcase= on the outcome (context
+     read by guards) rather than the plan's =(pcase (list O CTX))= sketch —
+     equivalent: one closed dispatch whose default arm signals for an
+     unknown outcome AND an unknown context; the realised form replaces the
+     sketch below. =workspace-bookmark--declining-outcomes= is read by
+     =--decline-message= and =--after-add-message=. Four matrix cells are
+     unreachable from =--resolve= and kept as defensive declines
+     (arch-on-touch-1790604160-12, marked in the mapper's docstring and the
+     .org matrix at 84c0ee2d). The nested set's =add-worktree= member gains
+     the health gate's reasons (add-worktree-broken-workspace-gate, merge
+     360ad60c, fix pass 36ff20cf), asked at the offer AND at the call.
    load_bearing: true
    title: Bookmark resolution outcomes (closed, ORDERED) and the missing-repo action set
    purpose: |
@@ -3900,7 +3917,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      =register/vocabulary/buffer-reincarnation-fallback-chain=.
 
      PRODUCER DISCIPLINE: =workspace-bookmark--resolve=
-     (portable-bookmarks.el:1763) is a DECISION FUNCTION. It may run git
+     (portable-bookmarks.el:1910) is a DECISION FUNCTION. It may run git
      queries; it MUST NOT open a buffer, prompt, or message. Interactive
      policy belongs to the jump seam and the prompt tasks. This is what keeps
      the awkward outcomes unit-testable.
@@ -3909,8 +3926,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    result_shape: |
      =(:outcome O :path P :identity I :relpath R :candidates C :checkout K)=
      — ALWAYS six keys, built only by =workspace-bookmark--outcome=
-     (portable-bookmarks.el:1610), which signals on a symbol outside
-     =workspace-bookmark--valid-outcomes= (:1617-1618). =:candidates= is non-nil
+     (portable-bookmarks.el:1757), which signals on a symbol outside
+     =workspace-bookmark--valid-outcomes=. =:candidates= is non-nil
      only for =ambiguous=; =:checkout= is non-nil only for =resolved=,
      =not-on-branch= and =missing-repo=. Consumers compare =:path= and
      =:checkout= by FILE IDENTITY, never by string: a workspace checkout
@@ -3939,7 +3956,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          something of the relpath's KIND (trailing "/" = directory) exists
          at =<checkout>/<relpath>= by spelling — presence and kind are asked
          of the filesystem, which follows links
-         (=workspace-bookmark--anchor=, portable-bookmarks.el:1674-1700). =:path=
+         (=workspace-bookmark--anchor=, portable-bookmarks.el:1821). =:path=
          is that spelling;
          =:checkout= the checkout. The only outcome that opens anything
          without asking.
@@ -3990,7 +4007,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          function: workspace-bookmark--resolve
        consumer:
          file: config/workspaces/portable-bookmarks.org
-         function: workspace-bookmark--offer-missing-repo   # portable-bookmarks.el:690; also reached from --no-workspace-plan (:1009)
+         function: workspace-bookmark--offer-missing-repo   # via --plan-for-outcome, contexts in-workspace and none
      - value: no-clone
        order: 6
        description: |
@@ -4002,20 +4019,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          function: workspace-bookmark--resolve
 
    consumers: |
-     (cycle-1790453714) Every dispatch over the set is closed:
-     - =workspace-bookmark--jump-plan= (portable-bookmarks.el:529-540), the
-       jump seam: non-portable -> call through with the ORIGINAL argument;
-       resolved -> =--plan-to-open= (pre-flight, then the one copy site);
-       missing-repo -> =--offer-missing-repo=; not-on-branch / ambiguous /
-       no-clone -> decline with =--decline-message=; default SIGNALS.
-     - =workspace-bookmark--decline-message= (:471-485): the four
-       non-opening members; reads only :identity / :relpath / :checkout /
-       :candidates; default SIGNALS.
-     - =workspace-bookmark--no-workspace-plan= (:1018-1026), the
-       off-workspace fallback: missing-repo -> the chooser; ambiguous /
-       no-clone -> decline; ANY other outcome -> decline (never opens).
-     - =workspace-bookmark--after-add-message= (:819-826), after an
-       add-worktree re-resolve: anything but resolved declines.
+     Every dispatch over the set is closed, and exactly ONE maps an outcome
+     to a plan:
+     - =workspace-bookmark--plan-for-outcome= (the canonical mapping, see
+       =canonical_mapping_function=): default SIGNALS for an unknown
+       outcome and for an unknown context.
+     - Planners, each calling the mapper and reading no outcome itself:
+       =--jump-plan= (context =in-workspace=), =--no-workspace-plan=
+       (=none=), =--add-worktree-and-replan= (=after-add=).
+     - Report functions reading =workspace-bookmark--declining-outcomes=
+       instead of re-listing members: =--decline-message= (a report TABLE,
+       not a plan dispatch: a =memq= gate on the constant, a =pcase= per
+       member choosing the text, a signalling =_= arm; reads only
+       :identity / :relpath / :checkout / :candidates) and
+       =--after-add-message=.
      Consumers never re-check confinement, never follow links and never
      compare :path / :checkout by string.
 
@@ -4037,17 +4054,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        nested set gains workspace candidates and is re-stated then.
      reconciled_note: |
        cycle-1790453714: IMPLEMENTED AND CLOSED as
-       =workspace-bookmark--missing-repo-actions= (portable-bookmarks.el:589-601),
+       =workspace-bookmark--missing-repo-actions=,
        three =(ACTION KEY NAME DESCRIPTION)= entries in prompt order, offered
        through =read-multiple-choice= (nothing free-form can be typed) and
-       dispatched by a =pcase= with a signalling default (:714-721); a
+       dispatched by a =pcase= with a signalling default; a
        fourth member is a two-place change (table + dispatch). The chooser
-       =workspace-bookmark--offer-missing-repo (record resolution)= (:690)
+       =workspace-bookmark--offer-missing-repo (record resolution)=
        returns a PLAN and never opens: =(view COPY . CHECKOUT)=,
        =(call-through . COPY)= after a successful add and ONE fresh resolve,
        =(decline . MESSAGE)=, or =(cancel)=; every COPY comes from
        =--plan-to-open= -> =--substituted-record=. Any error inside the
-       choice DECLINES (its own barrier, :704-726), so the seam's
+       choice DECLINES (its own barrier), so the seam's
        stored-path fall-through is unreachable from a missing-repo record.
        When no one can answer (=workspace-bookmark--can-prompt-p= nil: a
        non-interactive Emacs, =inhibit-interaction= bound, or core restoring
@@ -4071,11 +4088,20 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
            decline naming the reason. The only member that mutates the
            filesystem. Offerable whether or not =:path= is nil. WITHHELD
            (with the reason stated in the prompt) when no workspace is
-           current, when the command is not runnable (not =fboundp=, or not
+           current; when the command is not runnable (not =fboundp=, or not
            registered as an integration's =:menu= command —
            =workspace-bookmark--add-worktree-runnable-p=, asked of core
-           through =workspace--integration-menu-command-p=), or when the
-           workspace has no home.
+           through =workspace--integration-menu-command-p=); or when the
+           current workspace is UNUSABLE — not registered, tagged broken
+           (=workspace--broken-p=), no =:home=, a remote home, or a home no
+           longer a directory on disk — as decided by the module's ONE
+           health predicate =workspace-bookmark--workspace-unusable=
+           (=register/invariant/add-worktree-offer-shares-workspace-health-gate=),
+           the reason phrased by =--unusable-phrase=. Asked in that order;
+           the first failing condition is the reason. The health predicate
+           is asked again immediately before the command is called: a
+           workspace that became unusable while the prompt was up declines
+           as =(failed . PHRASE)= without calling it.
        - view-canonical-read-only: |
            Open =:path= under the canonical checkout in =view-mode= with a
            VISIBLE marker that this is the canonical checkout, not a
@@ -4106,37 +4132,55 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      an error).
 
    canonical_mapping_function: |
-     ;; SPECULATED cycle-1790604160, owner outcome-action-mapping (eoc-1790453714-05 §1).
-     ;; The ONE site that maps an outcome to the seam's plan. Any other
-     ;; pcase / cond over the six members outside --decline-message and
-     ;; --after-add-message (which read the constant) is a duplication bug.
-     ;; Matrix (rows = outcome, columns = context):
-     ;;   in-workspace           none (no workspace)     after-add
-     ;; non-portable   (call-through . ORIGINAL)  decline            decline (after-add report)
-     ;; resolved       --plan-to-open call-through  decline          --plan-to-open call-through
-     ;; missing-repo   --offer-missing-repo     --offer-missing-repo   decline (after-add report)
-     ;; not-on-branch  decline (--decline-message)  decline          decline (after-add report)
-     ;; ambiguous      decline                  decline                decline
-     ;; no-clone       decline                  decline                decline
-     ;; anything else  SIGNAL                   SIGNAL                 SIGNAL
+     ;; RECONCILED cycle-1790604160 (outcome-action-mapping). The ONE site
+     ;; that maps an outcome to the seam's plan:
+     ;; workspace-bookmark--plan-for-outcome (record resolution context original),
+     ;; a closed pcase on the outcome, context read by guards, default SIGNALS.
+     ;; Any other pcase / cond over the members outside --decline-message's
+     ;; report table (gated by the constant) is a duplication bug.
+     ;; Contexts: in-workspace — the seam's own decision against the current
+     ;;   or chosen workspace, and an UNSTAMPED record jumped with no current
+     ;;   workspace (it resolves non-portable: stock behaviour);
+     ;;   none — the off-workspace fallback for a STAMPED record, resolved
+     ;;   with no workspace; after-add — the one re-resolve after an add.
+     ;; Matrix (rows = outcome, columns = context; U = unreachable from
+     ;; --resolve, kept as a defensive decline):
+     ;;                in-workspace               none                     after-add
+     ;; non-portable   (call-through . ORIGINAL)  decline, no workspace U  decline (after-add report) U
+     ;; resolved       --plan-to-open copy        decline, no workspace U  --plan-to-open copy
+     ;; missing-repo   --offer-missing-repo       --offer-missing-repo     decline (after-add report)
+     ;; not-on-branch  decline (--decline-message) decline U               decline (after-add report)
+     ;; ambiguous      decline                    decline                  decline (after-add report)
+     ;; no-clone       decline                    decline                  decline (after-add report)
+     ;; anything else, or any other context: SIGNAL (the caller's barrier declines)
      ;; (call-through . ORIGINAL) is produced ONLY by (non-portable, in-workspace).
+     ;; Unreachable: --resolve with no workspace answers only missing-repo,
+     ;; ambiguous or no-clone; a stamped record (the only kind that reaches
+     ;; the chooser, hence after-add) never resolves non-portable.
      (defconst workspace-bookmark--declining-outcomes
        '(not-on-branch ambiguous missing-repo no-clone))
      (defun workspace-bookmark--plan-for-outcome (record resolution context original)
-       (pcase (list (plist-get resolution :outcome) context)
-         ;; ... one arm per cell above; the default arm SIGNALS ...
-         (_ (error "Not a bookmark-resolution outcome: %S" resolution))))
+       (pcase (plist-get resolution :outcome)
+         ((and 'non-portable (guard (eq context 'in-workspace))) (cons 'call-through original))
+         ((and 'resolved (guard (memq context '(in-workspace after-add)))) (--plan-to-open ... 'call-through))
+         ((and 'missing-repo (guard (memq context '(in-workspace none)))) (--offer-missing-repo ...))
+         ((and (or 'not-on-branch 'ambiguous 'no-clone) (guard (memq context '(in-workspace none))))
+          (cons 'decline (--decline-message ...)))
+         ((and (or 'non-portable 'resolved) (guard (eq context 'none))) (cons 'decline "no workspace chosen ..."))
+         ((and (or 'non-portable 'missing-repo 'not-on-branch 'ambiguous 'no-clone) (guard (eq context 'after-add)))
+          (cons 'decline (--after-add-message ...)))
+         (outcome (error "Not a bookmark-resolution outcome in a jump context: %S in %S" outcome context))))
 
    validator: |
      Structural (no scaffolding in this project):
      1. A defconst =workspace-bookmark--valid-outcomes= exists listing
-        exactly the SIX members (portable-bookmarks.el:1597-1598);
+        exactly the SIX members (portable-bookmarks.el:1742);
         portable-bookmarks-resolver-spec.el § "Every outcome the resolver
         returned in this file" (:794-815) asserts every plist returned
         across the file is in the set, has six keys, and that every member
         is covered.
      2. grep -n 'find-file\|switch-to-buffer\|completing-read\|message\|display-buffer\|read-'
-        over portable-bookmarks.el:1597-1813 (the resolver section) -> zero
+        over the resolver section (=--valid-outcomes= through =--resolve=) -> zero
         hits (verified at f860103c); resolver-spec.el:69-139 traps the
         interaction functions (producer discipline).
      3. At least one spec per member; the ordering asserted where two
@@ -4144,23 +4188,28 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         checkout in view (first match wins)", :202); ambiguous asserted from
         BOTH the workspace and the canonical side (:286, :298, :745, :759).
      4. =workspace-bookmark--resolve-anchored='s default arm signals
-        (portable-bookmarks.el:1723); no arm returns a location it did not
+        (its =_= arm); no arm returns a location it did not
         anchor.
      5. (cycle-1790453714) Every consumer dispatch listed under =consumers=
-        has either a SIGNALLING default (=--jump-plan=, =--decline-message=)
-        or a non-opening DECLINE default (=--no-workspace-plan=); none has a
-        default that calls through. The nested set's dispatch (:714-721)
-        signals inside the chooser barrier, i.e. declines.
-     6. (cycle-1790604160, SPECULATED; owner outcome-action-mapping) Exactly ONE
-        function dispatches an outcome to a plan: grep -n "pcase (plist-get"
-        config/workspaces/portable-bookmarks.el over the seam / missing-repo /
-        off-workspace sections -> the mapping function only (plus
-        =--decline-message= and =--after-add-message=, which read
-        =workspace-bookmark--declining-outcomes= instead of re-listing the
-        members); and a structural spec iterates =workspace-bookmark--valid-
-        outcomes= x {in-workspace, none, after-add} and asserts a known plan
-        variant per cell, with (call-through . ORIGINAL) only for
-        (non-portable, in-workspace).
+        signals for what it cannot handle: the mapper's default SIGNALS;
+        =--decline-message='s gate and =_= arm signal; no dispatch has a
+        default that calls through. The nested set's dispatch signals
+        inside the chooser barrier, i.e. declines.
+     6. Exactly ONE function dispatches an outcome to a plan:
+        grep -n "pcase (plist-get" config/workspaces/portable-bookmarks.el
+        -> exactly one hit, in =--plan-for-outcome=; grep -n "(pcase outcome"
+        -> exactly one hit, =--decline-message='s report table, gated by
+        =(memq outcome workspace-bookmark--declining-outcomes)=; grep -n
+        "'(not-on-branch" -> exactly one hit, the constant. Spec:
+        portable-bookmarks-jump-spec.el § "jump seam: one outcome-to-action
+        mapping" iterates =--valid-outcomes= x {in-workspace, none,
+        after-add} (18 cells) asserting a known plan variant per cell and
+        (call-through . ORIGINAL) only for (non-portable, in-workspace);
+        asserts a signal for a seventh outcome and for an unknown context;
+        and reads the tangled file to pin one dispatch in the seam /
+        missing-repo / off-workspace sections, that every planner calls the
+        mapper and reads no outcome, and that both report functions read
+        the constant.
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-resolver-spec.el
@@ -7719,32 +7768,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      for does NOT exist as a spec; validator 5 is its grep. Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/boundary-portable-bookmarks-consumer.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Re-verified:
-     validators 1-5 hold at c65efb86 (zero magit/projectile; loader
-     workspaces.el:62 between :56 and :66; the two git-worktrees public
-     symbols only; =jf/= surface = =jf/emacs-dir= + quoted
-     =jf/workspace--add-worktree= at :613, :839, :842). CORRECTION recorded
-     (eoc-1790453714-01): =workspace--integration-menu-command-p=
-     (integrations.el:41-51) answers REGISTRATION — "is this command some
-     integration's :menu command" — NOT menu VISIBILITY; the Integrations
-     group's health gate is =workspace--menu-healthy-p=
-     (workspaces-transient.el:11-14, applied at :98) and lives in a module
-     this consumer may not name (workspaces-transient loads after it,
-     deferred). So the consumer's "runnable" test
-     (=--add-worktree-runnable-p=, :605-616) is registration only, and the
-     health test is the consumer's own —
-     =register/invariant/add-worktree-offer-shares-workspace-health-gate=.
-     The permitted core surface does NOT grow: the gate uses
-     =workspace--broken-p= and =workspace--home= (already listed) plus
-     =file-remote-p= / =file-directory-p=. # owner:
-     add-worktree-broken-workspace-gate (cycle-1790604160) for that clause;
-     # owner: outcome-action-mapping (cycle-1790604160) for the inbound
-     sibling edge's result handling (=skipped= arm kept, strict reading: see
-     =register/vocabulary/workspace-integration-outcome=) and for removing
-     the unreachable =(unless (fboundp 'jf/workspace--add-worktree) (error
-     ...))= at :839-840 (eoc-1790453714-04) — the guard stays at :613 (the
-     offer gate).
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled). Pins 1-4 and
+     forbidden (a)/(b) hold; validators 1-5 re-run (zero magit/projectile;
+     loader workspaces.el:62 between :56 and :66; the two git-worktrees
+     public symbols only; =jf/= surface = =jf/emacs-dir= + quoted
+     =jf/workspace--add-worktree=). No core .el changed this cycle.
+     =workspace--integration-menu-command-p= (integrations.el:41-51)
+     answers REGISTRATION — "is this command some integration's :menu
+     command" — NOT menu VISIBILITY; the Integrations group's health gate is
+     =workspace--menu-healthy-p= (workspaces-transient.el:11-14), in a module
+     this consumer may not name (workspaces-transient loads after it). So
+     the consumer's "runnable" test (=--add-worktree-runnable-p=) is
+     registration only, and the health test is the consumer's own ONE
+     predicate =workspace-bookmark--workspace-unusable=
+     (=register/invariant/add-worktree-offer-shares-workspace-health-gate=),
+     which replaced =--broken-workspace-p= (deleted). The permitted core
+     surface did NOT grow: the gate uses =workspace--broken-p=,
+     =workspace--home= and the registry read already listed, plus the Emacs
+     primitives =file-remote-p= / =file-directory-p= /
+     =abbreviate-file-name=. The inbound sibling edge
+     (add-worktree-broken-workspace-gate, outcome-action-mapping): the
+     unreachable =(unless (fboundp 'jf/workspace--add-worktree) (error
+     ...))= in =--add-worktree-and-replan= is DELETED; the one =fboundp=
+     guard is the offer gate (=--add-worktree-runnable-p=); the result
+     vocabulary is read STRICTLY, the =skipped= arm kept (see
+     =register/vocabulary/workspace-integration-outcome=).
    load_bearing: true
    title: portable-bookmarks module — droppable bookmark consumer of the workspace registry
    purpose: |
@@ -7791,7 +7840,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        f860103c, cycle-1790453714):
          tabs:         =workspace--registered-names=, =workspace--current-name=,
                        =workspace--registry= (read-only: =gethash= in
-                       =--workspace-home= and =--broken-workspace-p=)
+                       =--workspace-home= and =--workspace-unusable=)
          data-model:   =workspace--home=, =workspace--broken-p=,
                        =workspace--same-file-p=, =workspace--path-within-p=
          persistence:  =workspace-restore= (the off-workspace flow)
@@ -7807,9 +7856,12 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        Guarding: the registry, =workspace--home=, =workspace--broken-p=,
        =workspace-restore=, the two integrations functions and the layouts
        variable are guarded (=fboundp= / =boundp= / =declare-function=) at
-       call time (portable-bookmarks.el:603-616, :806-817, :862-901,
-       :1072-1095, :676-688); the two data-model PREDICATES are called
-       UNGUARDED on purpose (=declare-function= only, :97-98): data-model is
+       call time (=--add-worktree-runnable-p=, =--workspace-unusable=,
+       =--registered-names= / =--current-workspace= / =--workspace-home=,
+       =--can-prompt-p=; =workspace-restore= and the payload constructor
+       by =declare-function=, reached only behind the off-workspace flow and
+       the runnable gate); the two data-model PREDICATES are called
+       UNGUARDED on purpose (=declare-function= only): data-model is
        the package's first module and not droppable, and a guard would
        silently turn identity into "never equal"
        (=register/invariant/directory-identity-by-device-inode= corollary 3).
@@ -7851,7 +7903,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        landing) is a FAILURE and falls through to steps 2-4 as before;
        =quit= propagates.
      - This module is the consumer that reads the variable: its
-       =workspace-bookmark--can-prompt-p= (portable-bookmarks.el:678-688) is
+       =workspace-bookmark--can-prompt-p= is
        nil while it is bound (and in a non-interactive Emacs, and while
        =inhibit-interaction= is bound, because =read-multiple-choice= does not
        honour that variable itself and would loop), so the missing-repo
@@ -7898,16 +7950,17 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      exactly ONE git-worktrees symbol, the PRIVATE =:menu= command
      =jf/workspace--add-worktree=, always quoted — =(fboundp
      'jf/workspace--add-worktree)= and =(funcall 'jf/workspace--add-worktree
-     PAYLOAD)= (portable-bookmarks.el:613, :839-842) — and offers the
+     PAYLOAD)= (in =--add-worktree-runnable-p= and =--add-worktree-and-replan=)
+     — and offers the
      "add worktree here" answer only when core says the command is
      registered as an integration's =:menu= command
-     (=--add-worktree-runnable-p=, :605-616, via
+     (=--add-worktree-runnable-p=, via
      =workspace--integration-menu-command-p=); unregistered or unbound -> the
      option is withheld with a stated reason. The call bypasses the
      integration registry's runner (there is no public "run integration ID's
      surface" accessor) but consumes the registry's own result vocabulary
-     (=ok= / =skipped= / =(failed . REASON)=, signalling on anything else,
-     :845-860). ASYMMETRY, recorded (arch-on-touch-1790453714-32): the
+     (=ok= / =skipped= / =(failed . REASON)=, signalling on anything else).
+     ASYMMETRY, recorded (arch-on-touch-1790453714-32): the
      outbound edge crosses public symbols behind a spec tripwire; the
      inbound edge crosses a private symbol and its tripwire is only a grep
      (validator 5). A public =jf/workspace-add-worktree= or a core
@@ -7952,10 +8005,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         grep -o 'jf/[a-z/-]*' config/workspaces/portable-bookmarks.el | sort -u
         -> exactly =jf/emacs-dir= and =jf/workspace--add-worktree=, and every
         =jf/workspace--add-worktree= occurrence outside strings and
-        docstrings is quoted (='jf/workspace--add-worktree=, :613, :839,
-        :842); grep -oE 'workspace--[a-z-]+'
+        docstrings is quoted (='jf/workspace--add-worktree=: the two in
+        =--add-worktree-runnable-p=, the one =funcall= in
+        =--add-worktree-and-replan=); grep -oE 'workspace--[a-z-]+'
         (excluding =workspace-bookmark-=) -> only the core symbols on the
-        permitted list.
+        permitted list, plus =workspace--add-worktree= (the tail of the
+        =jf/= symbol) and ONE comment mention of
+        =workspace--run-one-integration= (the =skipped= arm's comment in
+        =--add-worktree-and-replan=, contrasting core's lenient reading),
+        which is prose, not a reference, and is tolerated like validator 2's
+        docstring prose.
 
    test_corpus:
      - config/workspaces/test/portable-bookmarks-spec.el
@@ -8089,39 +8148,33 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/boundary-bookmark-advice-seams.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Validators
-     1-5 hold at c65efb86 (advice-add :1818/:1820; one =bookmark-prop-set=
-     :416; barrier :568-570 around =--jump-plan= only; =(apply orig-fn arg
-     args)= :579). # owner: outcome-action-mapping (cycle-1790604160) —
-     SPECULATED, execute settles (eoc-1790453714-05 §2-4): (a)
-     degradation_contract's "stated residual" NARROWS — for a STAMPED record
-     the barrier DECLINES naming the error (a =user-error= before ORIG-FN,
-     never a call-through with the ORIGINAL argument); for an unstamped
-     record it falls through as today. The record's stampedness is decided
-     by =workspace-bookmark--stamped-coordinates= (:1642, never signals), so
-     the barrier's own test cannot itself signal; =quit= still passes both
-     barriers. (b) validator 3's seam-2 half is re-armed: "a condition-case
-     around =--jump-plan= only, DECLINING for a stamped record and falling
-     through with the ORIGINAL argument for an unstamped one". (c) The
-     seam's PLAN shape, until now in no entry, is recorded as =plan_shape=
-     below (its four variants; built today at =--plan-to-open= :438/:443,
-     =--jump-plan= :523/:531/:537, the chooser :715-720,
-     =--add-worktree-and-replan= :850-859, =--no-workspace-plan= :1020-1025,
-     =--off-workspace-plan= :1046-1066, and the barrier :570 — the mapping
-     function becomes the ONE producer of the outcome-decided variants).
-     CALLERS of the advised function, enumerated at plan per meta-discovery
-     3 (in the task body; summary): inside the seam — bookmark.el:1267
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled); the three plan-time
+     speculations are SETTLED by outcome-action-mapping (merge 755483a5,
+     doc fix 84c0ee2d): (a) degradation_contract's residual NARROWED — for
+     a STAMPED record the seam's barrier DECLINES naming the error (a
+     =user-error= before ORIG-FN), through
+     =workspace-bookmark--plan-after-error=, whose stamp test
+     (=workspace-bookmark--stamped-coordinates=) never signals; an
+     unstamped record or a non-record still falls through with the
+     ORIGINAL argument; =quit= passes every barrier; (b) validator 3's
+     seam-2 half re-armed accordingly; (c) =plan_shape= recorded, with ONE
+     producer of the outcome-decided variants,
+     =workspace-bookmark--plan-for-outcome=. A decline reaches every caller
+     of the host alike: =bookmark-insert= (bookmark.el:1534, a direct
+     caller) aborts with the =user-error=, as the seam's docstring states;
+     layouts.el still gates on the =user-error=. The caller census taken at
+     plan is unchanged: inside the seam — bookmark.el:1267
      =bookmark--jump-via= (=bookmark-jump= :1319, =-other-window= :1328,
      =-other-frame=, bmenu :2283-2326), =bookmark-insert= :1534,
-     layouts.el:246, bufferlo.el:2559, consult.el:4331 / :4370,
-     embark.el:4568-4569, org.el:19092, org-refile.el:647; OUTSIDE the seam
-     — bufferlo.el:3021-3022 and :4961 (direct handler funcall, residual
-     (f)), consult.el:4322-4327 (preview opens the stored filename, new
-     residual (g) on no-silent-wrong-file-open); bufferlo.el:1223 advises
-     =bookmark--jump-via= ABOVE the seam (hands OLDFN the record; recorded
-     in purpose). activities.el:835 is in runtime/straight/repos but NOT
-     loaded by this config. No new caller, no new actor.
+     layouts.el =workspace--bookmark-buffer=, bufferlo.el:2559, consult.el
+     :4331 / :4370, embark.el:4568-4569, org.el:19092, org-refile.el:647;
+     OUTSIDE the seam — bufferlo.el:3021-3022 and :4961 (direct handler
+     funcall, residual (f) of no-silent-wrong-file-open), consult.el
+     :4322-4327 (preview, residual (g)); bufferlo.el:1223 advises
+     =bookmark--jump-via= ABOVE the seam (hands OLDFN the record).
+     activities.el:835 is in runtime/straight/repos but NOT loaded by this
+     config.
    load_bearing: true
    title: The two bookmark advice seams — stamp on make-record, substitute on handle-bookmark
    purpose: |
@@ -8131,7 +8184,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
 
      SEAM 1 — STAMP. =:filter-return= advice on =bookmark-make-record=
      (=workspace-bookmark--stamp-record=, portable-bookmarks.el:382;
-     installed at :1818). Receives the record Emacs just built; returns it
+     installed by =workspace-bookmark-install-advice=). Receives the record Emacs just built; returns it
      either stamped or byte-identical. MUST NOT prompt, MUST NOT message,
      MUST NOT alter the bookmark name the user chose. Whole body wrapped in
      =condition-case= returning the ORIGINAL record (:395-402): a failure to
@@ -8165,30 +8218,31 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      OLDFN the record), so the host's string-gated tail and the seam's
      =bookmark-current-bookmark= bookkeeping are skipped for every jump —
      bufferlo's pre-existing behaviour, recorded, not a hazard.
-     COMBINATOR: =:around= (=workspace-bookmark--handle-bookmark-advice=,
-     portable-bookmarks.el:542-587; installed at :1820), forced by
+     COMBINATOR: =:around= (=workspace-bookmark--handle-bookmark-advice=;
+     installed by =workspace-bookmark-install-advice=), forced by
      =register/invariant/no-silent-wrong-file-open= — =:filter-args= can
      substitute the record but cannot decline to call through, and the
      declining arms (=not-on-branch= "MUST NOT be visited", the other
      reports, a =missing-repo= cancel that ends the jump with =quit=) all
      require NOT calling ORIG-FN (disc-module-scaffold-and-fixtures-2). The
-     body acts on the plan =workspace-bookmark--jump-plan= returns (:499):
+     body acts on the plan =workspace-bookmark--jump-plan= returns (or,
+     when deciding it signalled, =workspace-bookmark--plan-after-error=):
      =(decline . MESSAGE)= -> =user-error= before ORIG-FN; =(cancel)= ->
      =(signal 'quit nil)=; =(call-through . ARG)= / =(view COPY . CHECKOUT)=
-     -> ONE =(apply orig-fn arg args)= (:579); any other plan SIGNALS
-     (:587), outside the barrier. After a substituted host call that LANDED
-     (=workspace-bookmark--landed-p=, :447: the current buffer changed, or
+     -> ONE =(apply orig-fn arg args)=; any other plan SIGNALS, outside the
+     barrier. After a substituted host call that LANDED
+     (=workspace-bookmark--landed-p=: the current buffer changed, or
      now visits the copy's filename by file identity) a view is marked
      read-only and a jump by name sets =bookmark-current-bookmark= there;
      every host call is first offered to
-     =workspace-bookmark--note-jump-target= (:994), which records only the
+     =workspace-bookmark--note-jump-target=, which records only the
      outer jump of a restore-then-jump. The originating buffer is never
      touched.
 
      ARGUMENT NORMALIZATION: the seam-2 parameter is
      =BOOKMARK-NAME-OR-RECORD= and may be a STRING NAME or a record.
      Normalize with =bookmark-get-bookmark ... 'noerror= before reading
-     coordinates (:519); a value that normalises to no record calls through
+     coordinates (in =--jump-plan=); a value that normalises to no record calls through
      so the host signals its own error.
 
      HANDLER PRESERVATION: the substituted copy keeps its own =handler=
@@ -8275,58 +8329,79 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      mark the originating buffer when the host does not land".
 
    plan_shape: |
-     (cycle-1790604160, recorded from the code at c65efb86; owner outcome-action-mapping
-     for the producer consolidation.) What =--jump-plan= returns and the seam
-     acts on — FOUR variants, closed; the seam's own dispatch (:571-587) has
-     an arm per variant and a SIGNALLING default:
-       (call-through . ARG)    ARG is the ORIGINAL argument (non-portable, or
-                               the barrier's fall-through for an UNSTAMPED
-                               record) or a substituted COPY (resolved; after a
-                               successful add-worktree). "Substituted vs
-                               original" is decided by =eq= against the
-                               original argument (:581, :1061-1062).
+     What =--jump-plan= returns and the seam acts on — FOUR variants,
+     closed; the seam's own dispatch has an arm per variant and a
+     SIGNALLING default:
+       (call-through . ARG)    ARG is the ORIGINAL argument (non-portable in
+                               context in-workspace; a value that is no
+                               record; the barrier's answer for an
+                               UNSTAMPED record) or a substituted COPY
+                               (resolved; resolved after a successful
+                               add-worktree). "Substituted vs original" is
+                               decided by =eq= against the original argument
+                               (the seam's post-call bookkeeping and the
+                               off-workspace plan's guard).
        (decline . MESSAGE)     open nothing; the seam raises =user-error=
                                MESSAGE before ORIG-FN.
        (view COPY . CHECKOUT)  hand COPY to the host, then mark the landed
                                buffer as a read-only view of CHECKOUT.
        (cancel)                open nothing, say nothing, =(signal 'quit nil)=.
-     Every COPY comes from =--plan-to-open= -> =--substituted-record= (the one
-     copy site). Not a shape-tier entry: the plan crosses no module boundary;
-     it is the seam's internal protocol.
+     Producers: =workspace-bookmark--plan-for-outcome= is the ONE producer
+     of the outcome-decided plans (its only ORIGINAL-argument cell is
+     (non-portable, in-workspace); it delegates to =--plan-to-open= and
+     =--offer-missing-repo=); =--plan-to-open= (the COPY call-through, the
+     view, the vanished-path decline); =--jump-plan= (the non-record
+     call-through, decided before any outcome); =--plan-after-error= (the
+     barrier's decline or unstamped call-through); the chooser
+     =--offer-missing-repo= (not-promptable decline, cancel, view, replan,
+     barrier decline); =--add-worktree-and-replan= (the mapper in context
+     after-add; declines for failed — including the call-time health gate
+     — and skipped); =--off-workspace-plan= (declines only, otherwise a
+     re-entered =--jump-plan=); =--no-workspace-plan= builds nothing of its
+     own (the mapper in context none). Every COPY comes from
+     =--plan-to-open= -> =--substituted-record= (the one copy site). Not a
+     shape-tier entry: the plan crosses no module boundary; it is the
+     seam's internal protocol.
 
    degradation_contract: |
-     Both seams wrap their bodies in =condition-case= and fall through to the
-     ORIGINAL argument on any internal error. Consequence, and the point:
-     a failure affecting ONE bookmark cannot affect other bookmarks or the
-     bookmark file as a whole. (Seam 1: confirmed,
-     portable-bookmarks-stamp-spec.el "returns the original record,
-     unmutated, when building the stamp signals". Seam 2: the barrier wraps
-     the DECISION only (portable-bookmarks.el:568-570); ORIG-FN runs once,
-     outside it, so a handler's own error propagates unchanged and =quit=
-     passes (jump-spec § "barrier and host contract").) Two deliberate
-     narrowings on seam 2, both in the safe direction: the missing-repo
-     chooser has its OWN barrier that turns any error inside the choice into
-     a DECLINE (:704-726), and the off-workspace plan declines on any error
-     and on a would-be call-through of the ORIGINAL argument (:1061-1070) —
-     so neither can reach the stored path through the seam's fall-through.
-     Stated residual: a programming error in the seam's own decision OUTSIDE
-     those two degrades to stock, i.e. the stored path for a stamped record
-     (jump-spec "still opens the stored location when the resolver
-     signals" / "... when the seam's own copy step signals").
+     Both seams wrap their bodies in =condition-case=. Consequence, and the
+     point: a failure affecting ONE bookmark cannot affect other bookmarks
+     or the bookmark file as a whole. Seam 1 falls through to the ORIGINAL
+     record on any internal error (portable-bookmarks-stamp-spec.el
+     "returns the original record, unmutated, when building the stamp
+     signals"). Seam 2's barrier wraps the DECISION only (=condition-case=
+     around =--jump-plan=); ORIG-FN runs once, outside it, so a handler's
+     own error propagates unchanged and =quit= passes (jump-spec §
+     "barrier and host contract"). On an internal error the barrier asks
+     =workspace-bookmark--plan-after-error=: a STAMPED record DECLINES
+     naming the error; an UNSTAMPED record, or an argument that is no
+     record, falls through with the ORIGINAL argument. Two further
+     barriers, both declining: the missing-repo chooser turns any error
+     inside the choice into a DECLINE, and the off-workspace plan declines
+     on any error and on a would-be call-through of the ORIGINAL argument.
+     Stated residual: a programming error in the seam's own decision
+     degrades to stock ONLY for an unstamped record, whose stored path is
+     its correct answer (jump-spec "keeps stock behaviour for an UNSTAMPED
+     record when the resolver signals: the stored location opens, the
+     record is untouched"); for a stamped one it declines (jump-spec "an
+     error inside the seam's decision for a STAMPED record opens nothing"
+     x2).
 
    producer_side:
      file: config/workspaces/portable-bookmarks.org
      functions:
        - "workspace-bookmark--stamp-record — the :filter-return advice on bookmark-make-record (seam 1; portable-bookmarks.el:382)"
-       - "workspace-bookmark--handle-bookmark-advice — the :around advice on bookmark-handle-bookmark (seam 2; portable-bookmarks.el:542)"
-       - "workspace-bookmark--jump-plan — the seam's decision, a closed dispatch over the six outcomes with a signalling default (:499)"
+       - "workspace-bookmark--handle-bookmark-advice — the :around advice on bookmark-handle-bookmark (seam 2)"
+       - "workspace-bookmark--jump-plan — the seam's decision: normalises, hands a stamped record with no workspace off to the off-workspace flow, or maps the resolution in context in-workspace"
+       - "workspace-bookmark--plan-for-outcome — the ONE outcome-to-plan mapping (register/vocabulary/bookmark-resolution-outcome canonical_mapping_function)"
+       - "workspace-bookmark--plan-after-error — the barrier's answer: decline a stamped record, fall through for an unstamped one"
        - "workspace-bookmark--substituted-record — the ONE copy site (:404)"
        - "workspace-bookmark--plan-to-open — pre-flight + copy, the only producer of an opening plan (:419)"
        - "workspace-bookmark--landed-p — did the host land (:447)"
      install_and_remove: |
        Advice installation AND matching removal are both defined
-       (=workspace-bookmark-install-advice= portable-bookmarks.el:1815-1821,
-       run at load :1831; =workspace-bookmark-remove-advice= :1823-1829), so
+       (=workspace-bookmark-install-advice=, run at load;
+       =workspace-bookmark-remove-advice=), so
        the module can be reloaded during development without stacking advice
        (portable-bookmarks-spec.el pins idempotent installation). The module
        no longer adds anything else at load (the off-workspace anti-save
@@ -8337,7 +8412,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      1. grep -n 'advice-add' config/workspaces/portable-bookmarks.el ->
         exactly two seams, on bookmark-make-record (:filter-return) and
         bookmark-handle-bookmark (:around); NOT on bookmark-jump, NOT on
-        find-file (verified portable-bookmarks.el:1818, :1820;
+        find-file (verified at 84c0ee2d: two =advice-add= calls, in
+        =workspace-bookmark-install-advice=;
         portable-bookmarks-spec.el "installs advice on both bookmark seams",
         "advises neither bookmark-jump nor find-file").
      2. grep -n "bookmark-prop-set" config/workspaces/portable-bookmarks.el
@@ -8347,9 +8423,11 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         file and pins both).
      3. Seam 1's body is one condition-case returning the ORIGINAL record
         (portable-bookmarks.el:395-402). Seam 2's barrier is a condition-case
-        around =--jump-plan= only (:568-570), falling through with the
-        ORIGINAL argument; the single =(apply orig-fn arg args)= (:579) is
-        outside it.
+        around =--jump-plan= only, its handler =--plan-after-error=
+        (outside the protected form): DECLINING for a stamped record and
+        falling through with the ORIGINAL argument for an unstamped one;
+        the single =(apply orig-fn arg args)=, the module's only =orig-fn=
+        call, is outside it.
      4. A behavioral spec drives bookmark-jump-other-window (not just
         bookmark-jump) and asserts resolution happened — proving the choke
         point (jump-spec "resolves through bookmark-jump-other-window too").
@@ -12092,35 +12170,24 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      layout-chain clauses. known_residuals gain (c)-(f). Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/invariant-no-silent-wrong-file-open.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. All four
-     actors unchanged at c65efb86 (seam :542-587, chooser :690-726,
-     off-workspace :1028-1070, layouts.el:213-329). # owner:
-     outcome-action-mapping (cycle-1790604160) — SPECULATED, execute settles
-     (eoc- 1790453714-05): (a) known_residual (c) is CLOSED for STAMPED
-     records: the seam's barrier (:568-570) declines, naming the error, when
-     =workspace-bookmark--stamped-coordinates= (never signals, :1642) is
-     non-nil for the record; an UNSTAMPED record keeps the stock
-     fall-through (its stored path IS today's correct answer); (b) validator
-     1 is REWORDED below — "no catch-all arm opens, AND no barrier turns a
-     signal from a stamped record's dispatch into a call-through"; (c) the
-     two jump-spec pins of residual (c) ("still opens the stored location
-     when the resolver signals" / "... when the seam's own copy step
-     signals", jump-spec.el:512-533, which stamp their record through the
-     real seam 1) are REWRITTEN to assert a decline, and an unstamped twin
-     keeps the stock assertion; (d) CONSEQUENCE for the fourth actor: a
-     layout leaf whose STAMPED bookmark meets an internal seam error now
-     DECLINES (reason buffer, one report) instead of opening the stored path
-     — inside asks 1790453714-1/2, pinned by a new leaf spec. NEW residual
-     (g), recorded (informational finding arch-cycle-1790604160-plan-06):
-     consult's bookmark PREVIEW (consult.el:4322-4327) opens
-     =bookmark-get-filename= of a default-handler record in a temporary
-     buffer without passing seam 2 — a stamped record previews its STORED
-     path (route 4, preview only, outside the choke point like (f)); no task
-     unless it bites. # owner: add-worktree-broken-workspace-gate
-     (cycle-1790604160) — prohibition 2's neighbour: =add-worktree= must not
-     be OFFERED where it would recreate a missing home (eoc-1790453714-01) —
-     pinned by the new invariant entry, not by a change here.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled); validator 1' is
+     CONFIRMED and folded into validator 1 (outcome-action-mapping, merge
+     755483a5). Known residual (c) is CLOSED for STAMPED records: the seam's
+     barrier answers through =workspace-bookmark--plan-after-error=, which
+     declines for a stamped record and falls through with the ORIGINAL
+     argument only for an unstamped one. Consequence for the fourth actor:
+     a layout leaf whose STAMPED bookmark meets an internal seam error
+     reaches core's gate as a decline (reason buffer, one report) instead of
+     opening the stored path. New residuals recorded: (g) consult's
+     bookmark preview (informational finding
+     arch-cycle-1790604160-plan-06) and (h) host-side failures after a
+     correct decision during a layout restore (arch-on-touch-1790604160-13).
+     Prohibition 2's offer-side neighbour — =add-worktree= must not be
+     OFFERED or CALLED where it would recreate a missing home
+     (eoc-1790453714-01) — is pinned by
+     =register/invariant/add-worktree-offer-shares-workspace-health-gate=,
+     not here.
    load_bearing: true
    title: No resolution path opens a location the user did not ask for
    statement: |
@@ -12164,9 +12231,10 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         all-broken registry, or no workspace chosen, goes to the bounded
         =missing-repo= chooser or declines; a restore error declines; a plan
         that would call through with the ORIGINAL argument after the restore
-        DECLINES (stricter than in-workspace =non-portable=: after the
-        hand-off that plan can only come from the resolver's error barrier,
-        whose :path is the stored filename). When no one can answer the
+        DECLINES (stricter than in-workspace =non-portable=, and doubly
+        defensive: a stamped record never resolves =non-portable= and an
+        error in its decision declines, so that plan cannot arise for it;
+        the check is kept as a guard). When no one can answer the
         workspace prompt, the jump declines without prompting; C-g at it
         ends the jump (=quit=), with no second prompt.
         LAYOUT RESTORE (core, the fourth actor): a leaf whose bookmark
@@ -12225,13 +12293,19 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      (b) A TAMPERED stamp (lexical escape) opens the stored filename, as
          stock Emacs would for that record. Accepted: whoever writes the
          stamp writes filename too.
-     (c) (cycle-1790453714) A programming error in the seam's own decision,
-         outside the missing-repo chooser's and the off-workspace plan's own
-         barriers, degrades to stock: the stored path for a stamped record
-         (portable-bookmarks.el:568-570; pinned by jump-spec "still opens the
-         stored location when the resolver signals" / "... when the seam's
-         own copy step signals"). The resolver itself never signals (errors
-         map to no-clone / non-portable).
+     (c) A programming error in the seam's own decision degrades to stock
+         ONLY for an UNSTAMPED record (or an argument that is no record),
+         whose stored path is its correct answer: the seam's barrier
+         (=condition-case= around =--jump-plan= only) answers through
+         =workspace-bookmark--plan-after-error=, which DECLINES, naming the
+         error, for any record =workspace-bookmark--stamped-coordinates=
+         accepts (that test never signals). Pinned by jump-spec § "barrier
+         and host contract" — "an error inside the seam's decision for a
+         STAMPED record opens nothing: the resolver signals, the jump
+         declines" / "... the copy step signals, the jump declines" — and
+         the unstamped twin "keeps stock behaviour for an UNSTAMPED record
+         when the resolver signals". The resolver itself never signals
+         (errors map to no-clone / non-portable).
      (d) (cycle-1790453714) A resolved path that vanishes in the
          microseconds between the seam's =file-exists-p= pre-flight and the
          handler's own visit meets the host's swallow for a record argument:
@@ -12249,6 +12323,21 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          or frame bookmark opens its STORED filename (route 4) — outside the
          choke point, not a supported workflow here; no task unless it
          becomes one.
+     (g) (cycle-1790604160, arch-cycle-1790604160-plan-06) consult's
+         bookmark PREVIEW (consult.el:4322-4327) opens =bookmark-get-filename=
+         of a default-handler record in a temporary buffer without passing
+         seam 2, so a stamped record previews its STORED path (route 4,
+         preview only, outside the choke point like (f)); no task unless it
+         bites.
+     (h) (cycle-1790604160, arch-on-touch-1790604160-13) After a CORRECT
+         decision, a failure on the host side during a layout-leaf restore
+         — the handler's own error on the substituted copy, or the vanish
+         race of (d) — reaches core's FAILED arm, which then tries the
+         leaf's saved filename (=workspace--deserialize-buffer=, layouts.el
+         step 2). That filename is the capture-time path in the restored
+         workspace's own layout, not a bookmark's stored path from another
+         workspace: it opens nothing a restore of that layout did not
+         already hold. Validator 1 is scoped to the DECISION and still holds.
 
    enforcement_mechanism:
      kind: test + structural
@@ -12262,7 +12351,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        - portable-bookmarks-jump-spec.el — =not-on-branch= creates NO
          buffer (no buffer visits the missing path, nor the stored one);
          ambiguous / no-clone decline; a vanished resolved path declines
-         without touching the originating buffer.
+         without touching the originating buffer; an error in the seam's
+         decision for a STAMPED record declines (the unstamped twin keeps
+         stock behaviour); =quit= passes the barrier.
        - portable-bookmarks-missing-repo-spec.el — cancel opens nothing,
          signals =quit= and says nothing; the read-only view is =view-mode=
          and marked, and stays marked through =C-x C-q= and a mode-resetting
@@ -12272,7 +12363,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
          restore failure, C-g at the workspace prompt and "no one can
          answer" all open nothing; § "layout reincarnation chain: a leaf
          whose bookmark declines" restores a layout without visiting the
-         stored path.
+         stored path, including "restores a layout whose STAMPED leaf meets
+         an internal seam error WITHOUT visiting the stored path: the window
+         shows why, one report".
        - buffer-reincarnation-spec.el § "the gate: a bookmark handler that
          declines" — core skips steps 2-3 on a decline, and the step-1
          dispatch's default arm signals rather than opening the filename.
@@ -12307,20 +12400,34 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      0. The three module enforcement spec files above exist (verified at
         f860103c).
      1. No outcome dispatch has a permissive default arm that opens a
-        location. A catch-all arm must error or no-op, never open. Concrete
-        sites, each SIGNALLING (verified at f860103c):
-        =workspace-bookmark--resolve-anchored= (portable-bookmarks.el:1723;
-        resolver-spec "answers for an anchoring answer nobody wrote code
-        for, never a location"), =--jump-plan= (:539-540), the seam's plan
-        dispatch (:587), =--decline-message= (:485), =--plan-to-open= (:445),
-        =--offer-missing-repo='s action dispatch (:721, inside the chooser
-        barrier, so it declines), =--add-worktree-and-replan= (:860,
-        likewise); and core's =workspace--deserialize-buffer= step-1
-        dispatch (layouts.el:329; buffer-reincarnation-spec "signals, never
-        opening the saved filename, when step 1 answers anything but a
-        buffer, nil or a decline").
+        location, AND no barrier turns a signal raised while deciding a
+        STAMPED record's plan into a call-through. A catch-all arm must
+        error or no-op, never open. Concrete sites, each SIGNALLING
+        (verified at 84c0ee2d): =workspace-bookmark--resolve-anchored='s
+        =_= arm (resolver-spec "answers for an anchoring answer nobody wrote
+        code for, never a location"), =--plan-for-outcome='s default (an
+        unknown outcome AND an unknown context; jump-spec "signals for an
+        outcome outside the closed set, in every context" / "signals for a
+        context it has no column for"), the seam's plan dispatch default,
+        =--decline-message= (its =memq= gate and its =_= arm),
+        =--plan-to-open='s unknown KIND, =--offer-missing-repo='s action
+        dispatch (inside the chooser barrier, so it declines),
+        =--add-worktree-and-replan='s unknown result (likewise); and core's
+        =workspace--deserialize-buffer= step-1 dispatch (layouts.el;
+        buffer-reincarnation-spec "signals, never opening the saved
+        filename, when step 1 answers anything but a buffer, nil or a
+        decline"). =(call-through . ORIGINAL)= has exactly three producers,
+        none reachable by a stamped record: the (non-portable, in-workspace)
+        cell of =--plan-for-outcome=, =--jump-plan='s "normalises to no
+        record" arm, and =--plan-after-error= for an unstamped record. The
+        seam's barrier declines for a record whose
+        =workspace-bookmark--stamped-coordinates= is non-nil (jump-spec
+        "an error inside the seam's decision for a STAMPED record opens
+        nothing" x2, the unstamped twin, and off-workspace-spec's
+        STAMPED-leaf layout spec).
      2. grep -n 'find-file\|find-file-noselect' in the resolver section
-        (portable-bookmarks.el:1597-1813) -> zero hits (verified); the
+        (portable-bookmarks.el, =workspace-bookmark--valid-outcomes= through
+        =workspace-bookmark--resolve=) -> zero hits (verified at 84c0ee2d); the
         missing-repo section names no file-visiting function
         (missing-repo-spec § "structure").
      3. The canonical read-only view sets view-mode AND writes a visible
@@ -12333,15 +12440,6 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         link yields that workspace's spelling, never the stored filename
         (portable-bookmarks-resolver-spec.el § "Resolution from a second
         workspace through links (DD-16)").
-     1'. (cycle-1790604160, SPECULATED; owner outcome-action-mapping; supersedes the
-        first sentence of validator 1 once reconciled) No catch-all arm
-        opens, AND no barrier turns a signal raised while deciding a STAMPED
-        record's plan into a call-through: the seam's barrier
-        (portable-bookmarks.el:568-570) declines for a record whose
-        =workspace-bookmark--stamped-coordinates= is non-nil and calls through
-        with the ORIGINAL argument only for an unstamped one. Spec: jump-spec
-        "an error inside the seam's decision for a stamped record opens
-        nothing" (+ the unstamped twin), and a layout-leaf spec.
 
    design_anchor:
      section: design.md §D6, §D7
@@ -12454,19 +12552,16 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      doc correction is owed (recorded in the reconciliation note). Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/invariant-bookmark-jump-not-captured-as-working-state.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Validators
-     0-5 hold at c65efb86 (zero anti-save hits; =--finish-delay= :882 =
-     0.001; =--restore-for-jump= :973-992 raises the flag once after
-     =workspace-restore= returns at :988-989; =--note-jump-target=
-     :994-1007; =--finish-restore= :956-971). CONFIRMED STALE at HEAD:
-     design.md D9 (:200-218) still reads "is not remembered" / "deliberately
-     **not** captured as the workspace's :working-state" and still names
-     =workspace-anti-save-predicates= (:213). # owner: doc-sync-cycle2
-     (cycle-1790604160) — correction D-h of eoc-1790453714 § Doc
-     corrections; the entry's design_anchor is re-stated at integrate from
-     "(text NOT yet amended)" to the amended D9 once the grep in that task's
-     verification passes. No code task cites this entry.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled). Validators 0-5 hold
+     (zero =anti-save= hits in the module; =--finish-delay= 0.001;
+     =--restore-for-jump= raises the flag once, after =workspace-restore=
+     returns; =--note-jump-target= lowers it on the outer jump's host call;
+     =--finish-restore= clears both in its =unwind-protect=). The module
+     code these name is unchanged this cycle. design.md D9 now carries the
+     user decision (doc-sync-cycle2, merge 24496974): the jump is
+     "remembered like any find-file in a workspace", and no anti-save
+     predicate is named.
    load_bearing: true
    title: A restore-then-jump shows its target in the painted layout (paint, then show; outer jump only) and is then remembered like any visit
    statement: |
@@ -12597,14 +12692,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         (the old "leak guard", now the positive statement 3).
 
    design_anchor:
-     section: design.md §D9 (text NOT yet amended at f860103c — see status_note)
+     section: design.md §D9 (amended by doc-sync-cycle2; verified at 84c0ee2d)
      quote: |
-       User decision ask-cycle-1790453714-3 (b), 2026-09-27: "REMEMBER IT.
-       A jump-triggered restore behaves like any find-file in a workspace.
-       Drop D9's 'must not be written into :working-state' claim; remove
-       the inert anti-save predicate + flag." (D9's other half stands: "The
-       restored layout is painted, then the bookmark's file replaces the
-       selected window.")
+       "The restored layout is painted, then the bookmark's file replaces the
+       selected window: same window, no split, and the finish step runs
+       strictly after the deferred paint. The result is remembered like any
+       find-file in a workspace: the next autosave may capture it into
+       :working-state, and :saved-state is untouched, as by every autosave.
+       (Decided 2026-09-27, ask-1790453714-3 (b): the autosave-suppression
+       flag was inert and was removed.)"
 
    related_entries:
      - register/invariant/autosave-never-writes-saved-state
@@ -12966,35 +13062,23 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      Note:
      .orchestrator/cycles/cycle-1790453714/reconciliations/invariant-spec-registry-isolation-via-fixtures.md
 
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode:
-     RE-STATED for cycle 3 against c65efb86; status unchanged. Validators
-     1-3 re-verified at c65efb86 (no registry rebinding; primitives called
-     only in fixtures.el and portable-bookmarks-spec.el; zero local commit
-     helpers). The "Observed, advisory" stand-in count is CONFIRMED at HEAD
-     and WIDENED (eoc-1790453714-03): =workspace--registered-names= stand-in
-     in SIX files (cost-spec.el:44, git-worktrees-spec.el:53,
-     discovery-spec.el:49, jump-spec.el:47, missing-repo-spec.el:64,
-     resolver-spec.el:44); fake-remote file-name handler in FIVE files, two
-     dialects (name-ops-pass: broken-home-load-spec.el:151,
-     workspace-delete-purge-spec.el:579, workspace-new-anchor-spec.el:363;
-     only-file-remote-p: git-worktrees-spec.el:209,
-     portable-bookmarks-cost-spec.el:366); bookmark-jump harness in THREE
-     (jump-spec.el:69-170, missing-repo-spec.el:103-215,
-     off-workspace-spec.el:103-280; off-workspace's =--visits-p= :273 lacks
-     the Dired arm jump-spec's :161 has). # owner:
-     test-stand-in-consolidation (cycle-1790604160, wave 3, LAST) —
-     SPECULATED, execute settles: the statement's "one owner" discipline
-     EXTENDS from the registry scope to every stand-in (validator 6 below, a
-     COUNTING spec, is the durable half); the fake-remote handler's home is
-     a CORE test-helper file, because the accepted rule in known_violations
-     ("a core spec must not depend on a droppable consumer's fixtures")
-     binds broken-home-load / workspace-delete-purge / workspace-new-anchor;
-     the registered-names stand-in and the jump harness go into
-     portable-bookmarks-fixtures.el. The other two code tasks of this cycle
-     (add-worktree-broken-workspace-gate, outcome-action-mapping) are told
-     in their bodies: any NEW stand-in goes into the fixtures module, none
-     inline, so the wave-3 count lands on a set that did not regrow in waves
-     1-2.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): status unchanged (reconciled). The "one owner"
+     discipline now covers every shared test STAND-IN, not only the
+     registry scope (test-stand-in-consolidation, merge 442b2989, validator
+     fix 5286b23d). Two homes, neither a spec file:
+     portable-bookmarks-fixtures.el (the =workspace--registered-names=
+     stand-in, the bookmark-jump harness =workspace-bookmark-fixtures-hermetic=
+     / =-visits-p= / =-answering= / =-decline=, the signalling collaborator
+     =workspace-bookmark-fixtures-signalling=) and the NEW core helper
+     config/workspaces/test/workspaces-test-helpers.el (the fake remote
+     file-name handler, =workspaces-test-with-fake-remote=), which core specs
+     (broken-home-load, workspace-delete-purge, workspace-new-anchor) load by
+     path without the consumer's fixtures, and which the fixtures load too.
+     The durable half is validator 6, a COUNTING spec. The plan's premise
+     that the Dired-aware harness would turn vacuous off-workspace specs
+     real did not hold: no off-workspace spec jumps to a directory bookmark,
+     so the harness merge changed no assertion's strength.
    load_bearing: true
    title: Specs never rebind the shared workspace registry themselves; the fixtures module owns the one registry scope
    statement: |
@@ -13005,7 +13089,7 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      =workspace--registry=, and none calls the swapping primitives
      directly. The ONE registry-scope construct is the fixtures module's
      describe-level macro =workspace-bookmark-fixtures-with-empty-registry=
-     (portable-bookmarks-fixtures.el:176): it installs a =before-each= that
+     (portable-bookmarks-fixtures.el): it installs a =before-each= that
      sets the live table aside, installs a fresh =equal= hash table, starts
      a fixture scope (=workspace-bookmark-fixtures-setup=) and runs the
      describe's SETUP-BODY, and an =after-each= that tears the scope down
@@ -13016,22 +13100,32 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      deliberately leaves the scope OPEN so the failing spec's body still
      runs isolated. The ONE commit-a-file helper is
      =workspace-bookmark-fixtures-commit-file (repo relpath &optional
-     contents)= (:295); multi-file or merge-conflict commits go through the
-     fixtures' runner =workspace-bookmark-fixtures-git= (:224). Every spec is
+     contents)=; multi-file or merge-conflict commits go through the
+     fixtures' runner =workspace-bookmark-fixtures-git=. Every spec is
      green in ISOLATION (./bin/run-tests.sh -d config/workspaces exits 0)
      AND in the FULL run (failure set = the cycle baseline;
      compare-baseline.py prints NO-REGRESSION); a spec that passes in one
      mode and not the other is a violation of THIS invariant before it is
      anything else. The fixtures file's own =(defvar workspace--registry
-     ...)= (fixtures.el:47) is a load-order fallback definition, not a
+     ...)= is a load-order fallback definition, not a
      rebinding, and stays.
 
      The same discipline covers the portable-bookmarks module's own jump
-     globals: =workspace-bookmark-fixtures-reset-jump-state= (:88) cancels
+     globals: =workspace-bookmark-fixtures-reset-jump-state= cancels
      a pending restore-then-jump finish step and clears the jump target and
      its armed flag, and runs FIRST in =--teardown=, so an off-workspace
      jump that did not drain its timers cannot leak into the next spec
      file.
+
+     The same one-owner rule covers every stand-in the workspaces specs
+     share: no =*-spec.el= under config/workspaces/test/ defines its own
+     registered-names stand-in, fake remote file-name handler (or any other
+     =file-remote-p= / =file-name-handler-alist= fake), bookmark-jump
+     harness, or — where it loads the fixtures — signalling collaborator.
+     Each has ONE home outside the spec files: portable-bookmarks-fixtures.el,
+     or, for the fake remote handler that core specs need too, the core
+     helper workspaces-test-helpers.el (a core spec must not depend on a
+     droppable consumer's fixtures).
    why_it_matters: |
      The buttercup runner loads every spec file into ONE Emacs process and
      runs once, so any global a spec leaves changed is the next file's
@@ -13071,7 +13165,9 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        directory cannot be deleted; and the expansion pin), and
        portable-bookmarks-jump-spec.el "leaves nothing of the off-workspace
        jump pending for the next spec: the fixtures' teardown cancelled the
-       finish step and cleared the jump state".
+       finish step and cleared the jump state"; and the counting spec of
+       validator 6 (portable-bookmarks-spec.el § "portable-bookmarks
+       fixtures: one home per stand-in").
      enforcement_locus_check: |
        Where is this enforced? In ONE macro and ONE teardown, so
        restore-on-exit is written once and a bug in it fails every spec at
@@ -13103,14 +13199,26 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
         failure set equals the cycle baseline (compare-baseline.py).
      5. A fixtures spec pins restore-on-non-local-exit for the macro, and
         jump-spec pins that no jump state survives a spec.
-     6. (cycle-1790604160, SPECULATED; owner test-stand-in-consolidation) COUNTING
-        validator, run as a spec that reads the test directory: over
-        config/workspaces/test/*-spec.el,
-        grep -c '(defun workspace--registered-names\|remote-handler (operation\|--visits-p (path)\|defmacro [a-z-]*--hermetic'
-        -> 0 (the one home of each is portable-bookmarks-fixtures.el or the
-        core test helper the task names). Any spec that needs a stand-in
-        requires it from there; the validator fails the suite when a copy
-        regrows.
+     6. COUNTING validator, run as a spec: portable-bookmarks-spec.el §
+        "portable-bookmarks fixtures: one home per stand-in" / "finds no
+        inline stand-in in any spec file" reads every =*-spec.el= of
+        config/workspaces/test/ (asserting more than 30 files) and fails the
+        suite on any match of =portable-bookmarks-spec--stand-in-shapes=: a
+        =workspace--registered-names= defun; a fake remote file-name handler
+        (=remote-handler (operation=, or any =(defun NAME (operation &rest=);
+        a =file-remote-p= stand-in (=cl-letf= on it, a =(symbol-function
+        'file-remote-p)= place, whitespace and line breaks tolerated, or
+        =spy-on 'file-remote-p=); ANY mention of =file-name-handler-alist=
+        (a handler bound in the alist); a =--visits-p= defun; a =--hermetic=
+        defmacro. In spec files that load portable-bookmarks-fixtures.el it
+        also counts the signalling-collaborator shape (a =(symbol-function
+        'F)= place bound to =(lambda (&rest _) (error ...))=,
+        =portable-bookmarks-spec--fixtures-stand-in-shapes=). Not vacuous:
+        the same spec matches one planted copy of every shape, and asserts
+        that every home is =fboundp= (=workspace--registered-names=,
+        =workspace-bookmark-fixtures-hermetic=, =-visits-p=, =-signalling=,
+        =workspaces-test-with-fake-remote=). Each regexp is spelled so it
+        does not match its own source.
    known_violations: |
      CLEARED cycle-1790453714 (consolidate-portable-bookmarks-test-fixtures,
      verified at f860103c): the three per-file swaps (discovery-spec,
@@ -13121,15 +13229,15 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      workspace-new-anchor-spec.el) stay — a core spec must not depend on a
      droppable consumer's fixtures, and scaffold-spec's wrapper ignores exit
      status by design, which =workspace-bookmark-fixtures-git= refuses to.
-     Observed, advisory: the =workspace--registered-names= stand-in
-     (=(unless (fboundp ...) (defun ... (maphash ...)))=) is copied in SIX
-     spec files (cost, discovery, jump, missing-repo, resolver,
-     git-worktrees); it reads only, and belongs in the fixtures module
-     (arch-on-touch-1790453714-4 note). Naming debt: a CORE spec
-     (file-identity-spec.el) now loads portable-bookmarks-fixtures.el for
-     the one registry-scope macro; when the repo-wide item lands, the macro's
-     home should be a core test helper that the portable-bookmarks fixtures
-     build on.
+     CLEARED cycle-1790604160 (test-stand-in-consolidation, verified at
+     84c0ee2d): the =workspace--registered-names= stand-in copied in six
+     spec files, the fake-remote handler in five (two dialects) and the
+     bookmark-jump harness in three are gone; each has the one home named
+     in validator 6. Naming debt: a CORE spec (file-identity-spec.el) loads
+     portable-bookmarks-fixtures.el for the one registry-scope macro; the
+     core test helper (workspaces-test-helpers.el) now exists and is where
+     that macro belongs when the repo-wide item lands, the portable-bookmarks
+     fixtures building on it.
      Repo-wide generalisation — owner
      .tasks/test-suite-shared-global-state-isolation (promotion DECLINED by
      the user 2026-09-27, ask-cycle-1789935943-19); NOT this change:
@@ -13153,7 +13261,8 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
        bookmark list."
    test_corpus:
      - config/workspaces/test/portable-bookmarks-fixtures.el
-     - config/workspaces/test/portable-bookmarks-spec.el
+     - config/workspaces/test/workspaces-test-helpers.el      # core stand-in home (fake remote handler)
+     - config/workspaces/test/portable-bookmarks-spec.el      # registry-isolation specs + the counting spec (validator 6)
      - config/workspaces/test/portable-bookmarks-jump-spec.el
    related_entries:
      - register/boundary/portable-bookmarks-consumer
@@ -13181,47 +13290,62 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
    #+begin_src yaml
    entry_id: register/invariant/add-worktree-offer-shares-workspace-health-gate
    tier: invariant
-   status: speculated
+   status: confirmed
    status_note: |
-     cycle-1790604160 (workspace-portable-bookmarks) plan, forward-mode: SEEDED from
-     eoc-1790453714-01 (BLOCKING) and meta-discovery 1 ("registration
-     invariants were enforced command by command; a fourth gap in a
-     consumer gate"). # owner: add-worktree-broken-workspace-gate
-     (cycle-1790604160, wave 1, FIRST merge). load_bearing TRUE: the violation has
-     already cost a blocking finding and, on the probes, a recreated home
-     with no home.org (the template's bar). SPECULATED for execute to
-     settle: (a) the predicate's NAME and home — one module-private
-     function next to =--broken-workspace-p= (portable-bookmarks.el:892), e.g.
-     =workspace-bookmark--workspace-usable-p (name)= = registered AND not
-     =workspace--broken-p= AND :home a string that is not =file-remote-p=
-     AND =file-directory-p= (in that order: remote first, so a remote home
-     is never stat'ed); (b) that =--offerable-workspaces= (:903-915) is
-     routed through the SAME predicate, so the off-workspace picker also
-     drops a workspace whose home vanished mid-session (today it drops
-     tagged-broken only) — one spec row; (c) the prompt wording of the two
-     new withheld reasons. Core-side gap (menu gate is broken-p only) is
-     NOT this entry's enforcement locus; see why_it_matters.
+     cycle-1790604160 (workspace-portable-bookmarks) integrate, conformance
+     (against 84c0ee2d): CONFIRMED. Seeded at plan from eoc-1790453714-01
+     (BLOCKING) and meta-discovery 1 ("registration invariants were
+     enforced command by command; a fourth gap in a consumer gate");
+     settled by add-worktree-broken-workspace-gate (merge 360ad60c, fix pass
+     36ff20cf). The ONE predicate is =workspace-bookmark--workspace-unusable
+     (name)=, where =--broken-workspace-p= stood (that defun is deleted, no
+     caller left). It differs from the plan's =--usable-p= sketch in shape
+     only: NIL when NAME is usable, otherwise the REASON, a symbol, the first
+     that applies. The gate is asked TWICE: at the OFFER
+     (=--missing-repo-withheld=) and again immediately before the
+     =jf/workspace--add-worktree= call (=--add-worktree-and-replan=), because
+     the offer's answer can go stale while the prompt is up. The
+     off-workspace picker (=--offerable-workspaces=) reads the same
+     predicate. load_bearing TRUE: the violation already cost a blocking
+     finding and, on the probes, a recreated home with no home.org. The
+     core-side gap (menu gate is broken-p only) is NOT this entry's
+     enforcement locus; see enforcement_locus_check.
    load_bearing: true
    title: The add-worktree offer is gated by ONE workspace-health predicate — the menu's notion, never a second one
    statement: |
      portable-bookmarks offers "add worktree here" (the =add-worktree=
-     member of the missing-repo action set) ONLY for a current workspace
-     that is USABLE: registered, not tagged broken (=workspace--broken-p=),
-     and whose =:home= is an existing LOCAL directory (=file-remote-p= nil,
+     member of the missing-repo action set), and calls
+     =jf/workspace--add-worktree=, ONLY for a current workspace that is
+     USABLE: registered, not tagged broken (=workspace--broken-p=), and
+     whose =:home= is an existing LOCAL directory (=file-remote-p= nil,
      then =file-directory-p= t). Exactly ONE predicate in the module
-     answers "usable"; =workspace-bookmark--missing-repo-withheld=
-     (portable-bookmarks.el:618-643) and the off-workspace candidate
-     filter =workspace-bookmark--offerable-workspaces= (:903-915) both read
-     it; no site re-derives health from the registry plist. The predicate
-     is the consumer's mirror of core's Integrations-menu gate
-     (=workspace--menu-healthy-p=, workspaces-transient.el:11-14, which the
-     consumer may not name: workspaces-transient loads after it) PLUS the
-     on-disk check the load-time broken tag cannot carry
+     answers "usable": =workspace-bookmark--workspace-unusable (name)=,
+     returning nil or the first reason that applies — =unregistered= (NAME
+     nil, not in the registry, or the registry unbound), =broken=
+     (=workspace--broken-p=, fboundp-guarded), =no-home= (=:home= not a
+     string), =home-remote= (=file-remote-p=), =home-missing= (not
+     =file-directory-p=). Remote is asked FIRST, so a remote home is never
+     stat'ed. Three sites read it by name and none re-derives health from
+     the registry plist: =workspace-bookmark--missing-repo-withheld= (the
+     OFFER: its third cond arm, after "no workspace is current" and "not
+     runnable"), =workspace-bookmark--add-worktree-and-replan= (the CALL: a
+     reason declines as =(failed . PHRASE)= without calling the command) and
+     the off-workspace candidate filter
+     =workspace-bookmark--offerable-workspaces= (drops every unusable name,
+     so a home vanished mid-session is not offered either). The reason is
+     phrased by ONE function, =workspace-bookmark--unusable-phrase=, for the
+     prompt and for the call-time decline alike (a signalling default for
+     an unknown reason). The predicate is the consumer's mirror of core's
+     Integrations-menu gate (=workspace--menu-healthy-p=,
+     workspaces-transient.el:11-14, which the consumer may not name:
+     workspaces-transient loads after it) PLUS the on-disk check the
+     load-time broken tag cannot carry
      (=register/invariant/broken-tag-runtime-only=). "Runnable"
-     (=--add-worktree-runnable-p=, :605-616, via
-     =workspace--integration-menu-command-p=) answers REGISTRATION and is
-     a separate, orthogonal condition — it says nothing about health.
-     Withheld answers name their reason in the prompt.
+     (=--add-worktree-runnable-p=, via
+     =workspace--integration-menu-command-p=) answers REGISTRATION and is a
+     separate, orthogonal condition — it says nothing about health.
+     Withheld answers name their reason in the prompt
+     (=--missing-repo-prompt=).
    why_it_matters: |
      eoc-1790453714-01: in a BROKEN current workspace (a desktop-restored or
      hand-renamed tab carrying its name, or a home deleted mid-session)
@@ -13245,43 +13369,68 @@ Lifecycle reference: =~/.claude/skills/opsx-orchestrate/SKILL.md=,
      kind: test + lint
      location: |
        Test: portable-bookmarks-missing-repo-spec.el § "missing-repo choice:
-       the offer" (:243) gains two rows — current workspace tagged broken
-       -> add-worktree withheld with its reason; home deleted after
-       registration -> withheld; healthy -> offered (existing) — each red
-       with the gate reverted; portable-bookmarks-off-workspace-spec.el §
-       "candidates" (:518) gains "home vanished mid-session is not
-       offered". Lint: grep -n 'workspace--broken-p\|file-directory-p'
-       config/workspaces/portable-bookmarks.el -> the health predicate only
-       (plus =--checkout-dir-p= :1097, which is about checkouts, not
-       workspaces); =--missing-repo-withheld= and =--offerable-workspaces=
-       each call the predicate by name.
+       the offer" — "omits add worktree when the current workspace is
+       tagged broken, says so, and never calls the command" (home PRESENT
+       on disk: the tag alone withholds; the prompt stand-in takes
+       add-worktree whenever offered, so a wrong gate is caught by the
+       command being called), "omits add worktree when the current
+       workspace's home was deleted mid-session, names the home, and never
+       calls the command", and "asks the gate again at the call: a home
+       deleted while the prompt is up declines naming it, and never calls
+       the command"; § "missing-repo choice: the workspace health gate" pins
+       all five reasons, the remote-never-stat'ed rule (a remote home served
+       by the core fake remote handler, =workspaces-test-with-fake-remote=,
+       which signals on any operation but =file-remote-p=) and the arm
+       order; portable-bookmarks-off-workspace-spec.el § "off-workspace
+       jump: candidates" — "excludes a broken workspace ..." and "excludes a
+       workspace whose home vanished mid-session (untagged) ...". Lint: see
+       validator 1.
      enforcement_locus_check: |
-       Where is this enforced? In the consumer, at the OFFER — before any
-       directory-creating call. It does not enforce anything in core: the
-       menu's gate stays =broken-p= only, so a home deleted mid-session
-       still reaches =jf/workspace--add-worktree= through
-       =workspace--menu-invoke-integration= (workspaces-transient.el:25-38)
-       — the core half of the same cell (path "add worktree" x invariant
-       "home exists on disk"), recorded as finding arch-cycle-1790604160-plan-01
-       and routed to .tasks/workspaces-registration-hardening-leftovers.
-       When core grows a published "usable" predicate (a permitted symbol
-       on =register/boundary/portable-bookmarks-consumer=), this module's
-       predicate should route to it and the two notions become one in
-       code, not only in statement.
+       Where is this enforced? In the consumer, at the OFFER and again at
+       the CALL — both before any directory-creating call. It does not
+       enforce anything in core: the menu's gate stays =broken-p= only, so a
+       home deleted mid-session still reaches =jf/workspace--add-worktree=
+       through =workspace--menu-invoke-integration=
+       (workspaces-transient.el:25-38) — the core half of the same cell (path
+       "add worktree" x invariant "home exists on disk"), recorded as
+       finding arch-cycle-1790604160-plan-01 and routed to
+       .tasks/workspaces-registration-hardening-leftovers. When core grows a
+       published "usable" predicate (a permitted symbol on
+       =register/boundary/portable-bookmarks-consumer=), this module's
+       predicate should route to it and the two notions become one in code,
+       not only in statement.
    validator: |
      Structural (no scaffolding in this project):
-     1. Exactly ONE defun in portable-bookmarks.el tests both
-        =workspace--broken-p= and =file-directory-p= of a workspace home;
-        =--missing-repo-withheld= and =--offerable-workspaces= both call it.
-     2. The withheld alist has an arm for the unusable-workspace case whose
-        REASON names why (broken / home missing / home remote); the prompt
-        prints it (=--missing-repo-prompt= :657-674).
-     3. Specs: the two offer-matrix rows and the candidates row above; the
-        probe P1 scenario (broken-p = t, home absent) yields withheld
-        non-nil and NO call of =jf/workspace--add-worktree=.
+     1. grep -n 'workspace--broken-p' config/workspaces/portable-bookmarks.el
+        -> the =declare-function= and ONE call, inside
+        =workspace-bookmark--workspace-unusable= (plus its docstring);
+        grep -n 'workspace-bookmark--workspace-unusable' -> ONE defun and
+        exactly three callers, =--missing-repo-withheld=,
+        =--add-worktree-and-replan= and =--offerable-workspaces= (the other
+        hits are docstrings). =file-directory-p= is NOT a lint: its other
+        hits in the module are checkout discovery and anchoring and consult
+        no tag (=--home-checkouts= asks remote-then-directory of a HOME as
+        the checkout enumerator, where nil for a missing home is what makes
+        such a jump =missing-repo=, not as a usability decision).
+     2. The withheld alist's =add-worktree= arm for an unusable workspace
+        carries the reason via =--unusable-phrase=: "workspace %S is not
+        registered" / "workspace %S is broken (tagged at load: its home was
+        missing or remote); re-anchor or purge it first" / "workspace %S has
+        no home to add a worktree to" / "the home of workspace %S, %s, is
+        remote" / "the home of workspace %S, %s, no longer exists; re-anchor
+        or purge it first"; the prompt prints each withheld entry
+        (=--missing-repo-prompt=); the call-time decline reads "no worktree
+        added (PHRASE); nothing opened".
+     3. Specs as listed under enforcement_mechanism; the probe P1 shape
+        (broken-p = t) yields withheld non-nil and NO call of
+        =jf/workspace--add-worktree= even with the home present on disk; P2
+        (home gone, untagged) likewise; a home deleted after the offer
+        declines at the call.
      4. =file-remote-p= is tested BEFORE =file-directory-p= (a remote home is
         never contacted — =register/invariant/directory-identity-by-device-inode=
-        records remote homes unsupported).
+        records remote homes unsupported); pinned by the health-gate spec
+        "names a remote home `home-remote' without ever asking the disk
+        about it".
    related_entries:
      - register/vocabulary/workspace-broken-disposition
      - register/invariant/broken-tag-runtime-only

@@ -701,11 +701,12 @@ directory order, so =ambiguous= reports and opens nothing.  Two
 worktrees of /one/ repository elsewhere in view are not ambiguous — they
 share one main worktree.  Only =non-portable= ever opens the stored
 absolute path by design; a declined jump opens nothing and leaves no
-bookmark mark in the buffer you were in.  Two failure paths are the
-exception: if the jump code itself errors, the bookmark is opened as
-stock Emacs would (its stored path) rather than not at all, and during
-a layout restore a leaf whose jump errors (as opposed to declining)
-falls through the reincarnation chain to its saved filename.
+bookmark mark in the buffer you were in.  Two failure paths are the exception: if the jump code itself errors on
+a bookmark with no portable coordinates, it is opened as stock Emacs
+would (its stored path) rather than not at all — for a portable
+bookmark the jump declines and names the error — and during a layout
+restore a leaf whose bookmark handler itself errors (as opposed to
+declining) falls through the reincarnation chain to its saved filename.
 
 The stored relative path is taken as spelled.  A bookmark reached
 through a symbolic link that the repository tracks resolves to the same
