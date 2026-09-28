@@ -368,6 +368,21 @@ that.  Signals when NAME is not registered.  Returns the plist."
     (gethash name workspace--registry)))
 
 
+;;; Prompt stand-ins
+
+(defun workspace-bookmark-fixtures-answering-after (before key)
+  "Return a `read-multiple-choice' stand-in that calls BEFORE, then answers KEY.
+BEFORE (a function of no arguments) runs while the prompt is up: what
+the world does between the offer and the user's answer, e.g. deleting
+a workspace home.  Returns the offered entry for KEY; signals when KEY
+is not offered, so a spec cannot pass by answering something else."
+  (lambda (_prompt choices &rest _)
+    (funcall before)
+    (or (assq key choices)
+        (error "Option %c is not offered; offered: %S"
+               key (mapcar #'cadr choices)))))
+
+
 ;;; Bookmark isolation
 
 (defun workspace-bookmark-fixtures-isolate-bookmarks ()

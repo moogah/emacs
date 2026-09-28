@@ -210,3 +210,78 @@ name, the off-workspace routing and the prompt wording), `register/vocabulary/wo
   recommendation: |
     Re-state the add-worktree member's withheld clause at integrate with the
     text above; no member added or removed.
+
+## Fix pass (cycle-1790604160)
+
+Fixes the review's two advisory findings
+(`.orchestrator/cycles/cycle-1790604160/reviews/add-worktree-broken-workspace-gate.md`,
+Findings 1 and 2). Finding 3 (the register's lint text) is integrate's.
+
+- Finding 1: the `broken` phrase of `workspace-bookmark--unusable-phrase`
+  now reads "workspace %S is broken (tagged at load: its home was missing
+  or remote); re-anchor or purge it first". That is true for both causes
+  persistence tags (persistence.el: a remote `:home` and a non-directory
+  `:home`). The order `broken` before `home-remote` is kept, so a tagged
+  remote home is still never stat'ed. Updated to match: the tagged-broken
+  spec row's `:to-match` (now the whole phrase, regexp-quoted), the withheld
+  table row, and the `.org` glosses that said "missing at load" (the
+  offer-gate prose, the predicate docstring, the off-workspace prose).
+- Finding 2: `workspace-bookmark--add-worktree-and-replan` asks
+  `workspace-bookmark--workspace-unusable` again immediately before the
+  `jf/workspace--add-worktree` funcall. A reason becomes
+  `(failed . PHRASE)`, PHRASE being what `--unusable-phrase` gives the prompt,
+  and goes through the existing `failed` arm. The decline therefore reads
+  "Bookmark %S: no worktree added (PHRASE); nothing opened": the command is
+  not called, nothing opens, and no directory is created. New spec row in
+  `portable-bookmarks-missing-repo-spec.el` § "the offer": "asks the gate
+  again at the call ...". Its prompt stand-in deletes the fixture home and
+  then answers `?a`. The new stand-in helper
+  `workspace-bookmark-fixtures-answering-after` lives in
+  `portable-bookmarks-fixtures.el`. The `.org` prose next to the withheld
+  table and in "Add worktree here" now says the gate runs at offer AND call.
+- Fail-on-revert (both checked in one scratch run against a hand-edited `.el`,
+  then restored by re-tangling, which gave a byte-identical result): with the
+  second check removed (`unusable` bound to nil), the new row goes red on
+  `(expect 'jf/workspace--add-worktree :not :to-have-been-called)`. With the
+  old wording restored, the tagged-broken row goes red on its prompt
+  `:to-match`. Exactly 2 of 812 fail. Nothing else goes red.
+
+### Observations (fix pass)
+
+- The pre-call decline reuses the `(failed . REASON)` arm rather than adding
+  a new plan shape. A second message format would have been a second
+  spelling of "no worktree added ...; nothing opened".
+- `'home-remote` stays reachable only for an UNTAGGED remote home (a stale
+  or hand-built registry plist, or a direct call). Every loaded remote home
+  is tagged `broken` first. The arm is kept for the predicate's
+  total-function contract, not for a live prompt.
+
+### Discoveries (fix pass)
+
+- discovery_id: disc-add-worktree-broken-workspace-gate-fix-1
+  class: invariant-gap
+  description: |
+    The entry places enforcement "at the OFFER — before any
+    directory-creating call". The offer alone left a window as long as the
+    modal prompt: a home deleted while the prompt was up reached
+    `git worktree add`. The consumer now gates at the offer AND at the call,
+    with the same predicate and the same phrase.
+  affected_register_entry: register/invariant/add-worktree-offer-shares-workspace-health-gate
+  recommendation: |
+    Reconcile enforcement_locus_check to "in the consumer, at the offer
+    (`--missing-repo-withheld`) AND immediately before the call
+    (`--add-worktree-and-replan`)". Validator 1's caller list becomes
+    `--missing-repo-withheld`, `--add-worktree-and-replan` and
+    `--offerable-workspaces`. Validator 3 gains the row "home deleted while
+    the prompt is up -> declines, command never called".
+- discovery_id: disc-add-worktree-broken-workspace-gate-fix-2
+  class: spec-signal
+  description: |
+    The `broken` reason is the load-time tag, and persistence sets it for a
+    missing home AND for a remote home. The reason's gloss (prompt phrase,
+    docstring, register prose) must not name only "missing".
+  affected_register_entry: register/invariant/add-worktree-offer-shares-workspace-health-gate
+  recommendation: |
+    Where the entry or `register/vocabulary/workspace-broken-disposition`
+    glosses the broken tag as "home missing at load", read "home missing or
+    remote at load".
