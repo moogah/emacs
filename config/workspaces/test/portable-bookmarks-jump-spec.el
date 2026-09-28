@@ -45,15 +45,6 @@
 
 (defvar jf/emacs-dir)
 
-;; Owned by tabs.el; see portable-bookmarks-discovery-spec.el for why this
-;; stand-in exists.  Under the harness the real definition is bound.
-(unless (fboundp 'workspace--registered-names)
-  (defun workspace--registered-names ()
-    "Return the list of workspace names currently in the registry."
-    (let (names)
-      (maphash (lambda (k _v) (push k names)) workspace--registry)
-      (nreverse names))))
-
 
 ;;; Helpers
 
@@ -63,96 +54,6 @@
 (defconst portable-bookmarks-jump-spec--identity "example.com/fixtures/jump"
   "The identity `portable-bookmarks-jump-spec--remote' normalizes to.")
 
-(defconst portable-bookmarks-jump-spec--contents "line one\nline two\nline three\n"
-  "Contents of the seeded README, identical in every checkout.")
-
-(defconst portable-bookmarks-jump-spec--position 10
-  "A position inside `portable-bookmarks-jump-spec--contents' (on line 2).")
-
-(defmacro portable-bookmarks-jump-spec--hermetic (&rest body)
-  "Run one spec's BODY with nothing but the fixtures' world in view.
-
-`jf/emacs-dir' is nil so the configuration checkout running the suite is
-not a canonical checkout in view; the identity memo is cleared on exit;
-every buffer BODY leaves behind is killed before the `after-each'
-teardown deletes the directories those buffers visit.  Registry
-isolation is NOT this macro's business: the describe-level
-`workspace-bookmark-fixtures-with-empty-registry' owns it."
-  (declare (indent 0))
-  `(let ((jf/emacs-dir nil)
-         (before (buffer-list)))
-     (unwind-protect (progn ,@body)
-       (dolist (buffer (buffer-list))
-         (unless (memq buffer before)
-           (with-current-buffer buffer (set-buffer-modified-p nil))
-           (kill-buffer buffer)))
-       (workspace-bookmark-clear-identity-cache))))
-
-(defun portable-bookmarks-jump-spec--world ()
-  "Build the standard world and return it as a plist.
-
-Called from the fixtures macro's `before-each' body, so every spec gets
-a fresh world against an empty registry.  One repository with a remote,
-seeded with README.md and sub/deep.el on `main'; workspace A
-\(\"wsbm-jump-a\") and workspace B (\"wsbm-jump-b\"), each holding a
-linked worktree of it under its home.  Keys: :repo :home-a :home-b
-:wt-a :wt-b."
-  (let* ((repo (workspace-bookmark-fixtures-make-repo
-                :remote portable-bookmarks-jump-spec--remote
-                :contents portable-bookmarks-jump-spec--contents))
-         (home-a (workspace-bookmark-fixtures-make-workspace "wsbm-jump-a"))
-         (home-b (workspace-bookmark-fixtures-make-workspace "wsbm-jump-b")))
-    (workspace-bookmark-fixtures-commit-file repo "sub/deep.el" "(deep)\n")
-    (list :repo repo :home-a home-a :home-b home-b
-          :wt-a (workspace-bookmark-fixtures-add-worktree
-                 repo (expand-file-name "proj" home-a) :branch "a")
-          :wt-b (workspace-bookmark-fixtures-add-worktree
-                 repo (expand-file-name "proj" home-b) :branch "b"))))
-
-(defun portable-bookmarks-jump-spec--set (path name)
-  "Set bookmark NAME on PATH through `bookmark-set'; return the stored record.
-
-PATH is visited (a directory in Dired), point is put at
-`portable-bookmarks-jump-spec--position' in a file, the bookmark is set
-by the real API — so the real stamp seam runs — and the buffer is killed
-so a later jump has to visit PATH afresh."
-  (let ((buffer (if (file-directory-p path)
-                    (dired-noselect path)
-                  (find-file-noselect path))))
-    (with-current-buffer buffer
-      (unless (file-directory-p path)
-        (goto-char portable-bookmarks-jump-spec--position))
-      (let ((inhibit-message t))
-        (bookmark-set name)))
-    (kill-buffer buffer)
-    (bookmark-get-bookmark name)))
-
-(defun portable-bookmarks-jump-spec--jump (name workspace &optional jumper)
-  "Jump to bookmark NAME with WORKSPACE current; return the buffer left current.
-
-JUMPER defaults to `bookmark-jump'.  WORKSPACE (a name or nil) is what
-`workspace--current-name' answers for the duration.  Any prompt during
-the jump fails the spec: the seam must neither ask nor let the host's
-relocate offer through."
-  (cl-letf (((symbol-function 'workspace--current-name)
-             (lambda () workspace))
-            ((symbol-function 'y-or-n-p)
-             (lambda (&rest args) (error "Prompted: %S" args)))
-            ((symbol-function 'yes-or-no-p)
-             (lambda (&rest args) (error "Prompted: %S" args))))
-    (funcall (or jumper #'bookmark-jump) name)
-    (current-buffer)))
-
-(defun portable-bookmarks-jump-spec--decline (name workspace)
-  "Jump to NAME with WORKSPACE current, expecting a `user-error'.
-Returns the error's message.  Fails the spec if nothing was signalled."
-  (let ((message
-         (condition-case err
-             (progn (portable-bookmarks-jump-spec--jump name workspace) nil)
-           (user-error (cadr err)))))
-    (expect message :not :to-be nil)
-    message))
-
 (defun portable-bookmarks-jump-spec--reload-bookmarks ()
   "Round-trip `bookmark-alist' through the scratch bookmark file.
 Saves with `bookmark-save', empties the alist, loads the file back."
@@ -160,18 +61,6 @@ Saves with `bookmark-save', empties the alist, loads the file back."
     (bookmark-save)
     (setq bookmark-alist nil)
     (bookmark-load bookmark-default-file t t)))
-
-(defun portable-bookmarks-jump-spec--visits-p (path)
-  "Non-nil when some live buffer visits PATH (a file or a directory)."
-  (and (or (find-buffer-visiting path)
-           (and (file-directory-p path)
-                (seq-some (lambda (buffer)
-                            (with-current-buffer buffer
-                              (and (derived-mode-p 'dired-mode)
-                                   (workspace--same-file-p default-directory path))))
-                          (buffer-list))))
-       t))
-
 
 ;;; A native handler of our own making, for the handler-preservation spec.
 ;;; A symbol, not a closure, so the record survives bookmark-save / -load.
@@ -192,23 +81,25 @@ Saves with `bookmark-save', empties the alist, loads the file back."
 
   (workspace-bookmark-fixtures-with-empty-registry
     (workspace-bookmark-clear-identity-cache)
-    (setq world (portable-bookmarks-jump-spec--world)))
+    (setq world (workspace-bookmark-fixtures-jump-world
+                 "wsbm-jump" portable-bookmarks-jump-spec--remote
+                 :files '(("sub/deep.el" . "(deep)\n")))))
 
   (it "opens the current workspace's copy at the recorded position, and the stored record survives a save round trip unchanged"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme"))
              (snapshot (copy-tree stored)))
         (expect (bookmark-prop-get stored workspace-bookmark-relpath-property)
                 :to-equal "README.md")
-        (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
+        (let ((buffer (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-b")))
           (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy)
           ;; Not vacuous: A's copy exists, so nil means "a different file".
           (expect (file-exists-p a-path) :to-be-truthy)
           (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be nil)
           (expect (with-current-buffer buffer (point))
-                  :to-equal portable-bookmarks-jump-spec--position))
+                  :to-equal workspace-bookmark-fixtures-jump-position))
         ;; The regression guard: in memory, then through the file.  A
         ;; shared cons would read back the same in memory; only the round
         ;; trip catches a write-through.
@@ -219,27 +110,27 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                 :to-equal "README.md"))))
 
   (it "opens whichever workspace is current, from the same stored record"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a))))
-        (portable-bookmarks-jump-spec--set a-path "readme")
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
         (dolist (side (list (cons "wsbm-jump-b" (plist-get world :wt-b))
                             (cons "wsbm-jump-a" (plist-get world :wt-a))))
-          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" (car side))))
+          (let ((buffer (workspace-bookmark-fixtures-jump "readme" :workspace (car side))))
             (expect (workspace--same-file-p (buffer-file-name buffer)
                                             (expand-file-name "README.md" (cdr side)))
                     :to-be-truthy)))
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
   (it "hands the native handler a copy that shares no cons with the stored record"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme"))
              (real (symbol-function 'bookmark-default-handler))
              (received nil))
         (cl-letf (((symbol-function 'bookmark-default-handler)
                    (lambda (record) (push record received) (funcall real record))))
-          (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b"))
+          (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-b"))
         (expect (length received) :to-equal 1)
         (let ((copy (car received)))
           (expect copy :not :to-be stored)
@@ -254,13 +145,13 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (bookmark-get-bookmark "readme") :to-be stored))))
 
   (it "opens a directory record in the current workspace's checkout (default handler visiting a directory: Dired)"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-dir (expand-file-name "sub/" (plist-get world :wt-a)))
              (b-dir (expand-file-name "sub/" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-dir "sub")))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-dir "sub")))
         (expect (bookmark-prop-get stored workspace-bookmark-relpath-property)
                 :to-equal "sub/")
-        (let ((buffer (portable-bookmarks-jump-spec--jump "sub" "wsbm-jump-b")))
+        (let ((buffer (workspace-bookmark-fixtures-jump "sub" :workspace "wsbm-jump-b")))
           (with-current-buffer buffer
             (expect (derived-mode-p 'dired-mode) :to-be-truthy)
             (expect (workspace--same-file-p default-directory b-dir) :to-be-truthy)
@@ -274,15 +165,15 @@ Saves with `bookmark-save', empties the alist, loads the file back."
   (it "hands a record's own handler the substituted copy, handler intact, stored record untouched"
     ;; Emacs 30 dired records carry no handler; this is the case org,
     ;; pdf-view and bufferlo present: a record whose `handler' is set.
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme")))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme")))
         (bookmark-prop-set stored 'handler
                            #'portable-bookmarks-jump-spec--recording-handler)
         (let ((snapshot (copy-tree stored)))
           (setq portable-bookmarks-jump-spec--handled nil)
-          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
+          (let ((buffer (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-b")))
             (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy))
           (expect (length portable-bookmarks-jump-spec--handled) :to-equal 1)
           (let ((copy (car portable-bookmarks-jump-spec--handled)))
@@ -297,15 +188,15 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                   :to-be #'portable-bookmarks-jump-spec--recording-handler)))))
 
   (it "resolves through bookmark-jump-other-window too (the choke point is bookmark-handle-bookmark)"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b))))
-        (portable-bookmarks-jump-spec--set a-path "readme")
-        (let ((buffer (portable-bookmarks-jump-spec--jump
-                       "readme" "wsbm-jump-b" #'bookmark-jump-other-window)))
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
+        (let ((buffer (workspace-bookmark-fixtures-jump
+                       "readme" :workspace "wsbm-jump-b" :jumper #'bookmark-jump-other-window)))
           (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy))
-        (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be-truthy)
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p b-path) :to-be-truthy)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
   (it "sets bookmark-current-bookmark after a substituted jump by name, as the host does for a plain one"
@@ -315,16 +206,16 @@ Saves with `bookmark-save', empties the alist, loads the file back."
     ;; the string path.  `bookmark-current-bookmark' is buffer-local; each
     ;; visited buffer is fresh (the buffer `bookmark-set' ran in was
     ;; killed), so a value can only have come from the jump.
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (dir (workspace-bookmark-fixtures-temp-dir "wsbm-jump-plain-"))
              (plain-path (expand-file-name "notes.txt" dir)))
-        (with-temp-file plain-path (insert portable-bookmarks-jump-spec--contents))
-        (portable-bookmarks-jump-spec--set a-path "readme")
-        (portable-bookmarks-jump-spec--set plain-path "plain")
+        (with-temp-file plain-path (insert workspace-bookmark-fixtures-jump-contents))
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
+        (workspace-bookmark-fixtures-set-bookmark plain-path "plain")
         (dolist (name '("plain" "readme"))
-          (let ((buffer (portable-bookmarks-jump-spec--jump
-                         name "wsbm-jump-b" #'bookmark-handle-bookmark)))
+          (let ((buffer (workspace-bookmark-fixtures-jump
+                         name :workspace "wsbm-jump-b" :jumper #'bookmark-handle-bookmark)))
             (expect (cons name (buffer-local-value 'bookmark-current-bookmark buffer))
                     :to-equal (cons name name))
             ;; The stamped one must ALSO have been substituted: parity
@@ -336,18 +227,38 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
   (it "leaves an unstamped record alone: it opens its stored absolute path"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-jump-plain-"))
              (path (expand-file-name "notes.txt" dir)))
-        (with-temp-file path (insert portable-bookmarks-jump-spec--contents))
-        (let* ((stored (portable-bookmarks-jump-spec--set path "plain"))
+        (with-temp-file path (insert workspace-bookmark-fixtures-jump-contents))
+        (let* ((stored (workspace-bookmark-fixtures-set-bookmark path "plain"))
                (snapshot (copy-tree stored)))
           (expect (bookmark-prop-get stored workspace-bookmark-relpath-property)
                   :to-be nil)
-          (let ((buffer (portable-bookmarks-jump-spec--jump "plain" "wsbm-jump-b")))
+          (let ((buffer (workspace-bookmark-fixtures-jump "plain" :workspace "wsbm-jump-b")))
             (expect (workspace--same-file-p (buffer-file-name buffer) path) :to-be-truthy)
             (expect (with-current-buffer buffer (point))
-                    :to-equal portable-bookmarks-jump-spec--position))
+                    :to-equal workspace-bookmark-fixtures-jump-position))
+          (expect (bookmark-get-bookmark "plain") :to-equal snapshot)))))
+
+  (it "leaves an unstamped record alone with no current workspace too: it opens its stored path, stock behaviour"
+    ;; arch-on-touch-1790604160-11.  With no workspace a STAMPED record is
+    ;; handed off-workspace; an UNSTAMPED one is not, and is mapped in
+    ;; context `in-workspace', whose non-portable cell is the only one
+    ;; that calls through.  Mapped in `none' instead it would decline, so
+    ;; every unstamped bookmark jumped from a tab that is not a workspace
+    ;; would open nothing.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((dir (workspace-bookmark-fixtures-temp-dir "wsbm-jump-plain-"))
+             (path (expand-file-name "notes.txt" dir)))
+        (with-temp-file path (insert workspace-bookmark-fixtures-jump-contents))
+        (let* ((stored (workspace-bookmark-fixtures-set-bookmark path "plain"))
+               (snapshot (copy-tree stored)))
+          (expect (workspace-bookmark--stamped-coordinates stored) :to-be nil)
+          (let ((buffer (workspace-bookmark-fixtures-jump "plain" :workspace nil)))
+            (expect (workspace--same-file-p (buffer-file-name buffer) path) :to-be-truthy)
+            (expect (with-current-buffer buffer (point))
+                    :to-equal workspace-bookmark-fixtures-jump-position))
           (expect (bookmark-get-bookmark "plain") :to-equal snapshot)))))
 
   (it "hands a stamped record off-workspace to the workspace prompt, restores the choice, then resolves against it"
@@ -360,10 +271,10 @@ Saves with `bookmark-save', empties the alist, loads the file back."
     ;; to its stored path.  The prompt guard is lifted (batch has no one
     ;; to ask); the finish step this leaves queued is cancelled by the
     ;; fixtures' teardown, which the next spec checks.
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme"))
              (snapshot (copy-tree stored))
              (restored nil)
              (events nil)
@@ -376,14 +287,14 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                    (lambda (&rest _) (push 'prompt events) "wsbm-jump-b"))
                   ((symbol-function 'workspace-restore)
                    (lambda (name) (push 'restore events) (setq restored name) name)))
-          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" nil)))
+          (let ((buffer (workspace-bookmark-fixtures-jump "readme" :workspace nil)))
             (expect (workspace--same-file-p (buffer-file-name buffer) b-path) :to-be-truthy)
             ;; Not vacuous: A's copy exists.
             (expect (file-exists-p a-path) :to-be-truthy)
             (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be nil)))
         (expect restored :to-equal "wsbm-jump-b")
         (expect (reverse events) :to-equal '(prompt restore resolve))
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot)
         ;; The jump left its finish step queued; nothing here drains it.
         (expect (seq-some (lambda (timer)
@@ -410,68 +321,70 @@ Saves with `bookmark-save', empties the alist, loads the file back."
 
   (workspace-bookmark-fixtures-with-empty-registry
     (workspace-bookmark-clear-identity-cache)
-    (setq world (portable-bookmarks-jump-spec--world)))
+    (setq world (workspace-bookmark-fixtures-jump-world
+                 "wsbm-jump" portable-bookmarks-jump-spec--remote
+                 :files '(("sub/deep.el" . "(deep)\n")))))
 
   (it "declines not-on-branch: no buffer visits the missing path, nor the stored one"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (workspace-bookmark-fixtures-commit-file
                       (plist-get world :wt-a) "only-a.el"))
              (b-path (expand-file-name "only-a.el" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "only-a"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "only-a"))
              (snapshot (copy-tree stored)))
         (expect (file-exists-p b-path) :to-be nil)
-        (let ((message (portable-bookmarks-jump-spec--decline "only-a" "wsbm-jump-b")))
+        (let ((message (workspace-bookmark-fixtures-decline "only-a" :workspace "wsbm-jump-b")))
           (expect message :to-match (regexp-quote "\"only-a\""))
           (expect message :to-match (regexp-quote "only-a.el"))
           (expect message :to-match (regexp-quote portable-bookmarks-jump-spec--identity)))
-        (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p b-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
         (expect (file-exists-p b-path) :to-be nil)
         (expect (bookmark-get-bookmark "only-a") :to-equal snapshot))))
 
   (it "declines ambiguous: two checkouts in the workspace are reported, neither chosen"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (wt-b (plist-get world :wt-b))
              (wt-b2 (workspace-bookmark-fixtures-add-worktree
                      (plist-get world :repo)
                      (expand-file-name "proj2" (plist-get world :home-b))
                      :branch "b2")))
-        (portable-bookmarks-jump-spec--set a-path "readme")
-        (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
+        (let ((message (workspace-bookmark-fixtures-decline "readme" :workspace "wsbm-jump-b")))
           (expect message :to-match "2 checkouts")
           (expect message :to-match (regexp-quote (abbreviate-file-name wt-b)))
           (expect message :to-match (regexp-quote (abbreviate-file-name wt-b2))))
         (dolist (path (list a-path
                             (expand-file-name "README.md" wt-b)
                             (expand-file-name "README.md" wt-b2)))
-          (expect (portable-bookmarks-jump-spec--visits-p path) :to-be nil))
+          (expect (workspace-bookmark-fixtures-visits-p path) :to-be nil))
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
   (it "declines no-clone: no checkout of the identity in view"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((elsewhere (workspace-bookmark-fixtures-make-repo
                          :remote "git@example.com:fixtures/elsewhere.git"))
              (path (expand-file-name "README.md" elsewhere))
-             (stored (portable-bookmarks-jump-spec--set path "elsewhere")))
+             (stored (workspace-bookmark-fixtures-set-bookmark path "elsewhere")))
         (expect (bookmark-prop-get stored workspace-bookmark-repo-property)
                 :to-equal "example.com/fixtures/elsewhere")
-        (let ((message (portable-bookmarks-jump-spec--decline "elsewhere" "wsbm-jump-b")))
+        (let ((message (workspace-bookmark-fixtures-decline "elsewhere" :workspace "wsbm-jump-b")))
           (expect message :to-match "no checkout of example.com/fixtures/elsewhere in view"))
-        (expect (portable-bookmarks-jump-spec--visits-p path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p path) :to-be nil)
         (expect (bookmark-get-filename "elsewhere") :to-equal path))))
 
   (it "hands missing-repo to the bounded choice, opening neither the canonical copy nor the stored one until the user chooses"
     ;; The choice itself is portable-bookmarks-missing-repo-spec.el's.
     ;; Here: the seam prompts instead of declining or opening, the prompt
     ;; is the missing-repo one, and cancel ends the jump with `quit'.
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (canonical-path (expand-file-name "README.md" (plist-get world :repo)))
              (prompts nil)
              (quit-p nil))
         (workspace-bookmark-fixtures-make-workspace "wsbm-jump-c")
-        (portable-bookmarks-jump-spec--set a-path "readme")
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
         (cl-letf (((symbol-function 'workspace-bookmark--can-prompt-p)
                    (lambda () t))
                   ((symbol-function 'read-multiple-choice)
@@ -479,25 +392,25 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                      (push prompt prompts)
                      (assq ?c choices))))
           (condition-case nil
-              (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-c")
+              (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-c")
             (quit (setq quit-p t))))
         (expect quit-p :to-be t)
         (expect (length prompts) :to-equal 1)
         (expect (car prompts) :to-match "holds no checkout")
         (expect (car prompts) :to-match
                 (regexp-quote (abbreviate-file-name (plist-get world :repo))))
-        (expect (portable-bookmarks-jump-spec--visits-p canonical-path) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p canonical-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
         (expect (bookmark-get-filename "readme") :to-equal a-path))))
 
   (it "declines with user-error, never bookmark-error-no-filename, and never offers to relocate"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (workspace-bookmark-fixtures-commit-file
                       (plist-get world :wt-a) "only-a.el"))
              (signalled nil))
-        (portable-bookmarks-jump-spec--set a-path "only-a")
+        (workspace-bookmark-fixtures-set-bookmark a-path "only-a")
         (condition-case err
-            (portable-bookmarks-jump-spec--jump "only-a" "wsbm-jump-b")
+            (workspace-bookmark-fixtures-jump "only-a" :workspace "wsbm-jump-b")
           (bookmark-errors (setq signalled (car err)))
           (user-error (setq signalled (car err))))
         (expect signalled :to-be 'user-error)))))
@@ -510,78 +423,80 @@ Saves with `bookmark-save', empties the alist, loads the file back."
 
   (workspace-bookmark-fixtures-with-empty-registry
     (workspace-bookmark-clear-identity-cache)
-    (setq world (portable-bookmarks-jump-spec--world)))
+    (setq world (workspace-bookmark-fixtures-jump-world
+                 "wsbm-jump" portable-bookmarks-jump-spec--remote
+                 :files '(("sub/deep.el" . "(deep)\n")))))
 
   (it "an error inside the seam's decision for a STAMPED record opens nothing: the resolver signals, the jump declines"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme"))
              (snapshot (copy-tree stored)))
         (expect (workspace-bookmark--stamped-coordinates stored) :to-be-truthy)
         (workspace-bookmark-fixtures-signalling 'workspace-bookmark--resolve "Boom"
-          (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+          (let ((message (workspace-bookmark-fixtures-decline "readme" :workspace "wsbm-jump-b")))
             (expect message :to-match "jump decision failed")
             (expect message :to-match "Boom")
             (expect message :to-match "nothing opened")))
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p b-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
   (it "an error inside the seam's decision for a STAMPED record opens nothing: the copy step signals, the jump declines"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme"))
              (snapshot (copy-tree stored)))
         (expect (workspace-bookmark--stamped-coordinates stored) :to-be-truthy)
         (workspace-bookmark-fixtures-signalling 'workspace-bookmark--substituted-record "Boom"
-          (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+          (let ((message (workspace-bookmark-fixtures-decline "readme" :workspace "wsbm-jump-b")))
             (expect message :to-match "jump decision failed")
             (expect message :to-match "Boom")
             (expect message :to-match "nothing opened")))
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p b-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p b-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
   (it "keeps stock behaviour for an UNSTAMPED record when the resolver signals: the stored location opens, the record is untouched"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (stored (workspace-bookmark-fixtures-strip-stamp
-                      (portable-bookmarks-jump-spec--set a-path "readme")))
+                      (workspace-bookmark-fixtures-set-bookmark a-path "readme")))
              (snapshot (copy-tree stored)))
         (expect (workspace-bookmark--stamped-coordinates stored) :to-be nil)
         (workspace-bookmark-fixtures-signalling 'workspace-bookmark--resolve "Boom"
-          (let ((buffer (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")))
+          (let ((buffer (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-b")))
             (expect (workspace--same-file-p (buffer-file-name buffer) a-path) :to-be-truthy)
             (expect (with-current-buffer buffer (point))
-                    :to-equal portable-bookmarks-jump-spec--position)))
+                    :to-equal workspace-bookmark-fixtures-jump-position)))
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
 
   (it "lets quit propagate through the barrier"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (quit-p nil))
-        (portable-bookmarks-jump-spec--set a-path "readme")
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
         (cl-letf (((symbol-function 'workspace-bookmark--resolve)
                    (lambda (&rest _) (signal 'quit nil))))
           (condition-case nil
-              (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")
+              (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-b")
             (quit (setq quit-p t))))
         (expect quit-p :to-be t)
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p
                  (expand-file-name "README.md" (plist-get world :wt-b)))
                 :to-be nil))))
 
   (it "does not catch the handler's own errors, and calls the host exactly once"
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (calls 0))
-        (portable-bookmarks-jump-spec--set a-path "readme")
+        (workspace-bookmark-fixtures-set-bookmark a-path "readme")
         (cl-letf (((symbol-function 'bookmark-default-handler)
                    (lambda (&rest _) (cl-incf calls) (error "Handler boom"))))
-          (expect (portable-bookmarks-jump-spec--jump "readme" "wsbm-jump-b")
+          (expect (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-b")
                   :to-throw 'error '("Handler boom")))
         (expect calls :to-equal 1))))
 
@@ -591,11 +506,11 @@ Saves with `bookmark-save', empties the alist, loads the file back."
     ;; bookmark--jump-via then fringe-marks and hooks the buffer the user
     ;; was already in.  Driven from a scratch ORIGIN buffer so that tail
     ;; would be visible.
-    (portable-bookmarks-jump-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
       (let* ((wt-b (plist-get world :wt-b))
              (a-path (expand-file-name "README.md" (plist-get world :wt-a)))
              (vanished (expand-file-name "vanished.el" wt-b))
-             (stored (portable-bookmarks-jump-spec--set a-path "readme"))
+             (stored (workspace-bookmark-fixtures-set-bookmark a-path "readme"))
              (snapshot (copy-tree stored))
              (origin (generate-new-buffer "wsbm-jump-origin")))
         (with-current-buffer origin
@@ -607,15 +522,15 @@ Saves with `bookmark-save', empties the alist, loads the file back."
                           'resolved :path vanished
                           :identity portable-bookmarks-jump-spec--identity
                           :relpath "vanished.el" :checkout wt-b))))
-              (let ((message (portable-bookmarks-jump-spec--decline "readme" "wsbm-jump-b")))
+              (let ((message (workspace-bookmark-fixtures-decline "readme" :workspace "wsbm-jump-b")))
                 (expect message :to-match "vanished.el")
                 (expect message :to-match "nothing opened")))
             (expect (current-buffer) :to-be origin)
             (expect (length (overlays-in (point-min) (point-max))) :to-equal overlays)
             (expect (local-variable-p 'bookmark-current-bookmark origin) :to-be nil)))
         (expect (file-exists-p vanished) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p vanished) :to-be nil)
-        (expect (portable-bookmarks-jump-spec--visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p vanished) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
         (expect (bookmark-get-bookmark "readme") :to-equal snapshot)))))
 
 

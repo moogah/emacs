@@ -47,16 +47,6 @@
 (defvar jf/emacs-dir)
 (defvar projectile-known-projects)
 
-;; `workspace--registered-names' is owned by tabs.el, which the test harness
-;; loads through init.el.  When this file runs outside the harness, supply
-;; the same registry walk (as portable-bookmarks-discovery-spec.el does).
-(unless (fboundp 'workspace--registered-names)
-  (defun workspace--registered-names ()
-    "Return the list of workspace names currently in the registry."
-    (let (names)
-      (maphash (lambda (k _v) (push k names)) workspace--registry)
-      (nreverse names))))
-
 (defun git-worktrees-spec--only-features (features)
   "Return a `featurep' replacement for projectile, magit and project.
 FEATURES lists which of those to report as loaded; every other feature
@@ -198,34 +188,13 @@ lists are EMPTY unless BODY binds them."
         (expect 'read-directory-name :not :to-have-been-called)))))
 
 ;; A remote (TRAMP) entry in magit's list must never touch the network.
-;; Real TRAMP is never reached: `file-name-handler-alist' is bound to a
-;; single fake handler for "/ssh:" names.  It answers `file-remote-p' from
-;; the name, as TRAMP does without its CONNECTED argument, and signals
-;; `file-error' for every other operation, standing in for a connection
-;; attempt to an unreachable host.  It records every operation it is asked.
-(defvar git-worktrees-spec--remote-ops nil
-  "Operations the fake remote file-name handler was asked, newest first.")
-
-(defun git-worktrees-spec--fake-remote-handler (operation &rest args)
-  "Fake file-name handler for \"/ssh:\" names; see above.
-Records OPERATION, answers `file-remote-p' from ARGS, and signals
-`file-error' for anything else."
-  (push operation git-worktrees-spec--remote-ops)
-  (if (eq operation 'file-remote-p)
-      (let ((name (car args)))
-        (and (string-match "\\`/ssh:[^:]*:" name)
-             (match-string 0 name)))
-    (signal 'file-error (list "Simulated connection to unreachable host"
-                              (symbol-name operation)))))
-
-(defmacro git-worktrees-spec--with-fake-remote (&rest body)
-  "Run BODY with \"/ssh:\" names served by the fake remote handler only."
-  (declare (indent 0))
-  `(let ((git-worktrees-spec--remote-ops nil)
-         (file-name-handler-alist
-          (list (cons "\\`/ssh:" #'git-worktrees-spec--fake-remote-handler))))
-     ,@body))
-
+;; Real TRAMP is never reached: "/ssh:" names are served by the core fake
+;; remote handler (`workspaces-test-with-fake-remote',
+;; workspaces-test-helpers.el, loaded by the portable-bookmarks fixtures)
+;; with its strict default.  It answers `file-remote-p' from the name, as
+;; TRAMP does without its CONNECTED argument, and signals `file-error' for
+;; every other operation, standing in for a connection attempt to an
+;; unreachable host.  It records every operation it is asked.
 (describe "remote (TRAMP) magit entries"
   ;; ownership-and-picker-polish (worktree-candidates-git-first review).
   ;; The git-repository filter probed a remote entry that classification
@@ -237,17 +206,17 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
             :and-return-value nil))
 
   (it "drops a remote entry after asking it only whether it is remote"
-    (git-worktrees-spec--with-fake-remote
+    (workspaces-test-with-fake-remote "/ssh:"
       (expect (jf/workspace--worktree-dedupe-dirs
                '("/repos/local/" "/ssh:nohost.invalid:/a/"))
               :to-equal '("/repos/local/"))
-      (expect (delete-dups (copy-sequence git-worktrees-spec--remote-ops))
+      (expect (workspaces-test-fake-remote-operations)
               :to-equal '(file-remote-p))))
 
   (it "keeps local magit candidates and offers no remote one"
     (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
             (lambda (dir) dir))
-    (git-worktrees-spec--with-fake-remote
+    (workspaces-test-with-fake-remote "/ssh:"
       (git-worktrees-spec--with-sources '(magit)
           '("/repos/local/" "/ssh:nohost.invalid:/a/")
         (cl-letf (((symbol-function
@@ -255,7 +224,7 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
                    nil))
           (expect (jf/workspace--worktree-repo-candidates)
                   :to-equal '("/repos/local/"))))
-      (expect (delete-dups (copy-sequence git-worktrees-spec--remote-ops))
+      (expect (workspaces-test-fake-remote-operations)
               :to-equal '(file-remote-p))))
 
   (it "never hands a remote entry to the classifier"
@@ -266,7 +235,7 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
     (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
             (lambda (dir) dir))
     (let ((classified nil))
-      (git-worktrees-spec--with-fake-remote
+      (workspaces-test-with-fake-remote "/ssh:"
         (git-worktrees-spec--with-sources '(magit)
             '("/repos/local/" "/ssh:nohost.invalid:/a/")
           (cl-letf (((symbol-function
@@ -278,7 +247,7 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
             (expect (jf/workspace--worktree-repo-candidates)
                     :to-equal '("/repos/local/"))))
         (expect classified :to-equal '("/repos/local/"))
-        (expect (delete-dups (copy-sequence git-worktrees-spec--remote-ops))
+        (expect (workspaces-test-fake-remote-operations)
                 :to-equal '(file-remote-p)))))
 
   (it "still reaches the prompt and its floor when classification passes it through"
@@ -287,7 +256,7 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
     (spy-on 'completing-read :and-return-value "/does/not/exist/")
     (spy-on 'read-directory-name :and-return-value "/repos/floor/")
     (let ((raised nil) (result nil))
-      (git-worktrees-spec--with-fake-remote
+      (workspaces-test-with-fake-remote "/ssh:"
         (git-worktrees-spec--with-sources '(magit)
             '("/ssh:nohost.invalid:/a/")
           (cl-letf (((symbol-function
@@ -297,7 +266,7 @@ Records OPERATION, answers `file-remote-p' from ARGS, and signals
                 (setq result (jf/workspace--worktree-read-repo))
               (error (setq raised err)))))
         (expect raised :to-be nil)
-        (expect (delete-dups (copy-sequence git-worktrees-spec--remote-ops))
+        (expect (workspaces-test-fake-remote-operations)
                 :to-equal '(file-remote-p)))
       (expect result :to-equal (expand-file-name "/repos/floor/"))
       (expect (nth 1 (spy-calls-args-for 'completing-read 0)) :to-be nil)

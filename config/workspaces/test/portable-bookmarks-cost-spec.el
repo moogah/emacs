@@ -39,15 +39,6 @@
 
 (defvar jf/emacs-dir)
 
-;; Owned by tabs.el; see portable-bookmarks-discovery-spec.el for why this
-;; stand-in exists.  Under the harness the real definition is bound.
-(unless (fboundp 'workspace--registered-names)
-  (defun workspace--registered-names ()
-    "Return the list of workspace names currently in the registry."
-    (let (names)
-      (maphash (lambda (k _v) (push k names)) workspace--registry)
-      (nreverse names))))
-
 (defconst portable-bookmarks-cost-spec--remote
   "git@example.com:fixtures/cost.git"
   "Remote URL of the repository whose bookmarks are resolved.")
@@ -354,38 +345,11 @@ CANONICAL, when non-nil, is bound as `jf/emacs-dir' so that it is in view."
 ;; signal nor prompt.  The per-call memo keys a position by truename, and
 ;; `file-truename' on a TRAMP name opens the connection — so the memo must
 ;; ask `file-remote-p' first, exactly as the runner does.  Real TRAMP is
-;; never loaded: `file-name-handler-alist' is bound to one fake handler for
-;; "/fake:" names that answers `file-remote-p' from the name and signals
-;; `file-error' for every other operation (the pattern of
-;; git-worktrees-spec.el § "remote (TRAMP) magit entries"), recording each
-;; operation it is asked.
-
-(defvar portable-bookmarks-cost-spec--remote-ops nil
-  "Operations the fake remote file-name handler was asked, newest first.")
-
-(defun portable-bookmarks-cost-spec--fake-remote-handler (operation &rest args)
-  "Fake handler for \"/fake:\" names: records OPERATION, answers only `file-remote-p'."
-  (push operation portable-bookmarks-cost-spec--remote-ops)
-  (if (eq operation 'file-remote-p)
-      (let ((name (car args)))
-        (and (stringp name)
-             (string-match "\\`/fake:[^:]*:" name)
-             (match-string 0 name)))
-    (signal 'file-error (list "remote probed" (symbol-name operation)))))
-
-(defmacro portable-bookmarks-cost-spec--with-fake-remote (&rest body)
-  "Run BODY with \"/fake:\" names served by the fake remote handler only.
-Returns BODY's value; the operations asked are left in
-`portable-bookmarks-cost-spec--remote-ops'."
-  (declare (indent 0))
-  `(let ((file-name-handler-alist
-          (list (cons "\\`/fake:" #'portable-bookmarks-cost-spec--fake-remote-handler))))
-     (setq portable-bookmarks-cost-spec--remote-ops nil)
-     ,@body))
-
-(defun portable-bookmarks-cost-spec--remote-ops-asked ()
-  "Return the distinct operations the fake remote handler was asked."
-  (seq-uniq (reverse portable-bookmarks-cost-spec--remote-ops)))
+;; never reached: "/fake:" names are served by the core fake remote handler
+;; (`workspaces-test-with-fake-remote', workspaces-test-helpers.el, loaded
+;; by the fixtures) with its strict default, which answers `file-remote-p'
+;; from the name and signals `file-error' for every other operation,
+;; recording each operation it is asked.
 
 (describe "A remote checkout name reaches no file-name handler but file-remote-p"
   :var (repo home)
@@ -405,57 +369,57 @@ Returns BODY's value; the operations asked are left in
     "A remote checkout name; the fake handler serves it.")
 
   (it "is skipped by the public entry, which still returns the local candidates"
-    (let ((result (portable-bookmarks-cost-spec--with-fake-remote
+    (let ((result (workspaces-test-with-fake-remote "/fake:"
                     (let ((jf/emacs-dir nil))
                       (workspace-bookmark-canonical-checkouts-in-view
                        (list portable-bookmarks-cost-spec--remote-name repo))))))
       (expect result :to-equal (list repo))
-      (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+      (expect (workspaces-test-fake-remote-operations)
               :to-equal '(file-remote-p))))
 
   (it "is nil for the public entry when it is the only candidate"
-    (expect (portable-bookmarks-cost-spec--with-fake-remote
+    (expect (workspaces-test-with-fake-remote "/fake:"
               (let ((jf/emacs-dir nil))
                 (workspace-bookmark-canonical-checkouts-in-view
                  (list portable-bookmarks-cost-spec--remote-name))))
             :to-be nil)
-    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+    (expect (workspaces-test-fake-remote-operations)
             :to-equal '(file-remote-p)))
 
   (it "has no canonical checkout, and no position"
-    (expect (portable-bookmarks-cost-spec--with-fake-remote
+    (expect (workspaces-test-with-fake-remote "/fake:"
               (workspace-bookmark--canonical-checkout
                portable-bookmarks-cost-spec--remote-name))
             :to-be nil)
-    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+    (expect (workspaces-test-fake-remote-operations)
             :to-equal '(file-remote-p))
-    (expect (portable-bookmarks-cost-spec--with-fake-remote
+    (expect (workspaces-test-with-fake-remote "/fake:"
               (workspace-bookmark--with-discovery-memo
                 (workspace-bookmark--shared-position
                  portable-bookmarks-cost-spec--remote-name)))
             :to-be nil)
-    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+    (expect (workspaces-test-fake-remote-operations)
             :to-equal '(file-remote-p)))
 
   (it "is skipped by --canonical-checkouts-for-identity when it is in view"
     (spy-on 'workspace-bookmark--checkouts-in-view :and-return-value
             (list portable-bookmarks-cost-spec--remote-name repo))
-    (expect (portable-bookmarks-cost-spec--with-fake-remote
+    (expect (workspaces-test-with-fake-remote "/fake:"
               (workspace-bookmark--canonical-checkouts-for-identity
                portable-bookmarks-cost-spec--identity))
             :to-equal (list repo))
-    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+    (expect (workspaces-test-fake-remote-operations)
             :to-equal '(file-remote-p)))
 
   (it "is skipped by --workspace-checkouts when it is a candidate of the home"
     (spy-on 'workspace-bookmark--home-checkouts :and-return-value
             (list portable-bookmarks-cost-spec--remote-name
                   (file-name-as-directory (expand-file-name "proj" home))))
-    (expect (portable-bookmarks-cost-spec--with-fake-remote
+    (expect (workspaces-test-with-fake-remote "/fake:"
               (workspace-bookmark--workspace-checkouts
                portable-bookmarks-cost-spec--identity "wsbm-cost-rem"))
             :to-equal (list (file-name-as-directory (expand-file-name "proj" home))))
-    (expect (portable-bookmarks-cost-spec--remote-ops-asked)
+    (expect (workspaces-test-fake-remote-operations)
             :to-equal '(file-remote-p)))
 
   (it "is refused as a non-string too, without signalling"

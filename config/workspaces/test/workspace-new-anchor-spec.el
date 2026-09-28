@@ -36,7 +36,10 @@
     (provide 'bufferlo))
   (load (expand-file-name "../buffer-membership.el" dir))
   (load (expand-file-name "../layouts.el"           dir))
-  (load (expand-file-name "../workspaces.el"        dir)))
+  (load (expand-file-name "../workspaces.el"        dir))
+  ;; The fake remote (TRAMP) handler; a core helper, not the
+  ;; portable-bookmarks fixtures.
+  (load (expand-file-name "workspaces-test-helpers.el" dir)))
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
@@ -357,29 +360,18 @@ to return HOME.  Returns the freshly-registered workspace plist."
 (defconst wna-spec--remote-prefix "/wsna-remote:"
   "Prefix of the stand-in remote file names below.")
 
-(defvar wna-spec--remote-touches nil
-  "Filesystem operations the stand-in remote handler was asked, newest first.")
-
-(defun wna-spec--remote-handler (operation &rest args)
-  "A stand-in for TRAMP: names under `wna-spec--remote-prefix' are remote.
-`file-remote-p' answers the prefix, as TRAMP does, without connecting.
-Pure file-NAME operations are answered by the default implementation.
-Every other operation is a filesystem touch: it is recorded in
-`wna-spec--remote-touches' and signals, so a spec that reaches the
-filesystem with a remote home fails loudly instead of connecting."
-  (let ((inhibit-file-name-handlers
-         (cons 'wna-spec--remote-handler inhibit-file-name-handlers))
-        (inhibit-file-name-operation operation))
-    (pcase operation
-      ('file-remote-p wna-spec--remote-prefix)
-      ((or 'expand-file-name 'file-name-as-directory 'directory-file-name
-           'file-name-directory 'file-name-nondirectory
-           'file-name-sans-versions 'substitute-in-file-name
-           'file-name-case-insensitive-p 'abbreviate-file-name)
-       (apply operation args))
-      (_
-       (push operation wna-spec--remote-touches)
-       (error "Remote filesystem touched: %S %S" operation args)))))
+(defmacro wna-spec--with-remote-names (&rest body)
+  "Run BODY with the core fake remote handler serving `wna-spec--remote-prefix'.
+`file-remote-p' is answered, and so are the four file-NAME operations
+the anchor paths apply to a home before refusing it (canonicalising it
+and taking its basename); any other operation is a filesystem touch,
+recorded in `workspaces-test-fake-remote-touches', and signals."
+  (declare (indent 0))
+  `(workspaces-test-with-fake-remote
+       (wna-spec--remote-prefix
+        :allow (expand-file-name file-name-as-directory
+                directory-file-name file-name-nondirectory))
+     ,@body))
 
 (defun wna-spec--remote-refusal (home)
   "The `user-error' data `workspace--refuse-remote-home' signals for HOME.
@@ -387,16 +379,6 @@ Every remote spec asserts THIS message, so each one fails when the
 remote refusal is removed, rather than passing on another guard."
   (list (concat "Workspace homes must be local; remote (TRAMP)"
                 " directories are not supported: " home)))
-
-(defmacro wna-spec--with-remote-names (&rest body)
-  "Run BODY with `wna-spec--remote-handler' serving remote names."
-  (declare (indent 0))
-  `(let ((file-name-handler-alist
-          (cons (cons (concat "\\`" (regexp-quote wna-spec--remote-prefix))
-                      #'wna-spec--remote-handler)
-                file-name-handler-alist)))
-     (setq wna-spec--remote-touches nil)
-     ,@body))
 
 (describe "remote (TRAMP) workspace homes are refused"
   (before-each
@@ -422,7 +404,7 @@ remote refusal is removed, rather than passing on another guard."
         (expect (file-remote-p home) :to-be-truthy)
         (expect (wna-spec--call-anchor home)
                 :to-throw 'user-error (wna-spec--remote-refusal home))
-        (expect wna-spec--remote-touches :to-be nil)
+        (expect workspaces-test-fake-remote-touches :to-be nil)
         ;; Refused before the duplicate-home guard, whose nil for a remote
         ;; name would mean "cannot tell", not "not registered".
         (expect 'workspace--registered-for-home-p :not :to-have-been-called)
@@ -447,7 +429,7 @@ remote refusal is removed, rather than passing on another guard."
         (expect (gethash "proj" workspace--registry) :to-be original)
         (expect (gethash "proj-alias" workspace--registry) :to-be nil)
         (expect (hash-table-count workspace--registry) :to-equal 1)
-        (expect wna-spec--remote-touches :to-be nil)
+        (expect workspaces-test-fake-remote-touches :to-be nil)
         (expect 'workspace--registered-for-home-p :not :to-have-been-called)
         (expect 'tab-bar-new-tab :not :to-have-been-called))))
 
@@ -459,7 +441,7 @@ remote refusal is removed, rather than passing on another guard."
               :to-throw 'user-error
               (wna-spec--remote-refusal
                (concat wna-spec--remote-prefix "/srv/proj")))
-      (expect wna-spec--remote-touches :to-be nil)
+      (expect workspaces-test-fake-remote-touches :to-be nil)
       (expect 'workspace-scaffold :not :to-have-been-called)
       (expect 'tab-bar-new-tab :not :to-have-been-called)
       (expect (hash-table-count workspace--registry) :to-equal 0)))
@@ -477,7 +459,7 @@ remote refusal is removed, rather than passing on another guard."
                 :to-throw 'user-error
                 (wna-spec--remote-refusal
                  (concat wna-spec--remote-prefix "/srv/proj/")))
-        (expect wna-spec--remote-touches :to-be nil))
+        (expect workspaces-test-fake-remote-touches :to-be nil))
       (expect (gethash "proj" workspace--registry) :to-be original)
       (expect 'workspace--flush-state :not :to-have-been-called))))
 

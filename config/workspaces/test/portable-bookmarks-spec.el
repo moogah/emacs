@@ -14,6 +14,7 @@
 
 (require 'buttercup)
 (require 'cl-lib)
+(require 'seq)
 (require 'bookmark)
 
 (defconst portable-bookmarks-spec--this-dir
@@ -236,8 +237,7 @@
         (workspace-bookmark-fixtures-setup-with-empty-registry
          (lambda () (workspace-bookmark-fixtures-temp-dir "wsbm-fx-stuck-")))
         (expect workspace--registry :not :to-be live)
-        (cl-letf (((symbol-function 'delete-directory)
-                   (lambda (&rest _) (error "stuck"))))
+        (workspace-bookmark-fixtures-signalling 'delete-directory "stuck"
           (expect (workspace-bookmark-fixtures-teardown) :to-throw 'error))
         (expect workspace--registry :to-be live)
         (expect workspace-bookmark-fixtures--live-registry :to-be nil))))
@@ -298,5 +298,107 @@
               :to-equal "")
       (expect (workspace-bookmark-fixtures-git repo "ls-files" "--others")
               :to-equal "scratch/note.txt"))))
+
+;;; The counting validator
+;;
+;; register/invariant/spec-registry-isolation-via-fixtures, validator 6.
+;; Every stand-in the workspaces specs share has ONE home, and neither
+;; home is a spec file: portable-bookmarks-fixtures.el (the registered-names
+;; stand-in, the bookmark-jump harness, the signalling collaborator) and
+;; the core helper workspaces-test-helpers.el (the fake remote file-name
+;; handler), which core specs load without the consumer's fixtures.  This
+;; spec reads every spec file of this directory and counts the shapes of an
+;; inline copy, so a regrown copy fails the suite, not only a review.
+
+(defconst portable-bookmarks-spec--stand-in-shapes
+  '(("registered-names stand-in" . "[(]defun workspace--registered-names\\_>")
+    ("fake remote file-name handler" . "remote-handler [(]operation")
+    ("fake remote file-name handler" . "[(]defun [^ \t\n()]+ [(]operation &rest")
+    ("file-remote-p stand-in" . "cl-letf.*file-remote[-]p")
+    ("file-remote-p stand-in" . "[(]symbol-function 'file-remote-p)")
+    ("file-remote-p stand-in" . "spy-on 'file-remote[-]p")
+    ("jump harness --visits-p" . "--visits-p [(]path)")
+    ("jump harness --visits-p" . "[(]defun [^ \t\n()]*--visits-p\\_>")
+    ("jump harness --hermetic" . "[(]defmacro [^ \t\n()]*--hermetic\\_>"))
+  "(SHAPE . REGEXP): inline stand-ins no spec file may define.
+Each REGEXP is written so that it does not match its own source text
+\(\"[(]\" for a parenthesis, \"[-]\" for a hyphen), because this file is
+one of the files it reads.")
+
+(defconst portable-bookmarks-spec--fixtures-stand-in-shapes
+  '(("signalling collaborator"
+     . "[(]symbol-function '[^ \t\n()]+)[ \t\n]*[(]lambda [(]&rest _) [(]error "))
+  "(SHAPE . REGEXP) counted in the spec files that load the fixtures.
+Those files have `workspace-bookmark-fixtures-signalling' to hand; a
+core spec that does not load the fixtures is outside this count.
+Written as `portable-bookmarks-spec--stand-in-shapes' is.")
+
+(defconst portable-bookmarks-spec--planted-stand-ins
+  (let ((template "{unless {fboundp 'workspace~~registered~names}
+  {defun workspace~~registered~names {} nil}}
+{defun planted~spec~~remote~handler {operation &rest args} nil}
+{cl~letf* {{real {symbol~function 'file~remote~p}}} nil}
+{defun planted~spec~~visits~p {path} nil}
+{defmacro planted~spec~~hermetic {&rest body} body}
+{cl~letf {{{symbol~function 'planted~collaborator}
+           {lambda {&rest _} {error \"Boom\"}}}}
+  nil}
+"))
+    (dolist (sub '((?{ . ?\() (?} . ?\)) (?~ . ?-)) template)
+      (setq template (subst-char-in-string (car sub) (cdr sub) template))))
+  "One inline copy of every counted shape, to show the count can see them.
+Spelled with stand-in characters in the source and translated at load
+time, so this file itself holds no copy for the count to find.")
+
+(defun portable-bookmarks-spec--stand-in-hits (text shapes)
+  "Return (SHAPE LINE) for each match in TEXT of the (SHAPE . REGEXP) SHAPES."
+  (with-temp-buffer
+    (insert text)
+    (let ((case-fold-search nil)
+          (hits nil))
+      (dolist (shape shapes)
+        (goto-char (point-min))
+        (while (re-search-forward (cdr shape) nil t)
+          (push (list (car shape) (line-number-at-pos (match-beginning 0)))
+                hits)))
+      (nreverse hits))))
+
+(defun portable-bookmarks-spec--spec-file-stand-ins (file)
+  "Return (FILE SHAPE LINE) for every inline stand-in in spec FILE."
+  (let* ((text (with-temp-buffer
+                 (insert-file-contents file)
+                 (buffer-string)))
+         (shapes (append portable-bookmarks-spec--stand-in-shapes
+                         (and (string-match-p
+                               (regexp-quote "\"portable-bookmarks-fixtures.el\"")
+                               text)
+                              portable-bookmarks-spec--fixtures-stand-in-shapes))))
+    (mapcar (lambda (hit) (cons (file-name-nondirectory file) hit))
+            (portable-bookmarks-spec--stand-in-hits text shapes))))
+
+(describe "portable-bookmarks fixtures: one home per stand-in"
+
+  (it "finds no inline stand-in in any spec file"
+    ;; Not vacuous: the count sees one planted copy of every shape, the
+    ;; homes are loaded, and it reads the whole directory.
+    (let ((planted (mapcar #'car (portable-bookmarks-spec--stand-in-hits
+                                  portable-bookmarks-spec--planted-stand-ins
+                                  (append portable-bookmarks-spec--stand-in-shapes
+                                          portable-bookmarks-spec--fixtures-stand-in-shapes)))))
+      (dolist (shape (append portable-bookmarks-spec--stand-in-shapes
+                             portable-bookmarks-spec--fixtures-stand-in-shapes))
+        (expect (cons (car shape) (and (member (car shape) planted) t))
+                :to-equal (cons (car shape) t))))
+    (dolist (home '(workspace--registered-names
+                    workspace-bookmark-fixtures-hermetic
+                    workspace-bookmark-fixtures-visits-p
+                    workspace-bookmark-fixtures-signalling
+                    workspaces-test-with-fake-remote))
+      (expect (cons home (fboundp home)) :to-equal (cons home t)))
+    (let ((files (directory-files portable-bookmarks-spec--this-dir t
+                                  "-spec\\.el\\'")))
+      (expect (length files) :to-be-greater-than 30)
+      (expect (seq-mapcat #'portable-bookmarks-spec--spec-file-stand-ins files)
+              :to-equal nil))))
 
 ;;; portable-bookmarks-spec.el ends here

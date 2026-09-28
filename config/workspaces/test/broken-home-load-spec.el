@@ -25,7 +25,10 @@
     (provide 'bufferlo))
   (load (expand-file-name "../buffer-membership.el" dir))
   (load (expand-file-name "../layouts.el"           dir))
-  (load (expand-file-name "../persistence.el"       dir)))
+  (load (expand-file-name "../persistence.el"       dir))
+  ;; The fake remote (TRAMP) handler; a core helper, not the
+  ;; portable-bookmarks fixtures.
+  (load (expand-file-name "workspaces-test-helpers.el" dir)))
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
@@ -140,41 +143,19 @@
 ;;; Remote (TRAMP) :home in the state file (user decision 2026-09-27:
 ;;; remote workspace homes are unsupported).  Loaded TAGGED BROKEN with no
 ;;; filesystem call on it, one warning naming it; never signals, never
-;;; dropped.
+;;; dropped.  The core fake remote handler
+;;; (`workspaces-test-with-fake-remote', workspaces-test-helpers.el) plays
+;;; TRAMP with its strict default: only `file-remote-p' is answered, and
+;;; any other operation on the remote home is recorded and signals.
 
 (defconst broken-home-load-spec--remote-prefix "/wshl-remote:"
   "Prefix of the stand-in remote file names below.")
-
-(defvar broken-home-load-spec--remote-touches nil
-  "Filesystem operations the stand-in remote handler was asked, newest first.")
-
-(defun broken-home-load-spec--remote-handler (operation &rest args)
-  "A stand-in for TRAMP: names under the remote prefix are remote.
-`file-remote-p' answers the prefix without connecting, as TRAMP does;
-pure file-NAME operations use the default implementation.  Any other
-operation is a filesystem touch (a real connection under TRAMP): it is
-recorded and SIGNALS, so a load that stats the remote home fails the
-spec instead of connecting anywhere."
-  (let ((inhibit-file-name-handlers
-         (cons 'broken-home-load-spec--remote-handler inhibit-file-name-handlers))
-        (inhibit-file-name-operation operation))
-    (pcase operation
-      ('file-remote-p broken-home-load-spec--remote-prefix)
-      ((or 'expand-file-name 'file-name-as-directory 'directory-file-name
-           'file-name-directory 'file-name-nondirectory
-           'file-name-sans-versions 'substitute-in-file-name
-           'file-name-case-insensitive-p 'abbreviate-file-name)
-       (apply operation args))
-      (_
-       (push operation broken-home-load-spec--remote-touches)
-       (error "Remote filesystem touched: %S %S" operation args)))))
 
 (describe "A remote :home in the state file"
   :var (remote-home local-home missing-home remote-groups)
   (before-each
     (broken-home-load-spec--reset)
-    (setq broken-home-load-spec--remote-touches nil
-          remote-home (concat broken-home-load-spec--remote-prefix "/srv/r/")
+    (setq remote-home (concat broken-home-load-spec--remote-prefix "/srv/r/")
           local-home (file-name-as-directory
                       (expand-file-name "local" broken-home-load-spec--tmp-dir))
           missing-home (file-name-as-directory
@@ -198,15 +179,11 @@ spec instead of connecting anywhere."
                                (:name "gone" :home ,missing-home
                                       :recent-layout-group nil
                                       :buffer-files nil :layout-groups nil))))
-      (let ((file-name-handler-alist
-             (cons (cons (concat "\\`" (regexp-quote
-                                         broken-home-load-spec--remote-prefix))
-                         #'broken-home-load-spec--remote-handler)
-                   file-name-handler-alist)))
+      (workspaces-test-with-fake-remote broken-home-load-spec--remote-prefix
         (expect (file-remote-p remote-home) :to-be-truthy)
         (workspace--restore)
         ;; Never contacted.
-        (expect broken-home-load-spec--remote-touches :to-be nil)
+        (expect workspaces-test-fake-remote-touches :to-be nil)
         ;; Kept, tagged broken, data verbatim.
         (let ((r (gethash "r" workspace--registry)))
           (expect r :not :to-be nil)
@@ -227,7 +204,7 @@ spec instead of connecting anywhere."
                 :to-be t)
         ;; It is never restored (refused as broken, still uncontacted) ...
         (expect (workspace-restore "r") :to-throw 'user-error)
-        (expect broken-home-load-spec--remote-touches :to-be nil)
+        (expect workspaces-test-fake-remote-touches :to-be nil)
         ;; ... and it survives the next save, without the runtime tag.
         (let ((saved (seq-find (lambda (ws) (equal (plist-get ws :name) "r"))
                                (plist-get (workspace--serialize-registry)
