@@ -112,7 +112,14 @@ silently open a location the user did not ask for:
    user a bounded choice: add a worktree of that repository to the current
    workspace, open the repository's canonical checkout read-only, or cancel.
    When the canonical checkout does not contain the location either, the
-   outcome carries no path and the read-only choice SHALL NOT be offered.
+   outcome carries no path and the read-only choice SHALL NOT be offered. The
+   add-worktree choice SHALL NOT be offered when no workspace is current, when
+   the current workspace is broken or its home is not an existing local
+   directory, when the current workspace has no home, or when the git-worktrees
+   add command is not registered; the prompt names each withheld choice and
+   why. When no one can answer (non-interactive, `inhibit-interaction`, or
+   during a layout-restore leaf), the capability SHALL report the outcome and
+   open nothing instead of prompting.
 4. `ambiguous` — the current workspace holds two or more checkouts of the
    repository, or it holds none and two or more canonical checkouts are in view;
    the capability SHALL report the candidates and SHALL NOT choose among them or
@@ -145,6 +152,19 @@ wrong checkout. Cancelling SHALL open nothing.
 - **THEN** the user is offered to add a worktree of it to this workspace, to
   view the canonical checkout read-only, or to cancel
 
+#### Scenario: Add-worktree is withheld for a broken current workspace
+- **WHEN** the current tab's workspace is broken (its home directory no longer
+  exists) and a stamped bookmark resolves to `missing-repo`
+- **THEN** the add-worktree choice is not offered, and the prompt says why
+- **AND** the remaining choices (the read-only view when the location exists in
+  the canonical checkout, and cancel) are still offered
+
+#### Scenario: Add-worktree is withheld when the home vanished mid-session
+- **WHEN** the current workspace's home directory is removed out-of-band while
+  its tab is live, and a stamped bookmark then resolves to `missing-repo`
+- **THEN** the add-worktree choice is not offered, and the prompt says why
+- **AND** no worktree is created anywhere
+
 #### Scenario: Read-only view is marked
 - **WHEN** the user chooses to view the canonical checkout
 - **THEN** the buffer is read-only and visibly indicates that it is the
@@ -157,7 +177,9 @@ wrong checkout. Cancelling SHALL open nothing.
 
 #### Scenario: Cancel opens nothing
 - **WHEN** the user cancels at the `missing-repo` choice
-- **THEN** no buffer is displayed and no error is signalled
+- **THEN** no buffer is displayed and no error is signalled; the jump ends with
+  `quit`, as `C-g` at the prompt would, so no caller falls back to the stored
+  path
 
 #### Scenario: No clone in view is reported
 - **WHEN** no checkout of the bookmark's repository is in view on this machine
@@ -183,9 +205,12 @@ offered, consistent with the workspaces package refusing to switch to or restore
 them.
 
 When no workspace can serve the jump (the registry is empty, or the user
-declines to choose one), the capability SHALL fall back to offering the
-read-only canonical checkout, or cancelling. It SHALL NOT open the stored
-absolute path as if it were the current workspace's copy.
+declines to choose one), the capability SHALL resolve the record with no
+workspace. `missing-repo` offers the read-only canonical checkout (when the
+location exists there) or cancel; `ambiguous` and `no-clone` are reported and
+open nothing. When workspaces are offerable but no one can be asked, the jump
+SHALL be reported and open nothing. It SHALL NOT open the stored absolute path
+as if it were the current workspace's copy.
 
 #### Scenario: Off-workspace jump restores a workspace
 - **WHEN** the current tab is not a workspace and a stamped bookmark is jumped to
@@ -202,7 +227,9 @@ absolute path as if it were the current workspace's copy.
 
 #### Scenario: Empty registry falls back, not through
 - **WHEN** no workspaces are registered and a stamped bookmark is jumped to
-- **THEN** the user is offered the read-only canonical checkout or cancellation
+- **THEN** the jump resolves without a workspace: with exactly one canonical
+  checkout in view that holds the location, the user is offered the read-only
+  view or cancellation; otherwise the outcome is reported
 - **AND** the stored absolute path is not opened as a workspace copy
 
 ---
@@ -211,8 +238,10 @@ absolute path as if it were the current workspace's copy.
 
 The capability SHALL classify each checkout of a repository it discovers as one
 of: the repository's *canonical* checkout (its main worktree), a
-*workspace-owned* worktree (one whose root lies within a registered workspace's
-home directory), or *another* linked worktree.
+*workspace-owned* checkout (a registered, existing home is the checkout,
+contains it, or lies inside it, judged by file identity; a contained home that
+is a worktree of the checkout's own repository confers nothing, and symbolic
+links confer nothing), or *another* linked worktree.
 
 The canonical checkout SHALL never be taken to be a workspace-owned worktree,
 and SHALL never be taken to be a linked worktree that belongs to no workspace.
@@ -251,7 +280,8 @@ state.
 
 Where git cannot answer (the repository's metadata is unavailable or the git
 invocation fails), the capability SHALL degrade to `no-clone` or
-`non-portable` rather than signalling an error into the jump.
+`non-portable`. A declining outcome is reported with a `user-error` naming the
+bookmark, never with any other error.
 
 #### Scenario: Resolution works with no configuration set
 - **WHEN** no project-listing package is configured or loaded, and no scanning
@@ -265,8 +295,9 @@ invocation fails), the capability SHALL degrade to `no-clone` or
 
 #### Scenario: Git failure degrades rather than signalling
 - **WHEN** a git invocation needed for discovery fails
-- **THEN** the jump reports a degraded outcome and no error escapes into the
-  bookmark machinery
+- **THEN** the jump reports a degraded outcome as a `user-error` naming the
+  bookmark, which ends the jump before the host's display step, and no other
+  error escapes
 
 ---
 
