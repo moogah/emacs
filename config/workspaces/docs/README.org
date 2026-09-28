@@ -737,7 +737,8 @@ repository and the canonical checkout, and offers:
 - /cancel/ — opens nothing.
 
 An option that cannot work is withheld, and the prompt says why:
-"add a worktree" needs a current workspace with a home and the
+"add a worktree" needs a usable current workspace (registered, not
+broken, with a home that is an existing local directory) and the
 git-worktree module loaded; "view read-only" is
 withheld when the canonical checkout does not have the file.  During a
 layout restore nothing prompts: the leaf declines with the
