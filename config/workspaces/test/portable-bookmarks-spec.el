@@ -315,7 +315,8 @@
     ("fake remote file-name handler" . "remote-handler [(]operation")
     ("fake remote file-name handler" . "[(]defun [^ \t\n()]+ [(]operation &rest")
     ("file-remote-p stand-in" . "cl-letf.*file-remote[-]p")
-    ("file-remote-p stand-in" . "[(]symbol-function 'file-remote-p)")
+    ("file-remote-p stand-in" . "[(]symbol-function[ \t\n]+#?'file-remote[-]p)")
+    ("remote handler bound in the handler alist" . "file[-]name[-]handler[-]alist")
     ("file-remote-p stand-in" . "spy-on 'file-remote[-]p")
     ("jump harness --visits-p" . "--visits-p [(]path)")
     ("jump harness --visits-p" . "[(]defun [^ \t\n()]*--visits-p\\_>")
@@ -327,7 +328,7 @@ one of the files it reads.")
 
 (defconst portable-bookmarks-spec--fixtures-stand-in-shapes
   '(("signalling collaborator"
-     . "[(]symbol-function '[^ \t\n()]+)[ \t\n]*[(]lambda [(]&rest _) [(]error "))
+     . "[(]symbol-function[ \t\n]+'[^ \t\n()]+)[ \t\n]*[(]lambda [(]&rest _) [(]error "))
   "(SHAPE . REGEXP) counted in the spec files that load the fixtures.
 Those files have `workspace-bookmark-fixtures-signalling' to hand; a
 core spec that does not load the fixtures is outside this count.
@@ -337,10 +338,14 @@ Written as `portable-bookmarks-spec--stand-in-shapes' is.")
   (let ((template "{unless {fboundp 'workspace~~registered~names}
   {defun workspace~~registered~names {} nil}}
 {defun planted~spec~~remote~handler {operation &rest args} nil}
-{cl~letf* {{real {symbol~function 'file~remote~p}}} nil}
+{cl~letf* {{real {symbol~function
+                    'file~remote~p}}} nil}
+{let {{file~name~handler~alist {cons {cons \"planted\" {lambda {op &rest args} nil}}
+                                     file~name~handler~alist}}} nil}
 {defun planted~spec~~visits~p {path} nil}
 {defmacro planted~spec~~hermetic {&rest body} body}
-{cl~letf {{{symbol~function 'planted~collaborator}
+{cl~letf {{{symbol~function
+            'planted~collaborator}
            {lambda {&rest _} {error \"Boom\"}}}}
   nil}
 "))
