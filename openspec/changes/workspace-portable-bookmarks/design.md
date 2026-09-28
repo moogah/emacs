@@ -287,6 +287,24 @@ Scenario mapping: each `#### Scenario:` in
 requirements map to `describe` blocks across the per-topic spec files (stamp,
 identity, resolver, discovery, cost, jump, missing-repo, off-workspace).
 
+### Decisions recorded during orchestration (DD-n)
+
+`DD-n` references are decisions the user made during the orchestrated cycles
+(recorded in the cycle state and in `interfaces.org` register notes). They are
+distinct from this document's `D1`–`D11`. The ones cited here:
+
+- **DD-7** — Repo identity is memoised per repo root (the layout-save hot path
+  stamps every live buffer on every save).
+- **DD-10** — `git-worktrees` reaches portable-bookmarks discovery by a soft,
+  `fboundp`-guarded call: no `require`, nothing contributed when unloaded.
+- **DD-11** — Discovery ignores symbolic links entirely; they confer nothing in
+  either direction.
+- **DD-12** — Worktree-source candidates come from git-derived discovery plus
+  magit only; projectile and project.el are not sources.
+- **DD-13** — A magit linked-worktree candidate is replaced by its repo's main
+  worktree; a workspace home that is itself a worktree of the checkout's own
+  repository confers no ownership.
+
 ## Risks / Trade-offs
 
 - **Advice on core bookmark functions** → Both seams are narrow and additive: the

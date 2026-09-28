@@ -321,17 +321,21 @@ counterpart to `workspace-delete`. `workspace-purge` SHALL:
 
 1. Confirm with the user via `yes-or-no-p`, displaying the absolute path
    to be deleted.
-2. On confirmation, dispatch each registered integration's `:on-purge`
-   handler with the anchor payload for the workspace (see the
-   `workspace-integrations` capability, Requirement: Purge-time teardown
-   dispatch). This step is additive and error-guarded: its outcome SHALL NOT
-   affect whether the workspace is purged, and a failing handler SHALL be
-   surfaced visibly but SHALL NOT abort the purge.
-3. Perform `workspace-delete`'s unregister steps.
-4. Recursively delete `:home` from the filesystem.
+2. On confirmation, perform `workspace-delete`'s unregister steps (the
+   registry entry is removed and the state file flushed before anything
+   touches the filesystem).
+3. Re-check the purge scope (see below); on failure signal `user-error` and
+   stop, leaving the entry unregistered.
+4. Dispatch each registered integration's `:on-purge` handler with the anchor
+   payload for the workspace (see the `workspace-integrations` capability,
+   Requirement: Purge-time teardown dispatch). This step is additive and
+   error-guarded: its outcome SHALL NOT affect whether the workspace is
+   purged, and a failing handler SHALL be surfaced visibly but SHALL NOT
+   abort the purge.
+5. Recursively delete `:home` from the filesystem.
 
-`:on-purge` dispatch (step 2) SHALL occur before the filesystem deletion
-(step 4) so integrations can clean up resources anchored under `:home` (e.g.
+`:on-purge` dispatch (step 4) SHALL occur before the filesystem deletion
+(step 5) so integrations can clean up resources anchored under `:home` (e.g.
 git worktrees) while the directory still exists.
 
 `workspace-purge` SHALL refuse to operate, before the confirmation prompt,

@@ -229,7 +229,9 @@ as if it were the current workspace's copy.
 - **WHEN** no workspaces are registered and a stamped bookmark is jumped to
 - **THEN** the jump resolves without a workspace: with exactly one canonical
   checkout in view that holds the location, the user is offered the read-only
-  view or cancellation; otherwise the outcome is reported
+  view or cancellation; with exactly one canonical checkout in view that lacks
+  the location, the prompt offers cancellation only; otherwise the outcome is
+  reported
 - **AND** the stored absolute path is not opened as a workspace copy
 
 ---
