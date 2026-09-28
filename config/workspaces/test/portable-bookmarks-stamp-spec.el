@@ -441,8 +441,7 @@ Staged, not committed: the stamp seam treats an indexed file as tracked."
   (it "still lets bookmark-set succeed, unstamped, when stamping signals"
     (let* ((repo (portable-bookmarks-stamp-spec--repo))
            (path (expand-file-name "README.md" repo)))
-      (cl-letf (((symbol-function 'workspace-bookmark--coordinates)
-                 (lambda (&rest _) (error "Boom"))))
+      (workspace-bookmark-fixtures-signalling 'workspace-bookmark--coordinates "Boom"
         (let ((record (portable-bookmarks-stamp-spec--bookmark path "boom")))
           (expect record :not :to-be nil)
           (expect (expand-file-name (bookmark-get-filename record)) :to-equal path)
@@ -453,8 +452,7 @@ Staged, not committed: the stamp seam treats an indexed file as tracked."
     (let* ((repo (portable-bookmarks-stamp-spec--repo))
            (record (list "orig" (cons 'filename (expand-file-name "README.md" repo))))
            (snapshot (copy-tree record)))
-      (cl-letf (((symbol-function 'workspace-bookmark--with-coordinates)
-                 (lambda (&rest _) (error "Boom"))))
+      (workspace-bookmark-fixtures-signalling 'workspace-bookmark--with-coordinates "Boom"
         (expect (workspace-bookmark--stamp-record record) :to-be record))
       (expect record :to-equal snapshot)))
 

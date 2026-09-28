@@ -32,6 +32,9 @@
 (require 'cl-lib)
 (require 'seq)
 (require 'bookmark)
+(require 'dired)
+;; The jump harness below reports a missing decline with `expect'.
+(require 'buttercup)
 
 ;; `workspace--make' (the workspace plist constructor) and
 ;; `workspace--registry' come from the workspaces package.  Under the test
@@ -40,12 +43,29 @@
 ;; isolation.
 (let ((dir (file-name-directory (or load-file-name buffer-file-name))))
   (unless (fboundp 'workspace--make)
-    (load (expand-file-name "../data-model.el" dir))))
+    (load (expand-file-name "../data-model.el" dir)))
+  ;; The core test helpers (the fake remote handler).  Core specs load that
+  ;; file themselves; the portable-bookmarks specs reach it through here.
+  (load (expand-file-name "workspaces-test-helpers.el" dir)))
 
 ;; Owned by tabs.el.  Declared defensively so the registry fixtures work
 ;; even when only data-model.el is loaded; tabs.el's own `defvar' is a
 ;; no-op once the symbol is bound, so both files see the SAME hash table.
 (defvar workspace--registry (make-hash-table :test 'equal))
+
+;; Owned by tabs.el too, which cannot be loaded on its own (it requires the
+;; rest of the package by feature name).  When a spec runs outside the
+;; harness, supply the same registry walk; under the harness the real
+;; definition is already bound and this is skipped.  The ONE copy: the
+;; counting validator of portable-bookmarks-spec.el ("finds no inline
+;; stand-in in any spec file") fails the suite when a spec file defines
+;; its own.
+(unless (fboundp 'workspace--registered-names)
+  (defun workspace--registered-names ()
+    "Return the list of workspace names currently in the registry."
+    (let (names)
+      (maphash (lambda (k _v) (push k names)) workspace--registry)
+      (nreverse names))))
 
 (defvar workspace-bookmark-fixtures--temp-dirs nil
   "Temp directories created by the fixtures, newest first.
@@ -368,19 +388,265 @@ that.  Signals when NAME is not registered.  Returns the plist."
     (gethash name workspace--registry)))
 
 
-;;; Prompt stand-ins
+;;; The bookmark-jump harness
+;;
+;; The ONE harness of the jump specs (portable-bookmarks-jump-spec.el,
+;; -missing-repo-spec.el, -off-workspace-spec.el): build the world, set a
+;; bookmark through the real stamp seam, jump through the real entry
+;; points with only the prompts stood in for, and ask what a jump left
+;; visited.  The counting validator of portable-bookmarks-spec.el ("finds
+;; no inline stand-in in any spec file") fails the suite when a spec file
+;; defines its own `--hermetic' macro or `--visits-p' predicate instead of
+;; using these.
 
-(defun workspace-bookmark-fixtures-answering-after (before key)
-  "Return a `read-multiple-choice' stand-in that calls BEFORE, then answers KEY.
-BEFORE (a function of no arguments) runs while the prompt is up: what
-the world does between the offer and the user's answer, e.g. deleting
-a workspace home.  Returns the offered entry for KEY; signals when KEY
-is not offered, so a spec cannot pass by answering something else."
-  (lambda (_prompt choices &rest _)
-    (funcall before)
-    (or (assq key choices)
-        (error "Option %c is not offered; offered: %S"
-               key (mapcar #'cadr choices)))))
+(defconst workspace-bookmark-fixtures-jump-contents
+  "line one\nline two\nline three\n"
+  "Contents of the README `workspace-bookmark-fixtures-jump-world' seeds.
+Identical in every checkout of the world's repository.")
+
+(defconst workspace-bookmark-fixtures-jump-position 10
+  "A position inside `workspace-bookmark-fixtures-jump-contents' (on line 2).
+Where `workspace-bookmark-fixtures-set-bookmark' sets a bookmark in a file.")
+
+(defvar workspace-bookmark-fixtures-chooser-prompts nil
+  "(PROMPT CHOICES) pairs the chooser stand-in received, newest first.
+Reset at the start of every `workspace-bookmark-fixtures-jump'.")
+
+(defvar workspace-bookmark-fixtures-workspace-prompts nil
+  "(PROMPT . NAMES) of the workspace prompts a jump made, newest first.
+NAMES are the candidates in completion order.  Reset at the start of
+every `workspace-bookmark-fixtures-jump'.")
+
+(defmacro workspace-bookmark-fixtures-hermetic (&rest body)
+  "Run one spec's BODY with nothing but the fixtures' world in view.
+
+`jf/emacs-dir' is nil unless BODY rebinds it, so the configuration
+checkout running the suite is not a canonical checkout in view; the
+persistence file lives in a fixtures temp directory (made on first
+use), so an autosave BODY triggers never writes the real one; the
+identity memo is cleared on exit; every buffer BODY leaves behind is
+killed before the `after-each' teardown deletes the directories those
+buffers visit.  Registry isolation is NOT this macro's business: the
+describe-level `workspace-bookmark-fixtures-with-empty-registry' owns it.
+
+BODY may begin with keyword options:
+
+  :integrations FORM       `workspace--integrations' is bound to FORM's
+                           value for BODY.
+  :current-workspace FORM  `workspace-bookmark--current-workspace'
+                           answers FORM's value for BODY."
+  (declare (indent 0) (debug (&rest form)))
+  (let ((options nil))
+    (while (keywordp (car body))
+      (push (cons (pop body) (pop body)) options))
+    (let ((before (make-symbol "before"))
+          (state-dir (make-symbol "state-dir"))
+          (state-directory (make-symbol "state-directory"))
+          (integrations (assq :integrations options))
+          (current (assq :current-workspace options)))
+      (dolist (option options)
+        (unless (memq (car option) '(:integrations :current-workspace))
+          (error "Unknown hermetic option %S" (car option))))
+      `(let* ((jf/emacs-dir nil)
+              ,@(and integrations `((workspace--integrations ,(cdr integrations))))
+              (,before (buffer-list))
+              (,state-dir nil)
+              (,state-directory
+               (lambda ()
+                 (or ,state-dir
+                     (setq ,state-dir (workspace-bookmark-fixtures-temp-dir
+                                       "wsbm-state-"))))))
+         (cl-letf (((symbol-function 'workspace--state-directory)
+                    ,state-directory)
+                   ((symbol-function 'workspace--state-file)
+                    (lambda ()
+                      (expand-file-name "workspaces.eld"
+                                        (funcall ,state-directory))))
+                   ,@(and current
+                          `(((symbol-function 'workspace-bookmark--current-workspace)
+                             (let ((value ,(cdr current))) (lambda () value))))))
+           (unwind-protect (progn ,@body)
+             (dolist (buffer (buffer-list))
+               (unless (memq buffer ,before)
+                 (with-current-buffer buffer (set-buffer-modified-p nil))
+                 (kill-buffer buffer)))
+             (workspace-bookmark-clear-identity-cache)))))))
+
+(cl-defun workspace-bookmark-fixtures-jump-world
+    (prefix remote &key (holding '("a" "b")) empty files)
+  "Build a jump spec's world and return it as a plist.
+
+One repository whose `origin' is REMOTE, seeded on `main' with a
+README.md holding `workspace-bookmark-fixtures-jump-contents', then with
+FILES, a list of (RELPATH . CONTENTS) committed one at a time.  For each
+LETTER of HOLDING (strings), workspace PREFIX-LETTER is registered with a
+fresh home holding a linked worktree of the repository at HOME/proj, on
+branch LETTER; for each LETTER of EMPTY, workspace PREFIX-LETTER is
+registered with a home holding nothing.  Workspaces are registered in
+that order.  Keys: :repo, :home-LETTER for every workspace and
+:wt-LETTER for every holder.
+
+Call it from the describe's `workspace-bookmark-fixtures-with-empty-registry'
+body, so every spec gets a fresh world against an empty registry."
+  (let* ((repo (workspace-bookmark-fixtures-make-repo
+                :remote remote :contents workspace-bookmark-fixtures-jump-contents))
+         (homes (mapcar (lambda (letter)
+                          (cons letter (workspace-bookmark-fixtures-make-workspace
+                                        (concat prefix "-" letter))))
+                        (append holding empty)))
+         (world (list :repo repo)))
+    (dolist (file files)
+      (workspace-bookmark-fixtures-commit-file repo (car file) (cdr file)))
+    (dolist (home homes)
+      (setq world (append world (list (intern (concat ":home-" (car home)))
+                                      (cdr home)))))
+    (dolist (letter holding)
+      (setq world
+            (append world
+                    (list (intern (concat ":wt-" letter))
+                          (workspace-bookmark-fixtures-add-worktree
+                           repo (expand-file-name
+                                 "proj" (cdr (assoc letter homes)))
+                           :branch letter)))))
+    world))
+
+(defun workspace-bookmark-fixtures-set-bookmark (path name)
+  "Set bookmark NAME on PATH through `bookmark-set'; return the stored record.
+
+PATH is visited (a directory in Dired), point is put at
+`workspace-bookmark-fixtures-jump-position' in a file, the bookmark is
+set by the real API — so the real stamp seam runs — and the buffer is
+killed so a later jump has to visit PATH afresh."
+  (let ((buffer (if (file-directory-p path)
+                    (dired-noselect path)
+                  (find-file-noselect path))))
+    (with-current-buffer buffer
+      (unless (file-directory-p path)
+        (goto-char workspace-bookmark-fixtures-jump-position))
+      (let ((inhibit-message t))
+        (bookmark-set name)))
+    (kill-buffer buffer)
+    (bookmark-get-bookmark name)))
+
+(defun workspace-bookmark-fixtures-prompted! (&rest args)
+  "Fail the spec: a prompt was reached that the spec did not provide for.
+ARGS are the prompt's arguments, named in the error."
+  (error "Prompted: %S" args))
+
+(defun workspace-bookmark-fixtures-answering (keys &optional before)
+  "Return a `read-multiple-choice' stand-in answering the first of KEYS offered.
+
+KEYS is one key, or a list of keys in order of preference: a spec that
+wants add-worktree takes it whenever it is on the menu, so a gate that
+wrongly offers it is caught by the command being CALLED, not only by
+the option set.  BEFORE, a function of no arguments, runs while the
+prompt is up: what the world does between the offer and the user's
+answer, e.g. deleting a workspace home.  Records (PROMPT CHOICES) in
+`workspace-bookmark-fixtures-chooser-prompts' and returns the offered
+entry; signals when none of KEYS is offered, so a spec cannot pass by
+answering something else."
+  (let ((keys (if (listp keys) keys (list keys))))
+    (lambda (prompt choices &rest _)
+      (push (list prompt choices) workspace-bookmark-fixtures-chooser-prompts)
+      (when before (funcall before))
+      (or (seq-some (lambda (key) (assq key choices)) keys)
+          (error "Option %s is not offered; offered: %S"
+                 (mapconcat #'char-to-string keys " or ")
+                 (mapcar #'cadr choices))))))
+
+(defun workspace-bookmark-fixtures-offered-keys ()
+  "Return the keys the most recent chooser prompt offered, in order."
+  (mapcar #'car (cadr (car workspace-bookmark-fixtures-chooser-prompts))))
+
+(defun workspace-bookmark-fixtures-prompt-text ()
+  "Return the most recent chooser prompt's text."
+  (car (car workspace-bookmark-fixtures-chooser-prompts)))
+
+(cl-defun workspace-bookmark-fixtures-jump
+    (name &key (workspace nil workspace-p) (choose nil choose-p)
+          (pick nil pick-p) jumper)
+  "Jump to bookmark NAME through the real jump path; return the buffer left current.
+
+  :workspace W   `workspace--current-name' answers W (a name, or nil)
+                 for the jump.  Without it the current workspace is the
+                 real one, the selected tab's.
+  :choose KEYS   the missing-repo chooser (`read-multiple-choice') is
+                 answered: KEYS is a key or a list of keys in order of
+                 preference (`workspace-bookmark-fixtures-answering'), or
+                 a function to use as `read-multiple-choice' itself.
+  :pick ANSWER   the off-workspace workspace prompt (`completing-read')
+                 answers ANSWER, a workspace name, or `quit' to quit it;
+                 its candidates are recorded in
+                 `workspace-bookmark-fixtures-workspace-prompts'.
+  :jumper FN     the entry point; `bookmark-jump' by default.
+
+A jump that answers a prompt (:choose or :pick) runs with the prompt
+guard answering as an interactive Emacs would: whatever
+`workspace-bookmark--can-prompt-p' is at call time (the real one, or a
+spec's stub) is asked with `noninteractive' masked, so it still refuses
+under `inhibit-interaction' and while a layout leaf is being restored.
+With :pick and no :choose, reaching the chooser fails the spec.  With
+neither, the guard and both prompts are left as they are, so a spec's
+own stubs of them hold.  `y-or-n-p' and `yes-or-no-p' always fail the
+spec: the seam must neither ask nor let the host's relocate offer
+through.  Both prompt records are reset first."
+  (setq workspace-bookmark-fixtures-chooser-prompts nil
+        workspace-bookmark-fixtures-workspace-prompts nil)
+  (let ((guard (symbol-function 'workspace-bookmark--can-prompt-p))
+        (current (symbol-function 'workspace--current-name))
+        (chooser (symbol-function 'read-multiple-choice))
+        (reader (symbol-function 'completing-read)))
+    (cl-letf (((symbol-function 'workspace--current-name)
+               (if workspace-p (lambda () workspace) current))
+              ((symbol-function 'workspace-bookmark--can-prompt-p)
+               (if (or choose-p pick-p)
+                   (lambda () (let ((noninteractive nil)) (funcall guard)))
+                 guard))
+              ((symbol-function 'read-multiple-choice)
+               (cond (choose-p (if (functionp choose)
+                                   choose
+                                 (workspace-bookmark-fixtures-answering choose)))
+                     (pick-p #'workspace-bookmark-fixtures-prompted!)
+                     (t chooser)))
+              ((symbol-function 'completing-read)
+               (if pick-p
+                   (lambda (prompt collection &rest _)
+                     (push (cons prompt (all-completions "" collection))
+                           workspace-bookmark-fixtures-workspace-prompts)
+                     (if (eq pick 'quit) (signal 'quit nil) pick))
+                 reader))
+              ((symbol-function 'y-or-n-p)
+               #'workspace-bookmark-fixtures-prompted!)
+              ((symbol-function 'yes-or-no-p)
+               #'workspace-bookmark-fixtures-prompted!))
+      (let ((inhibit-message t))
+        (funcall (or jumper #'bookmark-jump) name))
+      (current-buffer))))
+
+(defun workspace-bookmark-fixtures-decline (name &rest options)
+  "Jump to NAME as `workspace-bookmark-fixtures-jump' does, expecting a `user-error'.
+OPTIONS are that function's keyword arguments.  Returns the error's
+message; fails the spec when nothing was signalled."
+  (let ((message
+         (condition-case err
+             (progn (apply #'workspace-bookmark-fixtures-jump name options) nil)
+           (user-error (cadr err)))))
+    (expect message :not :to-be nil)
+    message))
+
+(defun workspace-bookmark-fixtures-visits-p (path)
+  "Non-nil when some live buffer visits PATH (a file or a directory).
+A directory counts as visited by a Dired buffer of it, compared with
+`workspace--same-file-p', so a directory bookmark's jump is checked as
+really as a file's."
+  (and (or (find-buffer-visiting path)
+           (and (file-directory-p path)
+                (seq-some (lambda (buffer)
+                            (with-current-buffer buffer
+                              (and (derived-mode-p 'dired-mode)
+                                   (workspace--same-file-p default-directory path))))
+                          (buffer-list))))
+       t))
 
 
 ;;; Bookmark isolation
@@ -424,8 +690,10 @@ that does NOT exist yet, `bookmark-alist' to nil and
 ;;
 ;; The shared forms of "a record with no stamp", "a collaborator that
 ;; fails" and "the seam's openers replaced by markers".  Specs use these
-;; rather than an inline copy, so that the counting validator of
-;; portable-bookmarks-spec.el keeps finding one of each.
+;; rather than an inline copy: the counting validator of
+;; portable-bookmarks-spec.el ("finds no inline stand-in in any spec
+;; file") fails the suite when a spec file binds a signalling collaborator
+;; of its own.
 
 (defun workspace-bookmark-fixtures-strip-stamp (record)
   "Remove the three stamped properties from bookmark RECORD, in place; return RECORD.

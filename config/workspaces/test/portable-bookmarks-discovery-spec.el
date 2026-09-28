@@ -41,18 +41,6 @@
 (defvar jf/emacs-dir)
 (defvar workspace-home-builder)
 
-;; `workspace--registered-names' is owned by tabs.el, which the test harness
-;; loads through init.el.  tabs.el cannot be loaded on its own (it requires
-;; the rest of the package by feature name), so when this file is run
-;; outside the harness, supply the same one-line registry walk.  Under the
-;; harness the real definition is already bound and this is skipped.
-(unless (fboundp 'workspace--registered-names)
-  (defun workspace--registered-names ()
-    "Return the list of workspace names currently in the registry."
-    (let (names)
-      (maphash (lambda (k _v) (push k names)) workspace--registry)
-      (nreverse names))))
-
 (defconst portable-bookmarks-discovery-spec--remote
   "git@example.com:fixtures/discovery.git"
   "Remote URL given to the fixture repositories.")
@@ -60,14 +48,6 @@
 (defconst portable-bookmarks-discovery-spec--identity
   "example.com/fixtures/discovery"
   "The identity `portable-bookmarks-discovery-spec--remote' normalizes to.")
-
-(defmacro portable-bookmarks-discovery-spec--hermetic (&rest body)
-  "Run BODY with no current workspace and `jf/emacs-dir' unbound from view."
-  (declare (indent 0))
-  `(let ((jf/emacs-dir nil))
-     (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
-                (lambda () nil)))
-       ,@body)))
 
 (defun portable-bookmarks-discovery-spec--sorted (paths)
   "Return PATHS sorted, for order-insensitive comparison."
@@ -234,34 +214,39 @@
     (it "lists only the main worktree, reached through a workspace's worktree"
       ;; The main worktree is NOT in view; git expands the in-view
       ;; workspace worktree to it.
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (expect (workspace-bookmark--checkouts-in-view) :not :to-contain repo)
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  portable-bookmarks-discovery-spec--identity)
                 :to-equal (list repo))))
 
     (it "never lists the workspace-owned or the stale worktree"
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (let ((answer (workspace-bookmark--canonical-checkouts-for-identity
                        portable-bookmarks-discovery-spec--identity)))
           (expect answer :not :to-contain owned)
           (expect answer :not :to-contain stale))))
 
     (it "is nil when no checkout of the identity is in view"
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (remhash "wsbm-disc-a" workspace--registry)
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  portable-bookmarks-discovery-spec--identity)
                 :to-be nil)))
 
     (it "is nil for an identity nothing in view has"
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  "example.com/fixtures/absent")
                 :to-be nil)))
 
     (it "reaches the repository through the configuration checkout"
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (remhash "wsbm-disc-a" workspace--registry)
         (let ((jf/emacs-dir stale))
           (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -387,7 +372,8 @@
               :to-be-truthy)
       (expect (workspace-bookmark--canonical-checkout wt) :to-be nil)
       (expect (workspace-bookmark--canonical-checkout main) :to-be nil)
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                    (lambda () "wsbm-disc-sep-b")))
           (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -406,7 +392,8 @@
             :to-equal husk)
     (expect (portable-bookmarks-discovery-spec--husk-only-p husk) :to-be-truthy)
     (expect (workspace-bookmark--canonical-checkout main) :to-be nil)
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (let ((jf/emacs-dir main))
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  portable-bookmarks-discovery-spec--identity)
@@ -449,7 +436,8 @@
       (expect (workspace-bookmark--holds-tracked-file-p husk) :to-be nil)
       (expect (workspace-bookmark--canonical-checkout wt) :to-be nil)
       (expect (workspace-bookmark--offerable-canonical-p husk) :to-be nil)
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                    (lambda () "wsbm-disc-art-b")))
           (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -500,7 +488,8 @@
       ;; ... but it belongs to a workspace, so it is not canonical ...
       (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
       ;; ... and the only in-view checkout of the identity yields nothing.
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  portable-bookmarks-discovery-spec--identity)
                 :to-be nil))))
@@ -534,7 +523,8 @@
       (expect (workspace-bookmark--classify (expand-file-name "repo/" flipped))
               :to-be 'workspace-owned)
       ;; ... so the safety rule refuses the clone.
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  portable-bookmarks-discovery-spec--identity)
                 :to-be nil)))))
@@ -579,7 +569,8 @@
                        "wsbm-disc-anchor-b")))
           (workspace-bookmark-fixtures-add-worktree
            repo (expand-file-name "wt" home-b) :branch "b")
-          (portable-bookmarks-discovery-spec--hermetic
+          (workspace-bookmark-fixtures-hermetic
+            :current-workspace nil
             (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                        (lambda () "wsbm-disc-anchor-b")))
               (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -677,7 +668,8 @@ Returns DIR as a directory name."
                                (time-add (nth slot attrs) reads))))
                      attrs))))
         (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
-        (portable-bookmarks-discovery-spec--hermetic
+        (workspace-bookmark-fixtures-hermetic
+          :current-workspace nil
           (expect (workspace-bookmark--canonical-checkouts-for-identity
                    portable-bookmarks-discovery-spec--identity)
                   :to-be nil)))
@@ -729,7 +721,8 @@ Returns DIR as a directory name."
 With workspace B current, the answer is the one-element list holding
 MAIN, the repository's main worktree: no workspace owns it, and it is
 none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
-  (portable-bookmarks-discovery-spec--hermetic
+  (workspace-bookmark-fixtures-hermetic
+    :current-workspace nil
     (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                (lambda () "wsbm-disc-link-b")))
       (let* ((answers (workspace-bookmark--canonical-checkouts-for-identity
@@ -758,7 +751,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
     (workspace-bookmark-fixtures-add-worktree
      main (expand-file-name "discovery" home-b) :branch "b")
     ;; Control: before any link, MAIN is the one canonical checkout.
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (expect (workspace-bookmark--canonical-checkouts-for-identity
                portable-bookmarks-discovery-spec--identity)
               :to-equal (list main))))
@@ -822,7 +816,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
       (expect (workspace-bookmark--home-checkouts home-a)
               :to-equal (list clone))
       (expect (workspace-bookmark--classify clone) :to-be 'workspace-owned)
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                    (lambda () "wsbm-disc-link-b")))
           (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -962,7 +957,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
     (let* ((home (workspace-bookmark-fixtures-make-workspace "wsbm-disc-unit"))
            (a (expand-file-name "a/" home)))
       (make-directory (expand-file-name ".git" a) t)
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         ;; The candidate is a REAL directory that git "confirms" as the
         ;; main worktree, on the path discovery takes today: its position
         ;; and memoised identity match, `--checkouts-of' lists it first
@@ -1081,7 +1077,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
                                   config))))))
 
   (it "is empty with no registry and no configuration checkout"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (expect (workspace-bookmark--checkouts-in-view) :to-be nil))))
 
 ;;; Behavioral — the one canonical predicate
@@ -1167,7 +1164,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
                      :branch "config")))
 
   (it "returns each in-view repository's main worktree once, current workspace first"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (let ((jf/emacs-dir elsewhere))
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                    (lambda () "wsbm-pub-a")))
@@ -1179,7 +1177,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
                   :to-equal (list r2 r1))))))
 
   (it "never returns a checkout in view, owned or linked"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (let* ((clone (portable-bookmarks-discovery-spec--clone-into
                      (expand-file-name "clone" home-b)))
              (answer (workspace-bookmark-canonical-checkouts-in-view)))
@@ -1189,21 +1188,24 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
         (expect answer :to-equal (list r1 r2)))))
 
   (it "classifies a given list instead of the view"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (let ((plain (workspace-bookmark-fixtures-temp-dir "wsbm-pub-plain-")))
         (expect (workspace-bookmark-canonical-checkouts-in-view
                  (list elsewhere plain (directory-file-name b1) r1))
                 :to-equal (list r1 r2)))))
 
   (it "returns nil for an explicitly empty list, whatever is in view"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (expect (workspace-bookmark-canonical-checkouts-in-view)
               :not :to-be nil)
       (expect (workspace-bookmark-canonical-checkouts-in-view nil)
               :to-be nil)))
 
   (it "is nil with nothing in view"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (remhash "wsbm-pub-a" workspace--registry)
       (remhash "wsbm-pub-b" workspace--registry)
       (expect (workspace-bookmark-canonical-checkouts-in-view) :to-be nil))))
@@ -1260,7 +1262,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
         (workspace-bookmark-fixtures-add-worktree
          main (expand-file-name "wt" home-z) :branch "z"))
       ;; Control: before the anchor, MAIN is offered to workspace Z.
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (expect (workspace-bookmark--canonical-checkouts-for-identity
                  portable-bookmarks-discovery-spec--identity)
                 :to-equal (list main)))
@@ -1284,7 +1287,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
               :to-equal (workspace--name ws))
       (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
       (expect (workspace-bookmark--offerable-canonical-p main) :to-be nil)
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                    (lambda () "wsbm-disc-inner-z")))
           (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -1319,7 +1323,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
     (expect (workspace-bookmark--owning-workspace main) :to-be nil)
     (expect (workspace-bookmark--classify main) :to-be 'canonical)
     (expect (workspace-bookmark--classify feat) :to-be 'workspace-owned)
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                  (lambda () "wsbm-nested-z")))
         (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -1335,7 +1340,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
       (expect (workspace-bookmark--owning-workspace main)
               :to-equal "wsbm-nested-pkg")
       (expect (workspace-bookmark--classify main) :to-be 'workspace-owned)
-      (portable-bookmarks-discovery-spec--hermetic
+      (workspace-bookmark-fixtures-hermetic
+        :current-workspace nil
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                    (lambda () "wsbm-nested-z")))
           (expect (workspace-bookmark--canonical-checkouts-for-identity
@@ -1411,7 +1417,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
     (workspace-bookmark-fixtures-make-workspace "wsbm-two-c"))
 
   (it "lists both, the current workspace's first, so neither is unique"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (dolist (case (list (list "wsbm-two-a" x1 x2)
                           (list "wsbm-two-b" x2 x1)))
         (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
@@ -1422,7 +1429,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
                   :to-equal case)))))
 
   (it "lists both from a workspace that holds neither, so neither is unique"
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (cl-letf (((symbol-function 'workspace-bookmark--current-workspace)
                  (lambda () "wsbm-two-c")))
         (expect (portable-bookmarks-discovery-spec--sorted
@@ -1436,7 +1444,8 @@ none of the checkouts of HOME-A or HOME-B (B's own worktree included)."
      x1 (expand-file-name "x" (workspace-bookmark--workspace-home "wsbm-two-c"))
      :branch "c")
     (remhash "wsbm-two-b" workspace--registry)
-    (portable-bookmarks-discovery-spec--hermetic
+    (workspace-bookmark-fixtures-hermetic
+      :current-workspace nil
       (expect (workspace-bookmark--canonical-checkouts-for-identity
                portable-bookmarks-discovery-spec--identity)
               :to-equal (list x1))))

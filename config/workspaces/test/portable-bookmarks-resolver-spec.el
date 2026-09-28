@@ -39,15 +39,6 @@
 
 (defvar jf/emacs-dir)
 
-;; Owned by tabs.el; see portable-bookmarks-discovery-spec.el for why this
-;; stand-in exists.  Under the harness the real definition is bound.
-(unless (fboundp 'workspace--registered-names)
-  (defun workspace--registered-names ()
-    "Return the list of workspace names currently in the registry."
-    (let (names)
-      (maphash (lambda (k _v) (push k names)) workspace--registry)
-      (nreverse names))))
-
 (defconst portable-bookmarks-resolver-spec--remote
   "git@example.com:fixtures/resolver.git"
   "Remote URL given to the fixture repositories.")
@@ -567,8 +558,7 @@ WORKSPACE and CANONICAL are the lists they return."
                         :checkout nil)))))
 
     (it "answers when workspace discovery signals, instead of propagating"
-      (cl-letf (((symbol-function 'workspace-bookmark--workspace-checkouts)
-                 (lambda (&rest _) (error "Boom"))))
+      (workspace-bookmark-fixtures-signalling 'workspace-bookmark--workspace-checkouts "Boom"
         (let ((result (portable-bookmarks-resolver-spec--resolve
                        (portable-bookmarks-resolver-spec--record) "ws")))
           (expect (plist-get result :outcome) :to-be 'no-clone)
@@ -589,8 +579,7 @@ WORKSPACE and CANONICAL are the lists they return."
 
     (it "answers when re-anchoring signals, instead of propagating"
       (portable-bookmarks-resolver-spec--with-discovery (list dir) nil
-        (cl-letf (((symbol-function 'workspace-bookmark--anchor)
-                   (lambda (&rest _) (error "Boom"))))
+        (workspace-bookmark-fixtures-signalling 'workspace-bookmark--anchor "Boom"
           (expect (plist-get (portable-bookmarks-resolver-spec--resolve
                               (portable-bookmarks-resolver-spec--record) "ws")
                              :outcome)
@@ -676,8 +665,7 @@ WORKSPACE and CANONICAL are the lists they return."
             (expect (plist-get result :path) :to-be nil)))))
 
     (it "answers when an error strikes before the identity is known"
-      (cl-letf (((symbol-function 'workspace-bookmark--stamped-coordinates)
-                 (lambda (&rest _) (error "Boom"))))
+      (workspace-bookmark-fixtures-signalling 'workspace-bookmark--stamped-coordinates "Boom"
         (let ((result (portable-bookmarks-resolver-spec--resolve
                        (portable-bookmarks-resolver-spec--record) "ws")))
           (expect (plist-get result :outcome) :to-be 'non-portable)
@@ -744,17 +732,16 @@ WORKSPACE and CANONICAL are the lists they return."
   (describe "ambiguous"
     (it "answers for two workspace checkouts without asking canonical discovery"
       (cl-letf (((symbol-function 'workspace-bookmark--workspace-checkouts)
-                 (lambda (&rest _) (list "/a/" "/b/")))
-                ((symbol-function
-                  'workspace-bookmark--canonical-checkouts-for-identity)
-                 (lambda (&rest _) (error "Must not be asked"))))
-        (expect (portable-bookmarks-resolver-spec--resolve
-                 (portable-bookmarks-resolver-spec--record) "ws")
-                :to-equal
-                (list :outcome 'ambiguous :path nil
-                      :identity portable-bookmarks-resolver-spec--identity
-                      :relpath "README.md" :candidates (list "/a/" "/b/")
-                      :checkout nil))))
+                 (lambda (&rest _) (list "/a/" "/b/"))))
+        (workspace-bookmark-fixtures-signalling
+            'workspace-bookmark--canonical-checkouts-for-identity "Must not be asked"
+          (expect (portable-bookmarks-resolver-spec--resolve
+                   (portable-bookmarks-resolver-spec--record) "ws")
+                  :to-equal
+                  (list :outcome 'ambiguous :path nil
+                        :identity portable-bookmarks-resolver-spec--identity
+                        :relpath "README.md" :candidates (list "/a/" "/b/")
+                        :checkout nil)))))
 
     (it "answers for two canonical checkouts"
       (portable-bookmarks-resolver-spec--with-discovery nil (list "/c1/" "/c2/")
