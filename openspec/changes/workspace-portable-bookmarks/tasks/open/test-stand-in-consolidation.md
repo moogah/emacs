@@ -64,6 +64,14 @@ created_at: 2026-09-28T00:00:00+00:00
    run, not only a review.
 5. No inline stand-in of any kind is added by this task; every helper it creates lives in the fixtures module or the core helper.
 
+## Cycle-3 on-touch additions (arch-on-touch-1790604160-08, from the wave-1 gate merge 360ad60c)
+- `portable-bookmarks-missing-repo-spec.el` gained an inline `--preferring` answer stand-in (~:164-176) that subsumes the pre-existing
+  inline `--answering` (~:154-162): fold both into ONE fixtures helper (the harness's answer parameter, step 3) and delete the inline pair.
+- The same file fakes a remote home via `cl-letf` on `file-remote-p` / `file-directory-p` (~:460-477): a SIXTH remote stand-in of a
+  different shape than the five `*-remote-handler` handlers. Route it through the single fake-remote helper (step 1) and make the
+  counting validator (step 4) also match `cl-letf.*file-remote-p` outside the fixtures module and the core helper.
+- Re-verify all counts at your base commit (the wave-1 and wave-2 merges shift lines and may add stand-ins).
+
 ## Verification
 - Isolated suite exit 0; full suite `compare-baseline.py` → NO-REGRESSION; spec count unchanged except the validator (+1) and any
   off-workspace directory spec that the Dired-aware `--visits-p` turns from vacuous into real (list them).
