@@ -2,7 +2,8 @@
 name: doc-sync-cycle2
 description: Bring proposal.md, design.md and the delta specs in line with the code and this cycle's user decisions; add the two missing delta specs (workspaces, workspace-integrations)
 change: workspace-portable-bookmarks
-status: ready
+status: needs_review
+merge_commit: 24496974
 task_class: doc
 on_critical_path: true
 cycle: cycle-1790604160
