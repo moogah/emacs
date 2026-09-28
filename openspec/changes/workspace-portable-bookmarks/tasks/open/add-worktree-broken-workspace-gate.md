@@ -2,7 +2,9 @@
 name: add-worktree-broken-workspace-gate
 description: Withhold the bookmark chooser's "add worktree here" when the current workspace is broken or its home is not an existing local directory
 change: workspace-portable-bookmarks
-status: needs_review
+status: reviewed
+reviewed_at: 2026-09-28T17:55:00+00:00
+findings_path: .orchestrator/cycles/cycle-1790604160/reviews/add-worktree-broken-workspace-gate.md
 merge_commit: 360ad60c
 task_class: bug
 on_critical_path: true
