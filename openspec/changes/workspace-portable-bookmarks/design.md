@@ -309,6 +309,16 @@ distinct from this document's `D1`–`D11`. The ones cited here:
 
 ## Risks / Trade-offs
 
+- **A bookmark whose checkout is not in view declines** → Discovery counts only
+  checkouts already in view (the current workspace's worktrees, other registered
+  workspaces' worktrees, the config repository). A stamped bookmark on a file
+  in a repository cloned elsewhere (e.g. under `~/src`, outside every workspace
+  home) resolves to `no-clone` and is reported instead of opened, and a layout
+  leaf on such a file restores to a reason buffer. This is the proposal's
+  `no-clone` outcome as written; the stored file's own checkout is not counted.
+  Revisit if it bites in daily use (the cold-path discovery of D5 is the
+  planned remedy).
+
 - **Advice on core bookmark functions** → Both seams are narrow and additive: the
   stamp advice returns the record unchanged when it cannot stamp, and the jump
   advice passes the record through untouched when there are no coordinates. A

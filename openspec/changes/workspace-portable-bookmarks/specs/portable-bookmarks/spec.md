@@ -204,9 +204,12 @@ Broken workspaces (those whose home directory no longer exists) SHALL NOT be
 offered, consistent with the workspaces package refusing to switch to or restore
 them.
 
-When no workspace can serve the jump (the registry is empty, or the user
-declines to choose one), the capability SHALL resolve the record with no
-workspace. `missing-repo` offers the read-only canonical checkout (when the
+When no workspace can serve the jump (the registry is empty, or no offered
+workspace holds a checkout of the repository and the user gives an empty
+answer), the capability SHALL resolve the record with no workspace. When an
+offered workspace does hold a checkout, it is the default: an empty answer
+restores it, and `C-g` ends the jump without opening anything.
+`missing-repo` offers the read-only canonical checkout (when the
 location exists there) or cancel; `ambiguous` and `no-clone` are reported and
 open nothing. When workspaces are offerable but no one can be asked, the jump
 SHALL be reported and open nothing. It SHALL NOT open the stored absolute path

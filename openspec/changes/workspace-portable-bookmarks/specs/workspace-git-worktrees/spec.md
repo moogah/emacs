@@ -8,10 +8,13 @@ registered workspaces, and the configuration repository the running Emacs was
 loaded from), each contributing its repository's main worktree — and SHALL then
 add candidates from `magit-list-repos` when magit is loaded. No
 other project subsystem is consulted: projectile and project.el are NOT sources.
-Every candidate from every source SHALL pass one admission predicate — it is
-offered only when it is a canonical checkout (a repository's main worktree) that
-no registered workspace owns; a magit-listed linked worktree contributes its
-repository's main worktree in its place. Candidates SHALL be de-duplicated, and
+When the portable-bookmarks module is loaded, every candidate from every
+source SHALL pass one admission predicate — it is offered only when it is a
+canonical checkout (a repository's main worktree) that no registered workspace
+owns; a magit-listed linked worktree contributes its repository's main worktree
+in its place. When that module is not loaded, the soft call contributes nothing
+and magit's list is offered as magit returns it (today's behaviour before this
+change). Candidates SHALL be de-duplicated, and
 the capability SHALL always fall back to a free-form `read-directory-name`
 prompt so a repo absent from every source can still be chosen.
 

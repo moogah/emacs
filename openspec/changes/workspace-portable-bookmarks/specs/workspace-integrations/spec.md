@@ -30,8 +30,10 @@ caller has already decided; the git-worktrees add-worktree command reads it
 (see the `workspace-git-worktrees` capability, Requirement: Worktree creation
 off main). A direct invocation SHALL carry the context that names it
 (`bookmark-jump` for the portable-bookmarks consumer) and SHALL be bound by
-the same condition as on-demand invocation: a usable current workspace
-(registered, not broken, with a home that is an existing local directory).
+the consumer's own health check: a usable current workspace (registered, not
+broken, with a home that is an existing local directory), asked at the offer
+and again immediately before the call. (On-demand invocation from the
+workspaces menu checks only that the workspace is not broken.)
 
 #### Scenario: on-create handler receives the anchor payload
 - **WHEN** a workspace `myproj` with `:home ~/emacs-workspaces/myproj/` is
