@@ -72,6 +72,18 @@ created_at: 2026-09-28T00:00:00+00:00
   counting validator (step 4) also match `cl-letf.*file-remote-p` outside the fixtures module and the core helper.
 - Re-verify all counts at your base commit (the wave-1 and wave-2 merges shift lines and may add stand-ins).
 
+## Cycle-3 on-touch additions (outcome-action-mapping merge 755483a5)
+- (arch-on-touch-1790604160-14) The new fixtures helper `workspace-bookmark-fixtures-signalling` has FIVE pre-existing inline
+  equivalents (a `cl-letf` that makes a function signal): `portable-bookmarks-missing-repo-spec.el` ~:942-943,
+  `portable-bookmarks-stamp-spec.el` ~:444-445 and ~:456-457, `portable-bookmarks-resolver-spec.el` ~:570-571 (re-locate at your
+  base). Route them through the helper, and extend the counting validator to this shape. The fixtures comment near the helper
+  (~:408-413) cites the counting validator: make it name the spec you add in step 4.
+- (arch-on-touch-1790604160-11, test half) Add ONE spec to `portable-bookmarks-jump-spec.el`: an UNSTAMPED record jumped with NO
+  current workspace opens its stored path (stock behaviour). Today `--jump-plan` passes context `in-workspace` for that case, which is
+  correct but unpinned; a later tidy that passes `none` would make every unstamped bookmark decline silently. The spec must go red if
+  `--jump-plan` is changed to pass `'none` for an unstamped record with no workspace (show it on a scratch copy of the tangled `.el`).
+  This is a test-only addition; do not edit production code.
+
 ## Verification
 - Isolated suite exit 0; full suite `compare-baseline.py` → NO-REGRESSION; spec count unchanged except the validator (+1) and any
   off-workspace directory spec that the Dired-aware `--visits-p` turns from vacuous into real (list them).
