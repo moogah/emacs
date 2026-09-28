@@ -327,7 +327,10 @@ Returns the error's message; fails the spec when nothing was signalled."
         (expect 'jf/workspace--add-worktree :not :to-have-been-called)
         (expect (portable-bookmarks-missing-repo-spec--offered-keys) :to-equal '(?v ?c))
         (expect (portable-bookmarks-missing-repo-spec--prompt-text)
-                :to-match "add worktree here not offered: workspace \"wsbm-mr-c\" is broken"))))
+                :to-match (regexp-quote
+                           (concat "add worktree here not offered: workspace \"wsbm-mr-c\" is broken"
+                                   " (tagged at load: its home was missing or remote);"
+                                   " re-anchor or purge it first"))))))
 
   (it "omits add worktree when the current workspace's home was deleted mid-session, names the home, and never calls the command"
     ;; Probe P2: no broken tag (the tag is load-time only), the tab is
@@ -352,6 +355,29 @@ Returns the error's message; fails the spec when nothing was signalled."
           (expect prompt :to-match "add worktree here not offered: the home of workspace \"wsbm-mr-c\"")
           (expect prompt :to-match (regexp-quote (file-name-nondirectory (directory-file-name home-c))))
           (expect prompt :to-match "no longer exists")))))
+
+  (it "asks the gate again at the call: a home deleted while the prompt is up declines naming it, and never calls the command"
+    ;; The offer is computed before the prompt; the answer comes after an
+    ;; unbounded wait.  Here the home is present at the offer (add worktree
+    ;; IS offered) and deleted while the prompt is up, then add worktree is
+    ;; chosen: `git worktree add' would recreate the home.
+    (portable-bookmarks-missing-repo-spec--hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (home-c (plist-get world :home-c)))
+        (portable-bookmarks-missing-repo-spec--set a-path "readme")
+        (spy-on 'jf/workspace--add-worktree :and-return-value 'skipped)
+        (let ((message (portable-bookmarks-missing-repo-spec--decline
+                        "readme" "wsbm-mr-c"
+                        (workspace-bookmark-fixtures-answering-after
+                         (lambda () (delete-directory home-c t)) ?a))))
+          (expect 'jf/workspace--add-worktree :not :to-have-been-called)
+          (expect message :to-match (regexp-quote "\"readme\""))
+          (expect message :to-match (regexp-quote "the home of workspace \"wsbm-mr-c\""))
+          (expect message :to-match (regexp-quote (file-name-nondirectory (directory-file-name home-c))))
+          (expect message :to-match "no longer exists")
+          (expect message :to-match "nothing opened"))
+        (expect (file-directory-p home-c) :to-be nil)
+        (expect (portable-bookmarks-missing-repo-spec--visits-p a-path) :to-be nil))))
 
   (it "omits view read-only when the relpath is absent under the canonical checkout (:path nil), and says so"
     (portable-bookmarks-missing-repo-spec--hermetic

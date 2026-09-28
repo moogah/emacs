@@ -704,7 +704,7 @@ the home."
       ('unregistered
        (format "workspace %S is not registered" workspace))
       ('broken
-       (format "workspace %S is broken (its home was missing when workspaces were loaded); re-anchor or purge it first"
+       (format "workspace %S is broken (tagged at load: its home was missing or remote); re-anchor or purge it first"
                workspace))
       ('no-home
        (format "workspace %S has no home to add a worktree to" workspace))
@@ -947,11 +947,22 @@ continues through `workspace-bookmark--plan-to-open', pre-flight
 included; anything else declines with
 `workspace-bookmark--after-add-message', never a second prompt.
 \(failed . REASON) and `skipped' decline naming the reason.  Signals
-on an unknown result; the caller's barrier declines."
-  (let ((name (bookmark-name-from-full-record record))
-        (result (funcall 'jf/workspace--add-worktree
-                         (workspace-bookmark--add-worktree-payload
-                          workspace (plist-get resolution :checkout)))))
+on an unknown result; the caller's barrier declines.
+
+Asks `workspace-bookmark--workspace-unusable' of WORKSPACE again
+immediately before the call: the offer's answer may be stale after the
+prompt, and a reason declines as (failed . PHRASE), PHRASE the one
+`workspace-bookmark--unusable-phrase' gives the prompt, without calling
+the command."
+  (let* ((name (bookmark-name-from-full-record record))
+         (unusable (workspace-bookmark--workspace-unusable workspace))
+         (result
+          (if unusable
+              (cons 'failed
+                    (workspace-bookmark--unusable-phrase workspace unusable))
+            (funcall 'jf/workspace--add-worktree
+                     (workspace-bookmark--add-worktree-payload
+                      workspace (plist-get resolution :checkout))))))
     (pcase result
       ('ok
        (let ((workspace-bookmark--discovery-memo nil))
@@ -1008,14 +1019,15 @@ paint whatever the clock read.")
   "Return why the workspace NAME cannot be used, or nil when it can.
 
 The one health notion of this module, read by
-`workspace-bookmark--missing-repo-withheld' (the add-worktree offer)
-and `workspace-bookmark--offerable-workspaces' (the off-workspace
-picker).  NAME is usable when it is registered, not tagged broken
+`workspace-bookmark--missing-repo-withheld' (the add-worktree offer),
+`workspace-bookmark--add-worktree-and-replan' (the same gate again at
+the call) and `workspace-bookmark--offerable-workspaces' (the
+off-workspace picker).  NAME is usable when it is registered, not tagged broken
 \(`workspace--broken-p') and its `:home' is an existing local
 directory.  Otherwise the reason, a symbol, the first that applies:
 `unregistered' (NAME is nil, not in the registry, or the registry is
-not loaded), `broken' (the tag persistence sets when the home was
-missing at load), `no-home' (no `:home' on the plist), `home-remote'
+not loaded), `broken' (the tag persistence sets at load when the home
+was missing or remote), `no-home' (no `:home' on the plist), `home-remote'
 \(remote homes are unsupported), `home-missing' (the home is not a
 directory on disk, however it went — the broken tag is load-time only
 and cannot record a deletion since).  `file-remote-p' is asked before

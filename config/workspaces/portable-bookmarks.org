@@ -1561,8 +1561,8 @@ prompt says so, so the user knows what is missing where:
 | option                      | withheld when                                                                  |
 |-----------------------------+--------------------------------------------------------------------------------|
 | =add-worktree=              | no current workspace; the add-worktree command cannot run; the workspace is    |
-|                             | unusable — not registered, broken, no home, a remote home, a home gone from   |
-|                             | disk                                                                           |
+|                             | unusable — not registered, tagged broken at load (home missing or remote), no  |
+|                             | home, a remote home, a home gone from disk                                     |
 | =view-canonical-read-only=  | =:path= is nil — the relpath is absent under the canonical checkout           |
 | =cancel=                    | never                                                                          |
 
@@ -1591,7 +1591,7 @@ offer carries its own gate — and it is the ONE health notion of this
 module, =workspace-bookmark--workspace-unusable= (defined with the
 off-workspace picker, which reads it too).  A workspace is usable when
 it is registered, not tagged broken (=workspace--broken-p=, the flag
-persistence sets when the home is missing at load), and its =:home= is
+persistence sets at load when the home is missing or remote), and its =:home= is
 an existing LOCAL directory — asked of the disk at offer time, because
 the broken tag is load-time only and cannot record a home deleted
 mid-session (=register/invariant/broken-tag-runtime-only=); a remote
@@ -1604,6 +1604,15 @@ would find present and call healthy.  Each reason is stated in the
 prompt, so the user knows to re-anchor or purge the workspace rather
 than wonder where the option went
 (=register/invariant/add-worktree-offer-shares-workspace-health-gate=).
+
+The gate is asked at the offer AND again at the call.  The prompt is
+modal and unbounded: the home can be deleted while it is up, and the
+offer's answer is stale by the time the user picks "add worktree
+here".  So =workspace-bookmark--add-worktree-and-replan= asks
+=workspace-bookmark--workspace-unusable= once more immediately before
+it calls =jf/workspace--add-worktree=, and on a reason declines with
+the same phrase the prompt would have printed — nothing opened, no
+directory created (see "Add worktree here").
 
 A nil =:path= is a real case, not a defensive one: the resolver anchors
 the relpath under the canonical checkout and answers =missing-repo=
@@ -1654,7 +1663,7 @@ the home."
       ('unregistered
        (format "workspace %S is not registered" workspace))
       ('broken
-       (format "workspace %S is broken (its home was missing when workspaces were loaded); re-anchor or purge it first"
+       (format "workspace %S is broken (tagged at load: its home was missing or remote); re-anchor or purge it first"
                workspace))
       ('no-home
        (format "workspace %S has no home to add a worktree to" workspace))
@@ -1984,6 +1993,13 @@ need"), and git-worktrees' command honours =:source-repo= in place of
 its source prompt: given one, it asks for no source and runs no
 discovery.
 
+Before the command is called, the workspace health gate is asked
+again (see "What is offered, and why not"): the user answered a prompt
+built from the offer-time answer, and a home deleted while it was up
+must not reach =git worktree add=, which would recreate it.  An
+unusable workspace declines as =(failed . PHRASE)=, PHRASE the reason
+the prompt would have printed, and the command is never called.
+
 On =ok= the resolver runs ONCE more against the workspace, and the
 answer goes through the one outcome mapping in context =after-add=
 (=workspace-bookmark--plan-for-outcome=, section "Seam 2"): =resolved=
@@ -2044,11 +2060,22 @@ continues through `workspace-bookmark--plan-to-open', pre-flight
 included; anything else declines with
 `workspace-bookmark--after-add-message', never a second prompt.
 \(failed . REASON) and `skipped' decline naming the reason.  Signals
-on an unknown result; the caller's barrier declines."
-  (let ((name (bookmark-name-from-full-record record))
-        (result (funcall 'jf/workspace--add-worktree
-                         (workspace-bookmark--add-worktree-payload
-                          workspace (plist-get resolution :checkout)))))
+on an unknown result; the caller's barrier declines.
+
+Asks `workspace-bookmark--workspace-unusable' of WORKSPACE again
+immediately before the call: the offer's answer may be stale after the
+prompt, and a reason declines as (failed . PHRASE), PHRASE the one
+`workspace-bookmark--unusable-phrase' gives the prompt, without calling
+the command."
+  (let* ((name (bookmark-name-from-full-record record))
+         (unusable (workspace-bookmark--workspace-unusable workspace))
+         (result
+          (if unusable
+              (cons 'failed
+                    (workspace-bookmark--unusable-phrase workspace unusable))
+            (funcall 'jf/workspace--add-worktree
+                     (workspace-bookmark--add-worktree-payload
+                      workspace (plist-get resolution :checkout))))))
     (pcase result
       ('ok
        (let ((workspace-bookmark--discovery-memo nil))
@@ -2108,7 +2135,7 @@ Unusable workspaces are not offered.  Which those are is decided by
 notion, shared with the missing-repo chooser's add-worktree offer (§
 Missing repo): a workspace tagged broken — =workspace--broken-p= on
 the registry plist, the flag persistence sets when a =:home= is
-missing at load — is refused by =workspace-restore= itself with a
+missing or remote at load — is refused by =workspace-restore= itself with a
 =user-error= naming =workspace-re-anchor= / =workspace-purge=, and an
 offer the package would refuse is noise; a workspace whose home is
 remote, or has gone from disk since load (the tag is load-time only),
@@ -2292,14 +2319,15 @@ paint whatever the clock read.")
   "Return why the workspace NAME cannot be used, or nil when it can.
 
 The one health notion of this module, read by
-`workspace-bookmark--missing-repo-withheld' (the add-worktree offer)
-and `workspace-bookmark--offerable-workspaces' (the off-workspace
-picker).  NAME is usable when it is registered, not tagged broken
+`workspace-bookmark--missing-repo-withheld' (the add-worktree offer),
+`workspace-bookmark--add-worktree-and-replan' (the same gate again at
+the call) and `workspace-bookmark--offerable-workspaces' (the
+off-workspace picker).  NAME is usable when it is registered, not tagged broken
 \(`workspace--broken-p') and its `:home' is an existing local
 directory.  Otherwise the reason, a symbol, the first that applies:
 `unregistered' (NAME is nil, not in the registry, or the registry is
-not loaded), `broken' (the tag persistence sets when the home was
-missing at load), `no-home' (no `:home' on the plist), `home-remote'
+not loaded), `broken' (the tag persistence sets at load when the home
+was missing or remote), `no-home' (no `:home' on the plist), `home-remote'
 \(remote homes are unsupported), `home-missing' (the home is not a
 directory on disk, however it went — the broken tag is load-time only
 and cannot record a deletion since).  `file-remote-p' is asked before
