@@ -58,20 +58,46 @@ creation or purge.
 
 ### Requirement: Soft repo-source selection
 
-When prompting the user to "select a repo already cloned locally", the capability SHALL build the candidate list from whichever project subsystems
-are loaded — at minimum `projectile-known-projects` (when projectile is
-loaded), `magit-list-repos` (when magit is loaded), and
-`project-known-project-roots` (when project.el is available) — merged and
-de-duplicated, filtered to directories that are actual git repositories, and
-SHALL always fall back to a free-form `read-directory-name` prompt so a repo
-absent from every list can still be chosen. The capability SHALL NOT hard-
-require projectile, magit, or project.el; it consumes only their candidate
-lists, never their workflows, and SHALL function with none of them loaded.
+When prompting the user to "select a repo already cloned locally", the capability SHALL build the candidate list from git-derived discovery first — the checkouts
+already in view (the current workspace's worktrees, the worktrees of other
+registered workspaces, and the configuration repository the running Emacs was
+loaded from), each contributing its repository's main worktree — and SHALL then
+add candidates from `magit-list-repos` when magit is loaded. No
+other project subsystem is consulted: projectile and project.el are NOT sources.
+When the portable-bookmarks module is loaded, every candidate from every
+source SHALL pass one admission predicate — it is offered only when it is a
+canonical checkout (a repository's main worktree) that no registered workspace
+owns; a magit-listed linked worktree contributes its repository's main worktree
+in its place. When that module is not loaded, the soft call contributes nothing
+and magit's list is offered as magit returns it (today's behaviour before this
+change). Candidates SHALL be de-duplicated, and
+the capability SHALL always fall back to a free-form `read-directory-name`
+prompt so a repo absent from every source can still be chosen.
 
-#### Scenario: Candidates merge from loaded sources
-- **WHEN** projectile and magit are both loaded and each knows a distinct repo
-- **THEN** the repo selection candidates include repos from both sources
-- **AND** duplicates appearing in more than one source are listed once
+No project subsystem is a minimum requirement. The capability SHALL NOT
+hard-require magit; it consumes only its candidate list, never its workflows,
+and SHALL function without it — in which case git-derived discovery plus the
+`read-directory-name` floor are the whole candidate set. Projectile was dropped
+as a source because it only reports repositories that have been registered with
+it, which makes candidate sets differ between machines for reasons unrelated to
+what is actually cloned.
+
+#### Scenario: Git-derived candidates need no configuration
+- **WHEN** no project subsystem is loaded and no scanning configuration exists
+- **THEN** the candidate list still includes the repositories of the checkouts in
+  view, discovered via git
+
+#### Scenario: A magit-listed linked worktree contributes its main worktree
+- **WHEN** magit lists a linked worktree of a repository
+- **THEN** the candidate offered is that repository's main worktree, listed once
+
+#### Scenario: A workspace-owned checkout is never offered
+- **WHEN** a checkout lies inside a registered workspace's home
+- **THEN** it is not offered as a worktree source, whichever source reported it
+
+#### Scenario: Remote magit entries are dropped without a connection
+- **WHEN** magit lists a repository on a remote (TRAMP) path
+- **THEN** it is dropped from the candidates and no connection is attempted
 
 #### Scenario: Non-git candidates are excluded
 - **WHEN** a known project directory is not a git repository
@@ -80,6 +106,10 @@ lists, never their workflows, and SHALL function with none of them loaded.
 #### Scenario: Floor prompt always available
 - **WHEN** no project subsystem is loaded, or the desired repo is in no list
 - **THEN** the user can still specify a repo via `read-directory-name`
+
+#### Scenario: Magit absent does not shrink discovery
+- **WHEN** magit is not loaded
+- **THEN** the candidate list is still populated from git-derived discovery
 
 ---
 
@@ -90,7 +120,10 @@ integration's `:menu` entry, that creates a git worktree inside the target
 workspace's `:home`. Operating on the anchor payload it is given (never by
 consulting the current tab), the command SHALL:
 
-1. Prompt for a source repo via soft repo-source selection.
+1. Take the source repo from the payload's `:source-repo` when present, with
+   no prompt and no discovery. A `:source-repo` that is not an existing local
+   directory reports `failed` with a reason and prompts nothing. Otherwise
+   prompt via soft repo-source selection.
 2. Determine the repo's main branch via magit (`magit-main-branch`).
 3. Prompt for the new branch name, defaulting to the workspace `:name`.
 4. Create the worktree on a new branch off the detected main branch, via
@@ -113,6 +146,18 @@ command SHALL report `failed` with a reason rather than overwrite it.
   `~/code/frontend` checked out on a new branch `add-auth` created off `main`
 - **AND** the command reports `ok`
 
+#### Scenario: A payload naming the source repo skips the source prompt
+- **WHEN** the add-worktree command runs against workspace `add-auth` with a
+  payload whose `:source-repo` is `~/code/frontend`
+- **THEN** no source-repo prompt is shown and no candidate discovery runs
+- **AND** the worktree is created from `~/code/frontend` exactly as if the user
+  had selected it
+
+#### Scenario: A source repo that is not a local directory is refused
+- **WHEN** the payload's `:source-repo` is not an existing local directory
+- **THEN** the command reports `failed` with a reason
+- **AND** no prompt is shown and no worktree is created
+
 #### Scenario: Multiple repos in one workspace
 - **WHEN** the add-worktree command is invoked twice against workspace
   `add-auth`, selecting `~/code/frontend` then `~/code/backend`
@@ -124,8 +169,6 @@ command SHALL report `failed` with a reason rather than overwrite it.
   `<home>/frontend/` already exists
 - **THEN** the command reports `failed` with a reason
 - **AND** no existing directory is modified
-
----
 
 ### Requirement: Worktree teardown on purge
 
