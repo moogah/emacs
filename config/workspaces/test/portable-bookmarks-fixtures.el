@@ -353,6 +353,19 @@ HOME defaults to a fresh tracked temp directory.  Returns the home path."
     (workspace-bookmark-fixtures-register-workspace name home)
     home))
 
+(defun workspace-bookmark-fixtures-mark-broken (name)
+  "Tag the registered workspace NAME broken, as persistence does at load.
+
+The plist is re-registered through `workspace--mark-broken', the data
+layer's tagger, so the fixture never writes the flag by hand.  The home
+directory is left as it is: a spec that wants the load-time picture
+\(a missing home behind the tag) deletes it first; teardown tolerates
+that.  Signals when NAME is not registered.  Returns the plist."
+  (let ((ws (or (gethash name workspace--registry)
+                (error "Not a registered fixture workspace: %S" name))))
+    (puthash name (workspace--mark-broken ws) workspace--registry)
+    (gethash name workspace--registry)))
+
 
 ;;; Bookmark isolation
 

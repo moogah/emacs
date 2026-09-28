@@ -615,16 +615,42 @@ waits for the command's own dependencies."
        (workspace--integration-menu-command-p 'jf/workspace--add-worktree)
        t))
 
+(defun workspace-bookmark--unusable-phrase (workspace reason)
+  "Return the prompt phrase for WORKSPACE (a name) being unusable for REASON.
+REASON is what `workspace-bookmark--workspace-unusable' returned for
+WORKSPACE; the phrase names it and, for a home that is remote or gone,
+the home."
+  (let ((home (workspace-bookmark--workspace-home workspace)))
+    (pcase reason
+      ('unregistered
+       (format "workspace %S is not registered" workspace))
+      ('broken
+       (format "workspace %S is broken (its home was missing when workspaces were loaded); re-anchor or purge it first"
+               workspace))
+      ('no-home
+       (format "workspace %S has no home to add a worktree to" workspace))
+      ('home-remote
+       (format "the home of workspace %S, %s, is remote" workspace home))
+      ('home-missing
+       (format "the home of workspace %S, %s, no longer exists; re-anchor or purge it first"
+               workspace (abbreviate-file-name home)))
+      (_ (error "Not an unusable-workspace reason: %S" reason)))))
+
 (defun workspace-bookmark--missing-repo-withheld (resolution workspace)
   "Return the `missing-repo' actions not offered for RESOLUTION, with reasons.
 
 An alist of (ACTION . REASON), REASON a phrase for the prompt.
-`add-worktree' needs a current WORKSPACE (a name) with a home and the
-git-worktrees command `jf/workspace--add-worktree' runnable
-\(`workspace-bookmark--add-worktree-runnable-p');
-`view-canonical-read-only' needs a non-nil :path, the relpath present
-under the canonical checkout.  `cancel' is always offered."
-  (let ((withheld nil))
+`add-worktree' needs a current WORKSPACE (a name), the git-worktrees
+command `jf/workspace--add-worktree' runnable
+\(`workspace-bookmark--add-worktree-runnable-p'), and WORKSPACE usable
+\(`workspace-bookmark--workspace-unusable' nil: registered, not broken,
+its home an existing local directory) — asked in that order, the first
+failing condition giving the reason; `view-canonical-read-only' needs
+a non-nil :path, the relpath present under the canonical checkout.
+`cancel' is always offered."
+  (let ((withheld nil)
+        (unusable (and workspace
+                       (workspace-bookmark--workspace-unusable workspace))))
     (cond
      ((null workspace)
       (push (cons 'add-worktree "no workspace is current to add a worktree to")
@@ -632,9 +658,9 @@ under the canonical checkout.  `cancel' is always offered."
      ((not (workspace-bookmark--add-worktree-runnable-p))
       (push (cons 'add-worktree "the git worktree integration is not loaded")
             withheld))
-     ((not (workspace-bookmark--workspace-home workspace))
+     (unusable
       (push (cons 'add-worktree
-                  (format "workspace %S has no home to add a worktree to" workspace))
+                  (workspace-bookmark--unusable-phrase workspace unusable))
             withheld)))
     (unless (plist-get resolution :path)
       (push (cons 'view-canonical-read-only
@@ -889,26 +915,46 @@ paint whatever the clock read.")
 (defvar workspace-bookmark--workspace-history nil
   "Minibuffer history for the off-workspace workspace prompt.")
 
-(defun workspace-bookmark--broken-workspace-p (name)
-  "Return non-nil when the registered workspace NAME is broken.
-Reads the registry plist's flag through `workspace--broken-p'; nil when
-NAME is not registered or the registry is not loaded."
-  (and name
-       (boundp 'workspace--registry)
-       (hash-table-p workspace--registry)
-       (fboundp 'workspace--broken-p)
-       (let ((ws (gethash name workspace--registry)))
-         (and ws (workspace--broken-p ws) t))))
+(defun workspace-bookmark--workspace-unusable (name)
+  "Return why the workspace NAME cannot be used, or nil when it can.
+
+The one health notion of this module, read by
+`workspace-bookmark--missing-repo-withheld' (the add-worktree offer)
+and `workspace-bookmark--offerable-workspaces' (the off-workspace
+picker).  NAME is usable when it is registered, not tagged broken
+\(`workspace--broken-p') and its `:home' is an existing local
+directory.  Otherwise the reason, a symbol, the first that applies:
+`unregistered' (NAME is nil, not in the registry, or the registry is
+not loaded), `broken' (the tag persistence sets when the home was
+missing at load), `no-home' (no `:home' on the plist), `home-remote'
+\(remote homes are unsupported), `home-missing' (the home is not a
+directory on disk, however it went — the broken tag is load-time only
+and cannot record a deletion since).  `file-remote-p' is asked before
+`file-directory-p', so a remote home is never stat'ed."
+  (let ((ws (and name
+                 (boundp 'workspace--registry)
+                 (hash-table-p workspace--registry)
+                 (gethash name workspace--registry))))
+    (cond
+     ((null ws) 'unregistered)
+     ((and (fboundp 'workspace--broken-p) (workspace--broken-p ws)) 'broken)
+     (t
+      (let ((home (workspace-bookmark--workspace-home name)))
+        (cond
+         ((not (stringp home)) 'no-home)
+         ((file-remote-p home) 'home-remote)
+         ((not (file-directory-p home)) 'home-missing)))))))
 
 (defun workspace-bookmark--offerable-workspaces (identity)
   "Return the workspaces that may serve a jump into IDENTITY, holders first.
 An ordered list of (NAME . HOLDS-P): every registered workspace that is
-not broken, those holding one or more checkouts of IDENTITY (HOLDS-P
-non-nil) before those holding none, registry order within each group.
-Asks `workspace-bookmark--workspace-checkouts' once per workspace."
+usable (`workspace-bookmark--workspace-unusable' nil), those holding
+one or more checkouts of IDENTITY (HOLDS-P non-nil) before those
+holding none, registry order within each group.  Asks
+`workspace-bookmark--workspace-checkouts' once per workspace."
   (let (holders others)
     (dolist (name (workspace-bookmark--registered-names))
-      (unless (workspace-bookmark--broken-workspace-p name)
+      (unless (workspace-bookmark--workspace-unusable name)
         (if (workspace-bookmark--workspace-checkouts identity name)
             (push (cons name t) holders)
           (push (cons name nil) others))))
