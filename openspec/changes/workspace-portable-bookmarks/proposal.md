@@ -63,11 +63,15 @@ build on.
   module that names `bookmark`, the workspace registry, and `git`; it does NOT
   require magit, and workspaces core does not name it.
 
-- **Stamp portable coordinates at bookmark creation.** A record for a file
-  inside a git repo gains two extra properties: the repo's *identity*
-  (normalized remote URL, e.g. `github.com/moogah/emacs`) and the file's
-  repo-relative path. The absolute `filename` is left untouched, so the record
-  stays valid for stock Emacs and for a session where this module is absent.
+- **Stamp portable coordinates at bookmark creation.** A record for a single
+  file or directory that git tracks, inside a repository with a usable remote,
+  gains three extra properties, stamped all together or not at all: the repo's
+  *identity* (normalized remote URL, e.g. `github.com/moogah/emacs`), the
+  location's repo-relative path as git spells it (`./` for the root), and a
+  stamp-format version (`1`). Untracked or ignored locations, and repositories
+  with no usable remote, stay unstamped. The absolute `filename` is left
+  untouched, so the record stays valid for stock Emacs and for a session where
+  this module is absent.
 
 - **Resolve at jump time, on a copy.** The bookmark's target is recomputed for
   the current workspace and substituted into a *copy* of the record, which is
@@ -81,9 +85,16 @@ build on.
   - `not-on-branch` — the checkout exists but the file does not (renamed,
     deleted, or absent on this branch). Reported; **never** visited as an empty
     new buffer.
-  - `missing-repo` — the workspace holds no checkout of the repo. The user is
-    offered: add a worktree here, view the canonical clone read-only, or cancel.
-  - `no-clone` — no checkout of the repo is in view on this machine.
+  - `missing-repo` — the workspace holds no checkout and exactly one canonical
+    checkout is in view. The user is offered: add a worktree here, view the
+    canonical checkout read-only (only when the file exists there), or cancel.
+    When no one can be asked (batch, or a layout-restore leaf), it is reported
+    and nothing opens.
+  - `ambiguous` — the workspace holds two or more checkouts of the repo, or it
+    holds none and two or more canonical checkouts are in view; reported,
+    nothing opened.
+  - `no-clone` — no checkout of the repo is in view on this machine; reported,
+    nothing opened.
   - `non-portable` — the record carries no portable coordinates (no repo, no
     remote, or a shape this slice does not understand). Falls through to
     today's behaviour: the stored absolute path.
@@ -92,7 +103,11 @@ build on.
   workspace, the user picks a workspace from the *registry* (not merely from
   live tabs) and it is restored via the existing `workspace-restore`, then
   resolution proceeds. This makes bookmarks work immediately after a restart,
-  which is when they are most wanted. Broken workspaces remain refused.
+  which is when they are most wanted. Broken workspaces are not offered.
+  Workspaces holding a checkout of the repo are listed first. With none
+  offerable, or an empty answer, the jump resolves without a workspace: for
+  `missing-repo` it offers the read-only canonical view or cancel; any other
+  outcome is reported. It never opens the stored path.
 
 - **Checkout classification.** Discovery distinguishes a repo's canonical
   checkout (its main worktree) from linked worktrees, and refuses to offer a
@@ -103,17 +118,21 @@ build on.
 - **Git-derived discovery, no configuration.** Identity and sibling checkouts
   are obtained by asking git about checkouts already in view (the current
   workspace's worktrees, other registered workspaces' worktrees, the config repo
-  Emacs is running from). No directory scanning, no cache, no machine-local
-  configuration in this slice.
+  Emacs is running from). No recursive directory scanning (only each registered
+  home's immediate children are listed) and no machine-local configuration. Two
+  in-memory memos bound the git cost and nothing is persisted: repo identity per
+  checkout root, revalidated against the repository's config mtimes (DD-7), and
+  a per-call discovery memo.
 
 - **BREAKING (spec-level only, no behaviour removed):** the
   `workspace-git-worktrees` repo-source requirement currently names
   `projectile-known-projects` as its minimum candidate source. Projectile is
   being retired in this config because it only sees repos that have been
   registered — a per-machine chore and a source of machine-to-machine drift.
-  Git-derived discovery becomes the primary source; projectile becomes one
-  optional legacy source among others. The `read-directory-name` floor is
-  unchanged.
+  Git-derived discovery becomes the primary source and `magit-list-repos` (when
+  magit is loaded) the only other one; projectile and project.el are no longer
+  consulted (DD-12). Every candidate passes the single canonical-admission
+  predicate. The `read-directory-name` floor is unchanged.
 
 ## Capabilities
 
@@ -129,40 +148,64 @@ build on.
 ### Modified Capabilities
 
 - `workspace-git-worktrees`: the "Soft repo-source selection" requirement is
-  amended so git-derived discovery is primary and projectile is optional legacy
-  rather than the named minimum source. No change to worktree creation,
-  teardown, or the derived-not-stored rule.
+  amended so git-derived discovery (plus magit's list) is the whole candidate
+  set; projectile and project.el are dropped. Worktree creation takes a
+  caller-supplied `:source-repo` without prompting.
+- `workspaces`: the layout-restore reincarnation chain gates on bookmark
+  declines; remote homes are refused, or loaded broken; name and purge-scope
+  guards.
+- `workspace-integrations`: payload context `bookmark-jump`, optional
+  `:source-repo`, a menu command invoked by a consumer.
 
 ## Impact
 
 **New code**
 - `config/workspaces/portable-bookmarks.org` → `portable-bookmarks.el`
-- Registered in `jf/enabled-modules` in `init.org`, after `workspaces`.
-- Tests: `config/workspaces/test/portable-bookmarks/` (Buttercup, `*-spec.el`).
+- Loaded by a `jf/load-module` line in the package loader
+  `config/workspaces/workspaces.org`, after `workspaces-mode.el` and before
+  `workspaces-transient.el` (D10); `init.org` is not touched.
+- Tests: flat `config/workspaces/test/portable-bookmarks-<topic>-spec.el` files
+  plus `portable-bookmarks-fixtures.el` (Buttercup).
 
 **Modified code**
-- `init.org` — module list entry.
-- `config/workspaces/git-worktrees.org` — only if the repo-candidate helper is
-  re-ordered to put git-derived candidates first; the magit-dependent worktree
-  operations are untouched.
+- `config/workspaces/git-worktrees.org` — repo candidates are git-derived plus
+  magit only, built in one discovery scope; `jf/workspace--add-worktree`
+  honours `:source-repo`; `--worktree-children` compares with core's identity
+  predicate.
+- workspaces core: `data-model.org` (`workspace--same-file-p`,
+  `workspace--path-within-p`), `layouts.org` (the decline gate),
+  `integrations.org` (the menu-command accessor), and `tabs.org` /
+  `workspaces.org` / `persistence.org` (remote-home and registration guards).
 
 **Emacs integration points (both advice, both single choke points)**
 - `bookmark-make-record` — `:filter-return`, to stamp coordinates.
 - `bookmark-handle-bookmark` (`bookmark.el:1339`) — called by
   `bookmark--jump-via`, so it covers `bookmark-jump`,
-  `bookmark-jump-other-window`, and `consult-bookmark`.
+  `bookmark-jump-other-window`, `consult-bookmark`, and workspaces' own layout
+  restore (layouts.el calls `bookmark-jump` per leaf). bufferlo's native tab
+  and frame restore calls handlers directly and does NOT pass this seam.
 
 **Dependencies**
 - `git` (subprocess calls only; no magit).
 - The workspace registry, read from the consumer side: `workspace--registry`
   accessors, `workspace--current-name`, `workspace-restore`,
-  `workspace--broken-p`.
+  `workspace--broken-p`, plus `workspace--registered-names`, `workspace--home`,
+  `workspace--same-file-p`, `workspace--path-within-p`,
+  `workspace--integration-menu-command-p`, `workspace--integration-payload`,
+  `workspace--restoring-layout-leaf` (read only when bound), and git-worktrees'
+  `jf/workspace--add-worktree` (a quoted, fboundp-guarded soft call, mirroring
+  DD-10).
+
+**Workspace layouts**
+- The `workspaces.eld` format is unchanged. Each layout leaf's embedded
+  `bookmark-make-record` result is stamped like any other record, and its
+  restore passes through the jump seam. A leaf whose bookmark declines lands on
+  a reason buffer, reported once per restore (asks 1790453714-1/2), never on
+  the stored filename.
 
 **Not affected**
 - `bookmark-default-file` location and format (records gain properties; stock
   Emacs still reads the file).
-- Workspace layout records in `workspaces.eld` (a separate bookmark system;
-  untouched by this slice).
 - Existing bookmarks: unstamped records keep working via `non-portable`.
 
 **Out of scope (deliberate, each a later slice)**

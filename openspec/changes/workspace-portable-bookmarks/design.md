@@ -58,8 +58,9 @@ Constraints from the repository:
 - Records with nested records or window trees; path properties other than the
   record's single location (Tier 2/3).
 - Any UI showing which bookmarks are portable.
-- Replacing projectile's other uses in this config (only the repo-source
-  ordering changes here).
+- Replacing projectile's other uses in this config. Here projectile and
+  project.el stop being worktree repo sources entirely (DD-12); their other
+  uses are untouched.
 
 ## Decisions
 
@@ -67,7 +68,11 @@ Constraints from the repository:
 
 `bookmark-make-record` gets `:filter-return` advice that stamps coordinates.
 `bookmark-handle-bookmark` (`bookmark.el:1339`) gets advice that substitutes a
-resolved copy.
+resolved copy. On the core side, layouts.el binds
+`workspace--restoring-layout-leaf` around each leaf's jump and treats a
+handler's `user-error` as a DECLINE: a reason buffer, with no filename or name
+fallback. This module reads the flag and declines rather than prompting once
+per leaf.
 
 Why `bookmark-handle-bookmark`: it is called by `bookmark--jump-via`, which is
 the shared path behind `bookmark-jump`, `bookmark-jump-other-window` and
@@ -95,10 +100,13 @@ yield one identity: strip scheme and user, drop a trailing `.git`, drop a
 trailing slash, lowercase the host. The repository basename is for display only
 — basenames collide, and main-checkout paths differ between machines.
 
-`origin` is preferred when several remotes exist. A repository with **no**
-remote produces no identity and its records stay unstamped (a path-based
-identity would be meaningless elsewhere); this affects 9 of 51 repos in `~/src`,
-so the unstamped path is a normal case, not an edge case.
+`origin` is preferred. A repository with no `origin` but exactly one remote
+uses that remote. Several remotes and no `origin` give no identity, so the
+record stays unstamped. The URL comes from `git remote get-url`, which honours
+`insteadOf`. Userinfo, port and runs of slashes are dropped too. A repository
+with **no** remote produces no identity and its records stay unstamped (a
+path-based identity would be meaningless elsewhere); this affects 9 of 51 repos
+in `~/src`, so the unstamped path is a normal case, not an edge case.
 
 *Alternative considered.* Identity by basename: rejected (collisions).
 Identity by main-worktree path: rejected (machine-specific).
@@ -126,17 +134,25 @@ Everything needed comes from git, starting from checkouts already in view:
 | Question | Command |
 |---|---|
 | Which repository is this? | `git remote get-url origin` |
-| Where is this checkout's root, and its common dir? | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir` |
+| Which remote, when there is no `origin`? | `git remote` — the single-remote fallback |
+| Where is this checkout's root, its common dir, and this directory's prefix? | `git rev-parse --path-format=absolute --show-toplevel --git-common-dir --show-prefix`, plus `HEAD:./` for directories |
 | What other checkouts exist? | `git worktree list --porcelain` |
 | Which path does git track this file under? | `git ls-files -z --full-name -- <file>` |
+| Does a candidate hold tracked files (the husk check)? | `git ls-files -z`, run in the candidate |
+| Is the candidate's work tree its own (the `core.worktree` check)? | `git rev-parse --show-toplevel`, run in the candidate |
+| Which branch is the read-only view on? | `git symbolic-ref --short --quiet HEAD` — the branch named in the read-only view message |
 
-(Amended at cycle-2 plan to the commands the implementation actually runs.)
+(Amended at cycle-2 plan, and again at the cycle-3 doc sync, to the commands
+the implementation actually runs.)
 
 Checkouts in view: the current workspace's worktrees, the worktrees of other
 registered workspaces (from the registry), and the configuration repository the
 running Emacs was loaded from.
 
-No directory scanning, no cache, no machine-local configuration in this slice.
+No recursive directory scanning (only each registered home's immediate children
+are listed) and no machine-local configuration. Two in-memory memos bound the
+git cost and nothing is persisted: repo identity per checkout root, revalidated
+against the repository's config mtimes (DD-7), and a per-call discovery memo.
 The scanning cold path (declared clone roots, replacing projectile for
 *creating* worktrees) belongs to the git-worktrees candidate seam and is deferred.
 
@@ -156,7 +172,10 @@ Each discovered checkout is classified:
   defeat it). Whether a canonical checkout may be OFFERED is decided by one
   predicate, `workspace-bookmark--offerable-canonical-p`, shared with the
   worktree picker.
-- **workspace-owned** — its root lies inside a registered workspace's `:home`.
+- **workspace-owned** — a registered, existing `:home` is the checkout, lies
+  inside it, or contains it, judged by file identity. A contained home that is
+  itself a worktree of the checkout's own repository confers nothing (DD-13).
+  Symbolic links confer nothing in either direction (DD-11).
 - **other** — a linked worktree belonging to no workspace (the legacy
   `~/emacs-*` checkouts).
 
@@ -188,7 +207,10 @@ Candidates come from the registry (`workspace--registered-names`), not from live
 tabs, and the chosen workspace is materialized with `workspace-restore`, which
 already creates-or-selects the tab, applies `:working-state` else `:saved-state`,
 falls back to the home builder when a workspace has no saved layout, and refuses
-broken workspaces with a remediation message.
+broken workspaces with a remediation message. Broken workspaces are filtered out
+before the prompt, so the restore's refusal is never reached from here. When
+workspaces are offerable but no one can be asked (batch, `inhibit-interaction`,
+a layout leaf), the jump declines without prompting.
 
 This is why restore beats switch: the moment bookmarks are most useful is right
 after a restart, when the target workspace has no live tab yet.
@@ -197,25 +219,22 @@ Candidate ordering puts workspaces that already hold a checkout of the
 bookmark's repository first, since those resolve immediately while the others
 lead straight into `missing-repo`.
 
-### D9: Restore-then-jump replaces the selected window and is not remembered
+### D9: Restore-then-jump replaces the selected window
 
-The restored layout is painted, then the bookmark's file replaces the **selected
-window**. The perturbation is deliberately **not** captured as the workspace's
-`:working-state`.
+The restored layout is painted, then the bookmark's file replaces the
+**selected window**: same window, no split, and the finish step runs strictly
+after the deferred paint. The result is remembered like any find-file in a
+workspace: the next autosave may capture it into `:working-state`, and
+`:saved-state` is untouched, as by every autosave. (Decided 2026-09-27,
+ask-1790453714-3 (b): the autosave-suppression flag was inert and was removed.)
 
-Rationale: a bookmark jump is navigation, not a statement about how the
-workspace should look. If it were captured, a workspace's remembered arrangement
-would drift toward "whatever I last jumped to". `:saved-state` was never at risk
-(autosaves never write it), but working-state drift is still noise the user did
-not ask for.
+Only the outer jump's own host call may be taken for the jump's target: the
+restore's leaf walk passes the same seam first, synchronously, so the target is
+armed only once `workspace-restore` has returned. A jump that declines after the
+restore leaves the painted layout exactly as saved.
 
-Implementation note: the autosave path already consults
-`workspace-anti-save-predicates`, so suppression has an established mechanism to
-hook into rather than needing a new one.
-
-*Alternatives considered.* Capture it like any other window change: rejected —
-silent redefinition of "where I was". Open in a split: rejected — an extra
-window on every jump, and a cramped layout on a small frame.
+*Alternatives considered.* Open in a split: rejected — an extra window on every
+jump, and a cramped layout on a small frame.
 
 ### D10: Module placement and load order
 
@@ -264,8 +283,9 @@ a fake workspace registry entry pointing at a temp home, and a temp
 tests write and re-read a bookmark file to prove stamped records survive.
 
 Scenario mapping: each `#### Scenario:` in
-`specs/portable-bookmarks/spec.md` maps to one `it` block; the spec's six
-requirement groups map to six `describe` blocks.
+`specs/portable-bookmarks/spec.md` maps to one `it` block; the spec's seven
+requirements map to `describe` blocks across the per-topic spec files (stamp,
+identity, resolver, discovery, cost, jump, missing-repo, off-workspace).
 
 ## Risks / Trade-offs
 
@@ -275,8 +295,10 @@ requirement groups map to six `describe` blocks.
   failure in either degrades to today's behaviour instead of breaking jumps.
 
 - **Per-jump git subprocess latency** → The warm set is small (seven checkouts
-  for the largest repo here) and a jump is an interactive action. No cache in
-  this slice; if latency is felt, caching is an additive follow-up.
+  for the largest repo here) and a jump is an interactive action. Latency is
+  bounded by the identity memo (DD-7) and a per-call discovery memo. The
+  measured floor is 3 git spawns per canonical repository and 1 per further
+  checkout (see the register's cost_contract).
 
 - **`bookmark-handle-bookmark` is not a documented extension point** → Its
   contract could change across Emacs versions. Mitigated by keeping the advice
@@ -304,17 +326,20 @@ requirement groups map to six `describe` blocks.
 
 No data migration. Existing bookmark files are read unchanged; records gain
 properties the first time they are re-created, and unstamped records keep working
-through `non-portable` indefinitely. Rollback is removing the module from
-`jf/enabled-modules`: the advice disappears, stamped records keep their absolute
-`filename`, and behaviour returns exactly to today's.
+through `non-portable` indefinitely. Rollback is removing its `jf/load-module`
+line from `config/workspaces/workspaces.org`, or
+`M-x workspace-bookmark-remove-advice` for the session: the advice disappears,
+stamped records keep their absolute `filename`, and behaviour returns exactly to
+today's.
 
 ## Open Questions
 
 - Should the two prompts be unified? "Off-workspace: pick a workspace" and
   "missing-repo: add worktree / view read-only / cancel" are arguably one
-  question — *where should this open?* — and could share a single prompt whose
-  candidates are workspaces holding the repository plus those actions. Deferred
-  to implementation, where the shape of both prompts will be concrete.
+  question — *where should this open?* Resolved in cycle-1790453714: the two
+  prompts stay separate. A `completing-read` over the registry (holders first,
+  annotated) establishes a workspace. The resolver's normal path then reaches
+  the bounded missing-repo chooser only when it needs to.
 - Should a bookmark ever be shared with teammates? A yes would settle the 1b
   storage decision by making tracked per-repo storage the point rather than an
   intrusion. Out of scope here; recorded so 1b starts from it.
