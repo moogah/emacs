@@ -1084,13 +1084,22 @@ the three contexts:
 
 | outcome         | =in-workspace=                            | =none=                                | =after-add=                               |
 |-----------------+-------------------------------------------+---------------------------------------+-------------------------------------------|
-| =non-portable=  | call through with the ORIGINAL argument   | decline: no workspace to resolve in   | decline: the after-add report             |
-| =resolved=      | call through with a COPY, pre-flighted    | decline: no workspace to resolve in   | call through with a COPY, pre-flighted    |
+| =non-portable=  | call through with the ORIGINAL argument   | decline (unreachable)                 | decline (unreachable)                     |
+| =resolved=      | call through with a COPY, pre-flighted    | decline (unreachable)                 | call through with a COPY, pre-flighted    |
 | =missing-repo=  | offer: the bounded choice ("Missing repo") | offer: the bounded choice             | decline: the after-add report             |
-| =not-on-branch= | decline: report, open nothing             | decline: report, open nothing         | decline: the after-add report             |
+| =not-on-branch= | decline: report, open nothing             | decline (unreachable)                 | decline: the after-add report             |
 | =ambiguous=     | decline: report the =:candidates=         | decline: report the =:candidates=     | decline: the after-add report             |
 | =no-clone=      | decline: report, open nothing             | decline: report, open nothing         | decline: the after-add report             |
 | anything else   | SIGNAL                                    | SIGNAL                                | SIGNAL                                    |
+
+The cells marked /unreachable/ cannot be produced by
+=workspace-bookmark--resolve=: with no workspace it answers only
+=missing-repo=, =ambiguous= or =no-clone= for a stamped record (an
+UNSTAMPED record never reaches the =none= column: =--jump-plan= keeps
+it in =in-workspace= so it opens its stored path as stock Emacs
+would), and a re-resolve after a worktree was added starts from a
+stamped record.  They decline, the safe answer, and the mapper spec
+pins them.
 
 =(call-through . ORIGINAL)= — the host handed the very argument the
 seam received, i.e. the stored path — is produced by exactly ONE
@@ -1369,8 +1378,9 @@ reason, not a resolution outcome."
 The ONE site that maps a resolution outcome to a plan.  RESOLUTION is
 the plist `workspace-bookmark--resolve' returned for RECORD, a bookmark
 record.  CONTEXT says where it was decided: `in-workspace', the seam's
-own decision against a current or chosen workspace
-\(`workspace-bookmark--jump-plan'); `none', the off-workspace fallback
+own decision (`workspace-bookmark--jump-plan') against a current or
+chosen workspace, and also for an UNSTAMPED record jumped with no
+current workspace, which keeps stock behaviour; `none', the off-workspace fallback
 resolved with no workspace (`workspace-bookmark--no-workspace-plan');
 `after-add', the re-resolve after a worktree was added
 \(`workspace-bookmark--add-worktree-and-replan').  ORIGINAL is the
@@ -1393,7 +1403,10 @@ A decline carries `workspace-bookmark--decline-message' in
 `in-workspace' and `none' — except `non-portable' and `resolved' with
 no workspace, which name the missing workspace — and
 `workspace-bookmark--after-add-message' in `after-add'.  Any other
-outcome, and any other context, signals; the caller's barrier catches."
+outcome, and any other context, signals; the caller's barrier catches.
+Four cells cannot be reached from `workspace-bookmark--resolve' and are
+kept as a defensive decline: `none' with `non-portable', `resolved' or
+`not-on-branch', and `after-add' with `non-portable'."
   (pcase (plist-get resolution :outcome)
     ((and 'non-portable (guard (eq context 'in-workspace)))
      (cons 'call-through original))

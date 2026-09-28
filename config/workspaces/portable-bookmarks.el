@@ -514,8 +514,9 @@ reason, not a resolution outcome."
 The ONE site that maps a resolution outcome to a plan.  RESOLUTION is
 the plist `workspace-bookmark--resolve' returned for RECORD, a bookmark
 record.  CONTEXT says where it was decided: `in-workspace', the seam's
-own decision against a current or chosen workspace
-\(`workspace-bookmark--jump-plan'); `none', the off-workspace fallback
+own decision (`workspace-bookmark--jump-plan') against a current or
+chosen workspace, and also for an UNSTAMPED record jumped with no
+current workspace, which keeps stock behaviour; `none', the off-workspace fallback
 resolved with no workspace (`workspace-bookmark--no-workspace-plan');
 `after-add', the re-resolve after a worktree was added
 \(`workspace-bookmark--add-worktree-and-replan').  ORIGINAL is the
@@ -538,7 +539,10 @@ A decline carries `workspace-bookmark--decline-message' in
 `in-workspace' and `none' — except `non-portable' and `resolved' with
 no workspace, which name the missing workspace — and
 `workspace-bookmark--after-add-message' in `after-add'.  Any other
-outcome, and any other context, signals; the caller's barrier catches."
+outcome, and any other context, signals; the caller's barrier catches.
+Four cells cannot be reached from `workspace-bookmark--resolve' and are
+kept as a defensive decline: `none' with `non-portable', `resolved' or
+`not-on-branch', and `after-add' with `non-portable'."
   (pcase (plist-get resolution :outcome)
     ((and 'non-portable (guard (eq context 'in-workspace)))
      (cons 'call-through original))

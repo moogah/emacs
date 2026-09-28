@@ -2,7 +2,7 @@
 name: test-stand-in-consolidation
 description: Move per-spec stand-ins (fake TRAMP handlers, registered-names stand-ins, the bookmark-jump harness) into the shared fixtures module
 change: workspace-portable-bookmarks
-status: needs_review
+status: done
 merge_commit: 442b2989
 task_class: refactor
 on_critical_path: false
