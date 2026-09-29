@@ -100,15 +100,19 @@ export EMACS_USER_DIRECTORY="$RUNTIME_DIR"
 
 # Launch Emacs with isolated configuration
 # -q: Skip loading default init file
+# --init-directory: Set user-emacs-directory before startup derives paths
+#   from it (eln-cache, abbrevs, etc.), so nothing leaks into ~/.emacs.d
 # --load: Load our early-init.el and init.el
 # "${EMACS_ARGS[@]+"${EMACS_ARGS[@]}"}": Pass through all additional arguments
 if [[ ${#EMACS_ARGS[@]} -gt 0 ]]; then
     exec "$EMACS" -q \
+        --init-directory "$RUNTIME_DIR" \
         --load "$EARLY_INIT" \
         --load "$INIT" \
         "${EMACS_ARGS[@]}"
 else
     exec "$EMACS" -q \
+        --init-directory "$RUNTIME_DIR" \
         --load "$EARLY_INIT" \
         --load "$INIT"
 fi
