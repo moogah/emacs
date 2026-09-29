@@ -105,5 +105,14 @@
 ;; Apply customizations after theme loads
 (add-hook 'emacs-startup-hook #'jf/apply-theme-customizations)
 
+(defun jf/doom-themes-fix-gnus-face-cycle (theme)
+  "Break the gnus-group-news-low inheritance cycle in doom THEME."
+  (when (string-prefix-p "doom-" (symbol-name theme))
+    (custom-theme-set-faces
+     theme
+     '(gnus-group-news-low-empty ((t (:inherit gnus-group-mail-1-empty)))))))
+
+(add-hook 'enable-theme-functions #'jf/doom-themes-fix-gnus-face-cycle)
+
 ;; set font size to 14pt for my aging eyes
 (setq default-frame-alist '((font . "Menlo-14")))
