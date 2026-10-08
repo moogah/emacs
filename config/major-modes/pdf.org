@@ -16,8 +16,139 @@ Reading and annotating PDF books inside Emacs.
   whose title starts with =Item 21=; =[[book:ep/114]]= opens page 114.
   =jf/pdf-book-open= jumps to any outline entry with completion.
 
-Building =epdfinfo= on macOS needs Homebrew's =poppler=, =pkg-config=,
-=autoconf= and =automake=.  =pdf-tools-install= builds it on first load.
+Daily use: open the reading-notes note, put point on the book heading
+(it carries =NOTER_DOCUMENT=) and run =M-x org-noter=.  See [[*Key
+Bindings][Key Bindings]] for the keys in each window.
+
+* Installation
+A new machine or runtime needs these steps, in order.  Run each block with
+=C-c C-c=; none of them tangle.  [[*Setup Problems][Setup Problems]]
+explains why each step looks the way it does.
+
+** 1. System Dependencies
+=epdfinfo=, pdf-tools' native server, links against poppler and builds
+with autotools.  Homebrew has had =poppler= and =pkg-config= for a while;
+=autoconf= and =automake= were added for this module (2026-10-08).
+
+#+begin_src sh :results output
+brew install poppler pkg-config autoconf automake 2>&1 | tail -3
+#+end_src
+
+#+begin_src sh :results output
+brew list --versions poppler pkg-config autoconf automake
+#+end_src
+
+** 2. Packages
+straight clones and builds pdf-tools and org-noter the first time this
+module loads; nothing to do by hand.  org-noter's recipe swaps straight's
+compile step for one that can see pdf-tools (see [[*Compiling with
+pdf-tools][Compiling with pdf-tools]]).  To force that build again, for
+instance after a failed one:
+
+#+begin_src emacs-lisp :tangle no
+(straight-rebuild-package "org-noter")
+#+end_src
+
+** 3. Build epdfinfo
+=pdf-tools-install= runs when pdf-tools loads (on the first PDF opened)
+and builds =epdfinfo= if it is missing, into
+=runtime/packages/pdf-tools/=.  To build it now from inside Emacs:
+
+#+begin_src emacs-lisp :tangle no
+(require 'pdf-tools)
+(pdf-tools-install :no-query)
+#+end_src
+
+Or from a shell, which shows the full build log.  The build writes
+objects into the pdf-tools repository, so straight rebuilds the package
+once on the next start; =epdfinfo= lives outside straight's build
+directory and survives that.
+
+#+begin_src sh :results output
+root=$(git rev-parse --show-toplevel)
+mkdir -p "$root/runtime/packages/pdf-tools"
+cd "$root/runtime/straight/repos/pdf-tools/server" &&
+  ./autobuild -i "$root/runtime/packages/pdf-tools/" 2>&1 | tail -4
+#+end_src
+
+** 4. Verify
+Each of these should come back clean.
+
+The server: executable, and answering.
+
+#+begin_src emacs-lisp :tangle no
+(require 'pdf-tools)
+(list :program pdf-info-epdfinfo-program
+      :executable (file-executable-p pdf-info-epdfinfo-program)
+      :check (condition-case err
+                 (progn (pdf-info-check-epdfinfo) 'ok)
+               (error err)))
+#+end_src
+
+Native compilation: the toolchain builds a function.  This depends on
+the deployment-target fix in =early-init.el=, not on this module.
+
+#+begin_src emacs-lisp :tangle no
+(require 'comp)
+(list :driver-options native-comp-driver-options
+      :compiles (native-comp-function-p (native-compile '(lambda (x) (1+ x)))))
+#+end_src
+
+org-noter: the PDF module was compiled with pdf-tools' macros expanded.
+=:macro-called-as-function= must be nil.  =:native= turns t once JIT
+compilation has caught up, a little after the first load in a session.
+
+#+begin_src emacs-lisp :tangle no
+(require 'org-noter-pdf)
+(let ((fn (symbol-function 'org-noter-pdf--show-arrow)))
+  (list :library (locate-library "org-noter-pdf")
+        :native (native-comp-function-p fn)
+        :macro-called-as-function
+        (and (byte-code-function-p fn)
+             (memq 'pdf-view-current-overlay (append (aref fn 2) nil))
+             t)))
+#+end_src
+
+Books: the outline resolves.  Expect 175 entries and page 114.
+
+#+begin_src emacs-lisp :tangle no
+(let ((outline (jf/pdf-book-outline "ep")))
+  (list :entries (length outline)
+        :item-21 (jf/pdf-outline-page outline "Item 21")))
+#+end_src
+
+* Setup Problems
+What went wrong while setting this up (2026-10-08), and where each fix
+lives.  The sections holding the code explain the mechanics.
+
+- *PDFs opened as images; org-noter could not select or highlight.*
+  org-noter was installed without pdf-tools, so PDFs fell back to
+  =doc-view=.  Fix: pdf-tools, [[*PDF Tools][PDF Tools]].
+- *pdf-tools would not build.* Homebrew lacked =autoconf= and
+  =automake=.  Fix: [[*1. System Dependencies][System Dependencies]].
+- *=pdf-info-epdfinfo-program is not executable= after a restart.*
+  Building the server modifies the pdf-tools repository; straight saw
+  the change, rebuilt the package and wiped its build directory, server
+  included.  Fix: keep =epdfinfo= in =runtime/packages/pdf-tools/=, [[*PDF
+  Tools][PDF Tools]].
+- *Native compiler warnings: =invalid version number in
+  '-mmacosx-version-min=18.0'=.* libgccjit 14 maps the Darwin 27 kernel
+  to a macOS version clang rejects, so no package had been native
+  compiled since at least May 2026.  Fix: =native-comp-driver-options=
+  in =early-init.el=.  Failed builds leave empty =*.eln.tmp= files in
+  =~/.emacs.d/eln-cache/=; they are safe to delete.
+- *=epdfinfo: Expected a relative rectangle= on inserting a note.* A
+  plain click leaves an empty pdf-view region, which org-noter tried to
+  highlight.  Fix: [[*Click-Only Regions][Click-Only Regions]].
+- *=(invalid-function pdf-view-current-overlay)= when a session starts.*
+  org-noter had been compiled without pdf-tools on the load path.  Fix:
+  [[*Compiling with pdf-tools][Compiling with pdf-tools]].
+- *Warning: =display-line-numbers-mode= is incompatible with
+  =pdf-view-mode=.* The global line-numbers mode reached PDF buffers.
+  Fix: [[*Line Numbers][Line Numbers]].
+- *=i= and =q= did nothing useful in a session.* evil's normal state
+  shadows org-noter's keys.  Fix: [[*Evil Keys in a Session][Evil Keys
+  in a Session]].
 
 * Basic Configuration
 
@@ -172,7 +303,7 @@ region in the session's PDF before either insert command runs.
     (advice-add command :before #'jf/org-noter-drop-empty-region)))
 #+end_src
 
-** Evil Integration
+** Evil Keys in a Session
 =org-noter-doc-mode= binds bare =i= and =q= in the PDF buffer, but evil's
 normal-state map shadows plain minor-mode maps.  Rebind them for evil
 while a session is active: =i= inserts a note, =I= a note at a precise
@@ -337,4 +468,115 @@ with a short description such as =Item 21=.
   (org-link-set-parameters "book"
                            :follow #'jf/pdf-book-link-follow
                            :complete #'jf/pdf-book-link-complete))
+#+end_src
+
+* Key Bindings
+A reference for the keys this module makes available, and some bindings
+that are written but not active yet.
+
+** Reading a PDF
+From evil-collection, normal state in =pdf-view-mode=.
+
+| Keys                     | Action                                       |
+|--------------------------+----------------------------------------------|
+| =j= / =k=                | line down / up, crossing page edges          |
+| =C-f= / =C-b=            | screen down / up                             |
+| =]]= / =[[=, =gj= / =gk= | next / previous page                         |
+| =gg= / =G=, =114G=       | first page / last page, page 114             |
+| =gl=                     | page by printed number (PDF 114 is p. 87)    |
+| =o=                      | outline: =RET= go and close, =TAB= fold      |
+| =/= =?= =n= =N=          | search                                       |
+| =M-s o=                  | occur: list all matches                      |
+| drag mouse-1, =y=        | select text, copy it                         |
+| =+= =-= =0=              | zoom in / out / reset                        |
+| =W= =H= =P=              | fit width / height / page                    |
+| =zm=                     | midnight (dark) colours                      |
+| =m= / ='=                | save position to register / jump to it       |
+| =C-o= / =C-i=            | back / forward through jump history          |
+| =q= / =Q=                | quit window / kill buffer                    |
+
+=SPC= scrolls a screen here, so the =SPC= leader bindings do not work in
+a PDF window.  A key meant for PDF windows has to go in
+=pdf-view-mode-map= (see [[*Not Yet Bound][Not Yet Bound]]).
+
+** Annotations
+pdf-tools annotations, stored in the PDF file itself.  Prefix =C-c C-a=.
+
+| Keys            | Action                             |
+|-----------------+------------------------------------|
+| =C-c C-a h=     | highlight the selected text        |
+| =C-c C-a u= =s= | underline / squiggly underline     |
+| =C-c C-a t=     | sticky text note at a point        |
+| =C-c C-a l=     | list the document's annotations    |
+| =C-c C-a D=     | delete an annotation               |
+
+** An org-noter Session
+In the PDF window:
+
+| Keys                        | Action                                       |
+|-----------------------------+----------------------------------------------|
+| =i=                         | insert a note for this page (evil, ours)     |
+| =I=, =M-i=                  | insert a note at a precise spot (evil, ours) |
+| =q=                         | end the session (evil, ours)                 |
+| =M-p= / =M-.= / =M-n=       | notes for previous / current / next page     |
+| =C-M-p= / =C-M-.= / =C-M-n= | previous / current / next note               |
+| =M-T=                       | notes beside / below the PDF                 |
+
+Select text before =i= to quote it in the note and highlight it in the
+PDF.  The notes window has the same =M-p= ... =M-T= keys.
+
+Commands without keys:
+
+| Command                                       | Action                                    |
+|-----------------------------------------------+-------------------------------------------|
+| =org-noter-set-notes-window-location=         | notes beside, below or in another frame   |
+| =C-u M-x org-noter-set-notes-window-location= | the same, saved on the book heading       |
+| =org-noter-create-skeleton=                   | notes outline from the PDF's outline      |
+| =jf/pdf-book-open=                            | jump to an outline entry, e.g. an item    |
+| =jf/pdf-book-insert-link=                     | insert a =book:= link to an outline entry |
+
+In org, =C-c C-l book: RET= completes a =book:= link, and =C-c C-o= on
+one opens the book there.
+
+** Not Yet Bound
+Candidate bindings, kept out of the config with =:tangle no=.  Try one in
+the running session with =C-c C-c=; to keep it, delete =:tangle no= and
+retangle.  The keys were free on 2026-10-08.
+
+Leader key for jumping to a book entry from any buffer except a PDF
+(=SPC k= is unused):
+
+#+begin_src emacs-lisp :tangle no
+(evil-define-key 'normal 'global (kbd "<SPC> k") #'jf/pdf-book-open)
+#+end_src
+
+The same jump from inside a PDF, where =SPC= is taken (=gb= is unused in
+evil-collection's pdf keys):
+
+#+begin_src emacs-lisp :tangle no
+(with-eval-after-load 'pdf-view
+  (evil-define-key 'normal pdf-view-mode-map "gb" #'jf/pdf-book-open))
+#+end_src
+
+Insert a =book:= link in org, next to =SPC i l= for links:
+
+#+begin_src emacs-lisp :tangle no
+(with-eval-after-load 'org
+  (evil-define-key 'normal org-mode-map (kbd "<SPC> i b") #'jf/pdf-book-insert-link))
+#+end_src
+
+Choose the notes layout for a session, including a separate frame (=T=
+is unused in the PDF):
+
+#+begin_src emacs-lisp :tangle no
+(with-eval-after-load 'org-noter
+  (evil-define-minor-mode-key 'normal 'org-noter-doc-mode
+    "T" #'org-noter-set-notes-window-location))
+#+end_src
+
+Make a separate notes frame the default for every session.  It suits two
+monitors; it also takes the notes out of the current tab workspace:
+
+#+begin_src emacs-lisp :tangle no
+(setq org-noter-notes-window-location 'other-frame)
 #+end_src
