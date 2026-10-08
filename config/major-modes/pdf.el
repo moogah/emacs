@@ -17,16 +17,37 @@
   :config
   (pdf-tools-install :no-query))
 
+(defun jf/pdf-view-disable-line-numbers ()
+  "Turn off line numbers, which `pdf-view-mode' cannot display."
+  (display-line-numbers-mode -1))
+
+(add-hook 'pdf-view-mode-hook #'jf/pdf-view-disable-line-numbers)
+
 (with-eval-after-load 'pdf-view
   (with-eval-after-load 'evil-collection
     (evil-collection-init 'pdf)))
+
+(declare-function straight--build-dir "straight")
+(defvar straight-byte-compilation-buffer)
+
+(defun jf/org-noter-compile-with-pdf-tools ()
+  "Byte-compile org-noter in a subprocess with this session's load path.
+Like straight's compile step, but the load path includes pdf-tools,
+whose macros `org-noter-pdf' uses without declaring the dependency."
+  (let ((dir (straight--build-dir "org-noter")))
+    (call-process (expand-file-name invocation-name invocation-directory)
+                  nil straight-byte-compilation-buffer nil
+                  "-Q" "--batch" "--eval"
+                  (format "%S" `(progn (setq load-path ',load-path)
+                                       (byte-recompile-directory ,dir 0 'force))))))
 
 ;; ===============================================================================
 ;; org-noter: page-linked notes beside a PDF
 ;; ===============================================================================
 
 (use-package org-noter
-  :straight t
+  :straight (org-noter :build (:not compile)
+                       :post-build (jf/org-noter-compile-with-pdf-tools))
   :custom
   (org-noter-always-create-frame nil)
   (org-noter-notes-window-location 'horizontal-split)

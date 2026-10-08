@@ -56,6 +56,20 @@ there.
   (pdf-tools-install :no-query))
 #+end_src
 
+** Line Numbers
+=global-display-line-numbers-mode= (look-and-feel) turns line numbers on
+in every buffer, and pdf-view warns that =display-line-numbers-mode= is
+incompatible with it.  Turning the mode off in =pdf-view-mode-hook= marks
+it as set explicitly, so the global mode leaves the buffer alone.
+
+#+begin_src emacs-lisp
+(defun jf/pdf-view-disable-line-numbers ()
+  "Turn off line numbers, which `pdf-view-mode' cannot display."
+  (display-line-numbers-mode -1))
+
+(add-hook 'pdf-view-mode-hook #'jf/pdf-view-disable-line-numbers)
+#+end_src
+
 ** Evil Integration
 evil-collection supplies vim keys for =pdf-view-mode= (=j=/=k= scroll,
 =gg=/=G= first and last page, =o= outline).
@@ -76,13 +90,46 @@ PDF: =M-x org-noter= on that heading.  The settings:
 - when a note is inserted with text selected, highlight that text in the
   PDF, so the passage shows as annotated while reading.
 
+** Compiling with pdf-tools
+=org-noter-pdf.el= uses pdf-tools macros such as
+=pdf-view-current-overlay=, but org-noter does not declare pdf-tools as a
+dependency.  straight byte-compiles each package in an =emacs -Q=
+subprocess whose load path holds only the package's declared
+dependencies, so there the macros compile as function calls and fail at
+run time with =(invalid-function pdf-view-current-overlay)=.
+
+So the recipe drops straight's =compile= step and byte-compiles in a
+=:post-build= step instead, the same way but with this session's load
+path, which includes pdf-tools.  Native compilation then works as usual:
+straight's =native-compile= step and JIT compilation both run with this
+session's load path, and Emacs loads the =.eln= in place of the =.elc=.
+
+#+begin_src emacs-lisp
+(declare-function straight--build-dir "straight")
+(defvar straight-byte-compilation-buffer)
+
+(defun jf/org-noter-compile-with-pdf-tools ()
+  "Byte-compile org-noter in a subprocess with this session's load path.
+Like straight's compile step, but the load path includes pdf-tools,
+whose macros `org-noter-pdf' uses without declaring the dependency."
+  (let ((dir (straight--build-dir "org-noter")))
+    (call-process (expand-file-name invocation-name invocation-directory)
+                  nil straight-byte-compilation-buffer nil
+                  "-Q" "--batch" "--eval"
+                  (format "%S" `(progn (setq load-path ',load-path)
+                                       (byte-recompile-directory ,dir 0 'force))))))
+#+end_src
+
+** Package
+
 #+begin_src emacs-lisp
 ;; ===============================================================================
 ;; org-noter: page-linked notes beside a PDF
 ;; ===============================================================================
 
 (use-package org-noter
-  :straight t
+  :straight (org-noter :build (:not compile)
+                       :post-build (jf/org-noter-compile-with-pdf-tools))
   :custom
   (org-noter-always-create-frame nil)
   (org-noter-notes-window-location 'horizontal-split)
