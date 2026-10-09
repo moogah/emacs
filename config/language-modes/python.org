@@ -60,6 +60,25 @@ The LSP configuration with ruff replaces the following tools that were previousl
 
 The ruff configuration is compatible with existing black and isort settings in pyproject.toml.
 
+* Documentation (Info)
+The Python manual in Info format, for =C-h S= (=info-lookup-symbol=) in
+python buffers and =info:python#Node= links in org.  The docs project
+publishes a prebuilt =python.info=; the download steps are in the
+python-study workspace (=~/emacs-workspaces/python-study/home.org=,
+"Deep-dive sources").  The directory holds =python3.14.info= plus a
+=python.info= symlink, so both the versioned name that =info-look= tries
+first and the plain name resolve.
+
+=Info-additional-directory-list= is read at each lookup, so the setting
+takes effect without restarting Info.  If the directory is missing,
+lookups just fall through to the other manuals.
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'info
+  (add-to-list 'Info-additional-directory-list
+               (expand-file-name "~/.local/share/info/python3.14")))
+#+end_src
+
 * TODO Improvements
 - Consider adding support for Python virtual environments with pyvenv or similar packages (LSP servers auto-detect venvs currently)
 - Add pytest integration for running tests directly from Emacs
