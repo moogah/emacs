@@ -1813,7 +1813,10 @@ behind a health gate that lives in the transient module, which this
 consumer may not name (it loads after this module, deferred).  So the
 offer carries its own gate — and it is the ONE health notion of this
 module, =workspace-bookmark--workspace-unusable= (defined with the
-off-workspace picker, which reads it too).  A workspace is usable when
+off-workspace picker, which reads it too).  It adds only "registered"
+to core's =workspace--unhealthy-reason= (=data-model.org= § Workspace
+health), the same predicate the menu's gate reads, so the two gates
+cannot disagree.  A workspace is usable when
 it is registered, not tagged broken (=workspace--broken-p=, the flag
 persistence sets at load when the home is missing or remote), and its =:home= is
 an existing LOCAL directory — asked of the disk at offer time, because
@@ -2615,6 +2618,8 @@ paint whatever the clock read.")
 #+end_src
 
 #+begin_src emacs-lisp
+(declare-function workspace--unhealthy-reason "data-model" (ws))
+
 (defun workspace-bookmark--workspace-unusable (name)
   "Return why the workspace NAME cannot be used, or nil when it can.
 
@@ -2622,29 +2627,25 @@ The one health notion of this module, read by
 `workspace-bookmark--missing-repo-withheld' (the add-worktree offer),
 `workspace-bookmark--add-worktree-and-replan' (the same gate again at
 the call) and `workspace-bookmark--offerable-workspaces' (the
-off-workspace picker).  NAME is usable when it is registered, not tagged broken
-\(`workspace--broken-p') and its `:home' is an existing local
-directory.  Otherwise the reason, a symbol, the first that applies:
-`unregistered' (NAME is nil, not in the registry, or the registry is
-not loaded), `broken' (the tag persistence sets at load when the home
-was missing or remote), `no-home' (no `:home' on the plist), `home-remote'
-\(remote homes are unsupported), `home-missing' (the home is not a
-directory on disk, however it went — the broken tag is load-time only
-and cannot record a deletion since).  `file-remote-p' is asked before
-`file-directory-p', so a remote home is never stat'ed."
+off-workspace picker).  NAME is usable when it is registered and core's
+`workspace--unhealthy-reason' finds nothing wrong with it — the same
+predicate behind the workspace menu's health gate, so the two gates
+agree.  Otherwise the reason, a symbol: `unregistered' (NAME is nil,
+not in the registry, or the registry is not loaded), else core's
+reason — `broken' (the tag persistence sets at load when the home was
+missing or remote), `no-home' (no `:home' on the plist),
+`home-remote' (remote homes are unsupported), `home-missing' (the home
+is not a directory on disk, however it went — the broken tag is
+load-time only and cannot record a deletion since).  Core asks
+`file-remote-p' before `file-directory-p', so a remote home is never
+stat'ed."
   (let ((ws (and name
                  (boundp 'workspace--registry)
                  (hash-table-p workspace--registry)
                  (gethash name workspace--registry))))
-    (cond
-     ((null ws) 'unregistered)
-     ((and (fboundp 'workspace--broken-p) (workspace--broken-p ws)) 'broken)
-     (t
-      (let ((home (workspace-bookmark--workspace-home name)))
-        (cond
-         ((not (stringp home)) 'no-home)
-         ((file-remote-p home) 'home-remote)
-         ((not (file-directory-p home)) 'home-missing)))))))
+    (if (null ws)
+        'unregistered
+      (workspace--unhealthy-reason ws))))
 
 (defun workspace-bookmark--offerable-workspaces (identity)
   "Return the workspaces that may serve a jump into IDENTITY, holders first.

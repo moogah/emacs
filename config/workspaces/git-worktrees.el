@@ -195,12 +195,17 @@ detects the repo's main branch (`magit-main-branch' with
 defaulting to the sanitized workspace name.  The worktree directory is
 a child of `:home' named for the source repo's basename.
 
-If the target directory already exists, returns
-\(failed . REASON) and makes NO magit call — never overwriting.
-Otherwise creates the worktree on a NEW branch off main via
-`magit-worktree-branch' (again with `default-directory' bound to the
-repo).  Returns `ok' on success, or (failed . REASON) on any git
-error."
+After the prompts, immediately before any worktree is made, `:home'
+is checked (the callers' health gates ran before the prompts): when
+it is not an existing LOCAL directory (deleted while a prompt was up,
+remote, or absent) returns (failed . REASON) and makes NO magit call,
+because `git worktree add' would recreate a missing home.
+`file-remote-p' is asked first, without its CONNECTED argument, so a
+remote home is never contacted.  If the target directory already exists, returns (failed . REASON) and makes NO magit
+call — never overwriting.  Otherwise creates the worktree on a NEW
+branch off main via `magit-worktree-branch' (again with
+`default-directory' bound to the repo).  Returns `ok' on success, or
+\(failed . REASON) on any git error."
   (let ((source (plist-get payload :source-repo)))
     (if (and (plist-member payload :source-repo)
              (not (and (stringp source)
@@ -215,17 +220,22 @@ error."
              (default-branch (jf/workspace--worktree-sanitize-branch
                               (plist-get payload :name)))
              (branch (read-string "Worktree branch: " default-branch))
-             (dir (expand-file-name
-                   (file-name-nondirectory (directory-file-name repo))
-                   (plist-get payload :home))))
-        (if (file-exists-p dir)
-            (cons 'failed (format "worktree dir already exists: %s" dir))
-          (condition-case err
-              (progn
-                (let ((default-directory repo))
-                  (magit-worktree-branch dir branch main))
-                'ok)
-            (error (cons 'failed (error-message-string err)))))))))
+             (home (plist-get payload :home)))
+        (if (not (and (stringp home)
+                      (not (file-remote-p home))
+                      (file-directory-p home)))
+            (cons 'failed (format "workspace home is not a local directory: %s" home))
+          (let ((dir (expand-file-name
+                      (file-name-nondirectory (directory-file-name repo))
+                      home)))
+            (if (file-exists-p dir)
+                (cons 'failed (format "worktree dir already exists: %s" dir))
+              (condition-case err
+                  (progn
+                    (let ((default-directory repo))
+                      (magit-worktree-branch dir branch main))
+                    'ok)
+                (error (cons 'failed (error-message-string err)))))))))))
 
 (defun jf/workspace--worktree-children (home)
   "Return a list of linked-worktree descriptors under HOME.
