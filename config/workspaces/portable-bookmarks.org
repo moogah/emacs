@@ -3784,7 +3784,12 @@ Here that means one rule above all: *the stored absolute =filename= is
 used by exactly one outcome, =non-portable=*, for which it is today's
 answer.  Every other outcome is computed from the stamped coordinates
 and the checkouts discovery finds, and a stale or foreign absolute path
-cannot leak into it.
+cannot leak into it.  The one exception is a COMPARISON, not a use: in
+row 4 of the decision table the stored =filename= is compared by file
+identity with the relpath anchored under the single canonical checkout,
+and when it IS that file the outcome is =resolved= with the ANCHORED
+path (change =portable-bookmarks-canonical-same-file=, 2026-10-10).  The
+stored string is never the path returned.
 
 ** The closed set of outcomes
 
@@ -3797,7 +3802,7 @@ section "Seam 2"), never a stray symbol that a caller might treat as
 
 | outcome         | =:path=                                   | meaning                                                            |
 |-----------------+-------------------------------------------+--------------------------------------------------------------------|
-| =resolved=      | the location in the workspace's checkout  | the only outcome that may be opened without asking                 |
+| =resolved=      | the location in the workspace's checkout, or the canonical checkout's own file (row 4's same-file tie-break) | the only outcome that may be opened without asking                 |
 | =not-on-branch= | nil                                       | the checkout exists, the relpath does not: report, NEVER visit     |
 | =missing-repo=  | the candidate under the canonical checkout, or nil | the workspace holds no checkout; the caller may OFFER a read-only view |
 | =no-clone=      | nil                                       | no checkout of the repository is in view                           |
@@ -4048,7 +4053,7 @@ deterministic.
 | 1 | not a record, or no usable stamp (see "Reading the stamp")         | =non-portable=   |
 | 2 | the workspace holds exactly ONE checkout of the identity           | =resolved= / =not-on-branch= |
 | 3 | the workspace holds TWO OR MORE                                    | =ambiguous=      |
-| 4 | the workspace holds none, exactly ONE canonical checkout in view   | =missing-repo=   |
+| 4 | the workspace holds none, exactly ONE canonical checkout in view   | =missing-repo=; =resolved= when the stored =filename= IS that checkout's copy |
 | 5 | the workspace holds none, TWO OR MORE canonical checkouts in view  | =ambiguous=      |
 | 6 | nothing in view                                                    | =no-clone=       |
 
@@ -4068,6 +4073,24 @@ still answers =missing-repo= — the repository really is missing from
 the workspace — but with =:path= nil: there is nothing to offer as a
 read-only view, and the caller must not visit a path that does not
 exist.
+
+*Row 4's same-file tie-break.*  Before answering =missing-repo=, row 4
+asks =workspace-bookmark--canonical-copy-p= whether the record's stored
+=filename= names the SAME FILE (device and inode,
+=workspace--same-file-p=) as the relpath anchored under the one
+canonical checkout.  When it does, the file that was bookmarked is the
+canonical checkout's own — a config file under =jf/emacs-dir= open in a
+workspace that holds no emacs worktree is the everyday case — and the
+workspace never held a copy to prefer, so there is no choice to put to
+the user: the outcome is =resolved= with the anchored path, and a layout
+leaf for it restores instead of landing on an error buffer.  Another
+workspace's copy has another inode and never matches, so the decline
+that protects against opening it is untouched.  The stored string is
+only compared; the =:path= is the anchored one.  The tie-break needs a
+workspace to be CURRENT: with none (WORKSPACE-NAME nil, rows 4–6 from an
+unregistered tab) the answer stays =missing-repo=, so the off-workspace
+fallback still puts its bounded choice — view read-only or cancel —
+rather than opening the canonical file from nowhere.
 
 WORKSPACE-NAME nil (no current workspace) holds no checkout, so the
 answer comes from rows 4–6.
@@ -4116,9 +4139,35 @@ error and signals: nothing here returns a location it did not anchor."
   (workspace-bookmark--outcome
    'non-portable :path (workspace-bookmark--stored-filename record)))
 
-(defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name)
+(defun workspace-bookmark--canonical-copy-p (stored relpath checkout)
+  "Return non-nil when STORED is CHECKOUT's own copy of RELPATH.
+
+STORED is a record's stored `filename' (or nil); RELPATH a confined
+relpath; CHECKOUT the one canonical checkout in view.  True when STORED
+names the same existing local file as RELPATH anchored under CHECKOUT,
+by device and inode (`workspace--same-file-p'), never by spelling.  Nil
+for a nil or remote STORED, and whenever either side does not exist.
+Two stats, no subprocess.  Never signals."
+  (and (stringp stored)
+       (not (file-remote-p stored))
+       (condition-case nil
+           (workspace--same-file-p
+            stored (expand-file-name relpath (file-name-as-directory checkout)))
+         (error nil))))
+
+(defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name
+                                                         &optional stored)
   "Decide the outcome for the stamped IDENTITY and RELPATH in WORKSPACE-NAME.
 See `workspace-bookmark--resolve'.  May signal; the caller catches.
+
+STORED is the record's stored `filename', or nil.  It is consulted in
+one arm only: with a workspace current (WORKSPACE-NAME non-nil) that
+holds no checkout, and exactly one canonical checkout in view, a STORED
+that is that checkout's own copy of RELPATH
+\(`workspace-bookmark--canonical-copy-p') answers `resolved' instead of
+`missing-repo'; the :path is still the anchored one.  With no workspace
+at all the arm answers `missing-repo' as before, so the off-workspace
+fallback's bounded choice stands.
 
 The whole decision is ONE discovery call
 \(`workspace-bookmark--with-discovery-memo'): the current workspace's
@@ -4141,7 +4190,12 @@ so the outcome is the same as with two."
           (cond
            ((and canonical (null (cdr canonical)))
             (workspace-bookmark--resolve-anchored
-             'missing-repo relpath (car canonical) identity))
+             (if (and workspace-name
+                      (workspace-bookmark--canonical-copy-p
+                       stored relpath (car canonical)))
+                 'resolved
+               'missing-repo)
+             relpath (car canonical) identity))
            (canonical
             (workspace-bookmark--outcome 'ambiguous :identity identity
                                          :relpath relpath :candidates canonical))
@@ -4165,7 +4219,12 @@ first-match-wins:
                    stored `filename' (the ONLY outcome that uses it).
   `resolved'       WORKSPACE-NAME holds exactly one checkout of the
                    identity and the relpath exists there; :path is it,
-                   :checkout that checkout.
+                   :checkout that checkout.  Also: WORKSPACE-NAME is a
+                   workspace holding none, exactly one canonical
+                   checkout is in view, and the stored `filename' IS
+                   that checkout's copy of the relpath by file
+                   identity; :path is the anchored path, :checkout the
+                   canonical checkout.  Never with WORKSPACE-NAME nil.
   `not-on-branch'  that one checkout lacks the relpath; :path nil,
                    :checkout that checkout.
   `ambiguous'      WORKSPACE-NAME holds several checkouts, or holds
@@ -4183,7 +4242,8 @@ that would leave its checkout by its spelling (`..', an absolute name)
 resolves `non-portable'; one that leaves it only through a symbolic
 link resolves by its spelling, as visiting it by hand would (DD-16).
 The stamp is not checked against the stored `filename' (see the Org
-prose on stale stamps).
+prose on stale stamps); the same-file tie-break above compares the two
+and returns the anchored path, never the stored string.
 
 This is a decision function: it runs git through the discovery
 functions but never visits a file, displays a buffer, reads input or
@@ -4195,7 +4255,8 @@ is known gives `no-clone', before that `non-portable'."
             (workspace-bookmark--non-portable record)
           (condition-case nil
               (workspace-bookmark--resolve-coordinates
-               (car coordinates) (cdr coordinates) workspace-name)
+               (car coordinates) (cdr coordinates) workspace-name
+               (workspace-bookmark--stored-filename record))
             (error (workspace-bookmark--outcome
                     'no-clone :identity (car coordinates)
                     :relpath (cdr coordinates))))))
@@ -4214,7 +4275,10 @@ this slice, stated here because it is accepted, not fixed.  The planned
 answer is to detect broken stamps ON READ (for example: honour a stamp
 only when =filename= ends with the stamped relpath) — see
 =.tasks/portable-bookmarks-stale-stamp-detection.md=.  No consistency
-check is made here until that task is taken up.
+check is made here until that task is taken up.  Row 4's same-file
+tie-break is not such a check: a relocated record's =filename= is not
+the canonical copy of its stale relpath, so the tie-break simply does
+not fire and the record resolves as before.
 
 * Advice installation
 

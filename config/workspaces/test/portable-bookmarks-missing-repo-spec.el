@@ -316,7 +316,28 @@ as git-worktrees.el registers it once magit is loaded."
                     "readme" :workspace "wsbm-mr-c" :choose (lambda (&rest _) (signal 'quit nil)))))
                 :to-be 'quit)
         (expect (workspace-bookmark-fixtures-visits-p canonical-path) :to-be nil)
-        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)))))
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil))))
+
+  (it "opens the canonical checkout's own file without a prompt when the stored filename is that file"
+    ;; Change portable-bookmarks-canonical-same-file: the resolver answers
+    ;; `resolved' for the canonical checkout's own copy, so the chooser is
+    ;; never reached; reaching it fails the spec.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((canonical-path (expand-file-name "README.md" (plist-get world :repo)))
+             (stored (workspace-bookmark-fixtures-set-bookmark canonical-path "canon"))
+             (snapshot (copy-tree stored))
+             (buffer (workspace-bookmark-fixtures-jump
+                      "canon" :workspace "wsbm-mr-c"
+                      :choose #'workspace-bookmark-fixtures-prompted!)))
+        (expect workspace-bookmark-fixtures-chooser-prompts :to-equal nil)
+        (expect (workspace--same-file-p (buffer-file-name buffer) canonical-path)
+                :to-be-truthy)
+        (expect (with-current-buffer buffer (point))
+                :to-equal workspace-bookmark-fixtures-jump-position)
+        ;; A resolved jump, not the read-only canonical view.
+        (expect (buffer-local-value 'buffer-read-only buffer) :to-be nil)
+        (expect (buffer-local-value 'workspace-bookmark--canonical-view buffer) :to-be nil)
+        (expect (bookmark-get-bookmark "canon") :to-equal snapshot)))))
 
 
 (describe "missing-repo choice: the workspace health gate"

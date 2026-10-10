@@ -807,7 +807,43 @@ both."
           (expect (length declines) :to-equal 1)
           (expect (car declines) :to-match "1 buffer not restored")
           (expect (car declines) :to-match (regexp-quote "README.md"))
-          (expect (car declines) :to-match "jump decision failed"))))))
+          (expect (car declines) :to-match "jump decision failed")))))
+
+  (it "restores a layout whose leaf is the canonical checkout's own file, in a workspace holding no checkout: no prompt, no decline"
+    ;; Change portable-bookmarks-canonical-same-file.  Unlike the
+    ;; missing-repo leaf above, the stored path here IS the canonical
+    ;; checkout's file, so the resolver answers `resolved' and the leaf
+    ;; restores.  The guard is masked as interactive, as above, so a
+    ;; prompt that is reached fails loudly.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((canonical-path (expand-file-name "README.md" (plist-get world :repo)))
+             (home-c (workspace-bookmark-fixtures-make-workspace "wsbm-off-c"))
+             (reports nil)
+             (asked nil))
+        (ignore home-c)
+        (portable-bookmarks-off-workspace-spec--give-saved-layout
+         "wsbm-off-c" (portable-bookmarks-off-workspace-spec--layout-beside-scratch canonical-path))
+        (portable-bookmarks-off-workspace-spec--recording-messages reports
+          (cl-letf* ((guard (symbol-function 'workspace-bookmark--can-prompt-p))
+                     ((symbol-function 'workspace-bookmark--can-prompt-p)
+                      (lambda () (let ((noninteractive nil)) (funcall guard))))
+                     ((symbol-function 'read-multiple-choice)
+                      (lambda (&rest args) (setq asked args) (error "Prompted: %S" args)))
+                     ((symbol-function 'y-or-n-p)
+                      #'workspace-bookmark-fixtures-prompted!))
+            (let ((jf/emacs-dir (plist-get world :repo)))
+              (workspace-restore "wsbm-off-c")
+              (portable-bookmarks-off-workspace-spec--drain-timers))))
+        (expect asked :to-be nil)
+        (expect (workspace--current-name) :to-equal "wsbm-off-c")
+        (expect (length (window-list nil 'no-mini)) :to-equal 2)
+        (expect (workspace-bookmark-fixtures-visits-p canonical-path) :to-be-truthy)
+        (expect (portable-bookmarks-off-workspace-spec--window-showing
+                 "*workspace-restore: README.md*")
+                :to-be nil)
+        (expect (seq-filter (lambda (report) (string-match-p "not restored" report))
+                            reports)
+                :to-equal nil)))))
 
 
 ;;; Unit — the chooser's prompt guard, which the chain relies on

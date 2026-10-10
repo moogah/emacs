@@ -1874,9 +1874,35 @@ error and signals: nothing here returns a location it did not anchor."
   (workspace-bookmark--outcome
    'non-portable :path (workspace-bookmark--stored-filename record)))
 
-(defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name)
+(defun workspace-bookmark--canonical-copy-p (stored relpath checkout)
+  "Return non-nil when STORED is CHECKOUT's own copy of RELPATH.
+
+STORED is a record's stored `filename' (or nil); RELPATH a confined
+relpath; CHECKOUT the one canonical checkout in view.  True when STORED
+names the same existing local file as RELPATH anchored under CHECKOUT,
+by device and inode (`workspace--same-file-p'), never by spelling.  Nil
+for a nil or remote STORED, and whenever either side does not exist.
+Two stats, no subprocess.  Never signals."
+  (and (stringp stored)
+       (not (file-remote-p stored))
+       (condition-case nil
+           (workspace--same-file-p
+            stored (expand-file-name relpath (file-name-as-directory checkout)))
+         (error nil))))
+
+(defun workspace-bookmark--resolve-coordinates (identity relpath workspace-name
+                                                         &optional stored)
   "Decide the outcome for the stamped IDENTITY and RELPATH in WORKSPACE-NAME.
 See `workspace-bookmark--resolve'.  May signal; the caller catches.
+
+STORED is the record's stored `filename', or nil.  It is consulted in
+one arm only: with a workspace current (WORKSPACE-NAME non-nil) that
+holds no checkout, and exactly one canonical checkout in view, a STORED
+that is that checkout's own copy of RELPATH
+\(`workspace-bookmark--canonical-copy-p') answers `resolved' instead of
+`missing-repo'; the :path is still the anchored one.  With no workspace
+at all the arm answers `missing-repo' as before, so the off-workspace
+fallback's bounded choice stands.
 
 The whole decision is ONE discovery call
 \(`workspace-bookmark--with-discovery-memo'): the current workspace's
@@ -1899,7 +1925,12 @@ so the outcome is the same as with two."
           (cond
            ((and canonical (null (cdr canonical)))
             (workspace-bookmark--resolve-anchored
-             'missing-repo relpath (car canonical) identity))
+             (if (and workspace-name
+                      (workspace-bookmark--canonical-copy-p
+                       stored relpath (car canonical)))
+                 'resolved
+               'missing-repo)
+             relpath (car canonical) identity))
            (canonical
             (workspace-bookmark--outcome 'ambiguous :identity identity
                                          :relpath relpath :candidates canonical))
@@ -1923,7 +1954,12 @@ first-match-wins:
                    stored `filename' (the ONLY outcome that uses it).
   `resolved'       WORKSPACE-NAME holds exactly one checkout of the
                    identity and the relpath exists there; :path is it,
-                   :checkout that checkout.
+                   :checkout that checkout.  Also: WORKSPACE-NAME is a
+                   workspace holding none, exactly one canonical
+                   checkout is in view, and the stored `filename' IS
+                   that checkout's copy of the relpath by file
+                   identity; :path is the anchored path, :checkout the
+                   canonical checkout.  Never with WORKSPACE-NAME nil.
   `not-on-branch'  that one checkout lacks the relpath; :path nil,
                    :checkout that checkout.
   `ambiguous'      WORKSPACE-NAME holds several checkouts, or holds
@@ -1941,7 +1977,8 @@ that would leave its checkout by its spelling (`..', an absolute name)
 resolves `non-portable'; one that leaves it only through a symbolic
 link resolves by its spelling, as visiting it by hand would (DD-16).
 The stamp is not checked against the stored `filename' (see the Org
-prose on stale stamps).
+prose on stale stamps); the same-file tie-break above compares the two
+and returns the anchored path, never the stored string.
 
 This is a decision function: it runs git through the discovery
 functions but never visits a file, displays a buffer, reads input or
@@ -1953,7 +1990,8 @@ is known gives `no-clone', before that `non-portable'."
             (workspace-bookmark--non-portable record)
           (condition-case nil
               (workspace-bookmark--resolve-coordinates
-               (car coordinates) (cdr coordinates) workspace-name)
+               (car coordinates) (cdr coordinates) workspace-name
+               (workspace-bookmark--stored-filename record))
             (error (workspace-bookmark--outcome
                     'no-clone :identity (car coordinates)
                     :relpath (cdr coordinates))))))

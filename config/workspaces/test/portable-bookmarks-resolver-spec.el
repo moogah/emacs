@@ -271,7 +271,44 @@ WORKSPACE and CANONICAL are the lists they return."
                       "wsbm-res-b")))
         (expect (plist-get result :outcome) :to-be 'missing-repo)
         (expect (plist-get result :path) :to-be nil)
-        (expect (plist-get result :relpath) :to-equal "branch-a-only.el"))))
+        (expect (plist-get result :relpath) :to-equal "branch-a-only.el")))
+
+    (it "answers resolved, with the canonical path, when the stored filename is the canonical checkout's own copy"
+      ;; Change portable-bookmarks-canonical-same-file: the file that was
+      ;; bookmarked IS the canonical checkout's; the workspace never held a
+      ;; copy to prefer, so nothing is being chosen for the user.
+      (let* ((canonical-path (expand-file-name "README.md" repo))
+             (record (portable-bookmarks-resolver-spec--stamp canonical-path))
+             (result (portable-bookmarks-resolver-spec--resolve
+                      record "wsbm-res-b")))
+        (expect (plist-get result :outcome) :to-be 'resolved)
+        (expect (workspace--same-file-p (plist-get result :path) canonical-path)
+                :to-be-truthy)
+        (expect (workspace--same-file-p (plist-get result :checkout) repo)
+                :to-be-truthy)
+        (expect (get-file-buffer (plist-get result :path)) :to-be nil)))
+
+    (it "keeps missing-repo for the canonical checkout's own copy when no workspace is current"
+      ;; The tie-break needs a current workspace: from an unregistered tab
+      ;; the off-workspace fallback's bounded choice stands.
+      (let* ((canonical-path (expand-file-name "README.md" repo))
+             (record (portable-bookmarks-resolver-spec--stamp canonical-path))
+             (result (portable-bookmarks-resolver-spec--resolve record nil)))
+        (expect (plist-get result :outcome) :to-be 'missing-repo)
+        (expect (workspace--same-file-p (plist-get result :path) canonical-path)
+                :to-be-truthy)))
+
+    (it "does not let a stored filename that is NOT the canonical copy turn missing-repo into resolved"
+      ;; The tie-break compares by file identity: a sibling file under the
+      ;; canonical checkout, spelled as the stored filename, is not the
+      ;; relpath's copy.
+      (let* ((other (workspace-bookmark-fixtures-commit-file repo "other.md"))
+             (record (portable-bookmarks-resolver-spec--record :filename other))
+             (result (portable-bookmarks-resolver-spec--resolve
+                      record "wsbm-res-b")))
+        (expect (plist-get result :outcome) :to-be 'missing-repo)
+        (expect (plist-get result :path)
+                :to-equal (expand-file-name "README.md" repo)))))
 
   (describe "ambiguous"
     (it "lists two checkouts in the workspace and chooses neither"
