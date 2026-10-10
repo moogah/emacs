@@ -494,8 +494,9 @@ destructive intent visually.
 
 =workspace-save= (=S=) captures the live frame and writes
 synchronously.  Every other persistence write is synchronous too,
-through =workspace--flush-state= (=persistence.org=); there is no
-debounced save primitive.
+through =workspace--write-state= (=persistence.org=; normally via
+=workspace--flush-state=, while the =kill-emacs= flush calls it
+directly); there is no debounced save primitive.
 
 =workspace-revert= (=r=) is the v2 \"throw away autosave drift\"
 affordance: it clears the current workspace's =:working-state=,

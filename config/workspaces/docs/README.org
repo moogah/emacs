@@ -471,9 +471,11 @@ baseline.
 ** Save triggers
 
 Every write is synchronous: each trigger below writes the whole
-registry to disk at once, through one function
-(=workspace--flush-state=).  There is no debounce, no idle-delayed
-write and no option to configure one.
+registry to disk at once, through =workspace--write-state= (normally
+via =workspace--flush-state=; the =kill-emacs= write calls it
+directly).  There is no debounce and no deferred write: every write
+happens inside the trigger that causes it, and there is no option to
+delay it.
 
 Explicit saves (write =:saved-state=, clear =:working-state=):
 
@@ -481,8 +483,10 @@ Explicit saves (write =:saved-state=, clear =:working-state=):
   recent layout's =:saved-state=, clears its =:working-state=, syncs the
   file list, and writes.  Never consults
   =workspace-anti-save-predicates=.
-- =workspace-save-layout= (=C-x w L=).  The same, into the named layout
-  (created if new), which becomes the recent layout.
+- =workspace-save-layout= (=C-x w L=).  Makes the named layout
+  (created if new) the recent layout, captures the current frame into
+  its =:saved-state=, clears its =:working-state=, and writes.  Unlike
+  =workspace-save= it does not sync the file list (=:buffer-files=).
 - =workspace-new=.  Stamps the freshly built =home= layout as its
   =:saved-state= and writes.
 
@@ -511,8 +515,9 @@ Autosaves (write =:working-state= only):
 
 Other commands that change the registry also write at once:
 =workspace-revert=, =workspace-re-anchor=, =workspace-delete= and
-=workspace-purge=.  =workspace-delete-layout= does not; its change
-reaches disk with the next write.
+=workspace-purge=.  =workspace-delete-layout= and
+=workspace-remove-buffer= (which drops the file from =:buffer-files=)
+do not; their changes reach disk with the next write.
 
 No write happens while persistence is suppressed after an unreadable
 state file (see below).
@@ -931,8 +936,8 @@ on a workspaces-managed tab.  Otherwise it writes the current
 window-state into the recent layout-group's =:working-state= slot —
 the same slot the tab-switch autosave uses — and writes the registry
 to disk at once.  The idle save /never/ touches =:saved-state=; the
-explicit saves (=C-x w S=, =C-x w L=) remain the only way to update
-the explicit baseline.
+explicit saves (=C-x w S=, =C-x w L=, and the home stamp written by
+=workspace-new=) remain the only way to update the explicit baseline.
 
 ** Customization
 
@@ -956,7 +961,9 @@ either way).
 
 The idle tick consults =workspace-anti-save-predicates= before it
 calls =workspace--autosave-current-layout= (the predicates are checked
-by each autosave caller, not inside that function).  No capture and no
+by the callers, not inside that function: the tab-switch advice, the
+idle tick and the =kill-emacs= flush check them; the layout-switch
+capture in =workspace-switch-layout= does not).  No capture and no
 write happen during debugger activity, minibuffer interaction, or other
 states a user has declared off-limits.
 
