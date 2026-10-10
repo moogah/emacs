@@ -29,18 +29,38 @@
 (load (expand-file-name "../data-model.el" transient-menu-spec--this-dir))
 (load (expand-file-name "../integrations.el" transient-menu-spec--this-dir))
 (load (expand-file-name "../workspaces-transient.el" transient-menu-spec--this-dir))
+;; The core test helpers (the fake remote file-name handler).
+(load (expand-file-name "workspaces-test-helpers.el" transient-menu-spec--this-dir))
+
+(defvar transient-menu-spec--tmp-dir nil
+  "Per-test temporary directory; the healthy workspace's home lives in it.")
 
 (describe "workspaces-transient menu"
 
   ;; Fixtures: a healthy and a broken workspace plist, plus a registry
   ;; mapping their names.  Tests stub the *current name* and *broken-p*
-  ;; per scenario.
-  (let* ((healthy-ws (list :name "alpha" :home "/tmp/alpha"))
-         (broken-ws  (list :name "beta"  :home "/tmp/beta"))
+  ;; per scenario.  A healthy workspace's `:home' is an existing local
+  ;; directory, so "alpha" gets a fresh temporary home before each test
+  ;; (re-registered, since the plist carries the path).
+  (let* ((broken-ws  (list :name "beta"  :home "/tmp/beta"))
          (registry   (let ((h (make-hash-table :test 'equal)))
-                       (puthash "alpha" healthy-ws h)
                        (puthash "beta"  broken-ws h)
                        h)))
+
+    (before-each
+      (setq transient-menu-spec--tmp-dir
+            (file-name-as-directory (make-temp-file "ws-transient-menu-" t)))
+      (puthash "alpha"
+               (list :name "alpha"
+                     :home (expand-file-name "alpha" transient-menu-spec--tmp-dir))
+               registry)
+      (make-directory (expand-file-name "alpha" transient-menu-spec--tmp-dir)))
+
+    (after-each
+      (remhash "alpha" registry)
+      (when (and transient-menu-spec--tmp-dir
+                 (file-directory-p transient-menu-spec--tmp-dir))
+        (delete-directory transient-menu-spec--tmp-dir t)))
 
     (describe "context predicates"
 
@@ -71,7 +91,64 @@
             (expect (workspace--menu-broken-p)  :to-be-truthy)
             ;; healthy-p nil → operational + Integrations groups suppressed;
             ;; in-ws-p truthy → the Manage / Recover group stays visible.
-            (expect (workspace--menu-healthy-p) :to-be nil)))))
+            (expect (workspace--menu-healthy-p) :to-be nil))))
+
+      (describe "with a current workspace whose home was deleted after load"
+        ;; The broken tag is set at load only; a home removed since then
+        ;; leaves the workspace untagged.  The menu must still read it as
+        ;; unhealthy, or the Integrations group would offer
+        ;; `jf/workspace--add-worktree', whose `git worktree add
+        ;; <home>/<repo>' recreates the missing home.
+        (it "hides the Integrations group but keeps Manage / Recover"
+          (let ((home (expand-file-name "alpha" transient-menu-spec--tmp-dir)))
+            (delete-directory home t)
+            (cl-letf (((symbol-function 'workspace--current-name) (lambda () "alpha"))
+                      (workspace--registry registry))
+              (expect (workspace--broken-p (gethash "alpha" registry)) :to-be nil)
+              (expect (workspace--menu-healthy-p) :to-be nil)
+              (expect (workspace--menu-in-ws-p)   :to-be-truthy))))
+
+        (it "does not invoke an integration command, and creates no directory"
+          (let ((home (expand-file-name "alpha" transient-menu-spec--tmp-dir))
+                (called nil)
+                (workspace--integrations nil))
+            (delete-directory home t)
+            (cl-letf (((symbol-function 'workspace--current-name) (lambda () "alpha"))
+                      (workspace--registry registry))
+              (workspace-register-integration
+               'directory-creating
+               :label "Creates under home"
+               :menu (cons "c" (lambda (payload)
+                                 (setq called t)
+                                 (make-directory
+                                  (expand-file-name "repo" (plist-get payload :home))
+                                  t))))
+              (let ((thunk (nth 2 (nth 0 (workspace--menu-integration-children)))))
+                (expect (funcall thunk) :to-throw 'user-error))
+              (expect called :to-be nil)
+              (expect (file-exists-p home) :to-be nil)))))
+
+      (describe "with a current workspace whose home is remote"
+        ;; Remote homes are unsupported.  Persistence tags them broken at
+        ;; load, but the predicate must not depend on that: it reads the
+        ;; home as unhealthy from its name alone, never contacting the host.
+        (it "reports not healthy without touching the remote host"
+          (workspaces-test-with-fake-remote "/wsx-remote:"
+            (let ((reg (make-hash-table :test 'equal)))
+              (puthash "gamma" (list :name "gamma" :home "/wsx-remote:host:/ws/gamma") reg)
+              (cl-letf (((symbol-function 'workspace--current-name) (lambda () "gamma"))
+                        (workspace--registry reg))
+                (expect (workspace--menu-healthy-p) :to-be nil)
+                (expect (workspace--menu-in-ws-p)   :to-be-truthy))))
+          (expect workspaces-test-fake-remote-touches :to-be nil)))
+
+      (describe "with a current workspace that has no home"
+        (it "reports not healthy"
+          (let ((reg (make-hash-table :test 'equal)))
+            (puthash "delta" (list :name "delta") reg)
+            (cl-letf (((symbol-function 'workspace--current-name) (lambda () "delta"))
+                      (workspace--registry reg))
+              (expect (workspace--menu-healthy-p) :to-be nil))))))
 
     (describe "Integrations children builder"
 
@@ -141,7 +218,8 @@
                    (thunk (nth 2 (nth 0 children))))
               (funcall thunk)
               (expect (plist-get captured :name) :to-equal "alpha")
-              (expect (plist-get captured :home) :to-equal "/tmp/alpha")
+              (expect (plist-get captured :home)
+                      :to-equal (expand-file-name "alpha" transient-menu-spec--tmp-dir))
               (expect (plist-get captured :context) :to-equal 'menu-invoke)))))
 
       (it "signals a user-error when invoked outside a workspace"

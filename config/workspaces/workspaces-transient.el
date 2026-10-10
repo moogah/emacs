@@ -9,9 +9,12 @@ Resolves `workspace--current-name' against `workspace--registry'."
     (gethash n workspace--registry)))
 
 (defun workspace--menu-healthy-p ()
-  "Return non-nil when the current tab is a non-broken workspace."
-  (let ((w (workspace--menu-current)))
-    (and w (not (workspace--broken-p w)))))
+  "Return non-nil when the current tab is a healthy workspace.
+Healthy per `workspace--healthy-p': not tagged broken, and its `:home'
+an existing local directory (a home deleted after load, or a remote
+home, reads as unhealthy; a remote home is judged from its name alone,
+without a connection)."
+  (workspace--healthy-p (workspace--menu-current)))
 
 (defun workspace--menu-broken-p ()
   "Return non-nil when the current tab is a broken workspace."
@@ -26,11 +29,19 @@ Resolves `workspace--current-name' against `workspace--registry'."
   "Call integration COMMAND on a freshly built current-workspace payload.
 The payload is constructed from the live current workspace via
 `workspace--integration-payload' with context `menu-invoke'.  Signals a
-`user-error' when invoked outside a workspace (the Integrations group is
-healthy-only, so this is a defensive guard)."
+`user-error', without calling COMMAND, when invoked outside a workspace
+or in one that is not healthy (`workspace--healthy-p': tagged broken, or
+its home deleted since load or remote).  The Integrations group is
+healthy-only, so these are defensive guards: a suffix captured while
+the menu was open must not hand a stale home to a command that would
+create directories under it."
   (let ((ws (workspace--menu-current)))
     (unless ws
       (user-error "No current workspace"))
+    (unless (workspace--healthy-p ws)
+      (user-error "Workspace %S is not healthy (%s); re-anchor or purge it first"
+                  (workspace--name ws)
+                  (workspace--unhealthy-reason ws)))
     (funcall command
              (workspace--integration-payload
               (workspace--name ws)

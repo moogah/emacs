@@ -13,13 +13,20 @@ workspace:
   restore) is shown.
 - *healthy workspace* — Entry plus the operational groups (Layouts +
   State, Manage, and the registry-driven Integrations group).
-- *broken workspace* — Entry plus the Manage / Recover group (so
+- *unhealthy workspace* — Entry plus the Manage / Recover group (so
   re-anchor / delete / purge remain reachable), while the operational
-  and Integrations groups are suppressed.
+  and Integrations groups are suppressed.  Unhealthy is the data
+  model's =workspace--healthy-p= read negatively: tagged broken at load,
+  or a =:home= that is no longer an existing local directory (deleted
+  since load, or remote — judged from the name alone, never by
+  contacting the host).
 
 The three states fall out declaratively from group =:if= predicates,
 each backed by a single predicate that reads
-=workspace--current-name= / =workspace--registry= / =workspace--broken-p=.
+=workspace--current-name= / =workspace--registry= and, for health,
+=workspace--healthy-p=.  The predicates run only when the menu builds
+its groups (opening it, or a refresh while it is open), never per
+keystroke elsewhere; a local home costs one stat, a remote one none.
 
 The *Integrations* group is registry-driven: it walks the generic
 =workspace--integrations= alist (published by other subsystems via
@@ -68,9 +75,12 @@ Resolves `workspace--current-name' against `workspace--registry'."
 
 #+begin_src emacs-lisp
 (defun workspace--menu-healthy-p ()
-  "Return non-nil when the current tab is a non-broken workspace."
-  (let ((w (workspace--menu-current)))
-    (and w (not (workspace--broken-p w)))))
+  "Return non-nil when the current tab is a healthy workspace.
+Healthy per `workspace--healthy-p': not tagged broken, and its `:home'
+an existing local directory (a home deleted after load, or a remote
+home, reads as unhealthy; a remote home is judged from its name alone,
+without a connection)."
+  (workspace--healthy-p (workspace--menu-current)))
 #+end_src
 
 #+begin_src emacs-lisp
@@ -107,11 +117,19 @@ bound to whatever workspace is current when the user presses the key.
   "Call integration COMMAND on a freshly built current-workspace payload.
 The payload is constructed from the live current workspace via
 `workspace--integration-payload' with context `menu-invoke'.  Signals a
-`user-error' when invoked outside a workspace (the Integrations group is
-healthy-only, so this is a defensive guard)."
+`user-error', without calling COMMAND, when invoked outside a workspace
+or in one that is not healthy (`workspace--healthy-p': tagged broken, or
+its home deleted since load or remote).  The Integrations group is
+healthy-only, so these are defensive guards: a suffix captured while
+the menu was open must not hand a stale home to a command that would
+create directories under it."
   (let ((ws (workspace--menu-current)))
     (unless ws
       (user-error "No current workspace"))
+    (unless (workspace--healthy-p ws)
+      (user-error "Workspace %S is not healthy (%s); re-anchor or purge it first"
+                  (workspace--name ws)
+                  (workspace--unhealthy-reason ws)))
     (funcall command
              (workspace--integration-payload
               (workspace--name ws)

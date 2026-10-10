@@ -259,6 +259,32 @@ Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :broken nil)))
 
+(defun workspace--unhealthy-reason (ws)
+  "Return why workspace WS is not healthy, or nil when it is.
+
+WS is healthy when it is not tagged broken (`workspace--broken-p') and
+its `:home' is an existing local directory.  Otherwise the reason, a
+symbol, the first that applies: `broken' (the tag persistence sets at
+load when the home was missing or remote), `no-home' (no `:home' on the
+plist, or WS is nil), `home-remote' (remote homes are unsupported),
+`home-missing' (the home is not a directory on disk, however it went —
+the broken tag is load-time only and cannot record a deletion since).
+`file-remote-p' is asked before `file-directory-p', so a remote home is
+never stat'ed and no connection is opened."
+  (let ((home (workspace--home ws)))
+    (cond
+     ((workspace--broken-p ws) 'broken)
+     ((not (stringp home)) 'no-home)
+     ((file-remote-p home) 'home-remote)
+     ((not (file-directory-p home)) 'home-missing))))
+
+(defun workspace--healthy-p (ws)
+  "Return non-nil when workspace WS is healthy.
+That is, WS is non-nil and `workspace--unhealthy-reason' finds nothing
+wrong with it: not tagged broken, and its `:home' an existing local
+directory.  Never contacts a remote host."
+  (and ws (not (workspace--unhealthy-reason ws))))
+
 (defun workspace--sessions-dir (home)
   "Return =<HOME>/sessions/= as an absolute path.
 Pure function: does not touch the filesystem.  HOME is the

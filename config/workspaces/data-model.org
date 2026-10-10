@@ -466,6 +466,51 @@ Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
     (plist-put copy :broken nil)))
 #+end_src
 
+* Workspace health
+
+The broken tag records what persistence saw at load; it cannot record a
+home deleted since.  A surface that is about to operate on a
+workspace's home — the menu's operational and Integrations groups (and
+through them the directory-creating =jf/workspace--add-worktree=), the
+portable-bookmarks add-worktree offer and off-workspace picker — needs
+the live answer: not tagged broken, *and* its =:home= is an existing
+local directory.  =workspace--unhealthy-reason= is that one health
+notion; every such gate reads it, so the gates cannot disagree.
+
+Remote homes are unsupported (they load broken).  =file-remote-p= is
+asked before =file-directory-p= and without its CONNECTED argument, so
+it answers from the name alone and a remote home is never stat'ed —
+reading a remote workspace's health never opens a TRAMP connection.  A
+local home costs one stat per call.
+
+#+begin_src emacs-lisp
+(defun workspace--unhealthy-reason (ws)
+  "Return why workspace WS is not healthy, or nil when it is.
+
+WS is healthy when it is not tagged broken (`workspace--broken-p') and
+its `:home' is an existing local directory.  Otherwise the reason, a
+symbol, the first that applies: `broken' (the tag persistence sets at
+load when the home was missing or remote), `no-home' (no `:home' on the
+plist, or WS is nil), `home-remote' (remote homes are unsupported),
+`home-missing' (the home is not a directory on disk, however it went —
+the broken tag is load-time only and cannot record a deletion since).
+`file-remote-p' is asked before `file-directory-p', so a remote home is
+never stat'ed and no connection is opened."
+  (let ((home (workspace--home ws)))
+    (cond
+     ((workspace--broken-p ws) 'broken)
+     ((not (stringp home)) 'no-home)
+     ((file-remote-p home) 'home-remote)
+     ((not (file-directory-p home)) 'home-missing))))
+
+(defun workspace--healthy-p (ws)
+  "Return non-nil when workspace WS is healthy.
+That is, WS is non-nil and `workspace--unhealthy-reason' finds nothing
+wrong with it: not tagged broken, and its `:home' an existing local
+directory.  Never contacts a remote host."
+  (and ws (not (workspace--unhealthy-reason ws))))
+#+end_src
+
 * Sessions directory helper
 
 Canonical attachment point for =<HOME>/sessions/= path
