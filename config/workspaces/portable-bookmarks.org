@@ -1201,18 +1201,21 @@ altogether and returns nil — and a nil return is exactly the silent
 tail the previous section describes: the display function on the
 buffer the user was already in, a fringe mark there, the after-jump
 hook.  The seam therefore never lets a substituted record reach the
-host unless its location exists.  The =resolved= arm PRE-FLIGHTS
-=:path= with =file-exists-p= (a directory counts) immediately before
-building the copy, and declines with =user-error= — the same shape as
-every other non-opening case — when the location has vanished since
-the resolver looked.  That is a seam-local decline reason, not a
-seventh outcome: the seam re-verifies the one precondition it
-substitutes on.  What remains is a race of microseconds between the
-pre-flight and the handler's own =file-readable-p=, plus the separate
-case of a file that exists but is unreadable; both end in the host's
-silent nil.  That is a bounded residual, stated here, and one this
-configuration already carries for every record argument (see
-=bufferlo= below).
+host unless its location can be read.  The =resolved= arm
+PRE-FLIGHTS =:path= with =file-readable-p= (a readable directory
+counts) immediately before building the copy — the very predicate the
+host's handler tests — and declines with =user-error=, the same shape
+as every other non-opening case, for two seam-local reasons: the
+location has VANISHED since the resolver looked
+(=workspace-bookmark--vanished-message=), or it is there but its
+permissions deny reading it (=workspace-bookmark--unreadable-message=,
+which names =:path= itself).  Neither is a seventh outcome: the seam
+re-verifies the one precondition it substitutes on.  What remains is
+a race of microseconds between the pre-flight and the handler's own
+=file-readable-p=, which ends in the host's silent nil.  Nothing
+wraps the host call to catch it: that is a bounded residual, stated
+here, and one this configuration already carries for every record
+argument (see =bufferlo= below).
 
 Stock Emacs ends a jump by name by setting =bookmark-current-bookmark=
 to that name, the default that the next =C-x r b= and =C-x r m=
@@ -1294,11 +1297,13 @@ substituted record is built.  Signals when PATH is not a string."
 
 KIND is `call-through' — the seam's own `resolved' jump — or `view',
 the canonical read-only view chosen at the missing-repo prompt.  The
-:path is pre-flighted with `file-exists-p' immediately before the copy
-is built (a directory counts); one that has vanished since the resolver
-looked declines with `workspace-bookmark--vanished-message'.  The copy
-comes from `workspace-bookmark--substituted-record', the only place one
-is built.  Returns (call-through . COPY), (view COPY . CHECKOUT) or
+:path is pre-flighted with `file-readable-p' immediately before the
+copy is built (a readable directory counts), so the host is never
+handed a copy it cannot read: one that has vanished since the resolver
+looked declines with `workspace-bookmark--vanished-message', one that
+is there but cannot be read with
+`workspace-bookmark--unreadable-message'.  The copy comes from
+`workspace-bookmark--substituted-record', the only place one is built.  Returns (call-through . COPY), (view COPY . CHECKOUT) or
 \(decline . MESSAGE); signals for any other KIND, and for a `view'
 whose RESOLUTION names no :checkout — a view that cannot say which
 canonical checkout it shows is never opened unmarked."
@@ -1307,6 +1312,8 @@ canonical checkout it shows is never opened unmarked."
     (cond
      ((not (and (stringp path) (file-exists-p path)))
       (cons 'decline (workspace-bookmark--vanished-message record resolution)))
+     ((not (file-readable-p path))
+      (cons 'decline (workspace-bookmark--unreadable-message record resolution)))
      ((eq kind 'call-through)
       (cons 'call-through (workspace-bookmark--substituted-record record path)))
      ((eq kind 'view)
@@ -1384,6 +1391,19 @@ reason, not a resolution outcome."
           (plist-get resolution :relpath)
           (let ((checkout (plist-get resolution :checkout)))
             (if (stringp checkout) (abbreviate-file-name checkout) "?"))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--unreadable-message (record resolution)
+  "Return the report for a `resolved' RECORD whose location cannot be read.
+
+RESOLUTION is the resolver's plist; its :path exists but fails the
+seam's `file-readable-p' pre-flight — its permissions deny reading it.
+The report names that :path itself, unabbreviated.  A seam-local
+decline reason, not a resolution outcome."
+  (format "Bookmark %S: %s exists but cannot be read; nothing opened"
+          (bookmark-name-from-full-record record)
+          (plist-get resolution :path)))
 #+end_src
 
 #+begin_src emacs-lisp
