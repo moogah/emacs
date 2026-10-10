@@ -493,9 +493,10 @@ for =workspace-purge= (destructive).  Uppercase =D=/=P= flag
 destructive intent visually.
 
 =workspace-save= (=S=) captures the live frame and writes
-synchronously.  The lower-level =workspace-save-state= still exists for
-internal use as a debounced flush primitive, but is no longer bound by
-default.
+synchronously.  Every other persistence write is synchronous too,
+through =workspace--write-state= (=persistence.org=; normally via
+=workspace--flush-state=, while the =kill-emacs= flush calls it
+directly); there is no debounced save primitive.
 
 =workspace-revert= (=r=) is the v2 \"throw away autosave drift\"
 affordance: it clears the current workspace's =:working-state=,
@@ -572,10 +573,10 @@ active workspace's home.  It MUST NOT signal and has no side effects."
 
 * Startup restoration
 
-After all submodules have loaded, restore any persisted workspaces.
-Tabs are created eagerly so they show up in the tab bar; per-workspace
-frameset and buffer restoration is lazy, triggered on the user's first
-selection of each restored tab.
+After all submodules have loaded, load any persisted workspaces into
+the registry.  No tabs are created: a saved workspace gets a tab, its
+layout and its buffers only when the user restores it with
+=workspace-restore=.
 
 #+begin_src emacs-lisp
 (when (fboundp 'workspace--restore)

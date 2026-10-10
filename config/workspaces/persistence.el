@@ -171,7 +171,7 @@ untrustworthy — fix/remove the file and restart).")
 (defvar workspace--persistence-blocked-warned nil
   "Non-nil once the suppressed-write warning has been emitted.
 Keeps the block warning to one message per session rather than one
-per debounce tick.")
+per suppressed write.")
 
 (defun workspace--state-readable-p (form)
   "Return non-nil if FORM round-trips through `prin1' then `read'.

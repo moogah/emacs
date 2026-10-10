@@ -18,7 +18,9 @@ display-name source) and =sessions/= (gptel session files).
 | /membership/  | The set of buffers visible to the current workspace's tab   |
 
 A workspace is bound 1:1 to a tab, tagged via the =workspace-name=
-tab parameter, and anchored to a =:home= directory on disk.  The
+tab parameter, and anchored to a =:home= directory on disk.  After a
+restart a workspace is in the registry but has no tab until it is
+restored (see *Restore*).  The
 registry /name/ of a workspace equals the basename of its =:home=
 (e.g. =~/emacs-workspaces/notes/= → =notes=).  The /display name/
 defaults to the registry name and may be overridden by a =#+TITLE:=
@@ -370,12 +372,10 @@ single window.  Example override that opens an index file instead:
 for =workspace-purge= (purges of this dir itself, or outside it,
 require =C-u=).
 
-=workspace-save-idle-delay= — seconds of idle time before the
-debounced disk save fires.  Default: 2.
-
 =workspace-anti-save-predicates= — list of nullary predicate functions
-consulted before any autosave (tab switch, idle timer, =kill-emacs=).
-If any predicate returns non-nil the autosave is silently skipped.  The
+consulted before the tab-switch, idle-timer and =kill-emacs= autosaves.
+If any predicate returns non-nil the capture is silently skipped (at
+=kill-emacs= the registry is still written; see *Save triggers*).  The
 explicit =workspace-save= command never consults this list, so a
 misconfigured predicate cannot trap a deliberate save gesture.
 
@@ -400,6 +400,10 @@ Workspaces persist to a per-machine path keyed by =jf/machine-role=:
 #+begin_src
 state/workspaces/<machine-role>/workspaces.eld
 #+end_src
+
+The path is relative to the configuration checkout (=jf/emacs-dir=);
+=default= stands in for =<machine-role>= when =jf/machine-role= is
+unset.  Like everything under =state/=, the file is ignored by git.
 
 The file is plain elisp (readable with =read=).  Schema is
 =:version 3=.  The package does /not/ read v1 or v2 files; if one
@@ -436,8 +440,9 @@ alist:
   its variants =workspace-save-layout NAME= and the =workspace-new=
   home stamp).  This is the user's "I mean this configuration"
   baseline.  Authoritative across restarts.
-- =:working-state= — written only by autosaves (workspace context
-  switch, idle timer, =kill-emacs=).  May be nil.  Captures drift
+- =:working-state= — written only by autosaves (leaving a workspace's
+  tab, switching layouts within a workspace, the idle timer,
+  =kill-emacs=).  May be nil.  Captures drift
   between explicit saves so a restart lands the user back where they
   actually were.
 - =:etc= — alist for forward-compatible extension data.  Replaces
@@ -455,43 +460,98 @@ baseline.
   pointers.
 - Each workspace's layouts (the two window-state slots above; see
   *Buffer reincarnation* for how individual buffers come back).
-- Each workspace's /file-buffer/ membership.  Non-file buffers
-  (=*Messages*=, =magit-status=, =eshell=) participate in membership
-  in-session and reincarnate from the saved window-state via their
-  major modes' bookmark handlers.
+- Each workspace's list of /file/ buffers (=:buffer-files=), taken from
+  its membership at each explicit =workspace-save=.  Nothing reads the
+  list back: restoring a workspace brings back the buffers in its
+  layout's windows (see *Buffer reincarnation*), not this list.
+  Non-file buffers (=*Messages*=, =magit-status=, =eshell=) participate
+  in membership in-session only, and reincarnate from the saved
+  window-state via their major modes' bookmark handlers.
 
 ** Save triggers
 
-- Explicit =workspace-save= (=C-x w S=).  Captures the current frame
-  into =:saved-state=, clears =:working-state=, syncs the file list,
-  and flushes synchronously.  Never consults
-  =workspace-anti-save-predicates=.
-- Workspace context switch (tab change).  Captures the outgoing
-  workspace's window state into =:working-state=, debounced flush.
-- Intra-workspace layout switch.  Captures the outgoing layout's
-  window state into =:working-state=, debounced flush.
-- =kill-emacs-hook= flushes once before exit, capturing the current
-  workspace's =:working-state= synchronously.
-- Optional: =workspaces-mode='s idle timer (see *Idle save (opt-in)*).
+Every write is synchronous: each trigger below writes the whole
+registry to disk at once, through =workspace--write-state= (normally
+via =workspace--flush-state=; the =kill-emacs= write calls it
+directly).  There is no debounce and no deferred write: every write
+happens inside the trigger that causes it, and there is no option to
+delay it.
 
-All autosave triggers consult =workspace-anti-save-predicates= first
-and skip silently if any predicate returns non-nil.
+Explicit saves (write =:saved-state=, clear =:working-state=):
+
+- =workspace-save= (=C-x w S=).  Captures the current frame into the
+  recent layout's =:saved-state=, clears its =:working-state=, syncs the
+  file list, and writes.  Never consults
+  =workspace-anti-save-predicates=.
+- =workspace-save-layout= (=C-x w L=).  Makes the named layout
+  (created if new) the recent layout, captures the current frame into
+  its =:saved-state=, clears its =:working-state=, and writes.  Unlike
+  =workspace-save= it does not sync the file list (=:buffer-files=).
+- =workspace-new=.  Stamps the freshly built =home= layout as its
+  =:saved-state= and writes.
+
+Autosaves (write =:working-state= only):
+
+- Leaving a workspace's tab.  An advice on =tab-bar-select-tab= and
+  =tab-bar-switch-to-tab= captures the outgoing workspace's window
+  state into its recent layout's =:working-state=, then writes.  Every
+  command that selects an existing tab goes through these (=C-x t o=,
+  clicking a tab, =workspace-switch=, =workspace-restore= of a
+  workspace that already has a tab).  Opening a /new/ tab does not
+  (=C-x t 2=, =workspace-new=, =workspace-restore= of a workspace with
+  no tab yet), so it captures nothing.  Skipped when the tab being left
+  is not a workspace's, or when an anti-save predicate fires.
+- Intra-workspace layout switch (=workspace-switch-layout=, =C-x w l=,
+  and =workspace-switch-to-recent-layout=, =C-x w T=).  Captures the
+  outgoing layout's window state into its =:working-state= and writes,
+  before painting the destination layout.  This capture does /not/
+  consult =workspace-anti-save-predicates=.
+- =kill-emacs-hook=.  Captures the current workspace's =:working-state=
+  (skipped if an anti-save predicate fires), then writes the registry
+  regardless, so updates made earlier in the session still reach disk.
+- Optional: =workspaces-mode='s idle timer (see *Idle save (opt-in)*),
+  which consults the predicates and skips both capture and write when
+  one fires.
+
+Other commands that change the registry also write at once:
+=workspace-revert=, =workspace-re-anchor=, =workspace-delete= and
+=workspace-purge=.  =workspace-delete-layout= and
+=workspace-remove-buffer= (which drops the file from =:buffer-files=)
+do not; their changes reach disk with the next write.
+
+No write happens while persistence is suppressed after an unreadable
+state file (see below).
 
 ** Restore
 
-Restore on startup is /lazy/: tabs are recreated immediately so the
-tab bar reflects the saved set, but each tab's window configuration
-and its buffers are reincarnated only when the user first selects
-that tab.
+Startup does /not/ recreate tabs.  When the package loads it reads the
+state file and fills the registry — names, homes, layouts — and checks
+each =:home= (see *Broken workspaces*), but it creates no tab and
+changes no window.  The tab bar shows only the tabs Emacs started with.
 
-Per-tab restore prefers =:working-state= when non-nil and falls back
-to =:saved-state=.  The =workspace-revert= command (=C-x w r=) is
-the "undo my drift" affordance: it clears =:working-state= and
-re-applies =:saved-state= on demand.
+A saved workspace becomes a tab when you restore it:
 
-When the persistence file is *missing*, the package starts cleanly
-with no workspaces and emits a =*Messages*= notice (no error visible
-to the user).
+- =workspace-restore= (=C-x w o=) completes over every registered
+  workspace, including those with no tab.  If the workspace already
+  has a tab, it selects it.  Otherwise it opens a new tab named after
+  the workspace and paints the workspace's recent layout, its buffers
+  reincarnated as described under *Buffer reincarnation*.  A workspace
+  with no saved layout gets =workspace-home-builder= instead (by
+  default, =home.org= in a single window).
+- Jumping to a portable bookmark from a tab that is not a workspace
+  offers to restore one the same way (see *Off-workspace jumps*).
+
+=workspace-switch= (=C-x w s=) only offers workspaces that already have
+a tab; it never creates one.
+
+The layout painted is the recent layout's =:working-state= when
+non-nil, else its =:saved-state=.  The =workspace-revert= command
+(=C-x w r=) is the "undo my drift" affordance: it clears
+=:working-state= and re-applies =:saved-state= on demand.
+
+When the persistence file is *missing*, the package starts silently
+with no workspaces (no notice, no error); the first write creates the
+file and its directory.
 
 When the file is *present but unreadable* (a parse/=read= failure), the
 package does NOT silently start empty and overwrite it.  It preserves
@@ -508,8 +568,12 @@ unreadable file.
 ** State format is pre-alpha
 
 The on-disk schema may break between refinement cycles.  There is no
-migration code.  If you see the version-mismatch notice on startup,
-delete =state/workspaces/<machine-role>/workspaces.eld= and recreate
+migration code.  A file of another version is ignored, not protected:
+the first write of the session replaces it, at the latest the
+=kill-emacs= write when Emacs exits.  If you see the
+version-mismatch notice on startup and want to keep the old file, copy
+it aside before saving; otherwise delete
+=state/workspaces/<machine-role>/workspaces.eld= and recreate
 your workspaces by hand on the current reader.  This policy is
 intentional (design.md §D3): a real migration story is reserved for
 beta.
@@ -833,10 +897,11 @@ without checking which entries are canonical.
 When you have been rearranging windows since the last explicit
 =workspace-save= and want to abandon the rearrangement, =C-x w r=:
 
-1. Clears the current workspace's =:working-state=.
-2. Re-applies =:saved-state= via the standard restore path (buffer
-   reincarnation included).
-3. Flushes the registry to disk.
+1. Clears the =:working-state= of the current workspace's recent
+   layout.
+2. Writes the registry to disk.
+3. Re-applies that layout's =:saved-state= via the standard restore
+   path (buffer reincarnation included).
 
 If =:working-state= is already nil, =workspace-revert= still
 re-applies =:saved-state= — a useful "reset to my last clean save"
@@ -850,8 +915,9 @@ the workspaces package.
 =workspaces-mode= is a global minor mode that adds a third
 persistence path: a periodic idle-timer capture of the current
 workspace's =:working-state=.  It is a crash-safety net atop the
-explicit save and tab-switch autosave; both of those run
-unconditionally and are unaffected by this mode.
+explicit saves and the tab-switch, layout-switch and =kill-emacs=
+autosaves; those run whether or not the mode is on and are unaffected
+by it.
 
 The mode is /off by default/.  Enable it explicitly:
 
@@ -868,14 +934,19 @@ The mode is /off by default/.  Enable it explicitly:
 When the timer fires, the callback short-circuits if the user is not
 on a workspaces-managed tab.  Otherwise it writes the current
 window-state into the recent layout-group's =:working-state= slot —
-the same slot the tab-switch autosave uses.  The idle save /never/
-touches =:saved-state=; the explicit =C-x w S= remains the only way
-to update the explicit baseline.
+the same slot the tab-switch autosave uses — and writes the registry
+to disk at once.  The idle save /never/ touches =:saved-state=; the
+explicit saves (=C-x w S=, =C-x w L=, and the home stamp written by
+=workspace-new=) remain the only way to update the explicit baseline.
 
 ** Customization
 
 =workspaces-mode-idle-frequency= — seconds of idle time before the
-timer fires.  Default: =60=.
+timer fires.  Default: =60=.  The timer fires once each time Emacs
+has been idle that long (an Emacs idle timer does not repeat within
+one idle period), so a long idle stretch produces one save, not one
+per minute.  The value is read when the mode is turned on; toggle the
+mode after changing it.
 
 The default is deliberately conservative: tab-switch autosave already
 covers most intra-session state, so idle save is purely the crash-
@@ -888,10 +959,13 @@ either way).
 
 ** Interaction with anti-save predicates
 
-The idle save passes through =workspace--autosave-current-layout=,
-which consults =workspace-anti-save-predicates= before mutating.  No
-save fires during debugger activity, minibuffer interaction, or
-other states a user has declared off-limits.
+The idle tick consults =workspace-anti-save-predicates= before it
+calls =workspace--autosave-current-layout= (the predicates are checked
+by the callers, not inside that function: the tab-switch advice, the
+idle tick and the =kill-emacs= flush check them; the layout-switch
+capture in =workspace-switch-layout= does not).  No capture and no
+write happen during debugger activity, minibuffer interaction, or other
+states a user has declared off-limits.
 
 * Buffer membership
 
@@ -926,8 +1000,9 @@ These are designed-for but not implemented in v2.
 - Per-layout-group git observations.  The layout shape carries an
   open-ended =:etc= alist intended to host them, but no producer or
   consumer exists yet.
-- Restoring an explicit "selected tab at save time" — restoration
-  preserves the user's current tab rather than jumping to the
+- Restoring an explicit "selected tab at save time" — the state file
+  does not record which workspace was selected, and startup restores
+  no tabs, so Emacs starts on its own initial tab rather than the
   previously-selected workspace.
 - A =workspace-rename= command.  Today, renaming a workspace is an
   out-of-band action: =mv= the home directory, then on next load

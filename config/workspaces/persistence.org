@@ -7,10 +7,10 @@ Per-machine on-disk persistence for workspaces.  Every trigger flushes
 synchronously through =workspace--flush-state= — auto-save on layout
 context switch, intra-workspace layout switch, idle tick, and Emacs
 shutdown, plus explicit =workspace-save=.  There is no debounce (see
-"Synchronous save").  Restore on startup populates the registry and
-re-creates tabs without disturbing the active tab; layout/buffer restore
-is deferred to the first selection of each restored workspace (lazy
-activation).
+"Synchronous save").  Restore on startup populates the registry only
+and creates no tabs; a saved workspace gets a tab, its layout and its
+buffers only when the user restores it with =workspace-restore= (see
+"Restore on startup").
 
 * Lexical Binding
 
@@ -256,14 +256,14 @@ untrustworthy — fix/remove the file and restart).")
 (defvar workspace--persistence-blocked-warned nil
   "Non-nil once the suppressed-write warning has been emitted.
 Keeps the block warning to one message per session rather than one
-per debounce tick.")
+per suppressed write.")
 #+end_src
 
 The write-time readable assert uses a =prin1=→=read= round-trip rather
 than =readablep=.  =readablep= (Emacs 28+) would be cheaper and the
 runtime binary here is Emacs 30, but the round-trip is the version-safe
 fallback the task/design call for and its cost is negligible against
-the debounced, human-paced write cadence; it also catches the exact
+the human-paced, event-driven write cadence; it also catches the exact
 failure mode we care about (a =#<…>= token making the printed form
 unreadable) by construction.
 

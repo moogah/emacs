@@ -105,7 +105,8 @@
 ;; State Persistence Settings
 ;; ===============================================================================
 
-;; Store bookmarks in git-controlled location
+;; Store bookmarks under state/bookmarks/ in this checkout.  Not in git:
+;; .gitignore ignores state/** except READMEs (see state/bookmarks/README.md).
 ;; Default location - can be overridden per-machine in config/local/{machine-role}.el
 (setq bookmark-default-file
       (expand-file-name "state/bookmarks/bookmarks" jf/emacs-dir))
