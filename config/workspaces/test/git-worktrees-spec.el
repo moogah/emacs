@@ -176,7 +176,29 @@ lists are EMPTY unless BODY binds them."
         (expect (jf/workspace--worktree-read-repo)
                 :to-equal (expand-file-name typed))
         (expect (nth 3 (spy-calls-args-for 'completing-read 0)) :to-be nil)
-        (expect 'read-directory-name :not :to-have-been-called)))))
+        (expect 'read-directory-name :not :to-have-been-called)))
+
+    (it "treats empty or blank input as no choice and reaches the floor without probing default-directory"
+      ;; worktree-read-repo-empty-input: RET on empty input makes
+      ;; `completing-read' return "", and (expand-file-name "") is
+      ;; `default-directory', which exists, so the floor was never shown.
+      ;; Under a remote `default-directory' the probe also opened a
+      ;; connection; the fake remote handler refuses every filesystem
+      ;; operation, so any probe of it is recorded as a touch.
+      (spy-on 'jf/workspace--worktree-repo-candidates :and-return-value nil)
+      (spy-on 'read-directory-name :and-return-value "/repos/floor/")
+      (dolist (blank '("" "   "))
+        (spy-on 'completing-read :and-return-value blank)
+        (let ((raised nil) (result nil))
+          (workspaces-test-with-fake-remote ("/ssh:" :allow (expand-file-name))
+            (let ((default-directory "/ssh:nohost.invalid:/home/"))
+              (condition-case err
+                  (setq result (jf/workspace--worktree-read-repo))
+                (error (setq raised err)))))
+          (expect raised :to-be nil)
+          (expect workspaces-test-fake-remote-touches :to-be nil)
+          (expect result :to-equal "/repos/floor/")))
+      (expect 'read-directory-name :to-have-been-called-times 2))))
 
 ;; A remote (TRAMP) entry in magit's list must never touch the network.
 ;; Real TRAMP is never reached: "/ssh:" names are served by the core fake
@@ -891,6 +913,48 @@ lists are EMPTY unless BODY binds them."
         (expect (plist-member payload :branch) :to-be nil)
         ;; The plist is unchanged from what was passed in.
         (expect payload :to-equal '(:name "feat" :home "/ws/home/"))))))
+
+(describe "jf/workspace--add-worktree with the source answered at the prompt"
+  ;; worktree-read-repo-trailing-slash: the prompt's answer is bound as
+  ;; `default-directory' for both magit calls.  Spelled without a trailing
+  ;; slash, Emacs reads it as a FILE name and git runs in its parent, so
+  ;; each arm of the prompt must hand back a directory name.  The real
+  ;; `jf/workspace--worktree-read-repo' runs; only its own prompts, the
+  ;; branch prompt and magit are stubbed.
+  :var (source dd-at-main dd-at-branch)
+
+  (before-each
+    (setq source (file-name-as-directory (make-temp-file "gw-prompted-repo-" t))
+          dd-at-main nil
+          dd-at-branch nil)
+    (spy-on 'jf/workspace--worktree-repo-candidates :and-return-value nil)
+    (spy-on 'magit-main-branch :and-call-fake
+            (lambda () (setq dd-at-main default-directory) "main"))
+    (spy-on 'read-string :and-call-fake
+            (lambda (_prompt &optional initial &rest _) initial))
+    (spy-on 'magit-worktree-branch :and-call-fake
+            (lambda (&rest _) (setq dd-at-branch default-directory) nil)))
+
+  (after-each
+    (delete-directory source t))
+
+  (it "binds default-directory to a typed path spelled without a trailing slash"
+    (spy-on 'completing-read :and-return-value (directory-file-name source))
+    (spy-on 'read-directory-name)
+    (expect (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+            :to-equal 'ok)
+    (expect 'read-directory-name :not :to-have-been-called)
+    (expect dd-at-main :to-equal source)
+    (expect dd-at-branch :to-equal source))
+
+  (it "binds default-directory to the floor's answer spelled without a trailing slash"
+    (spy-on 'completing-read :and-return-value "/does/not/exist")
+    (spy-on 'read-directory-name :and-return-value (directory-file-name source))
+    (expect (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+            :to-equal 'ok)
+    (expect 'read-directory-name :to-have-been-called)
+    (expect dd-at-main :to-equal source)
+    (expect dd-at-branch :to-equal source)))
 
 (defvar git-worktrees-spec--saved-integrations nil
   "The live `workspace--integrations', set aside while a registration spec runs.")

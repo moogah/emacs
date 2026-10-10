@@ -386,12 +386,18 @@ Offers `jf/workspace--worktree-repo-candidates' via `completing-read'
 with `require-match' nil, so a free-form path is always accepted.  If
 the entered path is not an existing directory, falls back to a
 `read-directory-name' floor — guaranteeing a repo present in no project
-source is still reachable.  Returns the chosen directory, expanded."
+source is still reachable.  An empty or blank answer is no choice: it
+goes straight to the floor, never probing `default-directory' (which
+may be remote).  Returns the chosen directory, expanded and slash-ended
+so it can be bound as `default-directory'."
   (let* ((cands (jf/workspace--worktree-repo-candidates))
          (choice (completing-read "Source git repo: " cands nil nil)))
-    (if (and choice (file-directory-p (expand-file-name choice)))
-        (expand-file-name choice)
-      (expand-file-name (read-directory-name "Source git repo: ")))))
+    (file-name-as-directory
+     (if (and choice
+              (not (string-blank-p choice))
+              (file-directory-p (expand-file-name choice)))
+         (expand-file-name choice)
+       (expand-file-name (read-directory-name "Source git repo: "))))))
 #+end_src
 
 * Branch-name Sanitizer
