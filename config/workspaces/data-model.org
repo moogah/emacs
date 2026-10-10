@@ -105,6 +105,51 @@ Slots:
   (etc nil))
 #+end_src
 
+** The decline condition: =workspace-restore-declined=
+
+Reincarnating a =workspace-buffer= starts by jumping to its bookmark
+record (layouts.org, "A decline is not a failure"), and that step has
+three answers: the jump landed, the jump FAILED, or the handler
+DECLINED.  A decline is a decision the user is meant to see — the
+handler has refused to open its bookmark's location on the user's
+behalf — and the restore must not second-guess it by opening the
+leaf's stored filename or a live buffer of the same name.  A failure
+says nothing about the buffer, and the chain falls through.
+
+Telling the two apart needs a condition nobody signals by accident.
+=user-error= is not one: stock handlers signal it for their own
+reasons (=Info-find-file='s "Info file ... does not exist"), and those
+leaves must keep falling through to the filename and buffer-name
+fallbacks.  So core owns one condition, defined here beside the record
+the reincarnation chain consumes, because this is the core module
+every configuration that loads a consumer of the chain already has:
+
+- *Who signals it:* a bookmark handler that refuses a location on the
+  user's behalf while a layout leaf is being restored — the
+  portable-bookmarks jump seam for its =(decline . MESSAGE)= plan, and
+  any third-party handler that wants the same treatment.  The datum is
+  =(MESSAGE)=, the reason the user reads.
+- *Who catches it:* =workspace--bookmark-buffer= (layouts.org), whose
+  decline arm catches this condition alone and answers
+  =(declined . MESSAGE)= with the message taken from the datum.  Every
+  other error, a plain =user-error= included, FAILS the step.
+
+Its parent is =user-error=, so a declining jump that reaches an
+interactive caller is still a =user-error= (and =bookmark-insert='s
+abort on a declined record is unchanged).  Emacs prints a child of
+=user-error= prefixed and with its datum quoted (=Bookmark handler
+declined to restore: "..."=); only =user-error= itself echoes bare.  A
+signaller that can be reached interactively therefore signals the
+condition only during a leaf restore and a plain =user-error=
+otherwise, and the catcher reads the message from the datum, never
+from =error-message-string=.
+
+#+begin_src emacs-lisp
+(define-error 'workspace-restore-declined
+  "Bookmark handler declined to restore"
+  'user-error)
+#+end_src
+
 * Layout helpers
 
 A layout is the leaf node: two window-state slots

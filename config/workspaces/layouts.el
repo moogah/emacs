@@ -206,17 +206,18 @@ Bound by `workspace--bookmark-buffer' around the leaf's bookmark jump,
 and nil everywhere else.  It suppresses nothing by itself: stock
 handlers still ask whatever they ask on any visit.  A consumer whose
 handler would put a question of its own for every leaf of a layout
-reads it (guarded by `boundp') and declines with `user-error' instead,
-which the reincarnation chain treats as a decline (see
+reads it (guarded by `boundp') and signals `workspace-restore-declined'
+instead, which the reincarnation chain treats as a decline (see
 `workspace--deserialize-buffer').")
 
 (defun workspace--bookmark-buffer (ws-buffer)
   "Return the buffer produced by jumping to WS-BUFFER's bookmark record.
 Returns the buffer on success, nil when the jump FAILED, or
 \(declined . MESSAGE) when the bookmark handler DECLINED to restore
-the buffer by signalling `user-error'.  Any other error, and a jump
-that returns without moving off the probe buffer, is a failure.
-`quit' propagates.
+the buffer by signalling `workspace-restore-declined'; MESSAGE is the
+condition's datum.  Any other error, a plain `user-error' included,
+and a jump that returns without moving off the probe buffer, is a
+failure.  `quit' propagates.
 
 The jump runs with `workspace--restoring-layout-leaf' bound non-nil,
 so a consumer can tell a layout leaf from an interactive jump; nothing
@@ -246,8 +247,12 @@ workaround a failure to read here.  See bug#56643."
                         (bookmark-jump bookmark)
                       ;; The handler declined: a decision for the
                       ;; user to see, not a failure to fall through.
-                      (user-error
-                       (setq declined (error-message-string err)))
+                      (workspace-restore-declined
+                       (setq declined
+                             (let ((message (cadr err)))
+                               (if (stringp message)
+                                   message
+                                 (error-message-string err)))))
                       ;; bug#56643 et al.: read-back failures, missing
                       ;; handlers, anything else.  Fall through.
                       (error nil)))
@@ -291,8 +296,9 @@ Returns a live buffer.  Walks the four-step fallback chain:
 bookmark → filename → name → error buffer.  Never returns nil; the
 error buffer is the floor.
 
-A bookmark handler that DECLINES (see `workspace--bookmark-buffer')
-gates the chain: steps 2 and 3 are skipped and the leaf lands on the
+A bookmark handler that DECLINES by signalling
+`workspace-restore-declined' (see `workspace--bookmark-buffer') gates
+the chain: steps 2 and 3 are skipped and the leaf lands on the
 error buffer carrying the handler's reason, and the decline is noted
 for the restore's single report.  The stored filename is the path the
 buffer had when the layout was captured; a handler that has just
