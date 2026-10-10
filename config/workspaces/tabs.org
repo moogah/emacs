@@ -259,6 +259,30 @@ directory via prefix arg"):
 3. *Not a git repo* — call =workspace-scaffold= with =:init-and-
    commit? t=.  Same pipeline as the default-path branch.
 
+"Already a git repo" means the directory is a *checkout root*: it
+holds a =.git= ENTRY of any kind (=workspace--checkout-root-p=).  The
+entry is a directory for a main worktree, but a FILE (a =gitdir:=
+pointer) for a linked worktree, a submodule and a =--separate-git-dir=
+checkout.  Testing only for a =.git= directory sent every linked
+worktree into case 3, which ran =git init=, =git add .= and =git commit=
+inside the user's checkout, on the user's branch, committing every
+untracked file in it.  The two ways to be wrong are not symmetric: a
+false "repo" answer only skips the git steps (the user can still =git
+init= by hand), while a false "not a repo" answer commits into a
+repository we do not own.  So any =.git= entry counts, even one that is
+a dangling symlink or a gitfile whose target is gone.
+
+A plain SUBDIRECTORY of some other checkout (no =.git= of its own) is
+deliberately still case 3, as it always was: it is not a checkout root,
+and =git init= there makes a NESTED repository, so the enclosing
+checkout's HEAD, index and branch are not touched.  =portable-bookmarks=
+relies on exactly this ("A home inside a checkout makes that checkout
+workspace-owned"), which is why the test is the =.git= entry and not
+=git rev-parse --is-inside-work-tree= (that would also answer yes for a
+subdirectory, changing case 3 to case 2 there).  It also costs no
+subprocess, and is the same test =portable-bookmarks= uses for "what
+counts as a checkout" (=workspace-bookmark--checkout-dir-p=).
+
 After registration, each sub-case fires =workspace--dispatch-create-
 integrations= with a per-case =:context= label (case 1 →
 =anchored-existing=, case 2 → =anchored-scaffolded=, case 3 →
@@ -419,11 +443,26 @@ may not even be defined there (it is established lazily under
              (fboundp 'workspace-menu))
     (workspace-menu)))
 
+(defun workspace--checkout-root-p (dir)
+  "Return non-nil when DIR holds a `.git' entry of any kind.
+The entry is a directory for a main worktree and a FILE (a gitdir
+pointer) for a linked worktree, a submodule or a `--separate-git-dir'
+checkout; all are checkouts the user owns.  A `.git' symbolic link
+counts even when dangling, and so does a gitfile whose target is gone:
+the anchor flow must never `git init' over a `.git' it did not make.
+A subdirectory of another checkout, with no `.git' of its own, is not
+a checkout root.  Runs no subprocess."
+  (let ((dot-git (expand-file-name ".git" dir)))
+    (or (file-exists-p dot-git)
+        (file-symlink-p dot-git))))
+
 (defun workspace--new-anchor-existing ()
   "Anchor an existing directory as a workspace.
 Prompts for an existing directory (`read-directory-name' with
 mustmatch=t) and registers it as a workspace.  Three sub-cases by
-directory state:
+directory state, where \"git repo\" means a checkout root (a `.git'
+directory OR file, see `workspace--checkout-root-p'; a linked
+worktree's `.git' is a file):
 
   1. Git repo AND has home.org  → register only; no scaffolding.
   2. Git repo, no home.org      → scaffold files; NO git ops
@@ -445,7 +484,7 @@ Returns the freshly-registered workspace plist on success."
     (when (workspace--registered-for-home-p home)
       (user-error "Already a registered workspace: %s" home))
     (workspace--refuse-taken-name name)
-    (let* ((is-repo? (file-directory-p (expand-file-name ".git" home)))
+    (let* ((is-repo? (workspace--checkout-root-p home))
            (has-home-org? (workspace-home-org-exists-p home))
            ;; The per-case integration :context label.  Each cond
            ;; branch picks its own; dispatch fires once after

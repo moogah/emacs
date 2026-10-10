@@ -230,11 +230,26 @@ may not even be defined there (it is established lazily under
              (fboundp 'workspace-menu))
     (workspace-menu)))
 
+(defun workspace--checkout-root-p (dir)
+  "Return non-nil when DIR holds a `.git' entry of any kind.
+The entry is a directory for a main worktree and a FILE (a gitdir
+pointer) for a linked worktree, a submodule or a `--separate-git-dir'
+checkout; all are checkouts the user owns.  A `.git' symbolic link
+counts even when dangling, and so does a gitfile whose target is gone:
+the anchor flow must never `git init' over a `.git' it did not make.
+A subdirectory of another checkout, with no `.git' of its own, is not
+a checkout root.  Runs no subprocess."
+  (let ((dot-git (expand-file-name ".git" dir)))
+    (or (file-exists-p dot-git)
+        (file-symlink-p dot-git))))
+
 (defun workspace--new-anchor-existing ()
   "Anchor an existing directory as a workspace.
 Prompts for an existing directory (`read-directory-name' with
 mustmatch=t) and registers it as a workspace.  Three sub-cases by
-directory state:
+directory state, where \"git repo\" means a checkout root (a `.git'
+directory OR file, see `workspace--checkout-root-p'; a linked
+worktree's `.git' is a file):
 
   1. Git repo AND has home.org  → register only; no scaffolding.
   2. Git repo, no home.org      → scaffold files; NO git ops
@@ -256,7 +271,7 @@ Returns the freshly-registered workspace plist on success."
     (when (workspace--registered-for-home-p home)
       (user-error "Already a registered workspace: %s" home))
     (workspace--refuse-taken-name name)
-    (let* ((is-repo? (file-directory-p (expand-file-name ".git" home)))
+    (let* ((is-repo? (workspace--checkout-root-p home))
            (has-home-org? (workspace-home-org-exists-p home))
            ;; The per-case integration :context label.  Each cond
            ;; branch picks its own; dispatch fires once after
