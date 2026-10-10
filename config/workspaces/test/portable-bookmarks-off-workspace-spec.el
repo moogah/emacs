@@ -429,6 +429,58 @@ both."
         (expect workspace-bookmark--jump-target :to-be nil)
         (expect workspace-bookmark--jump-target-display :to-be nil))))
 
+  (it "bookmark-jump-other-window into a workspace whose saved layout already shows the file in a non-selected window lands that window at the bookmark's position"
+    ;; Scenario: portable-bookmarks § An other-window jump keeps the painted
+    ;; layout's selected window.  The display reuses the painted window that
+    ;; already shows the file, which keeps its painted point; the finish
+    ;; step puts the bookmark's position back into it, as
+    ;; `bookmark--jump-via' does (seam/jump-display-intent).
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
+             (a-other (workspace-bookmark-fixtures-commit-file
+                       (plist-get world :wt-a) "other.el" "(other)\n")))
+        ;; A's layout: other.el (selected) | README.md, painted at point 1.
+        (portable-bookmarks-off-workspace-spec--give-saved-layout
+         "wsbm-off-a" (portable-bookmarks-off-workspace-spec--layout-of-two a-other a-path))
+        (workspace-bookmark-fixtures-set-bookmark b-path "readme")
+        (expect (workspace--tab-index-for "wsbm-off-a") :to-be nil)
+        (workspace-bookmark-fixtures-jump "readme" :pick "wsbm-off-a"
+                                          :jumper #'bookmark-jump-other-window)
+        (portable-bookmarks-off-workspace-spec--drain-timers)
+        (expect (workspace--current-name) :to-equal "wsbm-off-a")
+        (let ((windows (portable-bookmarks-off-workspace-spec--windows-visiting a-path)))
+          (expect (length windows) :to-equal 1)
+          (expect (window-point (car windows))
+                  :to-equal workspace-bookmark-fixtures-jump-position))
+        (expect workspace-bookmark--jump-target-point :to-be nil))))
+
+  (it "a plain jump into a workspace whose painted selected window already shows the file lands at the bookmark's position"
+    ;; Scenario: portable-bookmarks § Off-workspace jump restores a
+    ;; workspace.  The same-window display finds the file already in the
+    ;; painted selected window, whose point is the layout's; the finish
+    ;; step puts the bookmark's position back (seam/jump-display-intent).
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
+             (a-other (workspace-bookmark-fixtures-commit-file
+                       (plist-get world :wt-a) "other.el" "(other)\n")))
+        ;; A's layout: README.md (selected, painted at point 1) | other.el.
+        (portable-bookmarks-off-workspace-spec--give-saved-layout
+         "wsbm-off-a" (portable-bookmarks-off-workspace-spec--layout-of-two a-path a-other))
+        (workspace-bookmark-fixtures-set-bookmark b-path "readme")
+        (workspace-bookmark-fixtures-jump "readme" :pick "wsbm-off-a")
+        (portable-bookmarks-off-workspace-spec--drain-timers)
+        (expect (workspace--current-name) :to-equal "wsbm-off-a")
+        (expect (workspace--same-file-p
+                 (buffer-file-name (window-buffer (selected-window))) a-path)
+                :to-be-truthy)
+        (expect (window-point (selected-window))
+                :to-equal workspace-bookmark-fixtures-jump-position)
+        (expect (with-current-buffer (window-buffer (selected-window)) (point))
+                :to-equal workspace-bookmark-fixtures-jump-position)
+        (expect workspace-bookmark--jump-target-point :to-be nil))))
+
   (it "declines, never falling through to the stored path, when the restore itself fails — and still clears the pending jump state"
     (workspace-bookmark-fixtures-hermetic
       (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
