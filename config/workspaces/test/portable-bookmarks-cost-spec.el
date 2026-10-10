@@ -450,9 +450,8 @@ CANONICAL, when non-nil, is bound as `jf/emacs-dir' so that it is in view."
 ;; git, real windows and the real capture walk (`workspace--capture-frameset');
 ;; the spawn count is the call-through spy on `workspace-bookmark--git',
 ;; counted per git subcommand.  A spy installed between two captures counts
-;; only the second.  The three-leaf, one-directory budget of the same
-;; scenario is pending in review-findings-2026-10-10-spec.el until promoted
-;; here.
+;; only the second.  The three-leaf, one-directory budget was promoted here
+;; from review-findings-2026-10-10-spec.el.
 
 (defun portable-bookmarks-cost-spec--show (files)
   "Show each of FILES in a window of its own, the last one selected.
@@ -532,7 +531,30 @@ stays warm."
     (delete-other-windows)
     (workspace-bookmark-clear-identity-cache))
 
-  (xit "positions the checkout once for three leaves in three of its directories"
+  (it "captures a three-leaf layout in one checkout with at most one rev-parse (the task's budget)"
+    ;; Scenario: portable-bookmarks § Capturing a layout positions each checkout once
+    ;; seam/capture-stamp-cost.  Promoted from review-findings-2026-10-10-spec.el,
+    ;; with three files of its own in ONE directory (the describe's files
+    ;; are spread over three, the next spec's case).  The warm-up capture
+    ;; learns the identity; the index is then bumped, else the remembered
+    ;; coordinates answer the measured capture with no git at all and the
+    ;; budget would measure nothing about positioning.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((relpaths '("flat/one.el" "flat/two.el" "flat/three.el"))
+             (flat (mapcar (lambda (relpath)
+                             (workspace-bookmark-fixtures-commit-file repo relpath))
+                           relpaths)))
+        (portable-bookmarks-cost-spec--show flat)
+        (workspace--capture-frameset)
+        (portable-bookmarks-cost-spec--bump-index (expand-file-name ".git" repo))
+        (spy-on 'workspace-bookmark--git :and-call-through)
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal (mapcar (lambda (relpath)
+                                    (cons portable-bookmarks-cost-spec--identity relpath))
+                                  relpaths))
+        (expect (portable-bookmarks-cost-spec--git-calls "rev-parse") :to-be-less-than 2))))
+
+  (it "positions the checkout once for three leaves in three of its directories"
     ;; Scenario: portable-bookmarks § Capturing a layout positions each checkout once
     ;; seam/capture-stamp-cost.  The leaves sit in three directories, so a
     ;; position shared per directory is not enough: the checkout is
@@ -550,7 +572,7 @@ stays warm."
                                 portable-bookmarks-cost-spec--capture-relpaths))
       (expect (portable-bookmarks-cost-spec--git-calls "rev-parse") :to-equal 1)))
 
-  (xit "re-captures an unchanged layout without running git, stamping the same coordinates"
+  (it "re-captures an unchanged layout without running git, stamping the same coordinates"
     ;; Scenario: portable-bookmarks § Re-capturing an unchanged leaf runs no git
     ;; seam/capture-stamp-cost.  Nothing changes between the two captures:
     ;; not the files, not the checkout's index, not the configuration.
@@ -589,6 +611,37 @@ stays warm."
         (workspace-bookmark-fixtures-git linked "rm" "--cached" "--quiet" "--" "one.el")
         (expect (file-exists-p file) :to-be t)
         (expect (portable-bookmarks-cost-spec--index-mtime common) :to-equal main-index)
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal '(nil)))))
+
+  (it "remembers a tracked symlink's coordinates apart from its target's"
+    ;; seam/capture-stamp-cost: the memo's name is the location's physical
+    ;; name, its directory resolved and its own name not.  A tracked
+    ;; symlink and its target are two index entries, and keyed on the
+    ;; full truename the target would be handed the symlink's relpath.
+    (workspace-bookmark-fixtures-hermetic
+      (let ((target (nth 0 files))
+            (link (expand-file-name "link.el" repo)))
+        (make-symbolic-link "one.el" link)
+        (workspace-bookmark-fixtures-git repo "add" "--" "link.el")
+        (with-temp-buffer
+          (dolist (case (list (cons link "link.el") (cons target "one.el")
+                              (cons link "link.el")))
+            (expect (cdr (workspace-bookmark--coordinates (car case)))
+                    :to-equal (cdr case)))))))
+
+  (it "stamps a leaf afresh once a repository is initialised in its directory"
+    ;; seam/capture-stamp-cost: `git init' in the leaf's directory leaves
+    ;; the outer checkout's index and config alone, but git now answers
+    ;; for the new repository, where the file is untracked.  The root
+    ;; found without git is part of what the memo is checked against.
+    (workspace-bookmark-fixtures-hermetic
+      (let ((file (nth 1 files)))
+        (portable-bookmarks-cost-spec--show (list file))
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal (list (cons portable-bookmarks-cost-spec--identity
+                                      "lisp/two.el")))
+        (workspace-bookmark-fixtures-git (file-name-directory file) "init" "--quiet")
         (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
                 :to-equal '(nil))))))
 

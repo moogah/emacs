@@ -22,7 +22,10 @@ core (=register/boundary/portable-bookmarks-consumer=).  The one-way rule:
   (=workspace--registry=, =workspace--current-name=, =workspace--broken-p=,
   =workspace-restore=), and it reads core's one signal to consumers,
   =workspace--restoring-layout-leaf= (bound by =layouts.el= while a
-  layout leaf is restored), guarded by =boundp=.  It also asks core's
+  layout leaf is restored), guarded by =boundp=.  It advises core's
+  =workspace--capture-frameset= (=:around=, to scope one discovery memo
+  around a layout capture; see "One discovery memo around a layout
+  capture"), as it advises =bookmark-make-record=.  It also asks core's
   integration registry one question through its accessor,
   =workspace--integration-menu-command-p= (guarded by =fboundp=):
   whether git-worktrees' add-worktree command is registered (see "What
@@ -963,25 +966,180 @@ repository costs one subprocess; an untracked file costs two and never
 reaches the remote lookup; a directory, at any depth and of any size,
 costs one.
 
+Stamping runs once per window leaf on every layout capture — a tab
+switch, an idle autosave, =kill-emacs= — so two more rules keep a
+capture cheap (=seam/capture-stamp-cost=, design D4 of
+review-followups-2026-10-10).  Before them a three-leaf layout in one
+checkout paid three =rev-parse= and three =ls-files= on every capture,
+about 7 ms a leaf.
+
+*A file is placed by its checkout ROOT.*  The root is found WITHOUT git:
+the nearest ancestor of the file's directory holding a =.git= entry,
+the test =workspace-bookmark--checkout-dir-p= makes.  The walk starts
+from the directory's TRUENAME, because git discovers its repository from
+the physical working directory: a file reached through a symlink to a
+repository subdirectory has no =.git= on its symlinked spelling's
+ancestors, but its truename does.  The root is then positioned through
+=workspace-bookmark--shared-position=, which inside a discovery call
+(see "One discovery memo around a layout capture") asks git once per
+directory — and since every file of a checkout is placed by the same
+root, once per CHECKOUT, however many directories its leaves sit in.
+Outside a discovery call it is exactly =--checkout-position=.  The
+relpath is still asked of git in the file's OWN directory
+(=workspace-bookmark--relpath=), and its re-anchor guard checks it
+against the root git reported, so a root found wrongly unstamps rather
+than mis-stamps.  When no ancestor holds a =.git= entry, the file's own
+directory is positioned instead, as before: git then says "no work
+tree" in one subprocess.
+
+A DIRECTORY (a Dired leaf) keeps its own per-directory question: its
+=HEAD:./= tree is part of the position call (see "Where a location sits
+in its checkout"), and the root's position does not answer it.
+
+*An unchanged file is re-stamped without git.*  Each buffer remembers
+the coordinates last stamped for a FILE location in it
+(=workspace-bookmark--coordinates-memo=), with what they were computed
+from:
+
+- the location's PHYSICAL NAME — its directory's truename, then its own
+  file name, NOT resolved: a tracked symlink and its target are two
+  index entries with two relpaths, and the file's full truename would
+  conflate them;
+- the checkout root found as above;
+- the modification time of the =index= in the checkout's OWN git
+  directory (=workspace-bookmark--checkout-git-dir= of the root).  For
+  a linked worktree that is =<common>/worktrees/<name>/index=, not the
+  common directory's =index=, which is the MAIN worktree's: =git add=,
+  =git rm --cached=, a checkout or a merge in the linked worktree touch
+  only its own.  A file's relpath is what the index says, so the index
+  is the input that can move it;
+- =workspace-bookmark--config-stamp= of the root, the stamp the identity
+  memo is validated by, which covers the identity half.
+
+A repeat stamp whose four inputs are all unchanged answers from the
+memo: a few =stat=s and no subprocess.  Any change is a miss, and the
+miss asks git as above and refills the memo.  The memo is not used,
+and not filled, when the index's modification time or the config stamp
+cannot be read (the identity memo's "no stamp, no reuse"), and is
+filled only when the root found without git is the root git reported
+for it.  Only STAMPED coordinates are remembered: an unstamped answer
+is re-asked each time, so a transient git failure costs a later
+capture its subprocesses, never a stamp.  A directory location is never
+remembered: its relpath depends on HEAD, which =git reset --soft= moves
+without touching the index.  The memo is an ordinary buffer-local
+variable: nothing persists it, no hook or timer touches it, and a
+change of major mode drops it.
+
 #+begin_src emacs-lisp
+(defvar-local workspace-bookmark--coordinates-memo nil
+  "The coordinates last stamped for a file location in this buffer, or nil.
+A plist: :name, the location's physical name
+\(`workspace-bookmark--physical-name'); :root, its checkout root found
+without git; :git-dir and :git-common-dir, the checkout's own and shared
+git directories; :key, what `workspace-bookmark--coordinates-key'
+returned when the coordinates were computed; and :coordinates, the
+\(IDENTITY . RELPATH) stamped.  Read and written only by
+`workspace-bookmark--coordinates', for file locations; never persisted.")
+
+(defun workspace-bookmark--physical-name (location)
+  "Return LOCATION's file name in its directory's truename, or nil.
+The file name itself is not resolved, so a symlink keeps its own name.
+Runs no subprocess; nil when the truename cannot be read."
+  (condition-case nil
+      (expand-file-name (file-name-nondirectory location)
+                        (file-truename (file-name-directory location)))
+    (error nil)))
+
+(defun workspace-bookmark--file-checkout-root (directory)
+  "Return the root of the checkout holding DIRECTORY, found without git, or nil.
+That is the nearest of DIRECTORY and its ancestors that holds a `.git'
+entry (`workspace-bookmark--checkout-dir-p'), as a directory name."
+  (let ((root (condition-case nil
+                  (locate-dominating-file directory
+                                          #'workspace-bookmark--checkout-dir-p)
+                (error nil))))
+    (and root (file-name-as-directory root))))
+
+(defun workspace-bookmark--coordinates-key (root git-dir git-common-dir)
+  "Return what a file's remembered coordinates in the checkout at ROOT depend on.
+The list of the modification time of the `index' in GIT-DIR, the
+checkout's own git directory, and `workspace-bookmark--config-stamp' of
+GIT-COMMON-DIR and ROOT.  Nil when either cannot be read.  Runs no
+subprocess."
+  (let ((index (and git-dir
+                    (file-attribute-modification-time
+                     (file-attributes (expand-file-name "index" git-dir)))))
+        (config (workspace-bookmark--config-stamp git-common-dir root)))
+    (and index config (list index config))))
+
+(defun workspace-bookmark--remembered-coordinates (name root)
+  "Return this buffer's remembered coordinates for physical NAME under ROOT, or nil.
+Only while the memo's inputs are all unchanged
+\(`workspace-bookmark--coordinates-memo').  Runs no subprocess."
+  (let ((memo workspace-bookmark--coordinates-memo))
+    (and memo name root
+         (equal name (plist-get memo :name))
+         (equal root (plist-get memo :root))
+         (let ((key (workspace-bookmark--coordinates-key
+                     root (plist-get memo :git-dir)
+                     (plist-get memo :git-common-dir))))
+           (and key (equal key (plist-get memo :key))))
+         (plist-get memo :coordinates))))
+
+(defun workspace-bookmark--remember-coordinates (name root position coordinates)
+  "Remember COORDINATES for physical NAME under ROOT in this buffer.
+POSITION is the position of ROOT the coordinates were computed from.
+Nothing is remembered unless ROOT is the root git reported in POSITION
+and the memo's key can be read."
+  (when (and name root coordinates
+             (workspace--same-file-p root (nth 0 position)))
+    (let* ((git-dir (workspace-bookmark--checkout-git-dir root))
+           (key (workspace-bookmark--coordinates-key
+                 root git-dir (nth 1 position))))
+      (when key
+        (setq workspace-bookmark--coordinates-memo
+              (list :name name :root root :git-dir git-dir
+                    :git-common-dir (nth 1 position) :key key
+                    :coordinates coordinates))))))
+
+(defun workspace-bookmark--coordinates-at (location position)
+  "Return (IDENTITY . RELPATH) for LOCATION placed at POSITION, or nil."
+  (let* ((relpath (and position (workspace-bookmark--relpath location position)))
+         (identity (and relpath
+                        (workspace-bookmark--memoised-identity
+                         (nth 0 position) (nth 1 position)))))
+    (and identity (cons identity relpath))))
+
 (defun workspace-bookmark--coordinates (location)
   "Return (IDENTITY . RELPATH) for the local file or directory LOCATION, or nil.
 
 Nil when LOCATION is in no git work tree, when git does not track it,
 or when its repository has no usable remote.  LOCATION must already
-have passed `workspace-bookmark--record-location'."
-  (let* ((coding-system-for-read 'utf-8-unix)
-         (coding-system-for-write 'utf-8-unix)
-         (directory-p (file-directory-p location))
-         (dir (if directory-p
-                  (file-name-as-directory location)
-                (file-name-directory location)))
-         (position (workspace-bookmark--checkout-position dir directory-p))
-         (relpath (and position (workspace-bookmark--relpath location position)))
-         (identity (and relpath
-                        (workspace-bookmark--memoised-identity
-                         (nth 0 position) (nth 1 position)))))
-    (and identity (cons identity relpath))))
+have passed `workspace-bookmark--record-location'.
+
+A file is placed by its checkout root, found without git, through
+`workspace-bookmark--shared-position'; its coordinates are remembered
+in the current buffer and reused with no subprocess while their inputs
+are unchanged (`workspace-bookmark--coordinates-memo').  A directory is
+placed by itself, with its HEAD tree, and never remembered."
+  (let ((coding-system-for-read 'utf-8-unix)
+        (coding-system-for-write 'utf-8-unix))
+    (if (file-directory-p location)
+        (workspace-bookmark--coordinates-at
+         location
+         (workspace-bookmark--checkout-position
+          (file-name-as-directory location) t))
+      (let* ((name (workspace-bookmark--physical-name location))
+             (root (and name (workspace-bookmark--file-checkout-root
+                              (file-name-directory name)))))
+        (or (workspace-bookmark--remembered-coordinates name root)
+            (let* ((position (workspace-bookmark--shared-position
+                              (or root (file-name-directory location))))
+                   (coordinates (workspace-bookmark--coordinates-at
+                                 location position)))
+              (workspace-bookmark--remember-coordinates
+               name root position coordinates)
+              coordinates))))))
 #+end_src
 
 ** Stamping
@@ -2820,7 +2978,8 @@ plural calls it makes so the current home's checkouts are positioned
 once, not once per call, or one call of the public
 =workspace-bookmark-call-with-discovery-memo=, which the git-worktrees
 picker wraps around its whole candidate build ("Cross-module
-interface") — and is dropped on return, so
+interface"), or one layout capture ("One discovery memo around a layout
+capture") — and is dropped on return, so
 it can never answer from a layout that has changed since; the only
 state that survives a call is the identity memo above, which is
 revalidated on every use.  Outside a discovery call the memo is nil and
@@ -2936,6 +3095,45 @@ GIT-COMMON-DIR nil the listing is asked without memoisation."
        (cons 'worktrees git-common-dir)
        #'workspace-bookmark--worktree-entries dir)
     (workspace-bookmark--worktree-entries dir)))
+#+end_src
+
+** One discovery memo around a layout capture
+
+A layout capture stamps one record per window leaf
+(=workspace--capture-frameset= → =workspace--window-state-serialize= →
+=workspace--serialize-buffer= → =bookmark-make-record=, whose
+=:filter-return= is Seam 1).  Each file leaf is placed by its checkout
+root through =workspace-bookmark--shared-position= (see "Coordinates"),
+so a capture run inside ONE discovery call positions each checkout
+once, however many leaves it holds (=seam/capture-stamp-cost=).
+
+Core must not call into this module (see "Boundary"), so the capture is
+not asked to establish that call.  This module establishes it itself:
+=workspace-bookmark--capture-advice=, =:around= advice on
+=workspace--capture-frameset=, runs the capture inside
+=workspace-bookmark--with-discovery-memo=.  It is installed and removed
+with the two bookmark seams ("Advice installation"); naming core's
+capture function from here is the same one-way dependency as advising
+=bookmark-make-record=.  A capture already inside a discovery call (one
+started by a jump, say) shares that call's memo, as any nested
+discovery does.
+
+The memo lives exactly as long as the capture: the walk serializes
+windows and builds records, and neither prompts, so no memo spans a
+prompt and none survives into the next capture.  What survives is the
+per-buffer coordinates memo, which is validated on every use.  A
+stamping error stays inside Seam 1's own barrier, and
+=workspace--serialize-buffer= has its own around =bookmark-make-record=;
+the advice adds no failure of its own beyond a hash table.
+
+#+begin_src emacs-lisp
+(defun workspace-bookmark--capture-advice (capture &rest args)
+  "Run CAPTURE with ARGS as one discovery call.
+Intended as `:around' advice on `workspace--capture-frameset', so every
+leaf of one checkout is positioned once per capture (see
+`workspace-bookmark--shared-position')."
+  (workspace-bookmark--with-discovery-memo
+    (apply capture args)))
 #+end_src
 
 ** The canonical checkout
@@ -4328,24 +4526,35 @@ reloaded during development without stacking advice.  =advice-add= does
 not duplicate an advice that names the same function symbol, so
 =workspace-bookmark-install-advice= is idempotent; the explicit removal
 exists for =M-x workspace-bookmark-remove-advice= during development and
-for tests that need stock bookmark behaviour.
+for tests that need stock bookmark behaviour.  The third advice, on
+core's =workspace--capture-frameset=, is not a bookmark seam: it only
+scopes one discovery memo around a layout capture (see "One discovery
+memo around a layout capture"), and goes in and out with the seams.
 
 #+begin_src emacs-lisp
 (defun workspace-bookmark-install-advice ()
-  "Install the two portable-bookmark advice seams.  Idempotent."
+  "Install the two portable-bookmark advice seams and the capture scope.
+The capture scope is `workspace-bookmark--capture-advice' on
+`workspace--capture-frameset'.  Idempotent."
   (interactive)
   (advice-add 'bookmark-make-record :filter-return
               #'workspace-bookmark--stamp-record)
   (advice-add 'bookmark-handle-bookmark :around
-              #'workspace-bookmark--handle-bookmark-advice))
+              #'workspace-bookmark--handle-bookmark-advice)
+  ;; One discovery memo per layout capture (seam/capture-stamp-cost).
+  (advice-add 'workspace--capture-frameset :around
+              #'workspace-bookmark--capture-advice))
 
 (defun workspace-bookmark-remove-advice ()
-  "Remove the two portable-bookmark advice seams, restoring stock behaviour."
+  "Remove the two advice seams and the capture scope, restoring stock behaviour."
   (interactive)
   (advice-remove 'bookmark-make-record
                  #'workspace-bookmark--stamp-record)
   (advice-remove 'bookmark-handle-bookmark
-                 #'workspace-bookmark--handle-bookmark-advice))
+                 #'workspace-bookmark--handle-bookmark-advice)
+  ;; One discovery memo per layout capture (seam/capture-stamp-cost).
+  (advice-remove 'workspace--capture-frameset
+                 #'workspace-bookmark--capture-advice))
 
 (workspace-bookmark-install-advice)
 #+end_src

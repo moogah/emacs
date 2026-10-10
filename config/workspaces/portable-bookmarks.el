@@ -344,24 +344,115 @@ re-anchor on ROOT to the same file as LOCATION, or nil is returned."
          (workspace--same-file-p (expand-file-name relpath root) location)
          relpath)))
 
+(defvar-local workspace-bookmark--coordinates-memo nil
+  "The coordinates last stamped for a file location in this buffer, or nil.
+A plist: :name, the location's physical name
+\(`workspace-bookmark--physical-name'); :root, its checkout root found
+without git; :git-dir and :git-common-dir, the checkout's own and shared
+git directories; :key, what `workspace-bookmark--coordinates-key'
+returned when the coordinates were computed; and :coordinates, the
+\(IDENTITY . RELPATH) stamped.  Read and written only by
+`workspace-bookmark--coordinates', for file locations; never persisted.")
+
+(defun workspace-bookmark--physical-name (location)
+  "Return LOCATION's file name in its directory's truename, or nil.
+The file name itself is not resolved, so a symlink keeps its own name.
+Runs no subprocess; nil when the truename cannot be read."
+  (condition-case nil
+      (expand-file-name (file-name-nondirectory location)
+                        (file-truename (file-name-directory location)))
+    (error nil)))
+
+(defun workspace-bookmark--file-checkout-root (directory)
+  "Return the root of the checkout holding DIRECTORY, found without git, or nil.
+That is the nearest of DIRECTORY and its ancestors that holds a `.git'
+entry (`workspace-bookmark--checkout-dir-p'), as a directory name."
+  (let ((root (condition-case nil
+                  (locate-dominating-file directory
+                                          #'workspace-bookmark--checkout-dir-p)
+                (error nil))))
+    (and root (file-name-as-directory root))))
+
+(defun workspace-bookmark--coordinates-key (root git-dir git-common-dir)
+  "Return what a file's remembered coordinates in the checkout at ROOT depend on.
+The list of the modification time of the `index' in GIT-DIR, the
+checkout's own git directory, and `workspace-bookmark--config-stamp' of
+GIT-COMMON-DIR and ROOT.  Nil when either cannot be read.  Runs no
+subprocess."
+  (let ((index (and git-dir
+                    (file-attribute-modification-time
+                     (file-attributes (expand-file-name "index" git-dir)))))
+        (config (workspace-bookmark--config-stamp git-common-dir root)))
+    (and index config (list index config))))
+
+(defun workspace-bookmark--remembered-coordinates (name root)
+  "Return this buffer's remembered coordinates for physical NAME under ROOT, or nil.
+Only while the memo's inputs are all unchanged
+\(`workspace-bookmark--coordinates-memo').  Runs no subprocess."
+  (let ((memo workspace-bookmark--coordinates-memo))
+    (and memo name root
+         (equal name (plist-get memo :name))
+         (equal root (plist-get memo :root))
+         (let ((key (workspace-bookmark--coordinates-key
+                     root (plist-get memo :git-dir)
+                     (plist-get memo :git-common-dir))))
+           (and key (equal key (plist-get memo :key))))
+         (plist-get memo :coordinates))))
+
+(defun workspace-bookmark--remember-coordinates (name root position coordinates)
+  "Remember COORDINATES for physical NAME under ROOT in this buffer.
+POSITION is the position of ROOT the coordinates were computed from.
+Nothing is remembered unless ROOT is the root git reported in POSITION
+and the memo's key can be read."
+  (when (and name root coordinates
+             (workspace--same-file-p root (nth 0 position)))
+    (let* ((git-dir (workspace-bookmark--checkout-git-dir root))
+           (key (workspace-bookmark--coordinates-key
+                 root git-dir (nth 1 position))))
+      (when key
+        (setq workspace-bookmark--coordinates-memo
+              (list :name name :root root :git-dir git-dir
+                    :git-common-dir (nth 1 position) :key key
+                    :coordinates coordinates))))))
+
+(defun workspace-bookmark--coordinates-at (location position)
+  "Return (IDENTITY . RELPATH) for LOCATION placed at POSITION, or nil."
+  (let* ((relpath (and position (workspace-bookmark--relpath location position)))
+         (identity (and relpath
+                        (workspace-bookmark--memoised-identity
+                         (nth 0 position) (nth 1 position)))))
+    (and identity (cons identity relpath))))
+
 (defun workspace-bookmark--coordinates (location)
   "Return (IDENTITY . RELPATH) for the local file or directory LOCATION, or nil.
 
 Nil when LOCATION is in no git work tree, when git does not track it,
 or when its repository has no usable remote.  LOCATION must already
-have passed `workspace-bookmark--record-location'."
-  (let* ((coding-system-for-read 'utf-8-unix)
-         (coding-system-for-write 'utf-8-unix)
-         (directory-p (file-directory-p location))
-         (dir (if directory-p
-                  (file-name-as-directory location)
-                (file-name-directory location)))
-         (position (workspace-bookmark--checkout-position dir directory-p))
-         (relpath (and position (workspace-bookmark--relpath location position)))
-         (identity (and relpath
-                        (workspace-bookmark--memoised-identity
-                         (nth 0 position) (nth 1 position)))))
-    (and identity (cons identity relpath))))
+have passed `workspace-bookmark--record-location'.
+
+A file is placed by its checkout root, found without git, through
+`workspace-bookmark--shared-position'; its coordinates are remembered
+in the current buffer and reused with no subprocess while their inputs
+are unchanged (`workspace-bookmark--coordinates-memo').  A directory is
+placed by itself, with its HEAD tree, and never remembered."
+  (let ((coding-system-for-read 'utf-8-unix)
+        (coding-system-for-write 'utf-8-unix))
+    (if (file-directory-p location)
+        (workspace-bookmark--coordinates-at
+         location
+         (workspace-bookmark--checkout-position
+          (file-name-as-directory location) t))
+      (let* ((name (workspace-bookmark--physical-name location))
+             (root (and name (workspace-bookmark--file-checkout-root
+                              (file-name-directory name)))))
+        (or (workspace-bookmark--remembered-coordinates name root)
+            (let* ((position (workspace-bookmark--shared-position
+                              (or root (file-name-directory location))))
+                   (coordinates (workspace-bookmark--coordinates-at
+                                 location position)))
+              (workspace-bookmark--remember-coordinates
+               name root position coordinates)
+              coordinates))))))
 
 (defun workspace-bookmark--with-coordinates (record coordinates)
   "Return a new record: RECORD's name and properties plus COORDINATES.
@@ -1415,6 +1506,14 @@ GIT-COMMON-DIR nil the listing is asked without memoisation."
        #'workspace-bookmark--worktree-entries dir)
     (workspace-bookmark--worktree-entries dir)))
 
+(defun workspace-bookmark--capture-advice (capture &rest args)
+  "Run CAPTURE with ARGS as one discovery call.
+Intended as `:around' advice on `workspace--capture-frameset', so every
+leaf of one checkout is positioned once per capture (see
+`workspace-bookmark--shared-position')."
+  (workspace-bookmark--with-discovery-memo
+    (apply capture args)))
+
 (defconst workspace-bookmark--os-artifact-names
   '(".DS_Store" ".localized" "Icon\r" "Thumbs.db" "ehthumbs.db"
     "desktop.ini" ".directory")
@@ -2018,20 +2117,28 @@ is known gives `no-clone', before that `non-portable'."
     (error (workspace-bookmark--non-portable record))))
 
 (defun workspace-bookmark-install-advice ()
-  "Install the two portable-bookmark advice seams.  Idempotent."
+  "Install the two portable-bookmark advice seams and the capture scope.
+The capture scope is `workspace-bookmark--capture-advice' on
+`workspace--capture-frameset'.  Idempotent."
   (interactive)
   (advice-add 'bookmark-make-record :filter-return
               #'workspace-bookmark--stamp-record)
   (advice-add 'bookmark-handle-bookmark :around
-              #'workspace-bookmark--handle-bookmark-advice))
+              #'workspace-bookmark--handle-bookmark-advice)
+  ;; One discovery memo per layout capture (seam/capture-stamp-cost).
+  (advice-add 'workspace--capture-frameset :around
+              #'workspace-bookmark--capture-advice))
 
 (defun workspace-bookmark-remove-advice ()
-  "Remove the two portable-bookmark advice seams, restoring stock behaviour."
+  "Remove the two advice seams and the capture scope, restoring stock behaviour."
   (interactive)
   (advice-remove 'bookmark-make-record
                  #'workspace-bookmark--stamp-record)
   (advice-remove 'bookmark-handle-bookmark
-                 #'workspace-bookmark--handle-bookmark-advice))
+                 #'workspace-bookmark--handle-bookmark-advice)
+  ;; One discovery memo per layout capture (seam/capture-stamp-cost).
+  (advice-remove 'workspace--capture-frameset
+                 #'workspace-bookmark--capture-advice))
 
 (workspace-bookmark-install-advice)
 
