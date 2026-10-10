@@ -24,6 +24,10 @@ Slots:
   (local-variables nil)
   (etc nil))
 
+(define-error 'workspace-restore-declined
+  "Bookmark handler declined to restore"
+  'user-error)
+
 (defun workspace--layout-make (saved-state &optional timestamp)
   "Build a layout plist wrapping SAVED-STATE.
 TIMESTAMP defaults to current time as an integer.  The freshly-built

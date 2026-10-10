@@ -1174,6 +1174,21 @@ missing-repo prompt's =cancel= is an answer the user gave, not a
 declined outcome; it ends the jump with =quit= for reasons given in
 "Missing repo".
 
+While core restores a layout leaf (=workspace--restoring-layout-leaf=
+non-nil, the flag =workspace-bookmark--can-prompt-p= already reads) the
+decline signals =workspace-restore-declined= instead, core's owned
+child of =user-error= (data-model.org, "The decline condition").  The
+reincarnation chain catches that condition alone, so this seam's
+decline lands the leaf on its reason buffer while a stock handler's own
+=user-error= still falls through to the stored filename.  Outside a
+leaf restore the decline stays a plain =user-error=: Emacs echoes a
+child of =user-error= prefixed with its own message and the datum
+quoted, and an interactive decline must read as it always has.  Both
+are a =user-error= to every caller, so =bookmark-insert='s abort is
+the same either way.  The condition is core's and data-model is loaded
+before this module in every configuration that has it, so it is
+signalled unguarded.
+
 ** The record handed to the host
 
 On substitution the host receives a RECORD, never the bookmark's
@@ -1494,8 +1509,10 @@ plan `workspace-bookmark--jump-plan' returns: calls ORIG-FN with the
 original argument (`non-portable' only: a record with no usable
 stamp), with a substituted copy (`resolved', or the canonical
 read-only view chosen at the missing-repo prompt), or not at all — a
-decline signals a `user-error' naming the bookmark and opens nothing;
-a cancel at that prompt signals `quit'.  A stamped record with no
+decline signals a `user-error' naming the bookmark and opens nothing,
+`workspace-restore-declined' (its child, core's decline condition)
+while `workspace--restoring-layout-leaf' is non-nil; a cancel at that
+prompt signals `quit'.  A stamped record with no
 current workspace goes through the off-workspace plan
 \(`workspace-bookmark--off-workspace-plan'), which establishes a
 workspace and resolves against it, and never calls through with the
@@ -1522,7 +1539,10 @@ originating buffer is never touched."
         (origin (current-buffer)))
     (pcase plan
       (`(decline . ,message)
-       (user-error "%s" message))
+       (if (and (boundp 'workspace--restoring-layout-leaf)
+                workspace--restoring-layout-leaf)
+           (signal 'workspace-restore-declined (list message))
+         (user-error "%s" message)))
       (`(cancel)
        (signal 'quit nil))
       ((or `(call-through . ,arg) `(view ,arg . ,_))
@@ -1803,7 +1823,8 @@ advice, outside the barrier.  Three properties are deliberate:
   question per leaf is exactly what a restore must never become.  In
   each case the chooser declines with the seam's own =missing-repo=
   report instead of prompting.  For the reincarnation chain that
-  decline is the answer it wants: it treats a =user-error= from a leaf
+  decline is the answer it wants: during a leaf restore the seam
+  signals it as =workspace-restore-declined=, which the chain treats
   as "skip this leaf's filename", shows the reason in the leaf's
   window and reports every declined leaf in ONE message after the walk
   (see layouts.org, "A decline is not a failure").  Core suppresses

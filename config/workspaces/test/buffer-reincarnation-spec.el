@@ -255,8 +255,18 @@ running in a buffer whose `default-directory' no longer exists, where
           (expect put-count :to-be-weakly-greater-than 0))))))
 
 (defun br-spec--declining-handler (_record)
-  "A bookmark handler that DECLINES, as the portable-bookmarks seam does."
-  (user-error "Bookmark \"declines\": not on this branch; nothing opened"))
+  "A bookmark handler that DECLINES, as the portable-bookmarks seam does.
+Signals core's owned decline condition, `workspace-restore-declined',
+with the reason as its datum."
+  (signal 'workspace-restore-declined
+          (list "Bookmark \"declines\": not on this branch; nothing opened")))
+
+(defun br-spec--foreign-user-error-handler (_record)
+  "A stock-like bookmark handler that signals a `user-error' of ITS OWN.
+Modelled on `Info-find-file' (info.el, Emacs 30.2: \"Info file `%s' does
+not exist; consider installing it\"), which is not a decline but a
+`user-error' all the same."
+  (user-error "Info file `%s' does not exist; consider installing it" "missing"))
 
 (defvar br-spec--leaf-flag-seen nil
   "What `br-spec--flag-reading-handler' saw, newest first.")
@@ -271,13 +281,14 @@ Reads `workspace--restoring-layout-leaf' as a consumer must: guarded by
   (set-buffer (get-buffer-create " *br-spec-flag*")))
 
 (describe "the gate: a bookmark handler that declines"
-  ;; A `user-error' from the handler is a DECISION for the user to see,
-  ;; not a failure to fall through: steps 2 (filename) and 3 (name) are
+  ;; `workspace-restore-declined' from the handler is a DECISION for the
+  ;; user to see, not a failure to fall through: steps 2 (filename) and 3 (name) are
   ;; skipped and the leaf lands on the error buffer carrying the reason.
   ;; Register: no-silent-wrong-file-open prohibitions 1 and 4 — the
   ;; stored filename is the path the buffer had when captured, which the
   ;; handler has just refused to open.
   (it "skips the filename AND the same-name live buffer, and lands on the error buffer with the reason"
+    ;; Scenario: workspaces § A bookmark handler that declines lands on a reason buffer
     (let* ((path (br-spec--make-temp-file "wrong copy"))
            (same-name (get-buffer-create "declines.el"))
            (wb (make-workspace-buffer
@@ -376,6 +387,7 @@ Reads `workspace--restoring-layout-leaf' as a consumer must: guarded by
         (delete-file path))))
 
   (it "still falls through to the filename when the handler merely FAILS"
+    ;; Scenario: workspaces § A mere failure still falls through to the filename
     ;; The pre-existing contract, kept: a plain error is not a decision.
     (let* ((path (br-spec--make-temp-file "still here"))
            (wb (make-workspace-buffer
@@ -394,6 +406,44 @@ Reads `workspace--restoring-layout-leaf' as a consumer must: guarded by
             (expect (car collector) :to-be nil))
         (delete-file path)
         (when (buffer-live-p result) (kill-buffer result)))))
+
+  (it "restores a leaf through its stored filename when the handler signals a user-error of its own (an Info file missing), not a portable-bookmarks decline"
+    ;; Scenario: workspaces § A stock handler's own user-error falls through to the filename
+    (let* ((path (make-temp-file "wsbm-foreign-" nil nil "still here\n"))
+           (wb (make-workspace-buffer
+                :bookmark '("foreign" (handler . br-spec--foreign-user-error-handler))
+                :filename path
+                :name (file-name-nondirectory path)))
+           (collector (list nil))
+           (result (let ((workspace--reincarnation-declines collector))
+                     (workspace--deserialize-buffer wb))))
+      (unwind-protect
+          (progn
+            (expect (buffer-file-name result) :not :to-be nil)
+            (expect (file-truename (buffer-file-name result))
+                    :to-equal (file-truename path))
+            (expect (car collector) :to-be nil))
+        (delete-file path)
+        (when (buffer-live-p result) (kill-buffer result)))))
+
+  (it "restores a leaf through the live buffer of its name when the handler signals a user-error of its own and there is no filename (an *info* leaf)"
+    ;; Scenario: workspaces § A stock handler's own user-error falls through to the buffer name
+    (let* ((same-name (get-buffer-create "*info*"))
+           (wb (make-workspace-buffer
+                :bookmark '("foreign" (handler . br-spec--foreign-user-error-handler)
+                            (info-node . "Top"))
+                :filename nil
+                :name "*info*"))
+           (collector (list nil))
+           (result (let ((workspace--reincarnation-declines collector))
+                     (workspace--deserialize-buffer wb))))
+      (unwind-protect
+          (progn
+            (expect result :to-be same-name)
+            (expect (car collector) :to-be nil))
+        (when (buffer-live-p same-name) (kill-buffer same-name))
+        (when (and (buffer-live-p result) (not (eq result same-name)))
+          (kill-buffer result)))))
 
   (it "reports the collected declines in ONE message, or none when there were none"
     (let ((messages nil))

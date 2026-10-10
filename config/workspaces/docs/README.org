@@ -552,9 +552,10 @@ order until one produces a live buffer:
    The window slot is never left empty; a failed reincarnation is
    visible, not silent.
 
-*The decline gate.*  A bookmark handler that signals =user-error= has
-DECLINED to restore its buffer — a message for the user, not a
-failure.  The portable-bookmarks module (see *Portable bookmarks*
+*The decline gate.*  A bookmark handler that signals
+=workspace-restore-declined= (core's decline condition, a child of
+=user-error=) has DECLINED to restore its buffer — a message for the
+user, not a failure.  The portable-bookmarks module (see *Portable bookmarks*
 below) does this whenever a leaf's bookmark cannot be resolved in the
 workspace being restored: the file is not on this branch
 (=not-on-branch=), more than one checkout could hold it
@@ -572,15 +573,17 @@ never one prompt or one message per window.  Buffers whose bookmark
 carries no repository stamp (files outside git, untracked files,
 anything else the module does not stamp) are unaffected and restore
 exactly as before.  Any
-other error in step 1 is a failure and falls through to step 2 as
-before.
+other error in step 1 — a stock handler's own =user-error= included,
+such as Info reporting that its file does not exist — is a failure and
+falls through to step 2 as before.
 
 Restoring a leaf does not suppress questions: a handler that asks
 while visiting — the large-file prompt, the unsafe local variables
 query — asks as on any other visit.  While a leaf is restored,
 =workspace--restoring-layout-leaf= is non-nil; a module whose handler
 would ask a question of its own for every leaf (the portable-bookmarks
-missing-repo choice) reads it and declines instead.
+missing-repo choice) reads it and signals =workspace-restore-declined=
+instead.
 
 The four step names are closed-set-enforced at the code level via
 =workspace--valid-reincarnation-steps= and the

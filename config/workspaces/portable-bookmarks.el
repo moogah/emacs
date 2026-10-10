@@ -626,8 +626,10 @@ plan `workspace-bookmark--jump-plan' returns: calls ORIG-FN with the
 original argument (`non-portable' only: a record with no usable
 stamp), with a substituted copy (`resolved', or the canonical
 read-only view chosen at the missing-repo prompt), or not at all — a
-decline signals a `user-error' naming the bookmark and opens nothing;
-a cancel at that prompt signals `quit'.  A stamped record with no
+decline signals a `user-error' naming the bookmark and opens nothing,
+`workspace-restore-declined' (its child, core's decline condition)
+while `workspace--restoring-layout-leaf' is non-nil; a cancel at that
+prompt signals `quit'.  A stamped record with no
 current workspace goes through the off-workspace plan
 \(`workspace-bookmark--off-workspace-plan'), which establishes a
 workspace and resolves against it, and never calls through with the
@@ -654,7 +656,10 @@ originating buffer is never touched."
         (origin (current-buffer)))
     (pcase plan
       (`(decline . ,message)
-       (user-error "%s" message))
+       (if (and (boundp 'workspace--restoring-layout-leaf)
+                workspace--restoring-layout-leaf)
+           (signal 'workspace-restore-declined (list message))
+         (user-error "%s" message)))
       (`(cancel)
        (signal 'quit nil))
       ((or `(call-through . ,arg) `(view ,arg . ,_))

@@ -251,8 +251,9 @@ both leave the probe buffer unchanged.  A bookmark handler that
 FAILS — a read-back error, a missing handler, a =file-error= — has
 said nothing about the buffer, and the chain falls through to the
 filename.  A handler that DECLINES has made a decision the user is
-meant to see: it signalled =user-error=, the condition Emacs reserves
-for "not a bug, a message for the user".  For a declined leaf the
+meant to see: it signalled =workspace-restore-declined=, the one
+condition core owns for that decision (data-model.org, "The decline
+condition").  For a declined leaf the
 chain skips steps 2 AND 3 and goes straight to the error buffer,
 which carries the handler's reason.  The saved filename is the
 absolute path the buffer had when the layout was captured, and a
@@ -268,17 +269,23 @@ Falling back to either would turn "report and open nothing" into
 How step 1 tells the three answers apart, and nothing else:
 
 - a buffer other than the probe's — the jump landed: step 1 wins;
-- a =user-error= out of the jump — DECLINED: the gate above;
-- any other =error=, or no signal and no buffer change — FAILED: fall
-  through to step 2.  =quit= is neither; C-g aborts the restore.
+- =workspace-restore-declined= out of the jump — DECLINED: the gate
+  above, with the reason taken from the condition's datum;
+- any other =error= (a plain =user-error= included), or no signal and
+  no buffer change — FAILED: fall through to step 2.  =quit= is
+  neither; C-g aborts the restore.
 
 The dispatch has one arm per answer and SIGNALS for any other value,
 so a result nobody wrote an arm for can never reach the filename step
 (=register/invariant/no-silent-wrong-file-open=: a catch-all arm
 errors or does nothing, it never opens).  The decline is keyed on the
-standard condition alone: a third-party handler that signals
-=user-error= has, by that condition's meaning, said something for the
-user to read rather than failed, and it gets the same reason buffer.
+owned condition alone, not on =user-error=, its parent: stock handlers
+signal =user-error= for reasons of their own (=Info-find-file='s "Info
+file ... does not exist; consider installing it"), and such a leaf must
+keep restoring through its stored filename or the live buffer of its
+name, as it did before the gate existed.  A third-party handler that
+wants a decline's treatment signals =workspace-restore-declined= and
+gets the same reason buffer.
 
 *Asking is not declining.*  Step 1 does NOT suppress interaction.  A
 stock handler that asks while visiting a leaf — =find-file-noselect='s
@@ -295,8 +302,8 @@ What step 1 does instead is SAY that a layout leaf is being restored,
 through one neutral variable core owns: =workspace--restoring-layout-leaf=
 is bound non-nil around the leaf's jump.  A consumer whose handler
 would otherwise put a question of its own for every leaf of a layout
-reads it and declines (=user-error=) instead of asking, and that
-decline takes the gate.  A restore paints several leaves in one
+reads it and declines (=workspace-restore-declined=) instead of
+asking, and that decline takes the gate.  A restore paints several leaves in one
 gesture; it must never turn into a series of per-leaf questions of a
 consumer's making.  Core names no consumer: the variable is core's, and
 a consumer reads it guarded by =boundp=.
@@ -430,17 +437,18 @@ Bound by `workspace--bookmark-buffer' around the leaf's bookmark jump,
 and nil everywhere else.  It suppresses nothing by itself: stock
 handlers still ask whatever they ask on any visit.  A consumer whose
 handler would put a question of its own for every leaf of a layout
-reads it (guarded by `boundp') and declines with `user-error' instead,
-which the reincarnation chain treats as a decline (see
+reads it (guarded by `boundp') and signals `workspace-restore-declined'
+instead, which the reincarnation chain treats as a decline (see
 `workspace--deserialize-buffer').")
 
 (defun workspace--bookmark-buffer (ws-buffer)
   "Return the buffer produced by jumping to WS-BUFFER's bookmark record.
 Returns the buffer on success, nil when the jump FAILED, or
 \(declined . MESSAGE) when the bookmark handler DECLINED to restore
-the buffer by signalling `user-error'.  Any other error, and a jump
-that returns without moving off the probe buffer, is a failure.
-`quit' propagates.
+the buffer by signalling `workspace-restore-declined'; MESSAGE is the
+condition's datum.  Any other error, a plain `user-error' included,
+and a jump that returns without moving off the probe buffer, is a
+failure.  `quit' propagates.
 
 The jump runs with `workspace--restoring-layout-leaf' bound non-nil,
 so a consumer can tell a layout leaf from an interactive jump; nothing
@@ -470,8 +478,12 @@ workaround a failure to read here.  See bug#56643."
                         (bookmark-jump bookmark)
                       ;; The handler declined: a decision for the
                       ;; user to see, not a failure to fall through.
-                      (user-error
-                       (setq declined (error-message-string err)))
+                      (workspace-restore-declined
+                       (setq declined
+                             (let ((message (cadr err)))
+                               (if (stringp message)
+                                   message
+                                 (error-message-string err)))))
                       ;; bug#56643 et al.: read-back failures, missing
                       ;; handlers, anything else.  Fall through.
                       (error nil)))
@@ -515,8 +527,9 @@ Returns a live buffer.  Walks the four-step fallback chain:
 bookmark → filename → name → error buffer.  Never returns nil; the
 error buffer is the floor.
 
-A bookmark handler that DECLINES (see `workspace--bookmark-buffer')
-gates the chain: steps 2 and 3 are skipped and the leaf lands on the
+A bookmark handler that DECLINES by signalling
+`workspace-restore-declined' (see `workspace--bookmark-buffer') gates
+the chain: steps 2 and 3 are skipped and the leaf lands on the
 error buffer carrying the handler's reason, and the decline is noted
 for the restore's single report.  The stored filename is the path the
 buffer had when the layout was captured; a handler that has just
