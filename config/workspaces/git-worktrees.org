@@ -269,17 +269,19 @@ outlives the build.
 
 The scope is a portable-bookmarks call like the other two, so it gets
 the same barrier, drawn around the SCOPE only.  The build is handed to
-the scope wrapped so that it records how far it got:
+the scope wrapped so that it records whether it has started, and an
+error is read in one of two states:
 
-- the scope signals BEFORE the build starts (it is broken, or its
-  calling convention changed): one warning, and the build runs
-  unscoped — the answers are the same, only the sharing is lost, so the
-  sources still contribute and the prompt and its floor are reached;
-- the scope signals AFTER the build returned: one warning, and the
-  build's value is used;
-- the build ITSELF signals: that error is not the scope's, and it
-  propagates exactly as it would without the scope.  (Both source
-  calls inside it have barriers of their own.)
+- the build has NOT started (the scope is broken, or its calling
+  convention changed, so the cross-module call itself signals): one
+  warning, and the build runs unscoped — the answers are the same, only
+  the sharing is lost, so the sources still contribute and the prompt
+  and its floor are reached;
+- the build HAS started: the error is the build's own (the scope is a
+  plain dynamic binding around it, so nothing of the scope's can signal
+  once it has run), and it propagates exactly as it would without the
+  scope, unwarned.  (Both source calls inside it have barriers of their
+  own.)
 
 The build never runs twice.  The warning goes through
 =jf/workspace--worktree-warn-discovery=, so it counts against the
@@ -293,34 +295,27 @@ is bound, FUNCTION runs inside it, so every call of
 `workspace-bookmark-canonical-checkouts-in-view' FUNCTION makes shares
 one memo of git's answers; otherwise FUNCTION is simply called.  Like
 that function, the scope is reached through a call-time `fboundp' guard
-and portable-bookmarks is never required.
+and portable-bookmarks is never required.  FUNCTION is called at most
+once.
 
-The scope is error-barriered like every portable-bookmarks call: when
-it signals before FUNCTION starts, a warning is displayed
-\(`jf/workspace--worktree-warn-discovery') and FUNCTION is called
-unscoped; when it signals after FUNCTION returned, a warning is
-displayed and FUNCTION's value is returned.  An error signalled by
-FUNCTION itself propagates unchanged.  FUNCTION is called at most once."
+The scope is error-barriered like every portable-bookmarks call, in two
+cases: when the call into the scope signals before FUNCTION has
+started, a warning is displayed (`jf/workspace--worktree-warn-discovery')
+and FUNCTION is called unscoped; once FUNCTION has started, any error
+is FUNCTION's own and propagates unchanged, with no warning."
   (if (not (fboundp 'workspace-bookmark-call-with-discovery-memo))
       (funcall function)
-    (let ((stage 'before)
-          (value nil))
+    (let ((started nil))
       (condition-case err
           (funcall 'workspace-bookmark-call-with-discovery-memo
                    (lambda ()
-                     (setq stage 'running)
-                     (setq value (funcall function))
-                     (setq stage 'returned)
-                     value))
+                     (setq started t)
+                     (funcall function)))
         (error
-         (pcase stage
-           ('before
-            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
-            (funcall function))
-           ('returned
-            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
-            value)
-           (_ (signal (car err) (cdr err)))))))))
+         (if started
+             (signal (car err) (cdr err))
+           (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+           (funcall function)))))))
 #+end_src
 
 #+begin_src emacs-lisp

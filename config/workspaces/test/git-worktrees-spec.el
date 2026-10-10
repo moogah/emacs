@@ -432,6 +432,8 @@ lists are EMPTY unless BODY binds them."
     ;; above (architect on-touch finding 47): a scope that fails before
     ;; the build starts costs the sharing, never the candidates or the
     ;; prompt; the build's own outcome is never the scope's to change.
+    ;; Scenario: workspace-git-worktrees § A discovery scope that cannot be entered does not shrink discovery
+    ;; (the three specs below).
 
     (it "warns once and still builds both sources, unscoped, when the discovery scope signals"
       (spy-on 'workspace-bookmark-call-with-discovery-memo :and-call-fake
@@ -479,32 +481,21 @@ lists are EMPTY unless BODY binds them."
       (expect 'read-directory-name :to-have-been-called)
       (expect 'display-warning :to-have-been-called-times 1))
 
-    (it "barriers the scope only: after the build ran, its value stands with one warning, and its own error propagates unwarned"
+    ;; Scenario: workspace-git-worktrees § The discovery's own error is not masked
+    (it "lets the build's own error, signalled inside the scope, propagate unchanged and unwarned"
       (let ((runs 0)
+            (raised nil)
             (jf/emacs-dir nil))
-        (spy-on 'workspace-bookmark-call-with-discovery-memo :and-call-fake
-                (lambda (function)
-                  (funcall function)
-                  (error "Simulated scope teardown failure")))
-        (spy-on 'jf/workspace--worktree-git-derived-candidates :and-call-fake
-                (lambda () (setq runs (1+ runs)) (list repo)))
-        (git-worktrees-spec--with-sources '(magit) (list other)
-          (expect (jf/workspace--worktree-repo-candidates)
-                  :to-equal (list repo other)))
-        (expect runs :to-equal 1)
-        (expect 'display-warning :to-have-been-called-times 1)
-        (expect (nth 1 (spy-calls-args-for 'display-warning 0))
-                :to-match "Simulated scope teardown failure")
-        (spy-calls-reset 'display-warning)
-        (setq runs 0)
+        (spy-on 'workspace-bookmark-call-with-discovery-memo :and-call-through)
         (spy-on 'jf/workspace--worktree-git-derived-candidates :and-call-fake
                 (lambda () (setq runs (1+ runs)) (error "Simulated build failure")))
-        (let ((raised nil))
-          (git-worktrees-spec--with-sources '(magit) (list other)
-            (condition-case err
-                (jf/workspace--worktree-repo-candidates)
-              (error (setq raised err))))
-          (expect (error-message-string raised) :to-equal "Simulated build failure"))
+        (git-worktrees-spec--with-sources '(magit) (list other)
+          (condition-case err
+              (jf/workspace--worktree-repo-candidates)
+            (error (setq raised err))))
+        (expect 'workspace-bookmark-call-with-discovery-memo
+                :to-have-been-called-times 1)
+        (expect raised :to-equal '(error "Simulated build failure"))
         (expect runs :to-equal 1)
         (expect 'display-warning :not :to-have-been-called))))
 

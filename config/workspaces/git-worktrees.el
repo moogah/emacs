@@ -77,34 +77,27 @@ is bound, FUNCTION runs inside it, so every call of
 `workspace-bookmark-canonical-checkouts-in-view' FUNCTION makes shares
 one memo of git's answers; otherwise FUNCTION is simply called.  Like
 that function, the scope is reached through a call-time `fboundp' guard
-and portable-bookmarks is never required.
+and portable-bookmarks is never required.  FUNCTION is called at most
+once.
 
-The scope is error-barriered like every portable-bookmarks call: when
-it signals before FUNCTION starts, a warning is displayed
-\(`jf/workspace--worktree-warn-discovery') and FUNCTION is called
-unscoped; when it signals after FUNCTION returned, a warning is
-displayed and FUNCTION's value is returned.  An error signalled by
-FUNCTION itself propagates unchanged.  FUNCTION is called at most once."
+The scope is error-barriered like every portable-bookmarks call, in two
+cases: when the call into the scope signals before FUNCTION has
+started, a warning is displayed (`jf/workspace--worktree-warn-discovery')
+and FUNCTION is called unscoped; once FUNCTION has started, any error
+is FUNCTION's own and propagates unchanged, with no warning."
   (if (not (fboundp 'workspace-bookmark-call-with-discovery-memo))
       (funcall function)
-    (let ((stage 'before)
-          (value nil))
+    (let ((started nil))
       (condition-case err
           (funcall 'workspace-bookmark-call-with-discovery-memo
                    (lambda ()
-                     (setq stage 'running)
-                     (setq value (funcall function))
-                     (setq stage 'returned)
-                     value))
+                     (setq started t)
+                     (funcall function)))
         (error
-         (pcase stage
-           ('before
-            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
-            (funcall function))
-           ('returned
-            (jf/workspace--worktree-warn-discovery "Discovery scope" err)
-            value)
-           (_ (signal (car err) (cdr err)))))))))
+         (if started
+             (signal (car err) (cdr err))
+           (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+           (funcall function)))))))
 
 (defun jf/workspace--worktree-repo-candidates ()
   "Return the canonical git-repo roots offered as worktree sources.
