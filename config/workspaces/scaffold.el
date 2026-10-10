@@ -4,10 +4,33 @@
 (require 'org-id)
 (require 'workspace-data-model)
 
+(defconst workspace--scaffold-git-unset-environment
+  '("GIT_DIR" "GIT_WORK_TREE" "GIT_COMMON_DIR" "GIT_INDEX_FILE"
+    "GIT_OBJECT_DIRECTORY" "GIT_ALTERNATE_OBJECT_DIRECTORIES"
+    "GIT_NAMESPACE" "GIT_CEILING_DIRECTORIES"
+    "GIT_DISCOVERY_ACROSS_FILESYSTEM" "GIT_IMPLICIT_WORK_TREE"
+    "GIT_PREFIX" "GIT_CONFIG" "GIT_CONFIG_PARAMETERS" "GIT_CONFIG_COUNT"
+    "GIT_GRAFT_FILE" "GIT_NO_REPLACE_OBJECTS" "GIT_REPLACE_REF_BASE"
+    "GIT_SHALLOW_FILE")
+  "Environment variables removed for every git subprocess core runs.
+Each one can make git act on a repository other than the one
+`default-directory' names.  The same list portable-bookmarks removes
+for its own git subprocesses (copied: core names no symbol of it).")
+
+(defun workspace--scaffold-git-environment ()
+  "Return `process-environment' with the git location variables removed.
+Bind `process-environment' to this around any git subprocess core runs
+\(see `workspace--scaffold-git-unset-environment')."
+  (append workspace--scaffold-git-unset-environment process-environment))
+
 (defun workspace--scaffold-git (home &rest args)
   "Run `git ARGS' with `default-directory' bound to HOME.
-Signal `user-error' with stderr on non-zero exit."
+The git location variables (`workspace--scaffold-git-unset-environment')
+are removed from git's environment, so an inherited GIT_DIR cannot
+redirect it to another repository.  Signal `user-error' with stderr on
+non-zero exit."
   (let* ((default-directory (file-name-as-directory home))
+         (process-environment (workspace--scaffold-git-environment))
          (out-buf (generate-new-buffer " *workspace-scaffold-git*"))
          (status (apply #'call-process "git" nil out-buf nil args)))
     (unwind-protect
