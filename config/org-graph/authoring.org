@@ -1,0 +1,81 @@
+#+title: org-graph Authoring
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle authoring.el
+#+auto_tangle: y
+
+Human-side authoring commands (design D3 / D4,
+=register/boundary/authoring-commands-delegation=): find-or-create a
+note by title, and insert an =id:= link at point.  Both delegate
+WHOLESALE to installed vulpea 2.4 built-ins — no custom completion,
+creation, or link-insertion logic lives here.  The wrappers exist to
+give the surface stable org-graph names (menu targets, future filtering
+hooks, tests); behavior is vulpea's:
+
+- =vulpea-find= with =:require-match nil= routes a completion miss
+  through =vulpea-find-default-create-fn= → =vulpea-create=, whose
+  birth-index path is fully *synchronous*: the file is written, the
+  =:ID:= assigned, =org-id-add-location= called, and
+  =vulpea-db-update-file= run before return — so a created note is
+  immediately findable and its id immediately resolvable.
+- =vulpea-insert= (with =vulpea-insert-default-create-fn= nil, the
+  default) uses active-region text as the link description and replaces
+  the region, creates a missing note via =vulpea-create=, and inserts
+  the =[[id:...]]= link — all inside an =atomic-change-group=.
+
+Placement defaults (directory + the dash filename template
+=${timestamp}-${slug}.org=,
+=register/invariant/note-filename-template-dash=) come from
+=discovery.org='s placement section; this module deliberately sets
+neither.
+
+This is a separate module from =finders.org= (design D4): finders stay
+scoped to schema-aware type finders (=:require-match t=, navigation
+only), and a per-file module keeps the loader's cold-load invariant
+auditable — authoring touches no DB at load.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position).
+
+#+begin_src emacs-lisp :comments no
+;;; authoring.el --- Human-side note authoring commands -*- lexical-binding: t; -*-
+
+(require 'vulpea)
+#+end_src
+
+* Find-or-create
+
+Unlike the type finders in =finders.el=, this completes over EVERY
+indexed note (no =:filter-fn=) and passes =:require-match nil= so a
+title with no match creates the note instead of erroring.
+
+#+begin_src emacs-lisp
+(defun org-graph/find-or-create ()
+  "Find a note by title, creating it when no indexed note matches.
+Thin wrapper over `vulpea-find' with completion over every indexed
+note; creation is vulpea's synchronous birth-index path (file +
+:ID: + org-id registration + DB insert complete before return)."
+  (interactive)
+  (vulpea-find :require-match nil))
+#+end_src
+
+* Insert link
+
+#+begin_src emacs-lisp
+(defun org-graph/insert-link ()
+  "Insert an id: link to a note at point, creating the note on miss.
+Thin wrapper over `vulpea-insert': active region becomes the link
+description and is replaced by the link."
+  (interactive)
+  (vulpea-insert))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-authoring)
+;;; authoring.el ends here
+#+end_src

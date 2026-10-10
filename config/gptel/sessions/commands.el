@@ -39,6 +39,7 @@
 
 (require 'cl-lib)
 (require 'gptel)
+(require 'org-id)
 (require 'gptel-session-constants)
 (require 'gptel-session-logging)
 (require 'gptel-session-filesystem)
@@ -323,6 +324,24 @@ template parses to exactly one empty user turn —
 `gptel-chat-new' scratch buffers remain valid input."
   "#+begin_user\n\n#+end_user\n")
 
+(defun jf/gptel--stamp-session-org-id (content session-file)
+  "Return CONTENT with a file-level org `:ID:' stamped into its drawer.
+SESSION-FILE is the on-disk destination, supplied to
+`org-id-add-location' via `org-id-overriding-file-name' (the content
+is stamped in a throwaway buffer, never by visiting the file).
+
+Additive and idempotent (RE-2a /
+`register/invariant/indexable-requires-id'): when CONTENT's point-min
+`:PROPERTIES:' drawer already carries an `:ID:', `org-id-get-create'
+is a no-op and CONTENT is returned unchanged."
+  (let ((org-id-overriding-file-name session-file))
+    (with-temp-buffer
+      (insert content)
+      (delay-mode-hooks (org-mode))
+      (goto-char (point-min))
+      (org-id-get-create)
+      (buffer-string))))
+
 (defun jf/gptel--create-session-core (session-id session-dir preset-name &optional initial-content worktree-paths project-root parent-session-id)
   "Create session directory structure with branching support.
 
@@ -487,9 +506,22 @@ Returns plist with:
                           (jf/gptel--append-drawer-property
                            drawer-text "GPTEL_WORK_ROOT" project-root)
                         drawer-text))
-         (final-content (or initial-content
-                            (concat drawer-text
-                                    (jf/gptel--initial-session-body)))))
+         ;; Stamp a stable file-level org `:ID:' into the composed
+         ;; session.org so it is an indexable `vulpea' node and a valid
+         ;; `id:' link target (RE-2a;
+         ;; `register/invariant/indexable-requires-id').  Additive and
+         ;; idempotent — the `:ID:' lands inside the existing point-min
+         ;; `:PROPERTIES:' drawer, so the drawer-first-element and
+         ;; drawer->body adjacency invariants are preserved.  A
+         ;; caller-supplied INITIAL-CONTENT override is left BYTE-VERBATIM
+         ;; (the caller owns the whole on-disk shape), so it is NOT
+         ;; stamped.
+         (final-content (if initial-content
+                            initial-content
+                          (jf/gptel--stamp-session-org-id
+                           (concat drawer-text
+                                   (jf/gptel--initial-session-body))
+                           session-file))))
 
     ;; Create session file with initial content (file-level config
     ;; drawer followed by an empty `#+begin_user' / `#+end_user'

@@ -1,0 +1,107 @@
+#+title: Org Graph — Write Coordinator
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle coordinator.el
+#+auto_tangle: y
+
+A per-file cooperative write lock for agent tools (D5).  Emacs elisp is
+single-threaded: "concurrency" here means overlapping callbacks driven
+by gptel tool dispatch and timers, not OS threads.  So a cooperative
+lock — mark a path busy, run the write, release in =unwind-protect=, and
+busy-wait via =accept-process-output= if the path is already busy — is
+the idiomatic serialisation primitive, with no OS =flock= or async write
+pipeline needed at the spike's handful-of-calls-per-minute scale.
+
+Distinct paths are independent; the lock keys on the canonicalised path.
+The natural caller is a per-workspace agent write already directory-
+scoped by =GPTEL_WORK_ROOT= (RE-5).
+
+* Lexical Binding
+
+#+begin_src emacs-lisp :comments no
+;;; coordinator.el --- org-graph per-file write coordinator -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Timeout
+
+#+begin_src emacs-lisp
+(defcustom org-graph-coordinator-timeout 5.0
+  "Seconds to wait for a busy file lock before signalling a timeout.
+Bounds the cooperative busy-wait in `org-graph-coordinator/with-file-lock'."
+  :type 'number
+  :group 'org-graph)
+
+(define-error 'org-graph-coordinator-lock-timeout
+  "org-graph coordinator: timed out acquiring file lock")
+#+end_src
+
+* Lock table
+
+The module-private table maps canonicalised absolute paths to lock
+state.  =equal= test because keys are strings.
+
+#+begin_src emacs-lisp
+(defvar org-graph-coordinator--locks (make-hash-table :test 'equal)
+  "Maps canonicalised absolute file paths to non-nil while locked.
+Module-private; inspected by tests but not part of the public API.")
+
+(defun org-graph-coordinator--canonical (path)
+  "Return the canonical lock key for PATH.
+Resolves symlinks and `~' so two spellings of the same file share a lock."
+  (file-truename (expand-file-name path)))
+#+end_src
+
+* Acquire / release
+
+Acquisition is atomic in single-threaded elisp: the check-and-set spans
+no =accept-process-output= yield, so two callers can never both observe
+the path as free.  The busy-wait yields control (letting the holder's
+callback finish) and re-checks after each tick until the lock frees or
+the deadline passes.
+
+#+begin_src emacs-lisp
+(defun org-graph-coordinator--acquire (key)
+  "Acquire the lock for KEY, busy-waiting up to `org-graph-coordinator-timeout'.
+Signals `org-graph-coordinator-lock-timeout' (with KEY as data) if the
+lock is still held when the deadline passes.  Returns KEY on success."
+  (let ((deadline (+ (float-time) org-graph-coordinator-timeout)))
+    (while (gethash key org-graph-coordinator--locks)
+      (when (> (float-time) deadline)
+        (signal 'org-graph-coordinator-lock-timeout (list key)))
+      (accept-process-output nil 0.05))
+    (puthash key t org-graph-coordinator--locks)
+    key))
+
+(defun org-graph-coordinator--release (key)
+  "Release the lock for KEY."
+  (remhash key org-graph-coordinator--locks))
+#+end_src
+
+* with-file-lock
+
+#+begin_src emacs-lisp
+(defmacro org-graph-coordinator/with-file-lock (path &rest body)
+  "Run BODY with an exclusive cooperative lock on PATH.
+
+PATH is evaluated once and canonicalised.  If the path is free the lock
+is taken, BODY runs, and the lock is released in `unwind-protect' — so an
+error or non-local exit in BODY still frees it.  If the path is busy this
+busy-waits up to `org-graph-coordinator-timeout' seconds, then signals
+`org-graph-coordinator-lock-timeout'.  Locks on distinct paths are
+independent."
+  (declare (indent 1) (debug (form body)))
+  (let ((keyv (make-symbol "key")))
+    `(let ((,keyv (org-graph-coordinator--canonical ,path)))
+       (org-graph-coordinator--acquire ,keyv)
+       (unwind-protect
+           (progn ,@body)
+         (org-graph-coordinator--release ,keyv)))))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-coordinator)
+;;; coordinator.el ends here
+#+end_src

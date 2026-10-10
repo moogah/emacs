@@ -1,0 +1,118 @@
+#+title: VTerm Configuration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle vterm.el
+#+auto_tangle: y
+
+* Introduction
+This file configures [[https://github.com/akermu/emacs-libvterm][vterm]], a fully-featured terminal emulator for Emacs backed by
+the native =libvterm= C library. Unlike =term=/=ansi-term=, vterm renders an
+actual terminal, so full-screen TUI programs (tmux, htop, less, vim, etc.)
+work correctly and fast.
+
+* Dependencies
+vterm is not pure Elisp: straight.el compiles a native module against
+=libvterm= using CMake at install time. The hard prerequisites are =cmake=
+and a C toolchain on =PATH=. If a system =libvterm= is not found, vterm's
+CMake build downloads and compiles its own copy, so a system =libvterm= is
+optional — installing it just makes the first build faster.
+
+These blocks are runnable: place point inside one and press =C-c C-c= (or copy
+the commands to a shell). They are =:tangle no= — documentation/provisioning
+only, never loaded into Emacs.
+
+** macOS (Homebrew)
+=cmake= is the only requirement; =libvterm= is an optional speed-up. A C
+compiler ships with the Xcode Command Line Tools (=xcode-select --install=).
+
+#+begin_src sh :tangle no
+# Required: build tool
+brew install cmake
+
+# Optional: system libvterm (otherwise vterm builds its own copy)
+brew install libvterm
+#+end_src
+
+** Linux (Debian/Ubuntu)
+#+begin_src sh :tangle no
+sudo apt-get update
+# build-essential provides gcc/make; cmake builds the module;
+# libvterm-dev is the optional system library and libtool-bin is
+# needed when building the bundled libvterm from source.
+sudo apt-get install -y build-essential cmake libtool-bin libvterm-dev
+#+end_src
+
+** Verify prerequisites
+Run before first launch to confirm the toolchain is present. Exits non-zero
+and names what is missing.
+
+#+begin_src sh :tangle no
+for tool in cmake cc; do
+  if command -v "$tool" >/dev/null 2>&1; then
+    printf 'ok   %-6s %s\n' "$tool" "$(command -v "$tool")"
+  else
+    printf 'MISS %-6s (install it before loading vterm)\n' "$tool"
+  fi
+done
+#+end_src
+
+** Load-time preflight check
+This block *does* tangle. It runs when the module loads and emits a clear
+warning if =cmake= is absent, so a missing build tool surfaces as a readable
+message instead of a cryptic straight.el compile failure. It only warns — it
+never blocks loading or attempts an install.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+
+(unless (executable-find "cmake")
+  (display-warning
+   'vterm
+   (concat "vterm needs `cmake' to build its native module, but none was "
+           "found on PATH. Install it (macOS: `brew install cmake'; "
+           "Debian/Ubuntu: `sudo apt-get install cmake build-essential') "
+           "before the package compiles.")
+   :warning))
+#+end_src
+
+* Basic Configuration
+Install vterm and apply sensible defaults: a larger scrollback buffer, prompt
+tracking for directory/command awareness, and clean buffer-kill behavior.
+
+#+begin_src emacs-lisp
+(use-package vterm
+  :straight t
+  :commands (vterm vterm-other-window)
+  :custom
+  ;; Lines of scrollback to retain (default 1000). Higher is handy for
+  ;; reviewing long build/test output.
+  (vterm-max-scrollback 10000)
+  ;; Let programs that emit OSC 51 / directory-tracking sequences (configured
+  ;; in the shell) update Emacs' notion of the buffer's default-directory.
+  (vterm-buffer-name-string "vterm %s")
+  :config
+  ;; Kill the buffer automatically when the underlying shell process exits,
+  ;; so finished terminals don't linger.
+  (setq vterm-kill-buffer-on-exit t))
+#+end_src
+
+* Evil Integration
+This config uses Evil. A terminal should accept raw keystrokes, so vterm
+buffers start in Emacs state and =evil-collection= provides the rest of the
+vterm-specific bindings.
+
+#+begin_src emacs-lisp
+;; Start vterm buffers in Emacs state so keystrokes pass straight to the shell.
+(with-eval-after-load 'vterm
+  (when (featurep 'evil)
+    (evil-set-initial-state 'vterm-mode 'emacs))
+  (when (featurep 'evil-collection)
+    (evil-collection-init 'vterm)))
+#+end_src
+
+* Keybindings
+A global launch key. =C-c t= is the test menu and =C-c f= is dirvish-fd, so
+vterm takes =C-c v=.
+
+#+begin_src emacs-lisp
+(global-set-key (kbd "C-c v") #'vterm)
+#+end_src

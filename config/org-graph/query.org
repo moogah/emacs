@@ -1,0 +1,162 @@
+#+title: org-graph Query
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle query.el
+#+auto_tangle: y
+
+The read half of the agent-facing typed-edge surface.  Callers (the
+gptel graph-read tools, finders, a user at =M-x=) ask three questions of
+the =typed_edges= side table:
+
+- =org-graph-query/outgoing= — what does this note point *at*?
+- =org-graph-query/incoming= — what points *at* this note?
+- =org-graph-query/connected= — everything touching this note (the
+  union of the two).
+
+Edges are explicitly authored and *directional*: there is no
+auto-derived symmetry (design.md Non-Goals), so "incoming" is a genuine
+query against the =to-id= column, not a mirror of =outgoing=.  The query
+surface is *agnostic* to how rows were attributed during extraction
+(file-level vs note-granular — =register/boundary/parser-extractor-db=):
+it reads back whatever =(from-id rel-type to-id)= rows are stored, keyed
+by id.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position; =register/invariant/lexical-binding-line-1=).
+
+#+begin_src emacs-lisp :comments no
+;;; query.el --- Typed-edge query API -*- lexical-binding: t; -*-
+#+end_src
+
+* The DB boundary
+:PROPERTIES:
+:CUSTOM_ID: db-boundary
+:END:
+
+=typed_edges= is org-graph's own side table — *not* a vulpea-managed
+=notes= table — so there is no =vulpea-db-query=-style accessor for it
+(=vulpea-db-query= loads and filters =notes= only).  The genuine read
+boundary is therefore the same emacsql connection the extractor *writes*
+through: =(emacsql (vulpea-db) ...)=.  All three public queries route
+through the single =org-graph-query--select= seam below, which keeps the
+emacsql vector in one place and is the function specs stub when they want
+to exercise the plist/resolution/union logic without a live SQLite DB.
+
+=rel-type= is stored as a *symbol* (=register/shape/typed-edge-tuple=:
+emacsql =prin1=/=read= round-trips symbols), so the optional filter binds
+the symbol as a scalar — never a string.  =COLUMN= is the identifier
+=from-id= or =to-id=; it is part of the query *structure*, not a scalar,
+so the vector is built with backquote rather than a =$= placeholder.
+
+#+begin_src emacs-lisp
+(defun org-graph-query--select (column id &optional rel-type)
+  "Return raw `typed_edges' rows where COLUMN equals ID.
+COLUMN is the identifier symbol `from-id' or `to-id'.  When REL-TYPE is
+non-nil it further restricts rows to that relation SYMBOL.  Each returned
+row is a positional list (FROM-ID REL-TYPE TO-ID), matching
+`register/shape/typed-edge-tuple'."
+  (if rel-type
+      (emacsql (vulpea-db)
+               `[:select [from-id rel-type to-id] :from typed_edges
+                 :where (and (= ,column $s1) (= rel-type $s2))]
+               id rel-type)
+    (emacsql (vulpea-db)
+             `[:select [from-id rel-type to-id] :from typed_edges
+               :where (= ,column $s1)]
+             id)))
+#+end_src
+
+* Edge plists
+:PROPERTIES:
+:CUSTOM_ID: edge-plists
+:END:
+
+A raw row is a bare =(from rel to)= triple.  Callers (especially the
+gptel tool layer) want human-readable edges, so each edge is returned as
+a plist =(:from :rel :to :note)=:
+
+- =:from= — source org id (string)
+- =:rel=  — relation symbol (e.g. =implements=)
+- =:to=   — destination org id (string)
+- =:note= — the resolved =vulpea-note= at the *far* end of the edge
+  relative to the note being queried (so the caller gets a title, not a
+  bare id), or =nil= when that id is not in the index.
+
+"Far end" is the destination (=to-id=) for an outgoing edge and the
+source (=from-id=) for an incoming one — i.e. always "the note on the
+other side of this relation", which is what an agent answering "what is
+this connected to?" wants.  =:note= is always present (value may be
+=nil=) so the shape is stable for consumers.  Resolution is one
+=vulpea-db-get-by-id= per edge.
+
+#+begin_src emacs-lisp
+(defun org-graph-query--row->edge (row other-id)
+  "Build an edge plist from ROW, resolving OTHER-ID as the `:note'.
+ROW is a (FROM-ID REL-TYPE TO-ID) triple; OTHER-ID is the org id of the
+far end of the edge relative to the query subject."
+  (list :from (nth 0 row)
+        :rel  (nth 1 row)
+        :to   (nth 2 row)
+        :note (and other-id (vulpea-db-get-by-id other-id))))
+#+end_src
+
+* Outgoing
+:PROPERTIES:
+:CUSTOM_ID: outgoing
+:END:
+
+#+begin_src emacs-lisp
+(defun org-graph-query/outgoing (from-id &optional rel-type)
+  "Return outgoing typed edges authored on note FROM-ID.
+Each result is an edge plist (see `org-graph-query--row->edge') whose
+`:note' is the resolved destination note.  With REL-TYPE (a relation
+SYMBOL, e.g. `implements') only edges of that relation are returned.
+Directional: this is NOT symmetrized with `org-graph-query/incoming'."
+  (mapcar (lambda (row)
+            (org-graph-query--row->edge row (nth 2 row)))
+          (org-graph-query--select 'from-id from-id rel-type)))
+#+end_src
+
+* Incoming
+:PROPERTIES:
+:CUSTOM_ID: incoming
+:END:
+
+#+begin_src emacs-lisp
+(defun org-graph-query/incoming (to-id &optional rel-type)
+  "Return incoming typed edges that point at note TO-ID.
+Each result is an edge plist (see `org-graph-query--row->edge') whose
+`:note' is the resolved source note (the note authoring the edge).  With
+REL-TYPE (a relation SYMBOL) only edges of that relation are returned.
+Edges are stored directionally and are NOT auto-symmetrized, so this is a
+real query against the `to-id' column, not a mirror of
+`org-graph-query/outgoing'."
+  (mapcar (lambda (row)
+            (org-graph-query--row->edge row (nth 0 row)))
+          (org-graph-query--select 'to-id to-id rel-type)))
+#+end_src
+
+* Connected
+:PROPERTIES:
+:CUSTOM_ID: connected
+:END:
+
+#+begin_src emacs-lisp
+(defun org-graph-query/connected (note-id)
+  "Return every typed edge touching NOTE-ID, the union of outgoing and incoming.
+Outgoing edges come first.  Because edges are directional and not
+symmetrized, a self-edge (FROM = TO = NOTE-ID) legitimately appears in
+both halves.  Each `:note' is the resolved far end relative to NOTE-ID."
+  (append (org-graph-query/outgoing note-id)
+          (org-graph-query/incoming note-id)))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-query)
+;;; query.el ends here
+#+end_src

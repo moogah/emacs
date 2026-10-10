@@ -127,6 +127,9 @@ resolve to a real file."
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
+    ("major-modes/pdf" "PDF reading: pdf-tools, org-noter, book links")
+    ("major-modes/vterm" "libvterm-based terminal emulator")
+    ("major-modes/ghostel" "libghostty-based terminal emulator (faithful TUI rendering)")
 
     ;; Bash Parser - tree-sitter based bash command parser
     ("bash-parser/bash-parser" "Bash command parser with semantic extraction")
@@ -137,6 +140,12 @@ resolve to a real file."
 
     ;; GPTEL - LLM/AI integration (moved from major-modes)
     ("gptel/gptel"        "GPTEL LLM/AI integration")
+
+    ;; org-graph - layered knowledge graph over vulpea.  MUST load after
+    ;; both "gptel" and "workspaces/workspaces" (RE-5): org-graph registers
+    ;; into the gptel tool registry and the workspaces integration registry,
+    ;; so both must already be loaded for the registration to take effect.
+    ("org-graph/org-graph" "Layered knowledge graph over vulpea, plugged into workspaces")
     )
   "List of enabled modules with their paths and descriptions.")
 

@@ -1,0 +1,190 @@
+;;; edge-type.el --- org-graph edge-type registry -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+(require 'seq)
+(require 'subr-x)
+(require 'org-id)
+(require 'vulpea)
+(require 'org-graph-extractor)
+
+(defconst org-graph-edge-type-tag "edge-type"
+  "Filetag marking a note as an edge-type registry note.
+A note carrying this filetag (plus an `:ID:') MAY graduate a relation
+type by declaring metadata: a human `LABEL', an `:INVERSE:' symbol, a
+`:SYMMETRIC:' boolean, and a free-text description.")
+
+(defun org-graph-edge-type-note-p (note)
+  "Return non-nil when NOTE is an edge-type registry note.
+Membership is filetag-based: NOTE carries `org-graph-edge-type-tag'
+among its tags.  Mirrors the schemas-module selector pattern."
+  (and (member org-graph-edge-type-tag (vulpea-note-tags note)) t))
+
+(defun org-graph-edge-type--property (note key)
+  "Return NOTE's property KEY (a string), or nil.
+Property keys are matched case-insensitively."
+  (cdr (assoc-string key (vulpea-note-properties note) t)))
+
+(defun org-graph-edge-type--parse-symmetric (value)
+  "Parse a `:SYMMETRIC:' property VALUE into a boolean.
+Nil, blank, \"nil\", \"no\" and \"false\" (case-insensitively) are nil;
+any other value (canonically \"t\") is t."
+  (and value
+       (not (string-blank-p value))
+       (not (member (downcase (string-trim value)) '("nil" "no" "false")))
+       t))
+
+(defun org-graph-edge-type--note->entry (note)
+  "Return the registry entry NOTE declares, as (REL . METADATA).
+REL is the relation symbol (NOTE's title, normalized); METADATA is a
+plist with `:label' (LABEL property, else the raw title), `:inverse'
+\(`:INVERSE:' property normalized to a symbol, or nil), `:symmetric'
+\(boolean) and `:description' (DESCRIPTION property, else the
+`description' vulpea meta entry, or nil).  Returns nil when NOTE has no
+usable title."
+  (let ((title (vulpea-note-title note)))
+    (when (and title (not (string-blank-p title)))
+      (let* ((rel (org-graph-extractor--normalize-rel title))
+             (inverse-raw (org-graph-edge-type--property note "INVERSE"))
+             (inverse (and inverse-raw
+                           (not (string-blank-p inverse-raw))
+                           (org-graph-extractor--normalize-rel inverse-raw))))
+        (cons rel
+              (list :label (or (org-graph-edge-type--property note "LABEL")
+                               title)
+                    :inverse inverse
+                    :symmetric (org-graph-edge-type--parse-symmetric
+                                (org-graph-edge-type--property note "SYMMETRIC"))
+                    :description (or (org-graph-edge-type--property
+                                      note "DESCRIPTION")
+                                     (vulpea-note-meta-get note "description"))))))))
+
+(defvar org-graph-edge-type--cache nil
+  "Session cache for `org-graph/edge-types', as (KEY . LOOKUP).
+KEY is the vulpea DB file's modification time at load;  LOOKUP is the
+hash table.  Nil when nothing is cached.")
+
+(defun org-graph-edge-type--cache-key ()
+  "Return the current cache key: the vulpea DB file's mtime, or nil.
+The normal vulpea reindex path rewrites the DB file, so a changed
+registry note yields a new key and the cache repopulates."
+  (and (boundp 'vulpea-db-location)
+       vulpea-db-location
+       (file-attribute-modification-time
+        (file-attributes vulpea-db-location))))
+
+(defun org-graph-edge-type-invalidate-cache ()
+  "Drop the cached edge-type lookup; the next read repopulates it."
+  (interactive)
+  (setq org-graph-edge-type--cache nil))
+
+(defun org-graph/edge-types (&optional refresh)
+  "Return the edge-type registry lookup, keyed by relation symbol.
+Reads every `:edge-type:' registry note from the vulpea DB and returns a
+hash table mapping each declared relation symbol to its metadata plist
+\(`:label' `:inverse' `:symmetric' `:description' — see
+`org-graph-edge-type--note->entry').  With no registry notes the lookup
+is EMPTY, never an error; an unregistered type is fully functional
+everywhere and consumers must render its raw symbol.
+
+The returned table is the shared session cache — treat it as READ-ONLY;
+do not `puthash'/`remhash' into it (use `org-graph-edge-type-invalidate-cache'
+and re-read instead).
+
+Cached per session (see `org-graph-edge-type--cache'); a vulpea reindex
+invalidates via the DB file mtime.  Non-nil REFRESH forces a re-read."
+  (let ((key (org-graph-edge-type--cache-key)))
+    (if (and (not refresh)
+             org-graph-edge-type--cache
+             (equal key (car org-graph-edge-type--cache)))
+        (cdr org-graph-edge-type--cache)
+      (let ((lookup (make-hash-table :test #'eq)))
+        (dolist (note (vulpea-db-query #'org-graph-edge-type-note-p))
+          (let ((entry (org-graph-edge-type--note->entry note)))
+            (when entry
+              (puthash (car entry) (cdr entry) lookup))))
+        (setq org-graph-edge-type--cache (cons key lookup))
+        lookup))))
+
+(defun org-graph/edge-type (rel)
+  "Return registry metadata for relation symbol REL, or nil.
+Nil is a NORMAL result, not an error: it means REL is unregistered, and
+the caller must degrade to rendering the raw symbol.  The metadata is
+the plist described by `org-graph/edge-types'.  The plist is a fresh
+copy — callers may destructively modify it without corrupting the
+session cache."
+  (let ((entry (gethash rel (org-graph/edge-types))))
+    (and entry (copy-sequence entry))))
+
+(defun org-graph/find-edge-type ()
+  "Find and visit an edge-type registry note.
+Offers only notes carrying the `org-graph-edge-type-tag' filetag — the
+same selector `org-graph/edge-types' loads from."
+  (interactive)
+  (vulpea-find :filter-fn #'org-graph-edge-type-note-p
+               :require-match t))
+
+(defconst org-graph-edge-type-seed-definitions
+  '((implements
+     :inverse implemented-by
+     :description "The source note implements the idea, spec, or claim in the target note.")
+    (contradicts
+     :symmetric t
+     :description "The linked notes make claims that cannot both hold.")
+    (supersedes
+     :inverse superseded-by
+     :description "The source note replaces the target note as the current statement.")
+    (relates-to
+     :symmetric t
+     :description "The linked notes are meaningfully related without a more specific relation type."))
+  "Seed edge-type registry notes shipped as starter data.
+Each element is (REL . PLIST) where REL is the relation symbol and PLIST
+carries `:inverse' (symbol), `:symmetric' (boolean) and `:description'
+\(string).  Installed into the vault by
+`org-graph-edge-type-install-seeds'; NOT consulted by the lookup — once
+installed, the vault notes are the data.")
+
+(defun org-graph-edge-type--seed-note-text (rel plist)
+  "Return org file text for the seed registry note for REL.
+PLIST is a `org-graph-edge-type-seed-definitions' entry value.  The note
+gets a fresh `:ID:', the `org-graph-edge-type-tag' filetag, REL as its
+title, and any `:inverse' / `:symmetric' / `:description' metadata."
+  (let ((inverse (plist-get plist :inverse))
+        (symmetric (plist-get plist :symmetric))
+        (description (plist-get plist :description)))
+    (concat ":PROPERTIES:\n"
+            (format ":ID:       %s\n" (org-id-uuid))
+            (when inverse (format ":INVERSE:  %s\n" inverse))
+            (when symmetric ":SYMMETRIC: t\n")
+            ":END:\n"
+            (format "#+title: %s\n" rel)
+            (format "#+filetags: :%s:\n" org-graph-edge-type-tag)
+            (when description (concat "\n" description "\n")))))
+
+(defun org-graph-edge-type-install-seeds (&optional directory)
+  "Install any missing seed edge-type registry notes into DIRECTORY.
+DIRECTORY defaults to `org-graph-roam-root'.  Each entry of
+`org-graph-edge-type-seed-definitions' is written as
+DIRECTORY/edge-type-<rel>.org unless that file already exists
+\(idempotent by filename — user edits to installed seeds are never
+clobbered).  Returns the list of paths written, nil when everything was
+already present.  The new notes enter the lookup via the normal vulpea
+index path."
+  (interactive)
+  (let* ((dir (file-name-as-directory
+               (expand-file-name
+                (or directory
+                    (if (boundp 'org-graph-roam-root)
+                        org-graph-roam-root
+                      (user-error "org-graph-roam-root is unbound; pass DIRECTORY"))))))
+         (written nil))
+    (make-directory dir t)
+    (pcase-dolist (`(,rel . ,plist) org-graph-edge-type-seed-definitions)
+      (let ((path (expand-file-name (format "edge-type-%s.org" rel) dir)))
+        (unless (file-exists-p path)
+          (with-temp-file path
+            (insert (org-graph-edge-type--seed-note-text rel plist)))
+          (push path written))))
+    (nreverse written)))
+
+(provide 'org-graph-edge-type)
+;;; edge-type.el ends here

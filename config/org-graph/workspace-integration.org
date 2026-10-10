@@ -1,0 +1,200 @@
+#+title: org-graph Workspace Integration
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle workspace-integration.el
+#+auto_tangle: y
+
+org-graph's attachment to the =workspaces= integration registry
+(=config/workspaces/integrations.el=) and to the =workspace-assistant=
+preset's =:tools= slot (RE-2 / RE-5).  This module is a *consumer* of two
+published extension seams; it names workspace and gptel symbols freely,
+but neither workspaces nor gptel ever names org-graph (directionality
+contract, =register/boundary/workspace-integration-registry=).
+
+Two surfaces are registered for the =org-graph= integration:
+
+- =:on-create= — fired once at workspace birth with the pushed anchor
+  payload (=:name :home :sessions-dir :context=).  When
+  =org-graph-watch-workspace-homes= is non-nil it appends the payload's
+  =:home= to =vulpea-db-sync-directories= and indexes it immediately via
+  =vulpea-db-sync-update-directory= (a one-shot index, NOT a filenotify
+  watcher install).  This addresses the RE-2 gap so a workspace created
+  mid-session is indexed at birth; vulpea does not retroactively install a
+  live filenotify watcher for a directory added to the sync set *after*
+  autosync has started, so ongoing watching of the new home is picked up
+  on the next autosync restart — which the =:menu= / =org-graph/configure-sync=
+  path performs.  The handler reads ONLY
+  the pushed payload — it never consults the current/global workspace
+  state — and returns the registry outcome protocol value
+  (=ok= / =skipped= / a signalled error the registry normalises to
+  =(failed . REASON)=).
+
+- =:menu= — a =(KEY . COMMAND)= cons in the registry's Integrations
+  group.  The transient invokes COMMAND with the current-workspace anchor
+  payload (=workspace--menu-invoke-integration=), so the menu handler
+  takes (and ignores) a payload and re-indexes the live roots via
+  =org-graph/configure-sync=.
+
+The =workspace-assistant= preset's =:tools= slot is populated additively
+with =org-graph/agent-tools= — the reusable accessor from =tools.el= that
+returns the constructed gptel-tool objects (nil until
+=org-graph-tools-register= has run).  Population mutates only the =:tools=
+slot of the already-registered preset; every other slot is left intact,
+and an absent preset or an empty tool list is skipped silently.
+
+Both attachments are wrapped in =with-eval-after-load= so org-graph still
+loads when workspaces / the preset are absent, and attachment happens
+whenever both sides are present regardless of load order.  Per
+=register/invariant/org-graph-loader-ordered-sequence=, =wire-into-init=
+loads this module AFTER =tools= (the =:tools= population needs
+=org-graph/agent-tools=).
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position; =register/invariant/lexical-binding-line-1=).
+
+#+begin_src emacs-lisp :comments no
+;;; workspace-integration.el --- org-graph workspace integration -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Soft-dependency declarations
+
+=workspaces=, =vulpea=, and =gptel= are loaded by the surrounding config,
+not required here (the integration layer must not hard-pull them at
+tangle time).  These forms silence the byte-compiler and document the
+external contract this module consumes.
+
+#+begin_src emacs-lisp
+(defvar vulpea-db-sync-directories)
+(defvar gptel--known-presets)
+(declare-function workspace-register-integration "workspace-integrations"
+                  (id &rest keys))
+(declare-function vulpea-db-sync-update-directory "vulpea-db-sync" (dir))
+(declare-function org-graph/configure-sync "org-graph-discovery" ())
+(declare-function org-graph/agent-tools "org-graph-tools" ())
+#+end_src
+
+* On-create handler
+
+Non-interactive, run once per new workspace via
+=workspace--dispatch-create-integrations=.  Uses ONLY the pushed payload.
+
+When =org-graph-watch-workspace-homes= is nil the handler is a no-op and
+returns =skipped=.  A payload without a =:home= (defensive: a stale or
+hand-built anchor) is also =skipped= rather than signalled.  Otherwise it
+appends the canonicalised home to =vulpea-db-sync-directories= (deduped,
+appended so the roam vault keeps priority) and calls
+=vulpea-db-sync-update-directory= to index the new home immediately (a
+one-shot index — a live filenotify watcher is not installed for a
+post-autosync directory until the next autosync restart), then returns
+=ok=.
+
+#+begin_src emacs-lisp
+(defun org-graph-workspace-integration--on-create (payload)
+  "Watch a new workspace `:home' for vulpea indexing, from PAYLOAD.
+PAYLOAD is the anchor plist (`:name' `:home' `:sessions-dir'
+`:context').  Returns `skipped' when `org-graph-watch-workspace-homes'
+is nil or PAYLOAD carries no `:home'; otherwise appends the
+canonicalised home to `vulpea-db-sync-directories' (deduped) and calls
+`vulpea-db-sync-update-directory' to index it immediately (a one-shot
+index, NOT a filenotify watcher install — ongoing watching of a
+post-autosync directory is picked up on the next autosync restart, via
+the `:menu'/`org-graph/configure-sync' path) — and returns `ok'.  Reads ONLY the pushed
+PAYLOAD; never consults the current/global workspace state.  A signalled
+error propagates to the registry's per-integration guard, which
+normalises it to (failed . REASON) without rolling back the workspace."
+  (let ((home (plist-get payload :home)))
+    (cond
+     ((not (and (boundp 'org-graph-watch-workspace-homes)
+                org-graph-watch-workspace-homes))
+      'skipped)
+     ((null home) 'skipped)
+     (t (let ((dir (file-name-as-directory (expand-file-name home))))
+          (add-to-list 'vulpea-db-sync-directories dir t)
+          (vulpea-db-sync-update-directory dir)
+          'ok)))))
+#+end_src
+
+* Menu handler
+
+On-demand, invoked from the workspaces Integrations transient.  The
+transient calls the menu COMMAND with the current-workspace anchor
+payload (=workspace--menu-invoke-integration=), so this handler accepts a
+payload and ignores it: =org-graph/configure-sync= re-reads the live
+workspace registry itself to recompute the bounded index roots.
+
+#+begin_src emacs-lisp
+(defun org-graph-workspace-integration--menu (_payload)
+  "Re-index the active org-graph roots from the workspaces transient.
+_PAYLOAD is the current-workspace anchor plist supplied by
+`workspace--menu-invoke-integration'; it is ignored because
+`org-graph/configure-sync' re-reads the live workspace registry itself.
+Returns `ok'."
+  (org-graph/configure-sync)
+  'ok)
+#+end_src
+
+* Registration
+
+Load-order-independent via =with-eval-after-load 'workspaces=.  org-graph
+attaches to the workspaces registry; workspaces never names org-graph.
+The registration body is extracted into a named function so it is unit
+testable with a stubbed =workspace-register-integration=.
+
+#+begin_src emacs-lisp
+(defun org-graph-workspace-integration-register ()
+  "Register the `org-graph' integration with the workspaces registry.
+Declares an `:on-create' watch-add handler and a `:menu' re-index entry.
+Re-registration is idempotent (the registry keys by id)."
+  (workspace-register-integration 'org-graph
+    :label "org-graph"
+    :on-create #'org-graph-workspace-integration--on-create
+    :menu (cons "G" #'org-graph-workspace-integration--menu)))
+
+(with-eval-after-load 'workspaces
+  (org-graph-workspace-integration-register))
+#+end_src
+
+* Workspace-assistant tools slot
+
+Populate the =workspace-assistant= preset's =:tools= slot with the
+org-graph agent-tool objects, additively: only the =:tools= slot of the
+already-registered preset is touched, every other slot is preserved.
+
+Tolerant of both soft-dependency gaps the registry contract implies: an
+absent =gptel--known-presets= / missing preset, and an empty tool list
+(=org-graph/agent-tools= returns nil until =org-graph-tools-register= has
+run, which only happens where gptel is loaded).  Either gap returns
+=skipped= without mutating anything.
+
+#+begin_src emacs-lisp
+(defun org-graph-workspace-integration--populate-assistant-tools ()
+  "Add the org-graph agent tools to the `workspace-assistant' preset.
+Sets the preset's `:tools' slot to `org-graph/agent-tools' (gptel-tool
+objects), preserving every other slot.  Returns `skipped' when the tool
+list is empty (gptel not loaded / tools unregistered) or the preset is
+absent; otherwise mutates the slot in place and returns `ok'."
+  (let ((tools (and (fboundp 'org-graph/agent-tools) (org-graph/agent-tools))))
+    (if (null tools)
+        'skipped
+      (let ((cell (and (boundp 'gptel--known-presets)
+                       (assq 'workspace-assistant gptel--known-presets))))
+        (if (null cell)
+            'skipped
+          (setcdr cell (plist-put (cdr cell) :tools tools))
+          'ok)))))
+
+(with-eval-after-load 'gptel-preset-workspace-assistant
+  (org-graph-workspace-integration--populate-assistant-tools))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-workspace-integration)
+;;; workspace-integration.el ends here
+#+end_src

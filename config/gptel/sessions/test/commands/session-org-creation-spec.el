@@ -448,5 +448,83 @@
              "KEY" "value")
             :to-throw 'user-error)))
 
+(describe "jf/gptel--create-session-core stamps a file-level org :ID: (indexable-requires-id)"
+
+  ;; RE-2a / register/invariant/indexable-requires-id: vulpea only
+  ;; indexes notes carrying an :ID:, so a composed session.org is
+  ;; stamped at birth to become an indexable graph node / id: link
+  ;; target.  The :ID: lands INSIDE the existing point-min :PROPERTIES:
+  ;; drawer, so the drawer-first-element and drawer->body adjacency
+  ;; invariants are preserved.  A caller-supplied INITIAL-CONTENT
+  ;; override is left byte-verbatim and is NOT stamped.
+
+  (it "stamps a file-level :ID: inside the drawer of a composed session.org"
+    (with-captured-io
+      (jf/gptel--create-session-core
+       "sess-id-20260421120000"
+       "/sessions/sess-id-20260421120000"
+       'executor)
+      (let ((content (captured-file-content
+                      captured-files
+                      (concat "/sessions/sess-id-20260421120000"
+                              "/branches/main/session.org"))))
+        (expect content :to-be-truthy)
+        ;; The :ID: is present and lands between :PROPERTIES: and :END:.
+        (expect content :to-match ":ID:[ \t]+\\S-")
+        (let ((id-pos (string-match ":ID:" content))
+              (props-pos (string-match "\\`:PROPERTIES:" content))
+              (end-pos (string-match "\n:END:\n" content)))
+          (expect props-pos :to-equal 0)
+          (expect id-pos :to-be-truthy)
+          (expect (< props-pos id-pos) :to-be t)
+          (expect (< id-pos end-pos) :to-be t))
+        ;; Drawer still starts the file; body adjacency preserved.
+        (expect content :to-match "\\`:PROPERTIES:\n")
+        (expect content :to-match ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'"))))
+
+  (it "does NOT stamp an :ID: into a caller-supplied INITIAL-CONTENT override"
+    ;; The override path keeps the caller's bytes verbatim — including
+    ;; the absence of an :ID:.
+    (with-captured-io
+      (jf/gptel--create-session-core
+       "sess-id-override-20260421120000"
+       "/sessions/sess-id-override-20260421120000"
+       'executor
+       "custom\nseed\n")
+      (let ((content (captured-file-content
+                      captured-files
+                      (concat "/sessions/sess-id-override-20260421120000"
+                              "/branches/main/session.org"))))
+        (expect content :to-equal "custom\nseed\n")))))
+
+(describe "jf/gptel--stamp-session-org-id"
+
+  ;; Pure-ish helper: ensures a file-level org :ID: in the point-min
+  ;; :PROPERTIES: drawer.  Additive and idempotent.
+
+  (it "adds an :ID: when the drawer has none"
+    (let* ((content (concat ":PROPERTIES:\n:GPTEL_PRESET: executor\n:END:\n"
+                            "#+begin_user\n\n#+end_user\n"))
+           (stamped (jf/gptel--stamp-session-org-id
+                     content "/sessions/x/branches/main/session.org")))
+      (expect stamped :to-match ":ID:[ \t]+\\S-")
+      ;; Drawer-first and body adjacency preserved.
+      (expect stamped :to-match "\\`:PROPERTIES:\n")
+      (expect stamped :to-match ":END:\n#\\+begin_user\n\n#\\+end_user\n\\'")))
+
+  (it "is idempotent: a second stamp leaves the existing :ID: unchanged"
+    (let* ((content (concat ":PROPERTIES:\n:GPTEL_PRESET: executor\n:END:\n"
+                            "#+begin_user\n\n#+end_user\n"))
+           (once (jf/gptel--stamp-session-org-id
+                  content "/sessions/x/branches/main/session.org"))
+           (twice (jf/gptel--stamp-session-org-id
+                   once "/sessions/x/branches/main/session.org")))
+      (string-match ":ID:[ \t]+\\(\\S-+\\)" once)
+      (let ((id1 (match-string 1 once)))
+        (string-match ":ID:[ \t]+\\(\\S-+\\)" twice)
+        (expect (match-string 1 twice) :to-equal id1))
+      ;; No second drawer / duplicate :ID: introduced.
+      (expect twice :to-equal once))))
+
 (provide 'session-org-creation-spec)
 ;;; session-org-creation-spec.el ends here

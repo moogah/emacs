@@ -1,0 +1,294 @@
+#+title: org-graph Menu
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle menu.el
+#+auto_tangle: y
+
+The human interaction surface for the graph (design D4 / D6 / D7 / D8;
+=specs/org-graph-menu=): a =transient= prefix, =org-graph-menu=, that
+aggregates every human-side graph command — find, author, inspect
+edges, maintain the index — behind =SPC v= (evil normal state), plus
+the note-at-point edge-query commands the Edges group dispatches.
+
+Every menu entry dispatches the SAME command reachable via =M-x=
+(=register/boundary/authoring-commands-delegation=): the menu adds
+discoverability, never divergent behavior.  The only command *defined*
+here beyond the edge-query surface is
+=org-graph/validate-note-at-point-or-prompt=, a thin interactive front
+door over the schemas module's validators — neither
+=org-graph/validate-note-type= (takes a NOTE argument) nor
+=org-graph/validate-all-of-type= (takes a TYPE symbol) is interactive,
+so the Maintain group needs a wrapper; all validation logic stays in
+=schemas.el=.
+
+This module is DB-free at load
+(=register/invariant/org-graph-loader-ordered-sequence=): it defines
+commands and the transient prefix; the vulpea DB is touched only at
+command time.  The =SPC v= install is wrapped in =with-eval-after-load
+'evil= (=register/invariant/spc-v-binding-evil-guarded=), so an
+evil-less session loads cleanly and keeps the menu reachable via
+=M-x org-graph-menu=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position; =register/invariant/lexical-binding-line-1=).
+
+=transient= is a hard require: init.org loads the =transient= module
+early in =jf/enabled-modules=, well before org-graph (design D4).
+=vulpea= is a hard require like =finders.el= / =authoring.el= — the
+renderer reads =vulpea-note= accessors and the validate front door
+resolves notes via =vulpea-db-get-by-id=.  The query and schemas
+functions dispatched here are declared, not required: their basenames
+differ from their features, and the loader guarantees both modules are
+loaded before this one (=register/invariant/org-graph-loader-ordered-sequence=).
+
+#+begin_src emacs-lisp :comments no
+;;; menu.el --- Human interaction surface for the org-graph note graph -*- lexical-binding: t; -*-
+
+(require 'transient)
+(require 'vulpea)
+
+(declare-function org-graph-query/outgoing "org-graph-query" (from-id &optional rel-type))
+(declare-function org-graph-query/incoming "org-graph-query" (to-id &optional rel-type))
+(declare-function org-graph/validate-note-type "org-graph-schemas" (note))
+(declare-function org-graph/validate-all-of-type "org-graph-schemas" (type))
+(declare-function org-graph-schemas--note-types "org-graph-schemas" ())
+#+end_src
+
+* Note-at-point resolution
+
+ONE shared resolver (design D7,
+=register/boundary/note-at-point-resolution=): the inherited
+=org-entry-get= lookup vulpea itself uses in =vulpea-find-backlink= —
+enclosing ID-bearing heading first, then the file-level =:ID:=.  A nil
+result is a =user-error=, never a silent empty query (a nil id against
+=typed_edges= returns an empty result indistinguishable from "no
+edges").  The optional =NOERROR= arg serves the validate front door,
+which the register entry anticipates "may prompt instead when point has
+no note" — the lookup still lives in exactly one place.
+
+#+begin_src emacs-lisp
+(defun org-graph-menu--note-id-at-point (&optional noerror)
+  "Return the :ID: governing point, or signal `user-error'.
+Enclosing ID-bearing heading first, then file level (inherited
+lookup, same idiom as `vulpea-find-backlink').  With NOERROR
+non-nil, return nil instead of signaling when nothing at point
+carries an :ID:."
+  (or (org-entry-get nil "ID" t)
+      (unless noerror
+        (user-error "No note with an :ID: at point"))))
+#+end_src
+
+* Edge results buffer
+
+All three edge-query commands render into ONE shared buffer,
+=*org-graph-edges*= (design D8, =register/shape/edge-results-buffer=):
+a read-only buffer with =org-mode= ACTIVE (not =special-mode=, which
+would kill org link following), one =*= section per direction queried,
+one list item per edge — =- <rel-type> :: [[id:<uuid>][<title>]]=.
+Titles come from the edge plist's =:note= slot, which =query.el=
+already resolves via =vulpea-db-get-by-id= — the renderer never
+re-queries the DB; an unresolvable far end (nil =:note=) falls back to
+the raw id as the link description.  The =id:= links are followable
+thanks to the startup =org-id-locations= seed.
+
+#+begin_src emacs-lisp
+(defconst org-graph-menu-edges-buffer-name "*org-graph-edges*"
+  "Name of the shared buffer the edge-query commands render into.
+Each render replaces the previous contents.")
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph-menu--insert-edge-section (title far-key edges)
+  "Insert one direction section TITLE for EDGES at point.
+EDGES is a list of edge plists as returned by the `org-graph-query'
+functions.  FAR-KEY is the plist key holding the far-end id relative
+to the query subject: `:to' for outgoing edges, `:from' for incoming.
+Each edge renders as \"- <rel> :: [[id:<far-id>][<title>]]\", the
+title taken from the already-resolved `:note' slot with the raw
+far-end id as fallback."
+  (insert "* " title "\n")
+  (if (null edges)
+      (insert "No edges.\n")
+    (dolist (edge edges)
+      (let* ((far-id (plist-get edge far-key))
+             (note (plist-get edge :note))
+             (desc (or (and note (vulpea-note-title note)) far-id)))
+        (insert (format "- %s :: %s\n"
+                        (plist-get edge :rel)
+                        (org-link-make-string (concat "id:" far-id)
+                                              desc)))))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph-menu--render-edges (subject-id sections)
+  "Render SECTIONS of typed edges for SUBJECT-ID and display the buffer.
+SECTIONS is a list of (TITLE FAR-KEY EDGES) triples, one per queried
+direction, rendered in order into `org-graph-menu-edges-buffer-name'
+via `org-graph-menu--insert-edge-section'.  The buffer ends up in
+`org-mode' and read-only, is displayed with `pop-to-buffer', and is
+returned."
+  (let ((buffer (get-buffer-create org-graph-menu-edges-buffer-name)))
+    (with-current-buffer buffer
+      (let ((inhibit-read-only t))
+        (erase-buffer)
+        (unless (derived-mode-p 'org-mode)
+          (org-mode))
+        (insert (format "Typed edges for id:%s\n\n" subject-id))
+        (pcase-dolist (`(,title ,far-key ,edges) sections)
+          (org-graph-menu--insert-edge-section title far-key edges)))
+      (setq buffer-read-only t)
+      (goto-char (point-min)))
+    (pop-to-buffer buffer)
+    buffer))
+#+end_src
+
+* Edge-query commands
+
+Each command resolves the subject note from point via the shared
+resolver, runs the matching directional query, and renders.  The
+connected view calls the two directional queries rather than
+=org-graph-query/connected= — connected is BY DEFINITION their append
+(=query.el=), and querying per direction is what lets the renderer
+attribute the correct far end per section (a flat connected list
+cannot re-attribute a self-edge).  Behavior is identical.
+
+#+begin_src emacs-lisp
+(defun org-graph/edges-outgoing-at-point ()
+  "Show typed edges authored on the note at point.
+Resolves the subject via `org-graph-menu--note-id-at-point' and
+renders `org-graph-query/outgoing' results into the shared edges
+buffer (see `org-graph-menu--render-edges')."
+  (interactive)
+  (let ((id (org-graph-menu--note-id-at-point)))
+    (org-graph-menu--render-edges
+     id (list (list "Outgoing" :to (org-graph-query/outgoing id))))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph/edges-incoming-at-point ()
+  "Show typed edges pointing at the note at point.
+Resolves the subject via `org-graph-menu--note-id-at-point' and
+renders `org-graph-query/incoming' results into the shared edges
+buffer (see `org-graph-menu--render-edges')."
+  (interactive)
+  (let ((id (org-graph-menu--note-id-at-point)))
+    (org-graph-menu--render-edges
+     id (list (list "Incoming" :from (org-graph-query/incoming id))))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph/edges-connected-at-point ()
+  "Show every typed edge touching the note at point, both directions.
+Resolves the subject via `org-graph-menu--note-id-at-point' and
+renders an Outgoing and an Incoming section, deliberately issuing the
+two directional queries instead of `org-graph-query/connected': the
+renderer needs per-direction far-end attribution, which a flat union
+cannot supply for a self-edge.  Read-time enrichment added to
+`org-graph-query/connected' must be mirrored here."
+  (interactive)
+  (let ((id (org-graph-menu--note-id-at-point)))
+    (org-graph-menu--render-edges
+     id (list (list "Outgoing" :to (org-graph-query/outgoing id))
+              (list "Incoming" :from (org-graph-query/incoming id))))))
+#+end_src
+
+* Note-type validation front door
+
+The schemas module owns ALL validation logic, but exposes no
+interactive entry point: =org-graph/validate-note-type= takes a NOTE
+and =org-graph/validate-all-of-type= takes a TYPE symbol.  This thin
+wrapper gives the Maintain group a command: point inside an ID-bearing
+note validates THAT note; anywhere else prompts for a type from
+=org-graph-note-types= and validates every stored note of that type.
+
+#+begin_src emacs-lisp
+(defun org-graph-menu--report-violations (subject violations)
+  "Echo a summary of schema VIOLATIONS for SUBJECT, a description string."
+  (if (null violations)
+      (message "org-graph: %s conforms to the note-type schemas" subject)
+    (message "org-graph: %d violation(s) for %s:\n%s"
+             (length violations) subject
+             (mapconcat (lambda (v) (format "- %S" v)) violations "\n"))))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph/validate-note-at-point-or-prompt ()
+  "Validate the note at point; with no note at point, validate a whole type.
+Thin interactive front door over the schemas module: point inside an
+ID-bearing note validates that note via `org-graph/validate-note-type';
+otherwise prompt for a type from `org-graph-schemas--note-types' and
+run `org-graph/validate-all-of-type'.  No validation logic lives here."
+  (interactive)
+  (let ((id (org-graph-menu--note-id-at-point 'noerror)))
+    (if id
+        (let ((note (vulpea-db-get-by-id id)))
+          (unless note
+            (user-error "Note %s is not in the vulpea index" id))
+          (org-graph-menu--report-violations
+           (format "note %S" (vulpea-note-title note))
+           (org-graph/validate-note-type note)))
+      (let ((type (intern (completing-read
+                           "Validate all notes of type: "
+                           (mapcar #'symbol-name (org-graph-schemas--note-types))
+                           nil t))))
+        (org-graph-menu--report-violations
+         (format "note type `%s'" type)
+         (org-graph/validate-all-of-type type))))))
+#+end_src
+
+* Menu prefix
+
+The discoverable front door (pattern: =workspace-menu= in
+=config/workspaces/workspaces-transient.el=).  Four groups covering the
+full human interaction surface; every entry dispatches a command that
+is equally reachable via =M-x=.
+
+#+begin_src emacs-lisp
+(transient-define-prefix org-graph-menu ()
+  "Human interaction surface for the org-graph note graph."
+  [["Find"
+    ("t" "topic" org-graph/find-topic)
+    ("d" "debug" org-graph/find-debug)
+    ("l" "log" org-graph/find-log)
+    ("r" "reference" org-graph/find-reference)
+    ("p" "project" org-graph/find-project)
+    ("a" "any" org-graph/find-any)
+    ("D" "agent drafts" org-graph/find-agent-drafts)]
+   ["Author"
+    ("f" "find or create" org-graph/find-or-create)
+    ("i" "insert link" org-graph/insert-link)]
+   ["Edges (at point)"
+    ("o" "outgoing" org-graph/edges-outgoing-at-point)
+    ("n" "incoming" org-graph/edges-incoming-at-point)
+    ("c" "connected" org-graph/edges-connected-at-point)]
+   ["Maintain"
+    ("s" "re-index (sync)" org-graph/configure-sync)
+    ("v" "validate note type" org-graph/validate-note-at-point-or-prompt)
+    ("h" "doctor" vulpea-doctor)]])
+#+end_src
+
+* Leader binding
+
+Self-installed and evil-guarded
+(=register/invariant/spc-v-binding-evil-guarded=, design D6):
+=config/core/evil.org= stays untouched, keeping org-graph
+self-contained while it is a spike (one module to delete on rollback).
+The =with-eval-after-load= form is inert until evil loads, so an
+evil-less session loads this module cleanly and falls back to
+=M-x org-graph-menu=.  =SPC v= verified unbound in =config/core/evil.el=
+(the only "v" binding is =SPC w v= inside the window command map).
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'evil
+  (evil-define-key 'normal 'global (kbd "<SPC> v") #'org-graph-menu))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-menu)
+;;; menu.el ends here
+#+end_src

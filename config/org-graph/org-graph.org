@@ -1,0 +1,515 @@
+#+title: Org Graph
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle org-graph.el
+#+auto_tangle: y
+
+A layered knowledge-graph spike over [[https://github.com/d12frosted/vulpea][vulpea]] (v2.4+), plugged into the
+=workspaces= substrate. org-graph indexes the durable concept vault
+(=~/org/roam/=) plus each active workspace =:home=, extracts typed
+semantic edges from a dedicated edge drawer of description-list items,
+exposes schema-backed note-type finders, and registers an agent-facing
+query/write surface into gptel and the =workspace-assistant= preset.
+
+This file is the top-level loader for the =org-graph= module. Behavior
+is implemented incrementally in submodules under =config/org-graph/=;
+they are loaded from the [[#submodules][Submodules]] section as they land.
+
+org-roam runs unchanged alongside this module for the duration of the
+spike — see =openspec/specs/org-graph/spec.md= (Coexistence with
+org-roam) and =openspec/changes/org-graph-spike/design.md=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position).
+
+#+begin_src emacs-lisp :comments no
+;;; org-graph.el --- Layered knowledge graph over vulpea -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+#+end_src
+
+* Custom Group
+
+#+begin_src emacs-lisp
+(defgroup org-graph nil
+  "Layered knowledge graph over vulpea, plugged into workspaces."
+  :group 'convenience
+  :prefix "org-graph-")
+#+end_src
+
+* Defcustoms
+
+** Vault root (discovery + placement)
+
+=~/org/= is the whole durable note vault — including its =roam/=
+subdirectory — and anchors *discovery* and *placement*: it seeds
+=org-graph/index-roots= and derives
+=vulpea-default-notes-directory= (both in =discovery.org=).  It is
+deliberately distinct from =org-graph-roam-root= below, which keeps
+anchoring the narrower *curation* boundary (typed-edge extraction,
+edge-type seeds, the agent write target).  A note at the vault top
+level is indexed/findable/linkable but contributes no typed edges and
+is not where agents write drafts
+(=register/boundary/vault-root-vs-roam-root=).
+
+#+begin_src emacs-lisp
+(defcustom org-graph-vault-root "~/org/"
+  "Root of the durable note vault indexed by org-graph.
+Covers the whole vault (including its roam/ subdirectory), and is
+where new notes are placed by default.  Distinct from
+`org-graph-roam-root', which continues to gate typed-edge
+extraction and the agent write target."
+  :type 'directory
+  :group 'org-graph)
+#+end_src
+
+** Concept-vault / typed-edge root
+
+=~/org/roam/= is both the durable concept vault and the *only* scope in
+which typed-edge extraction runs (RE-4 / D2). Operational notes
+(workspace homes, sessions) are indexed for discovery but do not
+participate in the typed-edge index.
+
+#+begin_src emacs-lisp
+(defcustom org-graph-roam-root "~/org/roam/"
+  "Durable concept vault and typed-edge extraction scope.
+This directory is always indexed by vulpea, and it is the only root on
+which the typed-edge extractor runs.  Workspace homes are indexed for
+discovery/navigation but excluded from typed-edge extraction."
+  :type 'directory
+  :group 'org-graph)
+#+end_src
+
+** Relation types
+
+Relation symbols are an *open* vocabulary (design OV-1/LD-2): any
+author-coined edge-drawer item tag, normalized, is a valid relation the
+moment it appears in a note.  This list gates nothing — it survives
+only as a non-authoritative completion seed for authoring surfaces.
+
+#+begin_src emacs-lisp
+(defcustom org-graph-relation-types
+  '(implements contradicts supersedes relates-to)
+  "Completion seed of typed-edge relation symbols.
+The relation vocabulary is OPEN: the extractor accepts any relation an
+author coins as an edge-drawer item tag (see `org-graph-edge-drawer'),
+and this list gates NOTHING.  It only seeds completion on authoring
+surfaces; author-coined relations are first-class the moment they
+appear in a note."
+  :type '(repeat symbol)
+  :group 'org-graph)
+#+end_src
+
+** Edge drawer
+
+The dedicated drawer holding typed-edge description-list items (design
+LD-1).  The drawer *name* is the one and only edge discriminator
+(LD-3): content is a typed edge iff it is a description-list item
+inside this drawer, matched case-insensitively.  Org constrains drawer
+names to word characters, =-= and =_=; the setter warns on a value org
+cannot parse as a drawer name.  Settle the name before real notes
+accumulate (LD-Q1).
+
+#+begin_src emacs-lisp
+(defcustom org-graph-edge-drawer "EDGES"
+  "Name of the drawer holding typed-edge description-list items.
+Each item `- <type> :: [[id:...]]' inside this drawer declares one
+typed edge per `id:' link; the item tag (normalized) is the relation.
+The drawer name is matched case-insensitively and is the ONLY edge
+discriminator: ordinary PROPERTIES entries and body links are never
+edges.
+
+Export: unlike properties, custom drawers export by default.  The
+loader therefore adds this drawer to `org-export-with-drawers''
+exclusion list -- but only while that variable still has its default
+value ((not \"LOGBOOK\")).  If you have customized
+`org-export-with-drawers' yourself, the loader leaves it alone and you
+own excluding this drawer from export.
+
+Org can only parse drawer names made of word characters, `-' and `_';
+setting a value outside that alphabet triggers a warning, and no drawer
+will ever match it.
+
+Renaming through the customize setter keeps the export exclusion in
+step: when `org-export-with-drawers' still holds the loader-managed
+shape ((not \"LOGBOOK\" <old-name>)), the setter swaps in the new name.
+A `setq' rename bypasses this — re-evaluate the exclusion or restart."
+  :type 'string
+  :group 'org-graph
+  :set (lambda (symbol value)
+         (when (and (stringp value)
+                    (not (string-match-p "\\`[[:word:]_-]+\\'" value)))
+           (display-warning
+            'org-graph
+            (format "`org-graph-edge-drawer' value %S is not a valid org drawer name (word characters, `-' and `_' only); no drawer will match it"
+                    value)
+            :warning))
+         (let ((old (and (boundp symbol) (symbol-value symbol))))
+           (set-default symbol value)
+           ;; LD-6: if ox already loaded and the exclusion list still has
+           ;; the loader-managed shape for the OLD name, follow the rename;
+           ;; a user-customized `org-export-with-drawers' is left alone.
+           (when (and (stringp old)
+                      (boundp 'org-export-with-drawers)
+                      (equal org-export-with-drawers (list 'not "LOGBOOK" old)))
+             (setq org-export-with-drawers (list 'not "LOGBOOK" value))))))
+#+end_src
+
+** Edge-drawer export exclusion
+
+Custom drawers export by default (=org-export-with-drawers= excludes
+only =LOGBOOK=), but the edge drawer is graph data, not document
+content (design LD-6).  While the user has not customized
+=org-export-with-drawers=, extend its exclusion list with the
+configured edge drawer; a user who *has* customized it owns the
+outcome (documented in the defcustom docstring above).
+
+#+begin_src emacs-lisp
+(with-eval-after-load 'ox
+  (when (equal org-export-with-drawers '(not "LOGBOOK"))
+    (setq org-export-with-drawers
+          (list 'not "LOGBOOK" org-graph-edge-drawer))))
+#+end_src
+
+** Workspace-home watching
+
+Whether the =:on-create= workspace integration handler adds new
+workspace =:home= directories to vulpea's sync set (RE-2 / RE-5).
+
+#+begin_src emacs-lisp
+(defcustom org-graph-watch-workspace-homes t
+  "When non-nil, add workspace `:home' directories to vulpea's sync roots.
+Consumed by the registry-driven discovery layer and the workspace
+`:on-create' integration handler."
+  :type 'boolean
+  :group 'org-graph)
+#+end_src
+
+** Note-type taxonomy
+
+The fixed taxonomy of note types, backed by =vulpea-schema= definitions
+(RE-3).  The filetag is the type selector; the schema validates fields.
+
+#+begin_src emacs-lisp
+(defcustom org-graph-note-types
+  '(log debug topic reference project)
+  "Fixed taxonomy of note-type symbols backed by vulpea-schema definitions.
+Each symbol has a schema with a predicate (typically a filetag) selecting
+its notes and field expectations validated by `vulpea-schema-validate'."
+  :type '(repeat symbol)
+  :group 'org-graph)
+#+end_src
+
+* Packages
+:PROPERTIES:
+:CUSTOM_ID: packages
+:END:
+
+vulpea is the single index/discovery engine for the spike (RE-2:
+org-node is *not* adopted — vulpea already keeps =org-id-locations=
+populated via =org-id-add-location=, so a second index would be
+redundant double-work).
+
+The recipe is pinned to a specific commit rather than =master=. Pinning
+is ordinary hygiene here, not a spike-survival mechanism: vulpea 2.4's
+parser-epoch cache invalidation, schema-version auto-rebuild, and
+async-default sync retired the original "API still evolving" risk
+(RE-6).
+
+Pin = release tag =v2.4.0= (commit
+=0f55c96b6649872155d5486acb749710b3726e4a=). straight.el does *not*
+honour a recipe-level =:commit= keyword — version pinning is otherwise
+done through a profile *versions lockfile*, which this config does not
+maintain. straight *does* pass =:branch= to =git clone --branch=, and
+git accepts a tag name there, so =:branch "v2.4.0"= checks out the
+release tag (detached HEAD at the commit above). That is the
+working, declarative pin and it satisfies the task's "v2.4.x release
+tag/commit" requirement. A profile lockfile entry is the production-grade
+follow-up if the spike survives.
+
+Change detection prefers =fswatch= on macOS; if it is not installed,
+vulpea falls back to fd/find polling, so the spike does not require it.
+
+=:config= pins =vulpea-db-location= to the isolated runtime path (D8 /
+=register/invariant/vulpea-db-isolation=) and otherwise stays minimal —
+directory sync and autosync wiring belong to the =registry-discovery=
+task, not here.
+
+D8 requires the org-graph index DB to live under the worktree runtime
+=state/= dir (=runtime/state/vulpea/notes.db=), distinct from org-roam
+and from vulpea's default (=runtime/vulpea.db=). Isolation is the
+spike's clean-rollback property: wiping/rebuilding the org-graph DB then
+never touches org-roam's DB or the =org-id-locations= cache.
+
+The path is set here in the *loader's* vulpea =:config=, not in
+=discovery/configure-sync=, because it MUST be fixed before the first
+DB open. Module load itself is DB-free (both DB-touching ops — the
+=org-id-locations= seed and the extractor registration — are deferred
+to =emacs-startup-hook=; see [[#deferred-registrations][Deferred
+DB-touching registrations]]), so the first open happens at a deferred
+op or an interactive command. The loader's vulpea =:config= runs
+eagerly when this block evaluates — before submodules load and long
+before the startup hook fires — so the path is fixed first in every
+case. =user-emacs-directory= resolves to this worktree's =runtime/=
+dir (see =early-init.el=), so the path is worktree-isolated. The
+directory is created if vulpea has not already done so.
+
+#+begin_src emacs-lisp
+(use-package vulpea
+  :straight (vulpea :type git :host github :repo "d12frosted/vulpea"
+                    :branch "v2.4.0")
+  :config
+  (setq vulpea-db-location
+        (expand-file-name "state/vulpea/notes.db" user-emacs-directory))
+  (make-directory (file-name-directory vulpea-db-location) t))
+#+end_src
+
+* Submodule map
+:PROPERTIES:
+:CUSTOM_ID: submodule-map
+:END:
+
+Discovery (registry-driven vulpea sync + the =org-id-locations= startup
+seed), the note-type schemas, the per-type finders, the typed-edge
+parser and its vulpea extractor, and the per-file write coordinator are
+implemented in their submodules under =config/org-graph/= and load-wired
+exclusively from the [[#submodules][Submodules]] sequence — this file
+carries no per-module load sections.  (The auto-ID scaffold landed
+outside this module entirely: =config/workspaces/scaffold.org= and
+=config/gptel/sessions/commands.org= stamp IDs at file-creation time.)
+
+* Query
+:PROPERTIES:
+:CUSTOM_ID: query
+:END:
+
+Outgoing / incoming / connected typed-edge queries over the
+=typed_edges= table.  Implemented in the =query= submodule, load-wired
+from the consolidated [[#submodules][Submodules]] sequence (not here) per
+=register/invariant/org-graph-loader-ordered-sequence=.
+
+* gptel tools
+:PROPERTIES:
+:CUSTOM_ID: gptel-tools
+:END:
+
+Graph query and coordinator-mediated write-node tools exposed to AI
+agents.  Implemented in the =tools= submodule, which self-requires its
+=query= and =coordinator= dependencies by path (so it loads in any order;
+=wire-into-init= owns the full ordered sequence).  The gptel tool objects
+are only built when gptel is loaded; the reusable list is surfaced via
+=org-graph/agent-tools= for the =workspace-assistant= preset.
+
+The =tools= submodule is load-wired from the consolidated
+[[#submodules][Submodules]] sequence (not here), AFTER =query= and
+=coordinator=, per =register/invariant/org-graph-loader-ordered-sequence=.
+
+* Workspace integration
+:PROPERTIES:
+:CUSTOM_ID: workspace-integration
+:END:
+
+Registration with the =workspaces= integration registry (=:on-create=
+watch-add handler, menu entry) and population of the
+=workspace-assistant= preset's =:tools= slot.  Implemented in the
+=workspace-integration= submodule, which attaches via
+=with-eval-after-load= to both =workspaces= and the preset (so it loads
+in any order and degrades cleanly when either is absent).  Per
+=register/invariant/org-graph-loader-ordered-sequence= it loads AFTER
+=tools= (its =:tools= population needs =org-graph/agent-tools=).  It is
+load-wired from the consolidated [[#submodules][Submodules]] sequence
+(not here), immediately before the =menu= submodule.
+
+* Menu
+:PROPERTIES:
+:CUSTOM_ID: menu
+:END:
+
+The human interaction surface: the =org-graph-menu= transient prefix
+(Find / Author / Edges / Maintain groups), the note-at-point
+edge-query commands, and the evil-guarded =SPC v= install
+(=register/invariant/spc-v-binding-evil-guarded= — =config/core/evil.org=
+stays untouched).  Implemented in the =menu= submodule, load-wired
+from the consolidated [[#submodules][Submodules]] sequence (not here)
+as the LAST submodule per
+=register/invariant/org-graph-loader-ordered-sequence=: it dispatches
+commands defined by =finders=, =authoring=, =query=, =discovery=, and
+=schemas=.  DB-free at load; =transient= is a hard require, satisfied
+because init.org loads the =transient= module early in
+=jf/enabled-modules=, well before org-graph.
+
+* Submodules
+:PROPERTIES:
+:CUSTOM_ID: submodules
+:END:
+
+All org-graph submodules are load-wired here, in ONE dependency-correct
+sequence (=register/invariant/org-graph-loader-ordered-sequence=).  Each
+submodule's basename differs from the feature it =provide='s
+(=schemas.el= → =org-graph-schemas=, =finders.el= → =org-graph-finders=,
+=tools.el= → =org-graph-tools=, =workspace-integration.el= →
+=org-graph-workspace-integration=, …), so =require= cannot auto-resolve
+load order: order is *load-bearing* and is made explicit by loading each
+file BY PATH via =jf/load-module=.
+
+Canonical order: =schemas → extractor → coordinator → query → finders →
+authoring → edge-type → tools → discovery → workspace-integration=,
+with =menu= last.  Dependencies the order satisfies: =finders= requires
+=org-graph-schemas=; =authoring= completes over what =finders= see (and
+hard-requires =vulpea=, like =finders=); =tools= layers on =query= and
+=coordinator=; =workspace-integration= loads AFTER =tools= (its
+=:tools= population needs =org-graph/agent-tools= from =tools.el=);
+=menu= loads LAST — it dispatches commands defined by =finders=,
+=authoring=, =query=, =discovery=, and =schemas=, and hard-requires
+=transient= (loaded early in =jf/enabled-modules=, well before
+org-graph).
+
+Module load stays *DB-free*.  The three ops that open the vulpea DB —
+the discovery =org-id-locations= seed (=vulpea-db-query=), the
+typed-edge extractor (=vulpea-db-register-extractor= applies the
+=typed_edges= schema), and the boot sync configuration
+(=org-graph/configure-sync= enables =vulpea-db-autosync-mode= and
+triggers an async full scan) — are NOT run at load: the loader defers
+all three to =emacs-startup-hook= in the
+[[#deferred-registrations][Deferred DB-touching registrations]] section
+below.  The DB-free registrations
+(schemas register in memory at load; gptel tools register at load when
+gptel is present; =workspace-integration= attaches via
+=with-eval-after-load=; =menu= defines its transient prefix at load
+and wraps its =SPC v= install in =with-eval-after-load 'evil=) all
+fire as their files load.
+
+#+begin_src emacs-lisp
+(jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/extractor.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/coordinator.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/query.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/finders.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/authoring.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/edge-type.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/tools.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/discovery.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/workspace-integration.el" jf/emacs-dir))
+(jf/load-module (expand-file-name "config/org-graph/menu.el" jf/emacs-dir))
+#+end_src
+
+** Deferred DB-touching registrations
+:PROPERTIES:
+:CUSTOM_ID: deferred-registrations
+:END:
+
+The loader owns ALL THREE post-init deferrals, through one shared
+idiom.  The three DB-touching ops — the discovery =org-id-locations=
+seed (=org-graph/seed-org-id-locations= calls =vulpea-db-query=), the
+typed-edge extractor registration (=org-graph-extractor-register=
+applies the =typed_edges= schema via =vulpea-db-register-extractor= →
+=vulpea-db--apply-plugin-schema=), and the boot sync configuration
+(=org-graph/configure-sync= sets =vulpea-db-sync-directories= to the
+bounded =org-graph/index-roots=, enables =vulpea-db-autosync-mode=,
+and triggers an async full scan) — would each break the DB-free-load
+contract (and the cold-load guard) if run at module-load time
+(USER-RESOLVED decision =ask-cycle-1782570180-1=: defer to post-init).
+All are deferred to =emacs-startup-hook= — the post-init seam that,
+unlike =after-init-hook=, runs AFTER this config's =-q --load init.el=
+command-line actions (see =bin/emacs-isolated.sh=; matches
+=config/look-and-feel/themes.el=).  In =-batch= no startup hook runs, so
+a bare =(require 'org-graph)= opens no DB — the cold-load guard
+(=config/org-graph/test/module-load-spec.el=) verifies the wiring and
+drives the wired functions directly with the DB boundary stubbed.
+
+Runtime order on the hook is load-bearing (design D5): extractor
+registration → configure-sync → org-id seed — sync configuration runs
+before the seed so a first-ever boot seeds from a DB that is at least
+being populated (the seed still reads whatever rows exist).  =add-hook=
+without APPEND pushes to the FRONT of the hook, so the runtime order is
+the *reverse* of the textual =add-hook= order below: the seed is added
+first, configure-sync second, the extractor registration last.
+
+Each deferral stays a *named* function on the hook (not a closure): the
+guard asserts membership by name, =add-hook= stays idempotent across
+module reloads, and =remove-hook= works interactively.  The shared
+resilience body lives in =org-graph--run-deferred-op=: a missing/unbuilt
+DB at startup is logged via =display-warning= — visible, but never
+aborting startup.  A silent no-op would be worse than a warning here
+(e.g. =id:= links quietly failing to resolve is exactly the gap the seed
+exists to close).
+
+#+begin_src emacs-lisp
+(defun org-graph--run-deferred-op (fn what)
+  "Run FN, a deferred DB-touching org-graph op, resiliently.
+Shared body for the org-graph `emacs-startup-hook' deferrals: FN opens
+the vulpea DB and so runs post-init rather than at module-load time
+(module load stays DB-free).  WHAT is a short description used in the
+warning when FN fails.  A failure (e.g. a missing/unbuilt DB) is logged
+via `display-warning' rather than aborting startup."
+  (condition-case err
+      (funcall fn)
+    (error
+     (display-warning 'org-graph
+                      (format "%s skipped: %S" what err)
+                      :warning))))
+#+end_src
+
+The seed's behaviour is unit-tested against
+=org-graph/seed-org-id-locations= directly (=discovery-spec.el=); this
+wrapper's only job is post-init resilience.
+
+#+begin_src emacs-lisp
+(defun org-graph--seed-org-id-locations-deferred ()
+  "Run the `org-id-locations' seed once, resiliently, for `emacs-startup-hook'.
+`org-graph/seed-org-id-locations' calls `vulpea-db-query', which opens
+the vulpea DB, so it is deferred out of module-load time (load stays
+DB-free).  A missing/unbuilt DB is logged via `display-warning' rather
+than aborting startup."
+  (org-graph--run-deferred-op #'org-graph/seed-org-id-locations
+                              "org-id-locations seed"))
+
+(add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
+#+end_src
+
+Without this op nothing enables vulpea autosync on a normal boot — the
+DB stays frozen at the last manual re-index, while the spec's Discovery
+requirement promises save-time pickup and external-change detection
+(spike-eval finding, 2026-08-13).  =org-graph/configure-sync='s own
+behaviour is unit-tested in =discovery-spec.el=; this wrapper's only job
+is post-init resilience.  Known limits, unchanged: a mid-session
+=jf/reload-module= does not re-fire startup-hook ops, and roots added
+mid-session (new workspaces) still get only the =:on-create= one-shot —
+the menu's Maintain → re-index entry remains the manual recovery path.
+
+#+begin_src emacs-lisp
+(defun org-graph--configure-sync-deferred ()
+  "Run sync configuration once, resiliently, for `emacs-startup-hook'.
+`org-graph/configure-sync' points `vulpea-db-sync-directories' at the
+bounded discovery roots, enables `vulpea-db-autosync-mode', and
+triggers an async full scan -- all DB-touching, so it is deferred out
+of module-load time (load stays DB-free).  Failures are reported via
+`display-warning' rather than aborting startup."
+  (org-graph--run-deferred-op #'org-graph/configure-sync
+                              "sync configuration"))
+
+(add-hook 'emacs-startup-hook #'org-graph--configure-sync-deferred)
+#+end_src
+
+#+begin_src emacs-lisp
+(defun org-graph--register-extractor ()
+  "Register the org-graph typed-edge extractor with vulpea, resiliently.
+Wraps `org-graph-extractor-register' (which applies the `typed_edges'
+schema and so opens the vulpea DB) for `emacs-startup-hook'.  A
+missing/unbuilt DB is logged via `display-warning' rather than aborting
+startup."
+  (org-graph--run-deferred-op #'org-graph-extractor-register
+                              "typed-edge extractor registration"))
+
+(add-hook 'emacs-startup-hook #'org-graph--register-extractor)
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph)
+;;; org-graph.el ends here
+#+end_src

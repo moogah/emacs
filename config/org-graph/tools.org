@@ -1,0 +1,373 @@
+#+title: org-graph Agent Tools
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle tools.el
+#+auto_tangle: y
+
+The agent-facing surface of org-graph: three =gptel= tools that let an AI
+agent *read* the typed graph and *write* notes safely.
+
+- =org_graph_query= — structured note lookup (title substring and/or
+  filetag) over the vulpea index; returns note plists =(:id :title :tags
+  :path)=.
+- =org_graph_typed_edges= — resolved typed edges for a note, layered on
+  the read API in =query.el= (=org-graph-query/{outgoing,incoming,
+  connected}=); returns =(:from :rel :to :title)= plists.
+- =org_graph_write_node= — creates a note, serialised through the
+  per-file write coordinator and stamped with the =agent-draft= filetag.
+
+Two contracts are load-bearing here:
+
+- *Coordinator-mediated writes (D5).* Every write routes through
+  =org-graph-coordinator/with-file-lock= so two overlapping agent
+  callbacks to the same path cannot corrupt it
+  (=register/invariant/coordinator-lock-contract=).
+- *Typed-edge scope (D2/RE-4).* Typed-edge extraction runs *only* on
+  notes under =org-graph-roam-root= (=~/org/roam/=,
+  =register/invariant/typed-edge-extraction-scope=).  The =write_node=
+  tool description states this so agent prompts stay honest: a note
+  written into a project-local directory is indexed for discovery but
+  produces *no* typed edges.
+
+The tools are also exposed as a reusable list via =org-graph/agent-tools=
+(RE-5), so the =workspace-integration= task can drop them into the
+=workspace-assistant= preset's =:tools= slot instead of relying solely on
+gptel's global registry.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so
+this first block uses =:comments no= to keep org structure comments from
+being inserted ahead of it (see memory: lexical-binding mode line
+position; =register/invariant/lexical-binding-line-1=).
+
+#+begin_src emacs-lisp :comments no
+;;; tools.el --- org-graph gptel agent tool surface -*- lexical-binding: t; -*-
+
+(require 'cl-lib)
+(require 'seq)
+(require 'vulpea)
+#+end_src
+
+* Dependencies
+
+The read tool layers on the typed-edge query API and the write tool on
+the per-file coordinator.  Both are required by feature with an explicit
+file fallback, so this module loads in any order (the =wire-into-init=
+task owns the full ordered submodule sequence; this only declares the
+dependency).  =require= with a filename is a no-op once the feature is
+provided, so there is no double-load.
+
+#+begin_src emacs-lisp
+(let ((dir (file-name-directory (or load-file-name buffer-file-name
+                                    default-directory))))
+  (require 'org-graph-query (expand-file-name "query.el" dir))
+  (require 'org-graph-coordinator (expand-file-name "coordinator.el" dir))
+  ;; canonical rel-normalization site (register/vocabulary/relation-types)
+  (require 'org-graph-extractor (expand-file-name "extractor.el" dir)))
+#+end_src
+
+* Roam root
+
+The concept-vault / typed-edge root.  Like the schemas and extractor
+modules, this tolerates being loaded standalone (a unit spec) by falling
+back to the same default the loader's defcustom uses when
+=org-graph-roam-root= is unbound.
+
+#+begin_src emacs-lisp
+(defun org-graph-tools--roam-root ()
+  "Return the concept-vault / typed-edge root directory, with trailing slash.
+Falls back to the loader defcustom default when `org-graph-roam-root' is
+unbound (e.g. when this module is loaded standalone in a spec)."
+  (file-name-as-directory
+   (expand-file-name
+    (if (boundp 'org-graph-roam-root) org-graph-roam-root "~/org/roam/"))))
+#+end_src
+
+* Shapes
+
+Agents want titles and ids, not =vulpea-note= structs, so both read tools
+project their results onto flat plists.  A note becomes =(:id :title
+:tags :path)=; an edge from the query API (=(:from :rel :to :note)=)
+becomes =(:from :rel :to :title)=, resolving the far-end note to its
+title (=nil= when the id is not in the index).
+
+#+begin_src emacs-lisp
+(defun org-graph-tools--note->plist (note)
+  "Project a `vulpea-note' NOTE onto a flat agent-facing plist.
+Keys: :id :title :tags :path."
+  (list :id    (vulpea-note-id note)
+        :title (vulpea-note-title note)
+        :tags  (vulpea-note-tags note)
+        :path  (vulpea-note-path note)))
+
+(defun org-graph-tools--edge->plist (edge)
+  "Project a query-API EDGE plist onto the agent-facing edge shape.
+EDGE is (:from :rel :to :note) from `org-graph-query/*'; the result is
+(:from :rel :to :title), resolving the far-end note to its title (nil
+when unresolved)."
+  (let ((note (plist-get edge :note)))
+    (list :from  (plist-get edge :from)
+          :rel   (plist-get edge :rel)
+          :to    (plist-get edge :to)
+          :title (and note (vulpea-note-title note)))))
+#+end_src
+
+* Note query
+
+Structured lookup over the vulpea index.  Both filters are optional and
+AND together; with neither, every indexed note is returned.  TITLE-MATCH
+is a case-insensitive substring (matched literally, not as a regexp), TAG
+an exact filetag.  Filtering is done in elisp via the predicate
+`vulpea-db-query' takes — `typed_edges' is not involved here (this reads
+the notes table, not the side table).
+
+#+begin_src emacs-lisp
+(defun org-graph-tools/query (&optional title-match tag)
+  "Return note plists matching TITLE-MATCH (substring) and/or TAG (filetag).
+TITLE-MATCH is matched case-insensitively as a literal substring of the
+note title; TAG must be present in the note's filetags.  Both are
+optional and combine with AND; with neither, all indexed notes are
+returned.  Each result is `org-graph-tools--note->plist'-shaped."
+  (let ((needle (and title-match (downcase title-match))))
+    (mapcar
+     #'org-graph-tools--note->plist
+     (vulpea-db-query
+      (lambda (note)
+        (and (or (null needle)
+                 (let ((title (vulpea-note-title note)))
+                   (and title
+                        (string-match-p (regexp-quote needle)
+                                        (downcase title)))))
+             (or (null tag)
+                 (and (member tag (vulpea-note-tags note)) t))))))))
+#+end_src
+
+* Typed-edge query
+
+Resolved typed edges for NOTE-ID, layered on the read API in =query.el=
+(it does NOT re-query the side table — =register/boundary/typed-edge-query-api=).
+DIRECTION selects =outgoing=, =incoming=, or =connected= (the default,
+the union of both).  REL-TYPE optionally narrows to a relation; the query
+API matches relations as SYMBOLS, and every STORED relation passed
+through =org-graph-extractor--normalize-rel= on the way in
+(=register/vocabulary/relation-types=), so an agent-supplied string must
+take the same path — a bare =intern= of ="FOLLOWS_UP"= or ="follows up"=
+would silently query a symbol the DB never contains.  =connected=
+takes no rel-type, so a rel-filtered "both directions" query is the union
+of the rel-filtered outgoing and incoming halves.
+
+#+begin_src emacs-lisp
+(defun org-graph-tools--rel-symbol (rel-type)
+  "Coerce REL-TYPE to a relation SYMBOL, or nil.
+The query API matches relations as symbols, and stored relations are
+normalized (`org-graph-extractor--normalize-rel'), so an agent string
+takes the same normalization path — \"FOLLOWS_UP\" and \"follows up\"
+both match stored `follows-up' rows.  Symbols are re-normalized through
+their name for the same reason."
+  (cond ((null rel-type) nil)
+        ((symbolp rel-type)
+         (org-graph-extractor--normalize-rel (symbol-name rel-type)))
+        ((stringp rel-type) (org-graph-extractor--normalize-rel rel-type))))
+
+(defun org-graph-tools/typed-edges (note-id &optional direction rel-type)
+  "Return resolved typed edges for NOTE-ID as agent-facing plists.
+DIRECTION is \"outgoing\", \"incoming\", or \"connected\" (default).
+REL-TYPE optionally narrows to a relation (string or symbol).  Each
+result is `org-graph-tools--edge->plist'-shaped: (:from :rel :to :title).
+Layered on `org-graph-query/{outgoing,incoming,connected}'."
+  (let* ((rel (org-graph-tools--rel-symbol rel-type))
+         (edges
+          (pcase direction
+            ((or "outgoing" 'outgoing)
+             (org-graph-query/outgoing note-id rel))
+            ((or "incoming" 'incoming)
+             (org-graph-query/incoming note-id rel))
+            (_
+             (if rel
+                 (append (org-graph-query/outgoing note-id rel)
+                         (org-graph-query/incoming note-id rel))
+               (org-graph-query/connected note-id))))))
+    (mapcar #'org-graph-tools--edge->plist edges)))
+#+end_src
+
+* Write node
+
+Creates a note and returns its id and path.  The filename is a
+=<timestamp>-<slug>.org= under DIRECTORY (defaulting to the roam vault);
+the timestamp keeps it unique so =vulpea-create='s refuse-to-overwrite
+guard never trips on a fresh write.  Every byte hits disk inside
+=org-graph-coordinator/with-file-lock= on the target path (D5), so
+overlapping agent writes to the same path serialise instead of
+interleaving.  The =agent-draft= filetag is always stamped (added once,
+never duplicated) so drafts are reviewable via
+=org-graph/find-agent-drafts=.
+
+#+begin_src emacs-lisp
+(defun org-graph-tools--slug (title)
+  "Return a filesystem-safe slug derived from TITLE.
+Lower-cased, non-alphanumeric runs collapsed to single hyphens, leading
+and trailing hyphens trimmed.  Falls back to \"note\" when TITLE yields an
+empty slug."
+  (let ((slug (replace-regexp-in-string
+               "\\`-+\\|-+\\'" ""
+               (replace-regexp-in-string
+                "[^a-z0-9]+" "-" (downcase (or title ""))))))
+    (if (string-empty-p slug) "note" slug)))
+
+(defun org-graph-tools/write-node (title &optional directory tags body)
+  "Create an `agent-draft'-stamped note titled TITLE; return its id and path.
+DIRECTORY defaults to the roam concept vault (`org-graph-roam-root').  A
+note written OUTSIDE that root is indexed for discovery but contributes
+NO typed edges (register/invariant/typed-edge-extraction-scope).  TAGS is
+a list (or vector) of filetag strings; \"agent-draft\" is always added
+(once).  BODY is optional note content.
+
+The file write is serialised through
+`org-graph-coordinator/with-file-lock' on the target path (D5), so two
+overlapping agent writes to the same path cannot corrupt it.  Returns a
+plist (:id ID :path PATH)."
+  (let* ((dir (file-name-as-directory
+               (expand-file-name (or directory (org-graph-tools--roam-root)))))
+         (tags (append tags nil))
+         (all-tags (if (member "agent-draft" tags)
+                       tags
+                     (append tags (list "agent-draft"))))
+         (path (expand-file-name
+                (format "%s-%s.org"
+                        (format-time-string "%Y%m%d%H%M%S")
+                        (org-graph-tools--slug title))
+                dir)))
+    (org-graph-coordinator/with-file-lock path
+      (let ((note (vulpea-create title path :tags all-tags :body body)))
+        (list :id   (vulpea-note-id note)
+              :path (vulpea-note-path note))))))
+#+end_src
+
+* gptel tool surface
+
+Each =gptel-make-tool= wraps a core function above; the =:function=
+lambda coerces the result to a readable sexp string for the LLM (the core
+functions return the structured plists the specs assert against).  Tool
+=:name='s use gptel's snake_case convention; relation/note ids are passed
+as strings.
+
+The constructed tool objects are captured into
+=org-graph-tools--registered= and surfaced by =org-graph/agent-tools= so
+the =workspace-assistant= preset can be handed the same objects gptel
+registered globally.
+
+Registration is gated on =gptel-make-tool= being bound: the core
+functions are always defined, but the gptel objects are only built where
+gptel is loaded.  This keeps the loader (and the =db-location= spec) able
+to load this module even in a process without gptel on =load-path=.
+
+#+begin_src emacs-lisp
+(defvar org-graph-tools--registered nil
+  "List of org-graph `gptel-tool' objects built by `org-graph-tools-register'.
+Surfaced via `org-graph/agent-tools'; nil until registration runs.")
+
+(defconst org-graph-tools--write-node-description
+  "Create a new org note and return its id and path. The note is stamped \
+with the `agent-draft' filetag for later human review. The write is \
+serialised through a per-file lock so concurrent agent writes cannot \
+corrupt the file. BOUNDARY: typed-edge extraction runs ONLY on notes \
+under the roam concept vault (~/org/roam/); a note written into any other \
+directory is indexed for search but produces NO typed edges, so author \
+notes you want in the typed graph under the roam root."
+  "Description for the org_graph_write_node tool.
+States the roam-only typed-edge boundary (register/invariant/typed-edge-extraction-scope)
+so agent prompts stay honest.")
+
+(defun org-graph-tools-register ()
+  "Construct and register the three org-graph gptel tools.
+Sets and returns `org-graph-tools--registered'.  Requires gptel
+(`gptel-make-tool' fbound); the loader calls this only when that holds."
+  (setq org-graph-tools--registered
+        (list
+         (gptel-make-tool
+          :name "org_graph_query"
+          :function
+          (lambda (&optional title_match tag)
+            (format "%S" (org-graph-tools/query title_match tag)))
+          :description
+          "Search indexed notes by a case-insensitive title substring \
+and/or an exact filetag (both optional, combined with AND). Returns a \
+list of note plists (:id :title :tags :path)."
+          :args (list '(:name "title_match"
+                        :type string
+                        :optional t
+                        :description "Case-insensitive substring to match against note titles.")
+                      '(:name "tag"
+                        :type string
+                        :optional t
+                        :description "Exact filetag a note must carry (e.g. \"topic\")."))
+          :category "org-graph")
+         (gptel-make-tool
+          :name "org_graph_typed_edges"
+          :function
+          (lambda (note_id &optional direction rel_type)
+            (format "%S" (org-graph-tools/typed-edges note_id direction rel_type)))
+          :description
+          "Return the typed semantic edges touching a note. DIRECTION is \
+\"outgoing\", \"incoming\", or \"connected\" (default: both). Optionally \
+narrow to one relation type. Returns edge plists (:from :rel :to :title) \
+where :title is the far-end note's title."
+          :args (list '(:name "note_id"
+                        :type string
+                        :description "The org id of the note to query edges for.")
+                      '(:name "direction"
+                        :type string
+                        :optional t
+                        :enum ["outgoing" "incoming" "connected"]
+                        :description "Edge direction relative to the note; defaults to connected.")
+                      '(:name "rel_type"
+                        :type string
+                        :optional t
+                        :description "Optional relation to narrow to (e.g. \"implements\")."))
+          :category "org-graph")
+         (gptel-make-tool
+          :name "org_graph_write_node"
+          :function
+          (lambda (title &optional directory tags body)
+            (format "%S" (org-graph-tools/write-node title directory tags body)))
+          :description org-graph-tools--write-node-description
+          :args (list '(:name "title"
+                        :type string
+                        :description "The note title.")
+                      '(:name "directory"
+                        :type string
+                        :optional t
+                        :description "Directory to write into; defaults to the roam vault (~/org/roam/).")
+                      '(:name "tags"
+                        :type array
+                        :optional t
+                        :items (:type string)
+                        :description "Filetags to add; \"agent-draft\" is always added.")
+                      '(:name "body"
+                        :type string
+                        :optional t
+                        :description "Optional note body content."))
+          :category "org-graph")))
+  org-graph-tools--registered)
+
+(defun org-graph/agent-tools ()
+  "Return the list of org-graph `gptel-tool' objects for preset :tools slots.
+The reusable accessor the `workspace-integration' task hands to the
+`workspace-assistant' preset, rather than relying only on gptel's global
+registry.  Returns nil until `org-graph-tools-register' has run."
+  org-graph-tools--registered)
+#+end_src
+
+Build the tools at load time when gptel is available.
+
+#+begin_src emacs-lisp
+(when (fboundp 'gptel-make-tool)
+  (org-graph-tools-register))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'org-graph-tools)
+;;; tools.el ends here
+#+end_src
