@@ -257,6 +257,156 @@ to return HOME.  Returns the freshly-registered workspace plist."
         (expect (workspace--name ws) :to-equal "gamma")
         (expect (workspace--home ws) :to-equal home)))))
 
+;;; A linked worktree is already a git checkout (its `.git' is a FILE)
+;;
+;; A linked worktree's `.git' is a gitfile (`gitdir: ...'), not a
+;; directory.  Anchoring at one must take the "already a git repository"
+;; branch (case 1 or 2) and run NO git command: before the fix it fell
+;; into case 3 and ran `git init', `git add .' and `git commit' inside
+;; the user's checkout, on the user's branch, committing every untracked
+;; file.
+
+(defun wna-spec--git-output (dir &rest args)
+  "Return the trimmed stdout of git ARGS run inside DIR; signal on failure."
+  (with-temp-buffer
+    (let* ((default-directory (file-name-as-directory dir))
+           (status (apply #'call-process "git" nil '(t nil) nil args)))
+      (unless (zerop status)
+        (error "git %s failed in %s (status %d)"
+               (mapconcat #'identity args " ") dir status))
+      (string-trim (buffer-string)))))
+
+(defun wna-spec--git-snapshot (dir)
+  "Return a plist of the git state of the checkout DIR.
+HEAD's commit, the symbolic branch, the full log, the index (staged
+entries with their blob ids) and the tracked files' status."
+  (list :head   (wna-spec--git-output dir "rev-parse" "HEAD")
+        :branch (wna-spec--git-output dir "symbolic-ref" "HEAD")
+        :log    (wna-spec--git-output dir "log" "--format=%H %s")
+        :index  (wna-spec--git-output dir "ls-files" "--stage")
+        :status (wna-spec--git-output dir "status" "--porcelain"
+                                      "--untracked-files=no")))
+
+(defun wna-spec--make-linked-worktree (root name)
+  "Create a main repo under ROOT and a linked worktree NAME beside it.
+The main repo has one commit and a tracked file; the worktree is on its
+own branch and holds an untracked file `notes.txt'.  Returns
+\(MAIN . WORKTREE), both directory names."
+  (let ((main (file-name-as-directory (expand-file-name "main" root)))
+        (wt   (file-name-as-directory (expand-file-name name root))))
+    (make-directory main t)
+    (wna-spec--git main "init" "-q")
+    (wna-spec--git main "config" "user.email" "test@example.com")
+    (wna-spec--git main "config" "user.name"  "Test User")
+    (with-temp-file (expand-file-name "README" main) (insert "tracked\n"))
+    (wna-spec--git main "add" "README")
+    (wna-spec--git main "commit" "-q" "-m" "initial")
+    (wna-spec--git main "worktree" "add" "-q" "-b" "feature"
+                   (directory-file-name wt))
+    (with-temp-file (expand-file-name "notes.txt" wt) (insert "untracked\n"))
+    (cons main wt)))
+
+(describe "workspace-new anchor-existing — linked worktree (gitfile .git)"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'tab-bar-rename-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through)
+    (spy-on 'workspace--scaffold-git :and-call-through)
+    (spy-on 'workspace--dispatch-create-integrations))
+  (after-each (wna-spec--cleanup))
+
+  (it "without home.org: scaffolds files only — no git command, HEAD, index and log unchanged"
+    (let* ((pair (wna-spec--make-linked-worktree wna-spec--tmp-dir "wt"))
+           (main (car pair))
+           (wt   (cdr pair)))
+      (expect (file-regular-p (expand-file-name ".git" wt)) :to-be t)
+      (let ((wt-before   (wna-spec--git-snapshot wt))
+            (main-before (wna-spec--git-snapshot main)))
+        (wna-spec--call-anchor wt)
+        ;; Case 2: scaffold WITHOUT git ops.
+        (expect 'workspace-scaffold :to-have-been-called-with
+                wt "wt" :init-and-commit? nil)
+        (expect 'workspace--scaffold-git :not :to-have-been-called)
+        (expect 'workspace--dispatch-create-integrations
+                :to-have-been-called-with "wt" wt 'anchored-scaffolded)
+        ;; The worktree's git state is untouched: same HEAD and branch,
+        ;; no new commit, same index, same tracked-file status.
+        (expect (wna-spec--git-snapshot wt) :to-equal wt-before)
+        ;; And so is the main worktree's (they share one repository).
+        (expect (wna-spec--git-snapshot main) :to-equal main-before)
+        ;; `.git' is still the gitfile: nothing re-initialised it.
+        (expect (file-regular-p (expand-file-name ".git" wt)) :to-be t)
+        ;; The untracked file is still untracked, and the scaffolded
+        ;; files are left untracked for the user to stage.
+        (let ((untracked (split-string
+                          (wna-spec--git-output
+                           wt "status" "--porcelain" "--untracked-files=all")
+                          "\n" t)))
+          (expect untracked :to-contain "?? notes.txt")
+          (expect untracked :to-contain "?? home.org"))
+        (expect (file-exists-p (expand-file-name "home.org" wt)) :to-be t)
+        (expect (file-directory-p (expand-file-name "sessions" wt)) :to-be t)
+        (let ((ws (gethash "wt" workspace--registry)))
+          (expect ws :not :to-be nil)
+          (expect (workspace--home ws) :to-equal wt)))))
+
+  (it "with home.org: registers only — no scaffold, no git command, git state unchanged"
+    (let* ((pair (wna-spec--make-linked-worktree wna-spec--tmp-dir "wt2"))
+           (wt   (cdr pair))
+           (user-content "#+TITLE: user-authored\n"))
+      (with-temp-file (expand-file-name "home.org" wt) (insert user-content))
+      (let ((wt-before (wna-spec--git-snapshot wt)))
+        (wna-spec--call-anchor wt)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect 'workspace--scaffold-git :not :to-have-been-called)
+        (expect 'workspace--dispatch-create-integrations
+                :to-have-been-called-with "wt2" wt 'anchored-existing)
+        (expect (wna-spec--git-snapshot wt) :to-equal wt-before)
+        (expect (with-temp-buffer
+                  (insert-file-contents (expand-file-name "home.org" wt))
+                  (buffer-string))
+                :to-equal user-content)
+        (expect (file-directory-p (expand-file-name "sessions" wt)) :to-be nil)
+        (expect (gethash "wt2" workspace--registry) :not :to-be nil)))))
+
+(describe "workspace--checkout-root-p"
+  ;; The anchor flow's "already a git repository" test: any `.git'
+  ;; entry in the directory itself.  A subdirectory of another checkout
+  ;; is deliberately NOT a checkout root (case 3 makes a nested repo
+  ;; there; portable-bookmarks relies on that).
+  (before-each (wna-spec--reset))
+  (after-each (wna-spec--cleanup))
+
+  (it "is true for a .git directory, a .git file and a dangling .git symlink"
+    (let ((main (file-name-as-directory
+                 (expand-file-name "main" wna-spec--tmp-dir)))
+          (gitfile (file-name-as-directory
+                    (expand-file-name "gitfile" wna-spec--tmp-dir)))
+          (dangling (file-name-as-directory
+                     (expand-file-name "dangling" wna-spec--tmp-dir))))
+      (make-directory (expand-file-name ".git" main) t)
+      (make-directory gitfile t)
+      (with-temp-file (expand-file-name ".git" gitfile)
+        (insert "gitdir: /nonexistent/worktrees/x\n"))
+      (make-directory dangling t)
+      (make-symbolic-link "/nonexistent/.git" (expand-file-name ".git" dangling))
+      (expect (workspace--checkout-root-p main) :to-be-truthy)
+      (expect (workspace--checkout-root-p gitfile) :to-be-truthy)
+      (expect (workspace--checkout-root-p dangling) :to-be-truthy)))
+
+  (it "is false for a plain directory and for a subdirectory of a checkout"
+    (let* ((plain (file-name-as-directory
+                   (expand-file-name "plain" wna-spec--tmp-dir)))
+           (repo (file-name-as-directory
+                  (expand-file-name "repo" wna-spec--tmp-dir)))
+           (sub (file-name-as-directory (expand-file-name "sub" repo))))
+      (make-directory plain t)
+      (make-directory sub t)
+      (wna-spec--init-repo repo)
+      (expect (workspace--checkout-root-p plain) :to-be nil)
+      (expect (workspace--checkout-root-p sub) :to-be nil))))
+
 (describe "workspace-new anchor-existing — double-registration guard"
   (before-each
     (wna-spec--reset)
