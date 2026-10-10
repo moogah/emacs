@@ -421,11 +421,13 @@ substituted record is built.  Signals when PATH is not a string."
 
 KIND is `call-through' — the seam's own `resolved' jump — or `view',
 the canonical read-only view chosen at the missing-repo prompt.  The
-:path is pre-flighted with `file-exists-p' immediately before the copy
-is built (a directory counts); one that has vanished since the resolver
-looked declines with `workspace-bookmark--vanished-message'.  The copy
-comes from `workspace-bookmark--substituted-record', the only place one
-is built.  Returns (call-through . COPY), (view COPY . CHECKOUT) or
+:path is pre-flighted with `file-readable-p' immediately before the
+copy is built (a readable directory counts), so the host is never
+handed a copy it cannot read: one that has vanished since the resolver
+looked declines with `workspace-bookmark--vanished-message', one that
+is there but cannot be read with
+`workspace-bookmark--unreadable-message'.  The copy comes from
+`workspace-bookmark--substituted-record', the only place one is built.  Returns (call-through . COPY), (view COPY . CHECKOUT) or
 \(decline . MESSAGE); signals for any other KIND, and for a `view'
 whose RESOLUTION names no :checkout — a view that cannot say which
 canonical checkout it shows is never opened unmarked."
@@ -434,6 +436,8 @@ canonical checkout it shows is never opened unmarked."
     (cond
      ((not (and (stringp path) (file-exists-p path)))
       (cons 'decline (workspace-bookmark--vanished-message record resolution)))
+     ((not (file-readable-p path))
+      (cons 'decline (workspace-bookmark--unreadable-message record resolution)))
      ((eq kind 'call-through)
       (cons 'call-through (workspace-bookmark--substituted-record record path)))
      ((eq kind 'view)
@@ -507,6 +511,17 @@ reason, not a resolution outcome."
           (plist-get resolution :relpath)
           (let ((checkout (plist-get resolution :checkout)))
             (if (stringp checkout) (abbreviate-file-name checkout) "?"))))
+
+(defun workspace-bookmark--unreadable-message (record resolution)
+  "Return the report for a `resolved' RECORD whose location cannot be read.
+
+RESOLUTION is the resolver's plist; its :path exists but fails the
+seam's `file-readable-p' pre-flight — its permissions deny reading it.
+The report names that :path itself, unabbreviated.  A seam-local
+decline reason, not a resolution outcome."
+  (format "Bookmark %S: %s exists but cannot be read; nothing opened"
+          (bookmark-name-from-full-record record)
+          (plist-get resolution :path)))
 
 (defun workspace-bookmark--plan-for-outcome (record resolution context original)
   "Return the jump plan for RECORD, whose RESOLUTION was decided in CONTEXT.

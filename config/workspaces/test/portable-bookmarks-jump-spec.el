@@ -531,7 +531,46 @@ Saves with `bookmark-save', empties the alist, loads the file back."
         (expect (file-exists-p vanished) :to-be nil)
         (expect (workspace-bookmark-fixtures-visits-p vanished) :to-be nil)
         (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
-        (expect (bookmark-get-bookmark "readme") :to-equal snapshot)))))
+        (expect (bookmark-get-bookmark "readme") :to-equal snapshot))))
+
+  (it "declines naming the path, rather than returning silently or signalling a type error"
+    ;; Scenario: portable-bookmarks § A resolved file that cannot be read is reported, not skipped
+    ;; Real git, real jump: the current workspace's copy exists at mode 000,
+    ;; so the resolver answers `resolved' and only the seam's readability
+    ;; pre-flight stands between the host and a silent nil.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
+             (modes (file-modes a-path))
+             (origin (generate-new-buffer "wsbm-unr-origin"))
+             (outcome nil)
+             (still-origin nil))
+        (workspace-bookmark-fixtures-set-bookmark b-path "readme")
+        (unwind-protect
+            (progn
+              (set-file-modes a-path #o000)
+              (expect (file-exists-p a-path) :to-be-truthy)
+              (expect (file-readable-p a-path) :to-be nil)
+              (with-current-buffer origin
+                (setq outcome
+                      (condition-case err
+                          (progn
+                            (workspace-bookmark-fixtures-jump "readme" :workspace "wsbm-jump-a")
+                            (list 'returned
+                                  :current (buffer-name (current-buffer))
+                                  :visits-a (workspace-bookmark-fixtures-visits-p a-path)))
+                        (user-error (list 'declined (cadr err)))
+                        (error (list 'error (error-message-string err)))))
+                (setq still-origin (eq (current-buffer) origin))))
+          (set-file-modes a-path modes))
+        (expect (car outcome) :to-be 'declined)
+        (expect (cadr outcome) :to-match (regexp-quote a-path))
+        (expect (cadr outcome) :to-match "nothing opened")
+        (expect (cadr outcome) :not :to-match "vanished")
+        (expect still-origin :to-be t)
+        (expect (workspace-bookmark-fixtures-visits-p a-path) :to-be nil)
+        (expect (workspace-bookmark-fixtures-visits-p b-path) :to-be nil)
+        (kill-buffer origin)))))
 
 
 ;;; Unit — the one outcome-to-action mapping, cell by cell
