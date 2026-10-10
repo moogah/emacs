@@ -64,6 +64,8 @@
   ;; the runner's global git config.
   (wna-spec--git dir "config" "user.email" "test@example.com")
   (wna-spec--git dir "config" "user.name"  "Test User")
+  ;; A machine that signs commits globally must not break the fixture.
+  (wna-spec--git dir "config" "commit.gpgsign" "false")
   ;; Make an initial empty commit so `git log' has a HEAD to compare
   ;; against in case-1 scenarios where we must assert "no new commits."
   (wna-spec--git dir "commit" "--allow-empty" "-q" "-m" "initial"))
@@ -298,6 +300,7 @@ own branch and holds an untracked file `notes.txt'.  Returns
     (wna-spec--git main "init" "-q")
     (wna-spec--git main "config" "user.email" "test@example.com")
     (wna-spec--git main "config" "user.name"  "Test User")
+    (wna-spec--git main "config" "commit.gpgsign" "false")
     (with-temp-file (expand-file-name "README" main) (insert "tracked\n"))
     (wna-spec--git main "add" "README")
     (wna-spec--git main "commit" "-q" "-m" "initial")
@@ -406,6 +409,92 @@ own branch and holds an untracked file `notes.txt'.  Returns
       (wna-spec--init-repo repo)
       (expect (workspace--checkout-root-p plain) :to-be nil)
       (expect (workspace--checkout-root-p sub) :to-be nil))))
+
+;;; The scaffold's git ignores an inherited git environment
+;;
+;; Emacs launched with GIT_DIR set (as the editor of
+;; `git --git-dir=$HOME/.cfg ...', or from a hook) passes it to every
+;; subprocess.  The scaffold's `git init' / `add .' / `commit' then
+;; acted on THAT repository: its HEAD moved to an "Initial workspace"
+;; commit holding home.org.
+
+(describe "workspace-new anchor-existing — inherited GIT_DIR"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'workspace--dispatch-create-integrations))
+  (after-each (wna-spec--cleanup))
+
+  (it "case 3 git-inits and commits the plain directory, not the GIT_DIR repository"
+    (let* ((outside (file-name-as-directory
+                     (expand-file-name "outside" wna-spec--tmp-dir)))
+           (home (file-name-as-directory
+                  (expand-file-name "plain" wna-spec--tmp-dir))))
+      (make-directory outside t)
+      (wna-spec--init-repo outside)
+      (make-directory home t)
+      (let ((outside-before (wna-spec--git-snapshot outside)))
+        (let ((process-environment
+               (append (list (concat "GIT_DIR="
+                                     (expand-file-name ".git" outside))
+                             (concat "GIT_INDEX_FILE="
+                                     (expand-file-name ".git/index" outside)))
+                       process-environment)))
+          (wna-spec--call-anchor home))
+        ;; The outside repository is untouched: same HEAD, log, index.
+        (expect (wna-spec--git-snapshot outside) :to-equal outside-before)
+        ;; The plain directory got its own repository and one commit.
+        (expect (file-directory-p (expand-file-name ".git" home)) :to-be t)
+        (expect (length (wna-spec--git-log-oneline home)) :to-equal 1)
+        (expect (wna-spec--git-output home "ls-files")
+                :to-match "home\\.org")
+        (expect (gethash "plain" workspace--registry) :not :to-be nil)))))
+
+;;; A git directory is not a workspace home
+;;
+;; A bare repository (`foo.git/') or a repository's own `.git/' has no
+;; `.git' entry, so it is not a checkout root and would take case 3:
+;; `git init' a nested repository there and commit the object store.
+;; Anchoring there is refused before any tab, scaffold or registry work.
+
+(describe "workspace-new anchor-existing — git directory refused"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through)
+    (spy-on 'workspace--dispatch-create-integrations))
+  (after-each (wna-spec--cleanup))
+
+  (it "refuses a bare repository and leaves it untouched"
+    (let ((bare (file-name-as-directory
+                 (expand-file-name "foo.git" wna-spec--tmp-dir))))
+      (make-directory bare t)
+      (wna-spec--git bare "init" "-q" "--bare")
+      (let ((files-before (directory-files bare)))
+        (expect (wna-spec--call-anchor bare)
+                :to-throw 'user-error
+                (list (format "Not anchoring at a git directory (a bare repository or a .git directory): %s"
+                              bare)))
+        (expect (directory-files bare) :to-equal files-before)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect 'tab-bar-new-tab :not :to-have-been-called)
+        (expect 'workspace--dispatch-create-integrations :not :to-have-been-called)
+        (expect (hash-table-count workspace--registry) :to-equal 0))))
+
+  (it "refuses a repository's .git directory and a directory inside it"
+    (let* ((repo (file-name-as-directory
+                  (expand-file-name "repo" wna-spec--tmp-dir)))
+           (dot-git (file-name-as-directory (expand-file-name ".git" repo)))
+           (refs (file-name-as-directory (expand-file-name "refs" dot-git))))
+      (make-directory repo t)
+      (wna-spec--init-repo repo)
+      (let ((before (wna-spec--git-snapshot repo)))
+        (expect (wna-spec--call-anchor dot-git) :to-throw 'user-error)
+        (expect (wna-spec--call-anchor refs) :to-throw 'user-error)
+        (expect (wna-spec--git-snapshot repo) :to-equal before)
+        (expect (file-exists-p (expand-file-name "home.org" dot-git)) :to-be nil)
+        (expect (file-exists-p (expand-file-name "home.org" refs)) :to-be nil)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect (hash-table-count workspace--registry) :to-equal 0)))))
 
 (describe "workspace-new anchor-existing — double-registration guard"
   (before-each

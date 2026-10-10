@@ -243,6 +243,27 @@ a checkout root.  Runs no subprocess."
     (or (file-exists-p dot-git)
         (file-symlink-p dot-git))))
 
+(defun workspace--git-dir-p (dir)
+  "Return non-nil when DIR is a git directory or lies inside one.
+A git directory is a bare repository or a repository's `.git'
+directory.  True when DIR holds a HEAD file beside objects/ and refs/
+directories (no subprocess), or when `git rev-parse
+--is-inside-git-dir', run in DIR with the git location variables
+removed (`workspace--scaffold-git-environment'), answers \"true\".
+Nil when git cannot run.  Never signals."
+  (let ((dir (file-name-as-directory (expand-file-name dir))))
+    (or (and (file-regular-p (expand-file-name "HEAD" dir))
+             (file-directory-p (expand-file-name "objects" dir))
+             (file-directory-p (expand-file-name "refs" dir)))
+        (condition-case nil
+            (let ((default-directory dir)
+                  (process-environment (workspace--scaffold-git-environment)))
+              (with-temp-buffer
+                (and (eq 0 (call-process "git" nil '(t nil) nil
+                                         "rev-parse" "--is-inside-git-dir"))
+                     (equal (string-trim (buffer-string)) "true"))))
+          (error nil)))))
+
 (defun workspace--new-anchor-existing ()
   "Anchor an existing directory as a workspace.
 Prompts for an existing directory (`read-directory-name' with
@@ -256,6 +277,10 @@ worktree's `.git' is a file):
                                   (the user owns this repo).
   3. Not a git repo             → full scaffold (mkdir, git init,
                                   files, initial commit).
+
+A directory that is not a checkout root but IS a git directory (a bare
+repository, a `.git' directory, or inside one; `workspace--git-dir-p')
+is refused with `user-error' rather than taking case 3.
 
 Signals `user-error', before any tab, scaffold or registry work, when
 HOME is remote (TRAMP; remote homes are not supported), when HOME is
@@ -271,6 +296,13 @@ Returns the freshly-registered workspace plist on success."
     (when (workspace--registered-for-home-p home)
       (user-error "Already a registered workspace: %s" home))
     (workspace--refuse-taken-name name)
+    ;; A git directory (bare repo, `.git/', or inside one) is not a
+    ;; checkout root, so case 3 would nest a repository in it: refuse.
+    (when (and (not (workspace--checkout-root-p home))
+               (workspace--git-dir-p home))
+      (user-error
+       "Not anchoring at a git directory (a bare repository or a .git directory): %s"
+       home))
     (let* ((is-repo? (workspace--checkout-root-p home))
            (has-home-org? (workspace-home-org-exists-p home))
            ;; The per-case integration :context label.  Each cond
