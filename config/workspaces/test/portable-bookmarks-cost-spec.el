@@ -588,6 +588,25 @@ stays warm."
                 :to-equal expected)
         (expect (portable-bookmarks-cost-spec--git-calls) :to-equal 0))))
 
+  (it "forgets every buffer's remembered coordinates when the identity cache is cleared"
+    ;; seam/capture-stamp-cost: the memo holds an identity, so a clear the
+    ;; config stamp cannot see (a global insteadOf rule) must reach it too.
+    ;; Review finding cycle-1791666240 (capture-stamp-cost, advisory).
+    (workspace-bookmark-fixtures-hermetic
+      (portable-bookmarks-cost-spec--show files)
+      (let ((expected (mapcar (lambda (relpath)
+                                (cons portable-bookmarks-cost-spec--identity relpath))
+                              portable-bookmarks-cost-spec--capture-relpaths)))
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal expected)
+        (workspace-bookmark-clear-identity-cache)
+        (spy-on 'workspace-bookmark--git :and-call-through)
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal expected)
+        (expect (portable-bookmarks-cost-spec--git-calls "rev-parse") :to-equal 1)
+        (expect (portable-bookmarks-cost-spec--git-calls "ls-files")
+                :to-equal (length portable-bookmarks-cost-spec--capture-relpaths)))))
+
   (it "stamps a linked worktree's leaf afresh once that worktree's own index changed"
     ;; seam/capture-stamp-cost: remembered coordinates are keyed on the
     ;; index in the worktree's OWN git directory, not in the common

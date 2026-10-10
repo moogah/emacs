@@ -630,6 +630,13 @@ Each value is (STAMP . IDENTITY), where STAMP is the value
 `workspace-bookmark--config-stamp' returned when IDENTITY was computed
 and IDENTITY may be nil.")
 
+(defvar workspace-bookmark--identity-generation 0
+  "Counter stepped by `workspace-bookmark-clear-identity-cache'.
+Part of every coordinates-memo key
+\(`workspace-bookmark--coordinates-key'), so clearing the identity memo
+also forgets every buffer's remembered coordinates, which hold an
+identity the clear is meant to discard.")
+
 (defun workspace-bookmark-clear-identity-cache ()
   "Forget every memoised repository identity.
 
@@ -640,8 +647,11 @@ changes, are picked up without this command.  It is needed only after a
 change the memo cannot see: a `url.*.insteadOf' rule (or anything else
 `git remote get-url' honours) added to the global, XDG or system
 gitconfig, or to an included config file.  Loading this module clears
-the memo too."
+the memo too.  The remembered coordinates of every buffer
+\(`workspace-bookmark--coordinates-memo') are forgotten with it: they
+hold an identity, and the next stamp recomputes it."
   (interactive)
+  (cl-incf workspace-bookmark--identity-generation)
   (clrhash workspace-bookmark--identity-memo))
 
 (defun workspace-bookmark--checkout-git-dir (root)
@@ -1064,13 +1074,15 @@ entry (`workspace-bookmark--checkout-dir-p'), as a directory name."
   "Return what a file's remembered coordinates in the checkout at ROOT depend on.
 The list of the modification time of the `index' in GIT-DIR, the
 checkout's own git directory, and `workspace-bookmark--config-stamp' of
-GIT-COMMON-DIR and ROOT.  Nil when either cannot be read.  Runs no
-subprocess."
+GIT-COMMON-DIR and ROOT, and `workspace-bookmark--identity-generation',
+so a cleared identity cache invalidates the memo too.  Nil when the
+index or the config stamp cannot be read.  Runs no subprocess."
   (let ((index (and git-dir
                     (file-attribute-modification-time
                      (file-attributes (expand-file-name "index" git-dir)))))
         (config (workspace-bookmark--config-stamp git-common-dir root)))
-    (and index config (list index config))))
+    (and index config
+         (list index config workspace-bookmark--identity-generation))))
 
 (defun workspace-bookmark--remembered-coordinates (name root)
   "Return this buffer's remembered coordinates for physical NAME under ROOT, or nil.
