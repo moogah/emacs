@@ -3,6 +3,8 @@
 (require 'cl-lib)
 (require 'seq)
 
+(declare-function workspace--same-file-p "data-model" (a b))
+
 (defvar jf/workspace--worktree-warning-state nil
   "Whether a discovery warning may be shown.
 nil outside a candidate collection: every failure is reported.
@@ -30,28 +32,6 @@ asked of an entry is `file-remote-p' without its CONNECTED argument,
 which is answered from the name alone, so this touches no network."
   (seq-filter (lambda (dir) (and (stringp dir) (not (file-remote-p dir))))
               dirs))
-
-(defun jf/workspace--worktree-dedupe-dirs (dirs)
-  "Return the local DIRS as absolute directory names, without duplicates.
-Each entry is expanded and given a trailing slash.  Two entries are
-duplicates when they name the same directory, compared by
-`file-truename', so spellings through a symlinked prefix collapse.  The
-first occurrence's spelling is kept, in order.  nil entries and remote
-\(TRAMP) entries are dropped; a remote entry is asked only
-`file-remote-p', so nothing here touches the network."
-  (let ((seen (make-hash-table :test #'equal))
-        (out '()))
-    (dolist (d dirs)
-      (when (and d (not (file-remote-p d)))
-        (let ((dir (file-name-as-directory (expand-file-name d))))
-          (unless (file-remote-p dir)
-            (let ((key (condition-case nil
-                           (file-name-as-directory (file-truename dir))
-                         (error dir))))
-              (unless (gethash key seen)
-                (puthash key t seen)
-                (push dir out)))))))
-    (nreverse out)))
 
 (defun jf/workspace--worktree-git-derived-candidates ()
   "Return the canonical checkouts of the repositories in view, or nil.
@@ -134,12 +114,20 @@ and then `(magit-list-repos)' when magit is loaded, classified by
 `jf/workspace--worktree-canonical-only'.  Both are built in one
 portable-bookmarks discovery call
 \(`jf/workspace--worktree-in-one-discovery-call').  Projectile and
-project.el lists are deliberately not consulted.  Paths are de-duped by
-`jf/workspace--worktree-dedupe-dirs' (same directory by truename, first
-spelling kept, remote entries dropped unprobed) and filtered to actual git repositories (via
-`locate-dominating-file' on \".git\", or `magit-toplevel' when magit is
-loaded).  At most one discovery warning is shown per call.  Returns the
-list; does not prompt."
+project.el lists are deliberately not consulted.  Magit's remote
+\(TRAMP) entries are dropped where its list enters
+\(`jf/workspace--worktree-local-only'), before classification.
+
+The appended sources are de-duplicated in this one place: nil entries
+are dropped, each entry is expanded to a directory name with a trailing
+slash, and two entries are one when `workspace--same-file-p' says they
+are the same directory (device and inode), the first occurrence kept
+at its position and in its spelling.  That `seq-uniq' is quadratic in
+the number of candidates, which is tens at most.  The result is then
+filtered to actual git repositories (via `locate-dominating-file' on
+\".git\", or `magit-toplevel' when magit is loaded).  At most one
+discovery warning is shown per call.  Returns the list; does not
+prompt."
   (let* ((jf/workspace--worktree-warning-state 'collecting)
          (sources
           (jf/workspace--worktree-in-one-discovery-call
@@ -151,7 +139,11 @@ list; does not prompt."
                              (jf/workspace--worktree-local-only
                               (magit-list-repos))))))))))
     (seq-filter #'jf/workspace--worktree-git-repo-p
-                (jf/workspace--worktree-dedupe-dirs sources))))
+                (seq-uniq (mapcar (lambda (dir)
+                                    (file-name-as-directory
+                                     (expand-file-name dir)))
+                                  (seq-remove #'null sources))
+                          #'workspace--same-file-p))))
 
 (defun jf/workspace--worktree-git-repo-p (dir)
   "Return non-nil when DIR is the root (or inside) a git repository.

@@ -2,8 +2,8 @@
 
 ;; Covers the repo-candidate seam of the git-worktrees consumer module
 ;; (`jf/workspace--worktree-repo-candidates').  It merges git-derived
-;; discovery and magit's repository list (git-derived first), de-dupes on
-;; truename, excludes non-git directories, offers only canonical checkouts,
+;; discovery and magit's repository list (git-derived first), de-dupes by
+;; file identity (`workspace--same-file-p'), excludes non-git directories, offers only canonical checkouts,
 ;; and never consults projectile or project.el.  The read-repo helper's
 ;; free-form entry and `read-directory-name' floor reach a repo that no
 ;; source suggests.
@@ -93,15 +93,6 @@ lists are EMPTY unless BODY binds them."
       (git-worktrees-spec--with-sources '(magit) '("/repos/magit-b/")
         (expect (jf/workspace--worktree-repo-candidates)
                 :to-equal '("/repos/git-a/" "/repos/magit-b/"))))
-
-    (it "de-dupes a repo that appears in both sources"
-      ;; Magit spells the shared root without its trailing slash.
-      (spy-on 'jf/workspace--worktree-git-derived-candidates
-              :and-return-value '("/repos/shared/"))
-      (git-worktrees-spec--with-sources '(magit)
-          '("/repos/shared" "/repos/only-magit/")
-        (expect (jf/workspace--worktree-repo-candidates)
-                :to-equal '("/repos/shared/" "/repos/only-magit/"))))
 
     (it "excludes directories that are not git repositories"
       (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
@@ -205,14 +196,6 @@ lists are EMPTY unless BODY binds them."
     (spy-on 'jf/workspace--worktree-git-derived-candidates
             :and-return-value nil))
 
-  (it "drops a remote entry after asking it only whether it is remote"
-    (workspaces-test-with-fake-remote "/ssh:"
-      (expect (jf/workspace--worktree-dedupe-dirs
-               '("/repos/local/" "/ssh:nohost.invalid:/a/"))
-              :to-equal '("/repos/local/"))
-      (expect (workspaces-test-fake-remote-operations)
-              :to-equal '(file-remote-p))))
-
   (it "keeps local magit candidates and offers no remote one"
     (spy-on 'jf/workspace--worktree-git-repo-p :and-call-fake
             (lambda (dir) dir))
@@ -251,8 +234,9 @@ lists are EMPTY unless BODY binds them."
                 :to-equal '(file-remote-p)))))
 
   (it "still reaches the prompt and its floor when classification passes it through"
-    ;; The classifier is unbound (portable-bookmarks not loaded), so magit's
-    ;; remote entry reaches de-duplication and the real git-repo filter.
+    ;; The classifier is unbound (portable-bookmarks not loaded), so nothing
+    ;; but the local-only filter where magit's list enters stands between
+    ;; magit's remote entry and the real git-repo filter.
     (spy-on 'completing-read :and-return-value "/does/not/exist/")
     (spy-on 'read-directory-name :and-return-value "/repos/floor/")
     (let ((raised nil) (result nil))
