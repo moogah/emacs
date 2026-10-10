@@ -254,7 +254,8 @@ Preset tool lists are resolved to tool names with the existing
 - `emacs-agent-read`: `org_graph_query`, `org_graph_typed_edges`; org-roam read
   tools (`search_roam_nodes`, `list_roam_nodes`, `read_roam_node`,
   `get_roam_node_metadata`, `query_roam_backlinks`); the introspection tools (D10).
-- `emacs-agent-write`: `org_graph_write_node`, `workspace_add_layout` (D17).
+- `emacs-agent-write`: `org_graph_write_node`, `workspace_add_layout`,
+  `workspace_remove_layout` (D17).
 
 *Coupling accepted:* `gptel--known-tools` is internal to gptel. The dispatcher
 isolates that access in one function so a gptel change touches one place.
@@ -383,14 +384,19 @@ W7  layout event hooks                          deferred
 ```
 
 - **W1 — Public, name-addressed API.** List workspaces, list a workspace's
-  layouts (with W5 metadata), get a workspace by name, and answer "is layout L on
-  screen" (L is the recent layout of a workspace that has an open tab), without
-  relying on the selected frame's tab. Replaces direct `workspace--registry`
-  access (including org-graph's).
-- **W2 — Add a layout without switching.** `workspace-add-layout (ws name saved
-  &optional metadata)`: upsert into the named workspace and persist; never move
-  the recent pointer, never touch any frame, tab or buffer. Works for workspaces
-  with no open tab. Subject to W4's rules.
+  layouts (with W5 metadata, filterable by origin and source), get a workspace by
+  name, find the workspace that owns a directory (longest-prefix match on `:home`,
+  so an orchestrator that knows only its repo path can address the workspace), and
+  answer "is layout L on screen" (L is the recent layout of a workspace that has an
+  open tab), without relying on the selected frame's tab. Replaces direct
+  `workspace--registry` access (including org-graph's).
+- **W2 — Add and remove layouts without switching.** `workspace-add-layout (ws
+  name saved &optional metadata)`: upsert into the named workspace and persist;
+  never move the recent pointer, never touch any frame, tab or buffer. Works for
+  workspaces with no open tab. Subject to W4's rules. `workspace-remove-layout
+  (ws name)` removes an **agent-origin** layout that is not on screen (refusing
+  user-origin and on-screen layouts, and `home`), so layouts tied to short-lived
+  artifacts can be cleaned up when the artifact closes.
 - **W4 — Agent-write rules; autosave unchanged.** The two-state autosave model
   stays as is (the user relies on tab-switch autosave; explicit save is rare;
   revert is the safety net). What W4 adds is how programmatic writes coexist with
@@ -419,9 +425,15 @@ W7  layout event hooks                          deferred
 
   ```elisp
   (:recipe :split columns            ; or rows
-           :panes ((:file "/abs/a.org" :line 40)
-                   (:file "/abs/design.md")))
+           :panes ((:file "/abs/ask.org")
+                   (:split rows      ; a pane may itself be a split
+                    :panes ((:file "/abs/scaffold.org" :line 157)
+                            (:file "/abs/design.md" :line 88)))))
   ```
+
+  Nesting is in the MVP because the motivating case (an ask beside a stack of
+  context files) is unusable as N equal columns; window-state is already a tree,
+  so expansion stays a direct mapping. Panes in one split share space evenly.
 
   - **Apply** goes through the single choke point `workspace--restore-frameset`:
     if the effective state is a recipe, it is first expanded into a window-state
@@ -440,9 +452,9 @@ W7  layout event hooks                          deferred
     files load without loss and are upgraded on the next flush, while older code
     rejects a v4 file with its existing version notice instead of misapplying a
     recipe.
-  - **MVP scope:** file panes only. Non-file panes (magit status, diffs, …) and
-    nested splits are the deferred pane-description work, which becomes "extend
-    the recipe format".
+  - **MVP scope:** file panes, nested splits, even sizing. Pane sizes, line
+    ranges / highlighting, and non-file panes (magit status, diffs, …) are the
+    deferred pane-description work, which becomes "extend the recipe format".
   - *Alternatives considered:* building real windows in an **invisible frame** and
     capturing them — rejected: runs `after-make-frame-functions`, the macOS port
     is prone to flashing / focus theft with invisible frames, bufferlo creates
@@ -462,9 +474,10 @@ A gptel tool (in `config/workspaces/agent-tools.org`, registered only when gptel
 is loaded, mirroring org-graph's gating) in the write preset:
 
 ```
-workspace_add_layout(workspace, layout_name, split, panes, description?, source?)
+workspace_add_layout(workspace | directory, layout_name, split, panes, description?, source?)
   split: "columns" | "rows"
-  panes: [{file, line?}, ...]
+  panes: [{file, line?} | {split, panes}, ...]       ; nested splits allowed
+workspace_remove_layout(workspace | directory, layout_name)
 ```
 
 The tool's arguments *are* the W6 recipe: it validates them (workspace exists,
@@ -474,7 +487,20 @@ numbers positive), then calls `workspace-add-layout` with the recipe as
 frames and touches no tabs; the layout materializes only when the user switches to
 it. Refusals under R2 (user-origin name) and R3 (layout on screen) return a clear
 error naming the conflict so the agent can pick another name. Switching to the
-layout is the user's action.
+layout is the user's action. `workspace_remove_layout` (also in the write preset)
+removes an agent-origin layout, with the same refusals.
+
+**Motivating case: a layout per orchestrator ask.** `opsx-orchestrate` writes each
+user ask as an org file in `<repo>/.orchestrator/inbox/<ask-id>.org` and moves it to
+`cycles/<cycle>/asks/` once applied, declined or superseded. The intended use is one
+layout per open `decision` ask, named `ask/<ask-id>`, with `:source` the ask id: the
+ask file beside a stack of the files it references (code at a line, the design
+section, the review file, the blocked tasks). The orchestrator addresses the
+workspace by its repo directory, creates the layout when it writes the ask, and
+removes it when it moves the ask out of the inbox — tying the layout's lifetime to
+the ask's status rather than resolving panes by org `:ID:` (Emacs's
+`org-id-locations` does not learn of a `git mv`, and `.orchestrator/` is not
+indexed). The skill-side integration is a follow-up outside this repository (D19).
 
 ### D18. Scope stays wide during exploration; split later
 
@@ -483,6 +509,18 @@ workspaces improvements and the demonstration MVP. It will be split once the sha
 is concrete. Likely seams: (1) workspaces improvements W1, W2, W4–W6; (2) data profiles
 (D15); (3) the agent tool surface + policy + wrapper (D9–D14, D17); (4) isolated
 testing helpers (D3–D6), which may stay with (3).
+
+### D19. Follow-up outside this repository: orchestrator ask layouts
+
+`~/.claude/skills/opsx-orchestrate` (`templates/ask.md` and the flows' ask-writing
+step) should call `emacs-agent live call-write workspace_add_layout` when it writes a
+`decision` ask, and `workspace_remove_layout` when `state.py` moves the ask out of
+the inbox. It must degrade gracefully: when no live session is running (wrapper exit
+status 2) or the call fails, the ask proceeds without a layout and the cycle is never
+blocked. The one-line chat notice for a new ask may name the layout. This lands after
+`ws-agent-tool-add-layout` and the wrapper exist; it is not a task of this change.
+Layout-list clutter is bounded by the `ask/` naming convention and removal on close;
+grouping agent layouts in the switch prompt is deferred.
 
 ## Superseded decisions
 
@@ -549,8 +587,9 @@ revert with their own commits.
   tool?
 - **Environment variable name** for the data profile root, and whether
   `config/local/<role>.el` should be able to override it.
-- **Recipe format beyond the MVP** (non-file panes, nested splits, sizes) — the
+- **Recipe format beyond the MVP** (non-file panes, sizes, line ranges) — the
   deferred pane-description work; to be explored practically.
+- **Grouping agent layouts** in `workspace-switch-layout` once there are many.
 - **Default data profile** for `emacs-agent target start` when `--data` is
   omitted (`none` is the safest; `live` matches today's behavior).
 - **Screenshot tool** deferred until a graphical-target need appears.

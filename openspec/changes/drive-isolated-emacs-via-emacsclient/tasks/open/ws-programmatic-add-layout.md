@@ -1,6 +1,6 @@
 ---
 name: ws-programmatic-add-layout
-description: "workspace-add-layout: add to a named workspace without switching, with R1–R3 protection rules"
+description: "workspace-add-layout / workspace-remove-layout: change a named workspace's layouts without switching, with R1–R3 protection rules"
 change: drive-isolated-emacs-via-emacsclient
 status: blocked
 relations:
@@ -24,10 +24,15 @@ relations:
      exists with origin `user` (R2);
    - refuses when N exists with origin `agent` and `workspace-layout-on-screen-p` (R3);
    - replaces an off-screen agent layout, discarding its `:working-state`;
-   - after adding, a user rearrangement + autosave + `workspace-revert` restores S (R1).
+   - after adding, a user rearrangement + autosave + `workspace-revert` restores S (R1);
+   - `workspace-remove-layout` removes an off-screen agent layout (frame/tab/windows
+     unchanged, flush once); refuses user-origin, on-screen, and `home`; reassigns
+     the recent pointer like `workspace-delete-layout` when it named the removed one.
 2. Implement `workspace-add-layout (ws-name layout-name state &rest metadata)` using
    `workspace--upsert-group`, `workspace--layout-make`, the metadata helper, and
    `workspace--flush-state`. Do NOT call `workspace--set-recent-group`.
+   Implement `workspace-remove-layout (ws-name layout-name)` over the same pure
+   helpers `workspace-delete-layout` uses, plus the origin/on-screen/home checks.
 3. Tangle; run tests.
 
 ## Design rationale
@@ -45,3 +50,4 @@ deferred with W7.
 - design.md § Decisions 'D16. ...' (W2, W4 R1–R3)
 - specs/workspaces/spec.md § 'Programmatic layout addition'
 - specs/workspaces/spec.md § 'Protection of user layouts from programmatic writes'
+- specs/workspaces/spec.md § 'Programmatic layout removal'

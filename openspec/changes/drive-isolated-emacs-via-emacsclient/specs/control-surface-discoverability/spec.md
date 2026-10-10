@@ -32,7 +32,8 @@ Only tools named in one of these presets SHALL be callable through the `call` /
   `search_roam_nodes`, `list_roam_nodes`, `read_roam_node`,
   `get_roam_node_metadata`, `query_roam_backlinks`, and the introspection tools
   (see `agent-introspection-tools`);
-- `emacs-agent-write`: `org_graph_write_node`, `workspace_add_layout`.
+- `emacs-agent-write`: `org_graph_write_node`, `workspace_add_layout`,
+  `workspace_remove_layout`.
 
 Tools that require a gptel session buffer (scope-wrapped tools) and tools that open
 interactive UI SHALL NOT be added to either preset.

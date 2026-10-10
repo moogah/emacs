@@ -8,7 +8,9 @@ without reference to the selected frame or current tab, to:
 - list the names of all registered workspaces;
 - get a workspace by name;
 - list a named workspace's layouts, including each layout's metadata (see
-  Requirement: Layout metadata);
+  Requirement: Layout metadata), optionally filtered by origin and/or source;
+- find the workspace that owns a directory: the registered workspace whose `:home`
+  is the longest prefix of the directory's absolute path, or none;
 - report whether a named layout of a named workspace is **on screen** — that is,
   the layout is the workspace's recent layout and the workspace has an open tab.
 
@@ -20,6 +22,19 @@ Other modules SHALL use them instead of reading the internal registry directly.
 - **AND** a program lists `notes`' layouts by name
 - **THEN** it receives `notes`' layout names and metadata
 - **AND** no tab is created and the selected frame is unchanged
+
+#### Scenario: Workspace found from a nested directory
+- **WHEN** workspace `emacs-mcp` has home `~/emacs-workspaces/emacs-mcp/`
+- **AND** a program asks which workspace owns
+  `~/emacs-workspaces/emacs-mcp/emacs/openspec`
+- **THEN** the answer is `emacs-mcp`
+- **AND** a directory under no workspace home yields none
+
+#### Scenario: Listing agent layouts for one source
+- **WHEN** workspace `code` has layouts `home` (origin `user`), `ask/a1` (origin
+  `agent`, source `a1`) and `ask/a2` (origin `agent`, source `a2`)
+- **AND** a program lists `code`'s layouts filtered by origin `agent` and source `a1`
+- **THEN** only `ask/a1` is returned
 
 #### Scenario: On-screen check
 - **WHEN** workspace `code` has an open tab and its recent layout is `home`
@@ -61,6 +76,33 @@ programmatic writes.
   the rearrangement
 - **AND** the user invokes `workspace-revert`
 - **THEN** the layout is shown as originally added and its `:working-state` is nil
+
+### Requirement: Programmatic layout removal
+
+The package SHALL provide a public function that removes a named layout from a named
+workspace on an agent's behalf. It SHALL refuse, with an error naming the reason and
+without changing any state, when the layout has origin `user`, when it is on screen,
+or when it is the `home` layout. Otherwise it SHALL remove the layout, leave the
+recent-layout pointer unchanged unless it named the removed layout (in which case
+the pointer is reassigned as `workspace-delete-layout` does), touch no frame, tab,
+window or buffer, and flush the registry to disk synchronously.
+
+#### Scenario: Agent layout removed when its artifact closes
+- **WHEN** workspace `code` has layout `ask/a1` with origin `agent`, not on screen
+- **AND** a program removes `ask/a1` from `code`
+- **THEN** `code` no longer has `ask/a1`
+- **AND** the selected frame, current tab and window configuration are unchanged
+
+#### Scenario: User layout cannot be removed programmatically
+- **WHEN** workspace `code` has layout `review` with origin `user`
+- **AND** a program attempts to remove `review`
+- **THEN** the removal is refused with an error stating that `review` belongs to the
+  user, and `review` is unchanged
+
+#### Scenario: On-screen layout is not removed
+- **WHEN** layout `ask/a1` of `code` is on screen
+- **AND** a program attempts to remove it
+- **THEN** the removal is refused with an error stating that `ask/a1` is on screen
 
 ### Requirement: Layout metadata
 
@@ -121,14 +163,16 @@ replaced, discarding any `:working-state` it had.
 
 The package SHALL accept a **recipe** as a layout's `:saved-state`: a declarative
 description of the layout rather than a captured window-state. A recipe SHALL at minimum describe a
-split direction (`columns` or `rows`) and an ordered list of panes, each naming a
-file by absolute path and optionally a line number.
+split direction (`columns` or `rows`) and an ordered list of panes, where each pane
+either names a file by absolute path (optionally with a line number) or is itself a
+split with its own direction and panes, to any depth.
 
 When a layout whose effective state is a recipe is applied (by
 `workspace-switch-layout`, `workspace-restore` or `workspace-revert`), the package
 SHALL build the described windows in the selected frame through the same restore
 path used for captured states: each pane shows its file, with point at the given
-line when one is given, and panes share the frame evenly along the split direction.
+line when one is given, and the panes of each split share that split's space evenly
+along its direction.
 A pane whose file no longer exists SHALL be shown as an explanatory placeholder
 without preventing the other panes from being built.
 
@@ -142,6 +186,13 @@ captured window-state.
 - **AND** the user invokes `workspace-switch-layout` and chooses `demo`
 - **THEN** the frame shows two side-by-side windows, the left visiting `a.org` with
   point on line 40 and the right visiting `design.md`
+
+#### Scenario: Nested recipe builds a main pane beside a stack
+- **WHEN** a recipe has split `columns` with panes `ask.org` and a nested split
+  `rows` of `scaffold.org` (line 157) and `design.md`
+- **AND** the layout is applied
+- **THEN** the frame shows `ask.org` on the left, and on the right `scaffold.org`
+  above `design.md`, with point on line 157 of `scaffold.org`
 
 #### Scenario: Revert rebuilds from the recipe
 - **WHEN** the user has rearranged recipe layout `demo` and an autosave has captured
@@ -158,19 +209,26 @@ captured window-state.
 
 ### Requirement: Agent tool for adding layouts
 
-When gptel is loaded, the package SHALL register a gptel tool
-`workspace_add_layout` taking a workspace name, a layout name, a split direction, a
-list of panes (`{file, line?}`), and optional description and source. The tool
-SHALL:
+When gptel is loaded, the package SHALL register two gptel tools.
 
-- validate that the workspace exists, every file exists (relative paths resolved
-  against the workspace home), and every line number is positive, returning an
-  error that names the problem otherwise;
+`workspace_add_layout` takes a workspace — given either by name or by a directory
+the workspace owns — a layout name, a split direction, a list of panes (each
+`{file, line?}` or a nested `{split, panes}`), and optional description and source.
+It SHALL:
+
+- resolve the workspace (by name, or via the owning-directory lookup) and validate
+  that every file exists (relative paths resolved against the workspace home) and
+  every line number is positive, returning an error that names the problem
+  otherwise;
 - add the layout as a recipe with origin `agent` and the given description and
   source, via programmatic layout addition;
 - open no files and create no frames, tabs or windows;
 - return refusals from Requirement: Protection of user layouts from programmatic
   writes as errors naming the conflict.
+
+`workspace_remove_layout` takes a workspace (by name or directory) and a layout name
+and removes the layout via programmatic layout removal, returning its refusals as
+errors naming the reason.
 
 #### Scenario: Agent adds a demonstration layout
 - **WHEN** an agent calls `workspace_add_layout` for workspace `code`, layout
@@ -178,6 +236,17 @@ SHALL:
 - **THEN** `code` has a layout `demo` with origin `agent` whose saved state is the
   corresponding recipe with absolute paths
 - **AND** no buffer visiting either file was created by the call
+
+#### Scenario: Agent addresses the workspace by directory
+- **WHEN** an agent calls `workspace_add_layout` with directory
+  `~/emacs-workspaces/emacs-mcp/emacs` instead of a workspace name
+- **THEN** the layout is added to workspace `emacs-mcp`, whose home owns that
+  directory
+
+#### Scenario: Agent removes its ask layout
+- **WHEN** an agent calls `workspace_remove_layout` for an agent-origin layout that
+  is not on screen
+- **THEN** the layout is removed and the tool reports success
 
 #### Scenario: Invalid file is reported
 - **WHEN** an agent calls `workspace_add_layout` with a pane naming a file that does

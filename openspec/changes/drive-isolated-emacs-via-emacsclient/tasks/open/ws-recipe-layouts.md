@@ -14,16 +14,20 @@ relations:
 
 ## Implementation steps
 1. Specs first:
-   - `workspace--recipe-p` recognizes `(:recipe :split columns|rows :panes ((:file F :line L?) ...))`
-     and rejects captured window-states;
+   - `workspace--recipe-p` recognizes `(:recipe :split columns|rows :panes PANES)`
+     where each pane is `(:file F :line L?)` or a nested `(:split columns|rows :panes PANES)`,
+     and rejects captured window-states and malformed trees;
    - `workspace--recipe->window-state RECIPE` returns a `window-state-put`-able form:
-     a `hc` (columns) or `vc` (rows) combination of N leaves with equal `normal-width`/
-     `normal-height` fractions, each leaf's `parameters` carrying a `workspace-buffer`
+     a `hc` (columns) or `vc` (rows) combination per split level (recursing into
+     nested splits), the children of each combination with equal `normal-width`/
+     `normal-height` fractions, each leaf each leaf's `parameters` carrying a `workspace-buffer`
      with `:filename` set (and a bookmark-style position for `:line` — compute the
      position by reading the file with `insert-file-contents` into a temp buffer, NOT
      `find-file`);
    - applying a recipe layout via `workspace--restore-frameset` in a test frame shows
-     the panes in order with point on the requested line;
+     the panes in order with point on the requested line, including a nested case
+     (`columns` of `ask.org` and a `rows` stack of two files → one window left, two
+     stacked right);
    - a pane whose file is missing yields the existing restore fallback's placeholder
      buffer and the other panes still build;
    - `workspace-revert` on a recipe layout re-applies the recipe and keeps it as
@@ -43,8 +47,8 @@ its side effects (frame hooks, macOS focus/flash issues, bufferlo per-tab state,
 visiting files in the live session). A recipe is declarative: the agent's tool
 arguments are stored as-is, nothing is built until the user switches to it, and
 revert rebuilds against the current files. Expanding at apply time keeps a single
-restore path. MVP is file panes and one split direction; non-file panes and nested
-splits are deferred.
+restore path. MVP is file panes with nested splits and even sizing (nesting is needed for the
+ask-beside-context layout); sizes, line ranges and non-file panes are deferred.
 
 ## Verification
 - ./bin/tangle-org.sh config/workspaces/layouts.org

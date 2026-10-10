@@ -1,6 +1,6 @@
 ---
 name: ws-public-api
-description: "Public name-addressed workspaces API (list/get/layouts/on-screen); migrate org-graph off the internal registry"
+description: "Public name-addressed workspaces API (list/get/layouts/for-directory/on-screen); migrate org-graph off the internal registry"
 change: drive-isolated-emacs-via-emacsclient
 status: ready
 relations:
@@ -19,13 +19,17 @@ relations:
    - `workspace-get NAME` returns the workspace plist or nil;
    - `workspace-layouts NAME` returns a list of `(:name N :origin O :description D :source S)`
      for each layout-group (origin defaults to `user` until ws-layout-metadata lands —
-     read via `workspace--layout-origin` if fbound, else `user`);
+     read via `workspace--layout-origin` if fbound, else `user`), with optional
+     `:origin` / `:source` keyword filters;
+   - `workspace-for-directory DIR` returns the name of the workspace whose `:home`
+     is the longest prefix of `(file-truename DIR)` (compare truenames, with
+     trailing slashes normalized), or nil;
    - `workspace-layout-on-screen-p WS LAYOUT` is t only when LAYOUT is WS's
      `:recent-layout-group` AND WS has an open tab (`workspace--tab-index-for` over
      *all* frames — extend lookup beyond the selected frame);
    - none of the functions change frames, tabs, windows, buffers, or call
      `workspace--flush-state` (spy on it).
-2. Implement the four functions in `workspaces.org` as documented public API
+2. Implement the five functions in `workspaces.org` as documented public API
    (no `--` in names), each a thin read over the registry.
 3. Replace org-graph's direct `(gethash name workspace--registry)` in
    `discovery.org` (~line 119–126) with `workspace-get` / `workspace-names`, keeping

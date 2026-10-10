@@ -11,9 +11,11 @@ original framing of this change (isolated instances for testing config changes):
    `org-graph` nodes through the graph's own tool functions (deterministic IDs,
    taxonomy, `:agent-draft:` tagging, the write coordinator) instead of the agent
    hand-authoring org files and hoping they are well-formed.
-3. **Demonstrating completed work** — after an `opsx-orchestrate` cycle, the agent
-   prepares layouts in the relevant workspace (changed code, specs, related
-   buffers) that the user can step into and be walked through.
+3. **Demonstrating completed work and presenting asks** — after an
+   `opsx-orchestrate` cycle, the agent prepares layouts in the relevant workspace
+   (changed code, specs, related buffers) that the user can step into and be walked
+   through; and for each open orchestrator ask, a layout holding the ask file
+   beside the files it references.
 
 Use cases 2 and 3 target the user's **live** Emacs session (Emacs.app), which the
 original change explicitly excluded. The live session is the user's stable working
@@ -76,7 +78,8 @@ Exploration (2026-10-10) established three facts that shape the design:
   value, apropos, …) implemented thin over built-in Emacs and registered as gptel
   tools. Neither emcp nor ragmacs is depended on.
 - **Initial presets.** Read: org-graph query and typed-edges, org-roam read tools,
-  the introspection tools. Write: org-graph write-node, `workspace_add_layout`.
+  the introspection tools. Write: org-graph write-node, `workspace_add_layout`,
+  `workspace_remove_layout`.
 - **Live-session safeguards (new).** Calls are short and synchronous only; async
   tools use a request-id + poll protocol so the live session's main thread is never
   held waiting; every live call is recorded in an in-Emacs action log.
@@ -95,9 +98,11 @@ Exploration (2026-10-10) established three facts that shape the design:
   layout metadata (origin, description, source reference); and **recipe layouts** —
   a declarative layout description stored as the saved state and materialized only
   when the user switches to it, so creating a layout needs no frame or buffers.
-- **`workspace_add_layout` tool (new).** The MVP for the demonstration use case:
-  the agent stores a recipe layout in a named workspace without touching the
-  user's frames, tabs or buffers. Switching to it remains the user's action.
+- **`workspace_add_layout` / `workspace_remove_layout` tools (new).** The MVP for
+  the demonstration and ask use cases: the agent stores a recipe layout (nested
+  splits of file panes) in a workspace — addressed by name or by a directory it
+  owns — without touching the user's frames, tabs or buffers, and removes its own
+  layouts when the artifact they present closes. Switching to it remains the user's action.
 - **Discoverability seed (kept, reframed).** A Claude Code skill (plus a
   `CLAUDE.md` pointer) names the wrapper, the policy, and the manifest entry point;
   the manifest itself is generated live.
@@ -149,6 +154,9 @@ Exploration (2026-10-10) established three facts that shape the design:
   session is reachable only through the wrapper's tiers; raw Elisp there requires
   user agreement. Isolated targets are process- and runtime-isolated but not
   filesystem-sandboxed; their data profile decides which notes they can touch.
+- **Follow-up outside this repo:** `opsx-orchestrate` creates an `ask/<id>`
+  layout per open decision ask and removes it when the ask leaves the inbox,
+  degrading gracefully when no live Emacs is running.
 - **Likely splits:** the workspaces improvements are the first candidate to become
   their own change; the async protocol and demonstration sequencing may follow.
 - **Out of scope:** MCP entirely; containers / filesystem sandboxing; switching

@@ -21,7 +21,7 @@ relations:
    - read preset: org_graph_query, org_graph_typed_edges, search_roam_nodes,
      list_roam_nodes, read_roam_node, get_roam_node_metadata, query_roam_backlinks, and
      the introspection tool names; write preset: org_graph_write_node,
-     workspace_add_layout;
+     workspace_add_layout, workspace_remove_layout;
    - neither preset contains scope tools (category "scope"), `ask_user_questions`,
      `elisp_eval`, or the target-support control helpers.
 2. Register via `jf/gptel-preset-register` (config/gptel/presets/registration.org) with
