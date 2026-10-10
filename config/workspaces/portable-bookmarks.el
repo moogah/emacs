@@ -1129,8 +1129,9 @@ only; it has nothing to do with autosave.")
 (defvar workspace-bookmark--jump-target nil
   "The buffer the outer jump of a restore-then-jump landed in, or nil.
 Recorded by `workspace-bookmark--note-jump-target'; shown in the
-painted layout as `workspace-bookmark--jump-target-display' says, then
-cleared, by `workspace-bookmark--finish-restore'.")
+painted layout as `workspace-bookmark--jump-target-display' says, at
+`workspace-bookmark--jump-target-point', then cleared, by
+`workspace-bookmark--finish-restore'.")
 
 (defvar workspace-bookmark--jump-display nil
   "How the jump in progress asked for its target to be displayed, or nil.
@@ -1150,6 +1151,16 @@ cleared wherever the target is.  Nil means no intent was recorded, and
 `workspace-bookmark--finish-restore' shows the target with
 `pop-to-buffer-same-window'.  Never `let'-bound: the finish step runs
 from a timer.")
+
+(defvar workspace-bookmark--jump-target-point nil
+  "Where in `workspace-bookmark--jump-target' the outer jump landed, or nil.
+A marker at point in the target, recorded beside it by
+`workspace-bookmark--note-jump-target' — after the handler moved point
+to the bookmark's position — and cleared wherever the target is.
+`workspace-bookmark--finish-restore' puts it into the window showing
+the target after the display, as `bookmark--jump-via' does, because a
+display that reuses a painted window keeps that window's point.  Never
+`let'-bound: the finish step runs from a timer.")
 
 (defconst workspace-bookmark--finish-delay 0.001
   "Seconds from queuing until the restore-then-jump finish step fires.
@@ -1258,27 +1269,39 @@ POP-UP-FRAMES), by calling DISPLAY-FUNCTION on it with `pop-up-frames'
 bound to POP-UP-FRAMES — a plain jump's `pop-to-buffer-same-window'
 uses the painted layout's selected window, an other-window jump's
 `switch-to-buffer-other-window' another window, leaving the selected
-one as painted; when it is nil, with `pop-to-buffer-same-window'.  Then
-clears the target, its display intent and
-`workspace-bookmark--awaiting-jump-target'.  The clearing is an
-`unwind-protect' cleanup, so a display that signals still clears all
-three."
+one as painted; when it is nil, with `pop-to-buffer-same-window'.
+After the display, as `bookmark--jump-via' does after its own, sets
+the point of the window now showing the target (`get-buffer-window'
+with ALL-FRAMES 0) to `workspace-bookmark--jump-target-point', when
+that marker still points into the target: a display that reuses a
+window the paint already showed the file in keeps that window's
+painted point otherwise.  Then clears the target, its display intent,
+its position and `workspace-bookmark--awaiting-jump-target'.  The
+clearing is an `unwind-protect' cleanup, so a display that signals
+still clears all four."
   (unwind-protect
       (let ((target workspace-bookmark--jump-target)
-            (display workspace-bookmark--jump-target-display))
+            (display workspace-bookmark--jump-target-display)
+            (position workspace-bookmark--jump-target-point))
         (when (buffer-live-p target)
           (if display
               (let ((pop-up-frames (cdr display)))
                 (funcall (car display) target))
-            (pop-to-buffer-same-window target))))
+            (pop-to-buffer-same-window target))
+          (let ((window (get-buffer-window target 0)))
+            (when (and window
+                       (markerp position)
+                       (eq (marker-buffer position) target))
+              (set-window-point window position)))))
     (setq workspace-bookmark--jump-target nil
           workspace-bookmark--jump-target-display nil
+          workspace-bookmark--jump-target-point nil
           workspace-bookmark--awaiting-jump-target nil)))
 
 (defun workspace-bookmark--restore-for-jump (name)
   "Restore workspace NAME for a bookmark jump; return NAME.
 Calls `workspace-restore', and only once it has RETURNED clears any
-target (and its display intent) and raises
+target (and its display intent and position) and raises
 `workspace-bookmark--awaiting-jump-target', so the
 restore's own leaf jumps are never taken for the jump.  Queues
 `workspace-bookmark--finish-restore' from an `unwind-protect' cleanup —
@@ -1288,12 +1311,14 @@ than the restore's own `run-at-time' nil paint, so the paint fires
 first."
   (setq workspace-bookmark--jump-target nil
         workspace-bookmark--jump-target-display nil
+        workspace-bookmark--jump-target-point nil
         workspace-bookmark--awaiting-jump-target nil)
   (unwind-protect
       (progn
         (workspace-restore name)
         (setq workspace-bookmark--jump-target nil
               workspace-bookmark--jump-target-display nil
+              workspace-bookmark--jump-target-point nil
               workspace-bookmark--awaiting-jump-target t))
     (run-at-time workspace-bookmark--finish-delay nil
                  #'workspace-bookmark--finish-restore))
@@ -1311,13 +1336,16 @@ no longer ORIGIN, or it visits ARG's location, as it does when the file
 is the buffer the new tab inherited.  Beside it goes the outer jump's
 display intent, `workspace-bookmark--jump-display' as bound for this
 host call, into `workspace-bookmark--jump-target-display' (nil when the
-jump did not come through `bookmark--jump-via')."
+jump did not come through `bookmark--jump-via'), and where it landed,
+a marker at point — the bookmark's position, the handler having moved
+there — into `workspace-bookmark--jump-target-point'."
   (when workspace-bookmark--awaiting-jump-target
     (setq workspace-bookmark--awaiting-jump-target nil)
     (when (workspace-bookmark--landed-p origin arg)
       (setq workspace-bookmark--jump-target (current-buffer)
             workspace-bookmark--jump-target-display
-            workspace-bookmark--jump-display))))
+            workspace-bookmark--jump-display
+            workspace-bookmark--jump-target-point (point-marker)))))
 
 (defun workspace-bookmark--jump-via-advice (orig-fn bookmark-name-or-record
                                                     display-function &rest args)
