@@ -785,9 +785,12 @@ lists are EMPTY unless BODY binds them."
   ;; `default-directory'-binding correctness is asserted by having the
   ;; magit spies capture `default-directory' at call time.
 
-  (let (dd-at-main dd-at-branch)
+  ;; `:home' is a real temporary directory: the command refuses a home
+  ;; that is not an existing local directory right before its magit call.
+  (let (home dd-at-main dd-at-branch)
     (before-each
-      (setq dd-at-main nil dd-at-branch nil)
+      (setq home (file-name-as-directory (make-temp-file "gw-ws-home-" t))
+            dd-at-main nil dd-at-branch nil)
       ;; Default: a repo with no pre-existing target dir, main = "main".
       (spy-on 'jf/workspace--worktree-read-repo
               :and-return-value "/repos/source-repo/")
@@ -799,41 +802,45 @@ lists are EMPTY unless BODY binds them."
       (spy-on 'magit-worktree-branch :and-call-fake
               (lambda (&rest _) (setq dd-at-branch default-directory) nil)))
 
+    (after-each
+      (when (file-directory-p home)
+        (delete-directory home t)))
+
     (it "creates a worktree at <home>/<repo-basename> on a new branch off main"
       (let ((result (jf/workspace--add-worktree
-                     '(:name "my feature" :home "/ws/home/"))))
+                     (list :name "my feature" :home home))))
         (expect result :to-equal 'ok)
         (expect 'magit-worktree-branch :to-have-been-called-with
-                (expand-file-name "source-repo" "/ws/home/")
+                (expand-file-name "source-repo" home)
                 "my-feature" "main")))
 
     (it "defaults the branch to the sanitized workspace name"
-      (jf/workspace--add-worktree '(:name "Cool Feature!" :home "/ws/home/"))
+      (jf/workspace--add-worktree (list :name "Cool Feature!" :home home))
       ;; read-string returned its INITIAL (sanitized default) verbatim.
       (let ((args (spy-calls-args-for 'magit-worktree-branch 0)))
         (expect (nth 1 args) :to-equal "Cool-Feature!")))
 
     (it "binds default-directory to the chosen repo for both magit calls"
-      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (jf/workspace--add-worktree (list :name "feat" :home home))
       (expect dd-at-main :to-equal "/repos/source-repo/")
       (expect dd-at-branch :to-equal "/repos/source-repo/"))
 
     (it "yields two distinct child worktrees for two different repos"
       (spy-on 'jf/workspace--worktree-read-repo
               :and-return-value "/repos/alpha/")
-      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (jf/workspace--add-worktree (list :name "feat" :home home))
       (spy-on 'jf/workspace--worktree-read-repo
               :and-return-value "/repos/beta/")
-      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (jf/workspace--add-worktree (list :name "feat" :home home))
       (expect (nth 0 (spy-calls-args-for 'magit-worktree-branch 0))
-              :to-equal (expand-file-name "alpha" "/ws/home/"))
+              :to-equal (expand-file-name "alpha" home))
       (expect (nth 0 (spy-calls-args-for 'magit-worktree-branch 1))
-              :to-equal (expand-file-name "beta" "/ws/home/")))
+              :to-equal (expand-file-name "beta" home)))
 
     (it "returns (failed . _) and makes no magit call when the dir exists"
       (spy-on 'file-exists-p :and-return-value t)
       (let ((result (jf/workspace--add-worktree
-                     '(:name "feat" :home "/ws/home/"))))
+                     (list :name "feat" :home home))))
         (expect (car result) :to-equal 'failed)
         (expect (cdr result) :to-match "already exists")
         (expect 'magit-worktree-branch :not :to-have-been-called)))
@@ -842,12 +849,12 @@ lists are EMPTY unless BODY binds them."
       (spy-on 'magit-worktree-branch :and-call-fake
               (lambda (&rest _) (error "git: fatal worktree failure")))
       (let ((result (jf/workspace--add-worktree
-                     '(:name "feat" :home "/ws/home/"))))
+                     (list :name "feat" :home home))))
         (expect (car result) :to-equal 'failed)
         (expect (cdr result) :to-match "worktree failure")))
 
     (it "prompts for the source as before when the payload has no :source-repo"
-      (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+      (jf/workspace--add-worktree (list :name "feat" :home home))
       (expect 'jf/workspace--worktree-read-repo :to-have-been-called-times 1)
       (expect dd-at-main :to-equal "/repos/source-repo/"))
 
@@ -867,7 +874,7 @@ lists are EMPTY unless BODY binds them."
 
       (it "targets it without the source prompt or candidate discovery"
         (let ((result (jf/workspace--add-worktree
-                       (list :name "feat" :home "/ws/home/" :source-repo source))))
+                       (list :name "feat" :home home :source-repo source))))
           (expect result :to-equal 'ok)
           (expect 'jf/workspace--worktree-read-repo :not :to-have-been-called)
           (expect 'jf/workspace--worktree-repo-candidates :not :to-have-been-called)
@@ -876,12 +883,12 @@ lists are EMPTY unless BODY binds them."
           (expect 'magit-worktree-branch :to-have-been-called-with
                   (expand-file-name
                    (file-name-nondirectory (directory-file-name source))
-                   "/ws/home/")
+                   home)
                   "feat" "main")))
 
       (it "binds default-directory to the source itself when it is spelled without a trailing slash"
         (expect (jf/workspace--add-worktree
-                 (list :name "feat" :home "/ws/home/"
+                 (list :name "feat" :home home
                        :source-repo (directory-file-name source)))
                 :to-equal 'ok)
         (expect dd-at-main :to-equal source)
@@ -893,11 +900,49 @@ lists are EMPTY unless BODY binds them."
                            42
                            "/ssh:nohost.invalid:/repo/"))
           (let ((result (jf/workspace--add-worktree
-                         (list :name "feat" :home "/ws/home/" :source-repo bad))))
+                         (list :name "feat" :home home :source-repo bad))))
             (expect (car result) :to-equal 'failed)
             (expect (cdr result) :to-match "source repository is not a directory")))
         (expect 'jf/workspace--worktree-read-repo :not :to-have-been-called)
         (expect 'magit-main-branch :not :to-have-been-called)
+        (expect 'magit-worktree-branch :not :to-have-been-called)))
+
+    (describe "when the home is gone by the time of the magit call"
+      ;; The menu and the portable-bookmarks offer check the workspace's
+      ;; health before calling this command, but it then prompts (source,
+      ;; branch): a home deleted while a prompt is up would be recreated
+      ;; by `git worktree add <home>/<repo>'.  The command checks again
+      ;; after the prompts, right before the magit call.
+
+      (it "returns (failed . _), makes no magit call and creates no directory"
+        (spy-on 'read-string :and-call-fake
+                (lambda (_prompt &optional initial &rest _)
+                  (delete-directory home t)
+                  initial))
+        (let ((result (jf/workspace--add-worktree
+                       (list :name "feat" :home home))))
+          (expect (car result) :to-equal 'failed)
+          (expect (cdr result) :to-match "workspace home is not a local directory")
+          (expect 'read-string :to-have-been-called)
+          (expect 'magit-worktree-branch :not :to-have-been-called)
+          (expect (file-exists-p home) :to-be nil)))
+
+      (it "returns (failed . _) for a missing or non-string :home"
+        (dolist (bad (list (expand-file-name "gone/" home) nil 42))
+          (let ((result (jf/workspace--add-worktree
+                         (list :name "feat" :home bad))))
+            (expect (car result) :to-equal 'failed)
+            (expect (cdr result) :to-match "workspace home is not a local directory")))
+        (expect 'magit-worktree-branch :not :to-have-been-called)
+        (expect (file-exists-p (expand-file-name "gone/" home)) :to-be nil))
+
+      (it "returns (failed . _) for a remote home without contacting the host"
+        (let ((result (workspaces-test-with-fake-remote "/wsx-remote:"
+                        (jf/workspace--add-worktree
+                         (list :name "feat" :home "/wsx-remote:host:/ws/home/")))))
+          (expect (car result) :to-equal 'failed)
+          (expect (cdr result) :to-match "workspace home is not a local directory"))
+        (expect workspaces-test-fake-remote-touches :to-be nil)
         (expect 'magit-worktree-branch :not :to-have-been-called)))
 
     (it "derives worktree state — never stores :repo/:branch on the payload"
@@ -907,12 +952,12 @@ lists are EMPTY unless BODY binds them."
       ;; such as :repo or :branch.  After a successful add, the payload
       ;; carries exactly the keys it was handed — the repo and branch
       ;; live in git/the filesystem, the single source of truth.
-      (let ((payload (list :name "feat" :home "/ws/home/")))
+      (let ((payload (list :name "feat" :home home)))
         (expect (jf/workspace--add-worktree payload) :to-equal 'ok)
         (expect (plist-member payload :repo) :to-be nil)
         (expect (plist-member payload :branch) :to-be nil)
         ;; The plist is unchanged from what was passed in.
-        (expect payload :to-equal '(:name "feat" :home "/ws/home/"))))))
+        (expect payload :to-equal (list :name "feat" :home home))))))
 
 (describe "jf/workspace--add-worktree with the source answered at the prompt"
   ;; worktree-read-repo-trailing-slash: the prompt's answer is bound as
@@ -921,10 +966,11 @@ lists are EMPTY unless BODY binds them."
   ;; each arm of the prompt must hand back a directory name.  The real
   ;; `jf/workspace--worktree-read-repo' runs; only its own prompts, the
   ;; branch prompt and magit are stubbed.
-  :var (source dd-at-main dd-at-branch)
+  :var (source home dd-at-main dd-at-branch)
 
   (before-each
     (setq source (file-name-as-directory (make-temp-file "gw-prompted-repo-" t))
+          home (file-name-as-directory (make-temp-file "gw-prompted-home-" t))
           dd-at-main nil
           dd-at-branch nil)
     (spy-on 'jf/workspace--worktree-repo-candidates :and-return-value nil)
@@ -936,12 +982,13 @@ lists are EMPTY unless BODY binds them."
             (lambda (&rest _) (setq dd-at-branch default-directory) nil)))
 
   (after-each
-    (delete-directory source t))
+    (delete-directory source t)
+    (delete-directory home t))
 
   (it "binds default-directory to a typed path spelled without a trailing slash"
     (spy-on 'completing-read :and-return-value (directory-file-name source))
     (spy-on 'read-directory-name)
-    (expect (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+    (expect (jf/workspace--add-worktree (list :name "feat" :home home))
             :to-equal 'ok)
     (expect 'read-directory-name :not :to-have-been-called)
     (expect dd-at-main :to-equal source)
@@ -950,7 +997,7 @@ lists are EMPTY unless BODY binds them."
   (it "binds default-directory to the floor's answer spelled without a trailing slash"
     (spy-on 'completing-read :and-return-value "/does/not/exist")
     (spy-on 'read-directory-name :and-return-value (directory-file-name source))
-    (expect (jf/workspace--add-worktree '(:name "feat" :home "/ws/home/"))
+    (expect (jf/workspace--add-worktree (list :name "feat" :home home))
             :to-equal 'ok)
     (expect 'read-directory-name :to-have-been-called)
     (expect dd-at-main :to-equal source)

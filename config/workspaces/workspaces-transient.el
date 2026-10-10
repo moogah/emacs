@@ -17,7 +17,9 @@ without a connection)."
   (workspace--healthy-p (workspace--menu-current)))
 
 (defun workspace--menu-broken-p ()
-  "Return non-nil when the current tab is a broken workspace."
+  "Return non-nil when the current tab is a broken workspace.
+Reads only the load-time broken tag: a home deleted after load is
+unhealthy (`workspace--menu-healthy-p' nil) but not broken."
   (let ((w (workspace--menu-current)))
     (and w (workspace--broken-p w) t)))
 
