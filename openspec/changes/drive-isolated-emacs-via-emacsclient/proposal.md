@@ -1,128 +1,158 @@
 ## Why
 
 External shell-capable LLM clients (Claude Code, via its Bash tool) have no
-supported way to spin up an isolated Emacs instance that loads the **full
-configuration under test**, drive it, and observe the result — without a human at
-the GUI and without risking a running Emacs. This repo already owns the hard part
-of isolation (worktree-isolated `runtime/` via `bin/emacs-isolated.sh`); what's
-missing is a documented, scriptable way for an agent to *connect into* such an
-instance and inspect it.
+supported, *safe* way to drive Emacs. The need turned out to be broader than the
+original framing of this change (isolated instances for testing config changes):
 
-A prior exploration (the discarded `connect-external-llm-clients-mcp-broker`
-change) proposed an in-Emacs MCP broker built on the `emcp` package to expose this
-over MCP-over-HTTP. Hands-on verification showed that layer is unnecessary for a
-shell-capable client: **`emacsclient` already provides a more direct and richer
-connection to a running Emacs than an MCP tool surface would.** A client that can
-run a shell needs no tool-server — `emacsclient --eval` *is* the tool surface, and
-it can evaluate arbitrary Elisp in the real loaded config rather than a fixed,
-pre-defined set of MCP tools. This change pursues that direct path and drops MCP,
-the broker daemon, and the `emcp` dependency entirely.
+1. **Testing config changes** — start an isolated Emacs loading a worktree's
+   configuration under test, drive it, observe it, dispose of it. The original use
+   case; still central.
+2. **Using Emacs as an API over the user's data** — e.g. reading and writing
+   `org-graph` nodes through the graph's own tool functions (deterministic IDs,
+   taxonomy, `:agent-draft:` tagging, the write coordinator) instead of the agent
+   hand-authoring org files and hoping they are well-formed.
+3. **Demonstrating completed work** — after an `opsx-orchestrate` cycle, the agent
+   prepares layouts in the relevant workspace (changed code, specs, related
+   buffers) that the user can step into and be walked through.
+
+Use cases 2 and 3 target the user's **live** Emacs session (Emacs.app), which the
+original change explicitly excluded. The live session is the user's stable working
+environment: arbitrary Elisp evaluated there can leave it in an unexpected state.
+So the change now has to answer a question it previously side-stepped: **when is it
+appropriate to drive the live session, when should an isolated instance be used,
+and what is the agent allowed to do in each?**
+
+`emacsclient` remains the transport (hands-on verification showed it is a more
+direct and richer channel than the MCP broker this change originally replaced). The
+preference order also stands: the agent uses a **curated API** of tool functions
+first and falls back to ad-hoc Elisp only when no API exists — and on the live
+session, only with the user's agreement.
+
+Exploration (2026-10-10) established three facts that shape the design:
+
+- **gptel's tool registry already is the API registry.** `org-graph` exposes its
+  agent surface as `gptel-make-tool` definitions with typed argument metadata. The
+  original plan to build a separate `jf/agent/*` registry and *generate* gptel tools
+  from it is inverted: gptel's registry is the source, and the emacsclient surface
+  harvests from it.
+- **Isolation protects against bad code, not against damaged data.** An isolated
+  instance has its own `runtime/` (package, vulpea, org-roam and org-id databases),
+  but every note path still points at the real `~/org/`. Its writes bypass the live
+  session's in-process write coordinator. Data operations are therefore *safer* in
+  the live session; isolated instances are for exercising unmerged code — and need
+  an explicit **data profile** (live / scratch vault / none) to be safe for data
+  work such as developing org-graph itself.
+- **The workspaces package cannot yet be driven programmatically.** Every layout
+  operation captures the selected frame of the current tab, and every accessor is
+  internal. Rather than working around this (e.g. building layouts in an invisible
+  frame), the change identifies the improvements to `workspaces` it depends on —
+  most notably declarative recipe layouts.
 
 ## What Changes
 
-- **New: isolated Emacs instances as `emacsclient`-controllable targets.** A target
-  is a headless Emacs server started via `bin/emacs-isolated.sh --daemon=<name>`
-  (full worktree config + isolated `runtime/`) or `emacs -Q --daemon=<name>` (bare).
-  It is addressed by its server-socket name and driven with
-  `emacsclient -s <name> --eval '(form)'`. Verified working today against the full
-  config (26 modules, evil, gptel) on Emacs 30.1.
-- **Clarified mechanism (corrects a misconception in the prior change):** the
-  requirement for client control is `server-start` (a named server socket), **not**
-  `--daemon`. `--daemon=<name>` is simply the convenient way to obtain a headless,
-  backgrounded server with a unique name. Any long-lived Emacs that calls
-  `(server-start)` is equally controllable.
-- **New: display-free observation primitive.** A `jf/frame-state` support function
-  serializes a target's observable state to JSON (current buffer name + bounded
-  contents, window configuration, point, minibuffer state, recent echo-area
-  messages), so a client with no display can parse and assert on Emacs state.
-  Borrowed from `llm-test`, carried over from the discarded change.
-- **New: small control helpers** (literal `type-text`, kbd-notation `send-keys`,
-  `run-command`) loaded into the target as ordinary Elisp, invoked via
-  `emacsclient --eval`. `eval-elisp` needs no helper — it is `emacsclient --eval`
-  directly.
-- **New: layered discoverability (replaces MCP's tool manifest).** A curated
-  `jf/agent/*` operation set (baseline ported from emcp — apropos/describe/
-  find-definition/get-variable/set-variable plus this change's eval/type-text/
-  send-keys/run-command/frame-state) backed by a frontend-agnostic tool-spec registry
-  with typed-arg metadata, a self-describing `(jf/agent-api)` manifest generated at call
-  time from that registry, per-operation drill-down via standard introspection, and a
-  minimal static seed (skill + `CLAUDE.md` pointer + RECIPES) naming only the entry
-  point. Raw `--eval` stays as the escape hatch beneath. This is how a shell-capable
-  client learns what it can call without a static, drift-prone tool list. emcp is used
-  as **prior art only — reimplemented thin over built-in Emacs, with no `emcp`
-  dependency.**
-- **New: frames attached on demand.** A headless target carries only its internal
-  terminal frame; tests needing real keymap/redisplay behavior attach a real frame
-  with `emacsclient -s <name> -c` (GUI) or `-t` (TTY). This resolves the prior
-  design's open question about key-driven tools needing a frame.
-- **New: documented client recipes** — start / eval / observe / attach-frame /
-  dispose as `emacsclient` one-liners an agent runs via Bash. The "registry" of live
-  targets is just the socket files on disk (`ls` the server-socket dir); no in-Elisp
-  registry, no broker process.
-- **Removed (vs. the discarded change):** the MCP broker daemon, the `emcp`
-  dependency (and its Emacs 30.1 floor + `http-server`/`elisp-refs`/`magit-section`
-  transitive deps), the in-Elisp target registry, and the async-`make-process`
-  dispatch discipline. The latter existed only because a single-threaded broker
-  multiplexed all clients; with direct `emacsclient`, each call is its own OS process
-  with its own timeout and the OS/client handles concurrency.
+- **Target policy (new).** Two kinds of target — the **live session** (default
+  server socket of the running Emacs.app) and **isolated targets** (named sockets,
+  started from a worktree) — with a documented rule for choosing between them
+  (data operations → live; unmerged code / risky experimentation → isolated) and a
+  per-target permission tier:
+  - `call` — invoke a tool from the read preset. Allowed on any target.
+  - `call-write` — invoke a tool from the write preset. Allowed on the live session
+    through the API (writes go through the owning module's coordinator).
+  - `eval` — raw Elisp. Free on isolated targets; on the live session only with
+    explicit user agreement.
+- **A `bin/emacs-agent` wrapper (new)** as the single enforcement chokepoint. It
+  requires the target to be named explicitly (bare `emacsclient --eval` silently
+  hits the live session), exposes the tiers as distinct subcommands so Claude Code
+  permission rules can allow / ask / deny each one, and starts / lists / disposes
+  isolated targets.
+- **Harvested tool surface (replaces the planned standalone registry).** The
+  manifest lists gptel tools, curated by two gptel presets —
+  `emacs-agent-read` and `emacs-agent-write` — which are the allowlists. An
+  in-Emacs dispatcher invokes a tool by name with JSON arguments, mapping them the
+  way gptel itself does, and enforces preset membership per tier. The same presets
+  can drive an in-Emacs gptel session, so one curated list serves both frontends.
+- **Owned introspection tools (new, replaces the emcp-derived baseline).** A small
+  set of read-only introspection tools (describe symbol, find definition, variable
+  value, apropos, …) implemented thin over built-in Emacs and registered as gptel
+  tools. Neither emcp nor ragmacs is depended on.
+- **Initial presets.** Read: org-graph query and typed-edges, org-roam read tools,
+  the introspection tools. Write: org-graph write-node, `workspace_add_layout`.
+- **Live-session safeguards (new).** Calls are short and synchronous only; async
+  tools use a request-id + poll protocol so the live session's main thread is never
+  held waiting; every live call is recorded in an in-Emacs action log.
+- **Isolated targets (kept, extended).** Start / address / observe / attach-frame /
+  dispose via `emacsclient` and socket names, as before, plus a **data profile**
+  chosen at start: `live` (real vault), `scratch:<dir>`, or `none`. Requires a new
+  early override (environment variable read before modules load) so `org-roam`,
+  agenda, capture and gptel paths follow the profile, not just org-graph's.
+- **Frame-state observation and control helpers (kept).** `jf/frame-state` and
+  `type-text` / `send-keys` / `run-command` remain the drive-and-observe surface
+  for isolated testing.
+- **Workspaces improvements (new, likely the first split-off).** A public,
+  name-addressed workspaces API; adding a layout to a named workspace without
+  switching to it or moving its recent pointer; rules for how programmatic
+  writes coexist with the user's autosaved working state (autosave itself is kept);
+  layout metadata (origin, description, source reference); and **recipe layouts** —
+  a declarative layout description stored as the saved state and materialized only
+  when the user switches to it, so creating a layout needs no frame or buffers.
+- **`workspace_add_layout` tool (new).** The MVP for the demonstration use case:
+  the agent stores a recipe layout in a named workspace without touching the
+  user's frames, tabs or buffers. Switching to it remains the user's action.
+- **Discoverability seed (kept, reframed).** A Claude Code skill (plus a
+  `CLAUDE.md` pointer) names the wrapper, the policy, and the manifest entry point;
+  the manifest itself is generated live.
 
 ## Capabilities
 
 ### New Capabilities
-- `isolated-emacs-targets`: Starting, addressing, and disposing isolated Emacs
-  *server* targets — full-config (worktree `runtime/`) or bare (`-Q`) — via
-  `bin/emacs-isolated.sh --daemon` / `emacs -Q --daemon`, addressed by server-socket
-  name, controlled over the `emacsclient` channel; process/session/runtime isolation
-  and crash containment (automatic, since targets are separate OS processes); the
-  documented isolation boundary (shared filesystem, trusted-clients-only). Carried
-  over and simplified from the discarded change (registry → socket files; no broker).
-- `emacs-control-tools`: The drive surface exposed via `emacsclient --eval` —
-  `eval-elisp` (direct), and target-side helpers `type-text`, `send-keys`,
-  `run-command` — plus the documented Bash recipes and on-demand frame attachment.
-- `frame-state-observation`: The display-free observation primitive — target state
-  serialized to JSON (current buffer + bounded/truncated contents, windows, point,
-  minibuffer, echo area), with the optional screenshot path available only when a
-  target has a graphical frame. Carried over from the discarded change.
-- `control-surface-discoverability`: How a shell-capable client *learns* what it can
-  call — the layer that replaces MCP's tool manifest. A curated `jf/agent/*` set of
-  intention-revealing operations (baseline ported from emcp as prior art), backed by a
-  frontend-agnostic tool-spec registry carrying typed-arg metadata; a self-describing
-  runtime manifest `(jf/agent-api)` generated from that registry (so it cannot drift);
-  per-operation drill-down via standard introspection; and a minimal static bootstrap
-  seed (skill + `CLAUDE.md` pointer + RECIPES) that names the entry point without
-  enumerating operations. The registry is designed so a future gptel adapter can
-  register the same operations as `gptel-make-tool` entries with no core changes. Raw
-  `--eval` (in `emacs-control-tools`) remains the escape hatch beneath it.
+- `agent-target-policy`: The two target kinds, the rule for choosing between them,
+  the `call` / `call-write` / `eval` tiers and what each target permits, the
+  `bin/emacs-agent` wrapper as the enforcement chokepoint and its mapping onto
+  Claude Code permission rules, explicit target naming, and the live-session
+  safeguards (short synchronous calls, async request/poll protocol, action log).
+- `agent-introspection-tools`: The owned, read-only introspection tool set,
+  registered as gptel tools.
+
+### Modified (within this change, not yet archived)
+- `isolated-emacs-targets`: Adds data profiles (`live` / `scratch:<dir>` / `none`)
+  and the early path override they require; targets are started via the wrapper.
+- `control-surface-discoverability`: The registry is gptel's tool registry curated
+  by the `emacs-agent-read` / `emacs-agent-write` presets; the manifest and
+  dispatcher operate over it; the static seed describes the wrapper and policy.
+  The standalone `jf/agent/*` registry and the frontend-agnostic metadata seam are
+  removed.
+- `emacs-control-tools`: Raw eval becomes the `eval` tier, gated per target by
+  `agent-target-policy`.
+- `frame-state-observation`: Unchanged in substance.
 
 ### Modified Capabilities
-<!-- None. This is purely additive new code in a new config/ module. gptel is out
-     of scope (inverse direction). No existing spec's requirements change. -->
+- `workspaces`: Public name-addressed API; add-layout-without-switching;
+  agent-write rules against working state; layout metadata; recipe layouts.
+- `workspace-integrations`: Possibly a layout-added hook (deferred; see design).
 
 ## Impact
 
-- **New code area** (no existing module's behavior changed): a new literate
-  `config/` module providing `jf/frame-state` and the control helpers, plus a client
-  recipes doc and optionally a thin convenience wrapper script.
-- **Reuses** `bin/emacs-isolated.sh`, the worktree/`runtime/` isolation model, and
-  `emacsclient`/Emacs server mode as the control channel. The script's existing
-  arg pass-through already forwards `--daemon=<name>` to Emacs; no script change is
-  strictly required, though a small convenience flag may be added.
-- **Dependencies removed vs. prior change:** `emcp` and everything it dragged in.
-  Net new external dependency: none beyond `emacsclient` + Emacs server mode, both
-  already present.
-- **Security/trust posture:** targets are isolated from the user's live session and
-  from each other by process + `runtime/` separation, but are **not** filesystem
-  sandboxed (a target shares the host filesystem). Acceptable for a user-driven
-  testing tool exercising the user's own code; control is local-only via the Unix
-  socket and must not be exposed to untrusted clients.
-- **Supersedes** `connect-external-llm-clients-mcp-broker` (deleted as part of this
-  change; its MCP architecture is obsolete). The prior-art survey
-  (emcp / emacs-jail-mcp / llm-test) and the rationale for rejecting MCP are carried
-  into this change's `design.md`.
-- **Planned sibling (not this change):** a gptel adapter that registers the same
-  `jf/agent/*` operations as `gptel-make-tool` entries. This change builds the
-  frontend-agnostic registry it will consume (see `design.md` D11); the adapter and its
-  gptel-subsystem spec land separately so gptel's specs stay isolated.
-- **Out of scope:** inspecting/driving the user's *live* Emacs session (that is
-  `emcp`'s job), the gptel adapter code itself (planned sibling, above), filesystem
-  sandboxing / containers, and MCP entirely.
+- **New code:** a literate `config/` module holding the dispatcher, manifest,
+  presets, introspection tools and target-support helpers; `bin/emacs-agent`;
+  a Claude Code skill.
+- **Modified code:** `config/workspaces/` (W1, W2, W4–W6 in design), a gptel tool
+  definition for `workspace_add_layout`, and an early path override in
+  `early-init.el` / `config/core/defaults.org` read by org-roam, org, gptel and
+  org-graph.
+- **Depends on** `org-graph` (now on main) and gptel's tool registry
+  (`gptel--known-tools`, an internal variable — a coupling accepted deliberately).
+- **Dependencies:** none added. emcp and ragmacs are prior art only; removing
+  ragmacs from `community-tools` is a candidate follow-up once the owned
+  introspection tools exist (it also removes ragmacs's `elisp_eval` tool from the
+  registry).
+- **Security/trust posture:** control is local-only via Unix sockets. The live
+  session is reachable only through the wrapper's tiers; raw Elisp there requires
+  user agreement. Isolated targets are process- and runtime-isolated but not
+  filesystem-sandboxed; their data profile decides which notes they can touch.
+- **Likely splits:** the workspaces improvements are the first candidate to become
+  their own change; the async protocol and demonstration sequencing may follow.
+- **Out of scope:** MCP entirely; containers / filesystem sandboxing; switching
+  layouts when the user acts and narrated walkthroughs (future work); the pane
+  description format for layouts (to be explored practically later).
+- **Name:** the change directory is still `drive-isolated-emacs-via-emacsclient`,
+  which no longer describes its scope; renaming is pending a decision.
