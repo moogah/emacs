@@ -154,6 +154,22 @@ HOME.  Never signals."
                   (not (workspace--same-file-p
                         path workspaces-default-parent-directory)))))))
 
+(defun workspace--unregister (name)
+  "Remove workspace NAME from the registry, close its tab, flush state.
+The unregister steps shared by `workspace-delete' and `workspace-purge'.
+Touches nothing under NAME's home directory."
+  ;; Capture the tab index BEFORE the remhash (`workspace--tab-index-for'
+  ;; is registry-gated), then unregister BEFORE closing the tab.  Closing
+  ;; the current tab fires the tab-switch autosave advice; unregistering
+  ;; first makes `workspace--current-name' return nil so the advice
+  ;; no-ops — we neither capture nor flush working-state for a workspace
+  ;; being removed, and the only disk write is the explicit flush below.
+  (let ((tab-idx (workspace--tab-index-for name)))
+    (remhash name workspace--registry)
+    (when tab-idx
+      (tab-bar-close-tab tab-idx)))
+  (workspace--flush-state))
+
 (defun workspace-delete (name)
   "Remove workspace NAME from the registry and close its tab.
 The home directory and all its contents (including .git/, home.org,
@@ -166,17 +182,7 @@ Interactively, completes over registered workspace names."
                           (workspace--registered-names) nil t)))
   (unless (gethash name workspace--registry)
     (user-error "No workspace named %s" name))
-  ;; Capture the tab index BEFORE the remhash (`workspace--tab-index-for'
-  ;; is registry-gated), then unregister BEFORE closing the tab.  Closing
-  ;; the current tab fires the tab-switch autosave advice; unregistering
-  ;; first makes `workspace--current-name' return nil so the advice
-  ;; no-ops — we neither capture nor flush working-state for a workspace
-  ;; we are deleting, and the only disk write is the explicit flush below.
-  (let ((tab-idx (workspace--tab-index-for name)))
-    (remhash name workspace--registry)
-    (when tab-idx
-      (tab-bar-close-tab tab-idx)))
-  (workspace--flush-state)
+  (workspace--unregister name)
   (message "Workspace %s unregistered (home directory left on disk)" name))
 
 (defun workspace-purge (name)
@@ -187,7 +193,12 @@ Refuses to operate when `:home' is not a proper descendant of
 `workspaces-default-parent-directory' (the parent itself included)
 unless a prefix argument is supplied.  This guards against accidentally
 purging an anchored external project (e.g., =~/code/myproj/=), or the
-parent that holds every scaffolded workspace.
+parent that holds every scaffolded workspace.  Scope is checked before
+the prompt and once more after the confirmation, before anything is
+changed: a home that left scope while the prompt was open is refused
+with the workspace still registered, its tab open and nothing flushed.
+That answer is the only one the destructive steps (unregister, tab
+close, state flush, integration teardown, recursive delete) rest on.
 
 For broken-state workspaces (=:home= missing on disk), no
 filesystem deletion is attempted — the registry entry is still
@@ -231,18 +242,18 @@ no deletion."
     (unless (or remote
                 (yes-or-no-p (format "Recursively delete %s? " home)))
       (user-error "Cancelled"))
+    ;; The one decision point: the filesystem can change while the prompt
+    ;; is open (a missing parent reappearing as a symlink out of the
+    ;; default parent), so scope is asked again here, before the first
+    ;; irreversible step.  Nothing below asks it again.
+    (unless (or remote
+                current-prefix-arg
+                (workspace--purge-in-scope-p home))
+      (user-error "Not deleting %s: it left %s while you were confirming"
+                  home workspaces-default-parent-directory))
     ;; Unregister first; even if delete-directory errors below the
-    ;; registry is already clean.  Unregistering BEFORE closing the tab
-    ;; also makes the tab-switch autosave advice no-op (the tab is no
-    ;; longer a registered workspace), so the only disk write here is the
-    ;; explicit flush below — not a redundant working-state flush for a
-    ;; workspace being purged.  Tab index is captured before the remhash
-    ;; (`workspace--tab-index-for' is registry-gated).
-    (let ((tab-idx (workspace--tab-index-for name)))
-      (remhash name workspace--registry)
-      (when tab-idx
-        (tab-bar-close-tab tab-idx)))
-    (workspace--flush-state)
+    ;; registry is already clean.
+    (workspace--unregister name)
     ;; Filesystem delete (best-effort; broken-home case has nothing
     ;; to do — :home is already absent).
     (when (and (not remote) (file-directory-p home))
@@ -254,15 +265,6 @@ no deletion."
       ;; is surfaced via `message' but NEVER aborts the purge.  Fires on
       ;; purge only; `workspace-delete' leaves :home intact and so has
       ;; nothing to tear down.
-      ;; Re-check scope right before teardown and the recursive delete:
-      ;; the filesystem can change while the confirmation prompt is open
-      ;; (a missing parent reappearing as a symlink out of the default
-      ;; parent).
-      (unless (or current-prefix-arg
-                  (workspace--purge-in-scope-p home))
-        (user-error
-         "Not deleting %s: it left %s while you were confirming. The registry entry is already removed."
-         home workspaces-default-parent-directory))
       (workspace--dispatch-purge-integrations name home 'purge)
       (delete-directory home t))
     (message "Workspace %s purged" name)))
