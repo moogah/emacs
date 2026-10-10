@@ -641,4 +641,32 @@ Nothing is deleted."
             (expect (workspace-purge "moving") :to-throw 'user-error))))
       (expect deleted :to-be nil)
       (expect 'workspace--dispatch-purge-integrations :not :to-have-been-called)
-      (expect (file-directory-p home) :to-be t))))
+      (expect (file-directory-p home) :to-be t)))
+
+  ;; Scenario: workspaces § Scope is re-checked after the prompt
+  (it "leaves the workspace registered, its tab open and its home on disk when the home left scope during the prompt"
+    (let* ((home (wdp-spec--seed-home
+                  (expand-file-name "moving" wdp-spec--tmp-parent)))
+           (deleted nil)
+           (in-scope t)
+           tabs-before)
+      (wdp-spec--make-workspace "moving" home)
+      (tab-bar-new-tab)
+      (tab-bar-rename-tab "moving")
+      (setq tabs-before (length (frame-parameter nil 'tabs)))
+      (cl-letf (((symbol-function 'workspace--purge-in-scope-p)
+                 (lambda (&rest _) in-scope))
+                ((symbol-function 'yes-or-no-p)
+                 (lambda (&rest _) (setq in-scope nil) t)))
+        (let ((current-prefix-arg nil))
+          (wdp-spec--recording-deletes deleted
+            (expect (workspace-purge "moving") :to-throw 'user-error))))
+      (expect deleted :to-be nil)
+      (expect 'workspace--dispatch-purge-integrations :not :to-have-been-called)
+      (expect (file-directory-p home) :to-be t)
+      ;; Nothing irreversible happened before the decision: the user asked
+      ;; for a purge and got neither a purge nor a delete.
+      (expect (gethash "moving" workspace--registry) :not :to-be nil)
+      (expect (length (frame-parameter nil 'tabs)) :to-equal tabs-before)
+      (expect (workspace--tab-index-for "moving") :not :to-be nil)
+      (expect 'workspace--flush-state :not :to-have-been-called))))
