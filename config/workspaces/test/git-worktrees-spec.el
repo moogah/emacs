@@ -334,6 +334,26 @@ lists are EMPTY unless BODY binds them."
           (expect (jf/workspace--worktree-repo-candidates)
                   :to-equal (list repo other))))))
 
+  (it "offers a repository once, at its first position, when a later source names it through a symbolic link"
+    ;; Scenario: workspace-git-worktrees § Two spellings of one repository are one candidate
+    ;; seam/worktree-candidate-identity.  The merge point itself is driven:
+    ;; with the classifier unbound, magit's spellings reach it as magit
+    ;; gives them (a bound classifier would already have respelled the link
+    ;; as git's main-worktree path).  Unlike the /var spec above, the link
+    ;; is made here, so the spec runs wherever symbolic links can be made.
+    (let ((jf/emacs-dir nil)
+          (alias (expand-file-name
+                  "alias" (workspace-bookmark-fixtures-temp-dir "gw-cand-link-"))))
+      (make-symbolic-link (directory-file-name repo) alias)
+      (spy-on 'jf/workspace--worktree-git-derived-candidates
+              :and-return-value (list repo))
+      (git-worktrees-spec--with-sources '(magit) (list other alias)
+        (cl-letf (((symbol-function
+                    'workspace-bookmark-canonical-checkouts-in-view)
+                   nil))
+          (expect (jf/workspace--worktree-repo-candidates)
+                  :to-equal (list repo other))))))
+
   (it "still excludes directories that are not git repositories"
     (let ((jf/emacs-dir nil)
           (plain (workspace-bookmark-fixtures-temp-dir "gw-cand-plain-")))

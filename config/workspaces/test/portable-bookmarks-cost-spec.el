@@ -27,6 +27,8 @@
 (require 'buttercup)
 (require 'cl-lib)
 (require 'seq)
+(require 'map)
+(require 'bookmark)
 
 (defconst portable-bookmarks-cost-spec--this-dir
   (file-name-directory (or load-file-name buffer-file-name))
@@ -36,6 +38,17 @@
                         portable-bookmarks-cost-spec--this-dir))
 (load (expand-file-name "../portable-bookmarks.el"
                         portable-bookmarks-cost-spec--this-dir))
+;; The layout-capture block drives core's capture walk.  Under the harness
+;; init.el has loaded the workspaces package; load the modules that walk
+;; needs by relative path only when it has not.
+(unless (fboundp 'workspace--capture-frameset)
+  (let ((dir portable-bookmarks-cost-spec--this-dir))
+    (load (expand-file-name "../tabs.el" dir))
+    (unless (featurep 'bufferlo)
+      (defalias 'bufferlo-mode (lambda (&optional _) nil))
+      (provide 'bufferlo))
+    (load (expand-file-name "../buffer-membership.el" dir))
+    (load (expand-file-name "../layouts.el" dir))))
 
 (defvar jf/emacs-dir)
 
@@ -428,5 +441,155 @@ CANONICAL, when non-nil, is bound as `jf/emacs-dir' so that it is in view."
             :to-be nil)
     (expect (workspace-bookmark-canonical-checkouts-in-view (list nil 42 repo))
             :to-equal (list repo))))
+
+;;; Behavioral — the stamp seam during a layout capture
+;;
+;; seam/capture-stamp-cost (design.md of review-followups-2026-10-10, D4).
+;; Every layout capture — a tab switch, an idle autosave, `kill-emacs' —
+;; stamps one record per window leaf through `bookmark-make-record'.  Real
+;; git, real windows and the real capture walk (`workspace--capture-frameset');
+;; the spawn count is the call-through spy on `workspace-bookmark--git',
+;; counted per git subcommand.  A spy installed between two captures counts
+;; only the second.  The three-leaf, one-directory budget of the same
+;; scenario is pending in review-findings-2026-10-10-spec.el until promoted
+;; here.
+
+(defun portable-bookmarks-cost-spec--show (files)
+  "Show each of FILES in a window of its own, the last one selected.
+Windows alternate between a split to the right and one below, so three
+leaves fit a batch frame."
+  (delete-other-windows)
+  (find-file (car files))
+  (let ((right t))
+    (dolist (file (cdr files))
+      (select-window (if right (split-window-right) (split-window-below)))
+      (setq right (not right))
+      (find-file file))))
+
+(defun portable-bookmarks-cost-spec--leaf-stamps (state)
+  "Return the (IDENTITY . RELPATH) stamped on each leaf of window-state STATE.
+In leaf order; nil for a leaf whose record carries no stamp."
+  (let ((stamps nil))
+    (workspace--window-state-walk-leaves
+     state
+     (lambda (leaf)
+       (let* ((ws-buffer (map-elt (map-elt (cdr leaf) 'parameters)
+                                  'workspace-buffer))
+              (record (and ws-buffer (workspace-buffer-bookmark ws-buffer)))
+              (identity (and record (bookmark-prop-get
+                                     record workspace-bookmark-repo-property))))
+         (push (and identity
+                    (cons identity (bookmark-prop-get
+                                    record workspace-bookmark-relpath-property)))
+               stamps))
+       leaf))
+    (nreverse stamps)))
+
+(defun portable-bookmarks-cost-spec--git-calls (&optional subcommand)
+  "Return how many spied `workspace-bookmark--git' calls ran SUBCOMMAND.
+Every call when SUBCOMMAND is nil.  A call's subcommand is its first
+argument after the directory that is not an option."
+  (seq-count (lambda (args)
+               (or (null subcommand)
+                   (equal subcommand
+                          (seq-find (lambda (arg)
+                                      (and (stringp arg)
+                                           (not (string-prefix-p "-" arg))))
+                                    (cdr args)))))
+             (spy-calls-all-args 'workspace-bookmark--git)))
+
+(defun portable-bookmarks-cost-spec--index-mtime (git-dir)
+  "Return the modification time of GIT-DIR's `index'."
+  (file-attribute-modification-time
+   (file-attributes (expand-file-name "index" git-dir))))
+
+(defun portable-bookmarks-cost-spec--bump-index (git-dir)
+  "Move the modification time of GIT-DIR's `index' ten seconds ahead.
+The index's content is unchanged.  Remembered coordinates keyed on that
+time are no longer reused; the identity memo, keyed on the config files,
+stays warm."
+  (set-file-times (expand-file-name "index" git-dir)
+                  (time-add (portable-bookmarks-cost-spec--index-mtime git-dir)
+                            10)))
+
+(defconst portable-bookmarks-cost-spec--capture-relpaths
+  '("one.el" "lisp/two.el" "lisp/deep/three.el")
+  "Three tracked files of one checkout, each in a directory of its own.")
+
+(describe "Stamping cost of a layout capture"
+  :var (repo files)
+
+  (workspace-bookmark-fixtures-with-empty-registry
+    (workspace-bookmark-clear-identity-cache)
+    (setq repo (workspace-bookmark-fixtures-make-repo
+                :remote portable-bookmarks-cost-spec--remote
+                :prefix "wsbm-cost-cap-")
+          files (mapcar (lambda (relpath)
+                          (workspace-bookmark-fixtures-commit-file repo relpath))
+                        portable-bookmarks-cost-spec--capture-relpaths)))
+
+  (after-each
+    (delete-other-windows)
+    (workspace-bookmark-clear-identity-cache))
+
+  (xit "positions the checkout once for three leaves in three of its directories"
+    ;; Scenario: portable-bookmarks § Capturing a layout positions each checkout once
+    ;; seam/capture-stamp-cost.  The leaves sit in three directories, so a
+    ;; position shared per directory is not enough: the checkout is
+    ;; positioned once.  The first capture learns the identity; the index
+    ;; is then bumped so the measured capture positions afresh instead of
+    ;; reusing remembered coordinates (the next spec's case).
+    (workspace-bookmark-fixtures-hermetic
+      (portable-bookmarks-cost-spec--show files)
+      (workspace--capture-frameset)
+      (portable-bookmarks-cost-spec--bump-index (expand-file-name ".git" repo))
+      (spy-on 'workspace-bookmark--git :and-call-through)
+      (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+              :to-equal (mapcar (lambda (relpath)
+                                  (cons portable-bookmarks-cost-spec--identity relpath))
+                                portable-bookmarks-cost-spec--capture-relpaths))
+      (expect (portable-bookmarks-cost-spec--git-calls "rev-parse") :to-equal 1)))
+
+  (xit "re-captures an unchanged layout without running git, stamping the same coordinates"
+    ;; Scenario: portable-bookmarks § Re-capturing an unchanged leaf runs no git
+    ;; seam/capture-stamp-cost.  Nothing changes between the two captures:
+    ;; not the files, not the checkout's index, not the configuration.
+    (workspace-bookmark-fixtures-hermetic
+      (portable-bookmarks-cost-spec--show files)
+      (let ((expected (mapcar (lambda (relpath)
+                                (cons portable-bookmarks-cost-spec--identity relpath))
+                              portable-bookmarks-cost-spec--capture-relpaths)))
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal expected)
+        (spy-on 'workspace-bookmark--git :and-call-through)
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal expected)
+        (expect (portable-bookmarks-cost-spec--git-calls) :to-equal 0))))
+
+  (it "stamps a linked worktree's leaf afresh once that worktree's own index changed"
+    ;; seam/capture-stamp-cost: remembered coordinates are keyed on the
+    ;; index in the worktree's OWN git directory, not in the common
+    ;; directory its position names, which holds the main worktree's
+    ;; index.  Only the linked worktree's index changes here (the file is
+    ;; untracked, and stays on disk), so a memo keyed on the common
+    ;; directory's index would hand back the stale stamp.  Holds at HEAD,
+    ;; which remembers nothing; it pins the key once something is.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((linked (workspace-bookmark-fixtures-add-worktree
+                      repo (expand-file-name
+                            "linked" (workspace-bookmark-fixtures-temp-dir
+                                      "wsbm-cost-cap-wt-"))
+                      :branch "cap"))
+             (file (expand-file-name "one.el" linked))
+             (common (expand-file-name ".git" repo))
+             (main-index (portable-bookmarks-cost-spec--index-mtime common)))
+        (portable-bookmarks-cost-spec--show (list file))
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal (list (cons portable-bookmarks-cost-spec--identity "one.el")))
+        (workspace-bookmark-fixtures-git linked "rm" "--cached" "--quiet" "--" "one.el")
+        (expect (file-exists-p file) :to-be t)
+        (expect (portable-bookmarks-cost-spec--index-mtime common) :to-equal main-index)
+        (expect (portable-bookmarks-cost-spec--leaf-stamps (workspace--capture-frameset))
+                :to-equal '(nil))))))
 
 ;;; portable-bookmarks-cost-spec.el ends here
