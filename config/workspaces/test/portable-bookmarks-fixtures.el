@@ -118,7 +118,9 @@ before the module is loaded."
   (when (boundp 'workspace-bookmark--awaiting-jump-target)
     (set 'workspace-bookmark--awaiting-jump-target nil))
   (when (boundp 'workspace-bookmark--jump-target)
-    (set 'workspace-bookmark--jump-target nil)))
+    (set 'workspace-bookmark--jump-target nil))
+  (when (boundp 'workspace-bookmark--jump-target-display)
+    (set 'workspace-bookmark--jump-target-display nil)))
 
 (defun workspace-bookmark-fixtures-teardown ()
   "End a fixture scope.  Call from `after-each'.

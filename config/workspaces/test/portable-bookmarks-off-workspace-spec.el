@@ -189,6 +189,13 @@ both."
               (equal (buffer-name (window-buffer window)) name))
             (window-list nil 'no-mini)))
 
+(defun portable-bookmarks-off-workspace-spec--windows-visiting (path)
+  "Return the windows of the selected frame whose buffer visits PATH."
+  (seq-filter (lambda (window)
+                (let ((file (buffer-file-name (window-buffer window))))
+                  (and file (workspace--same-file-p file path))))
+              (window-list nil 'no-mini)))
+
 
 ;;; Behavioral — restore, then resolve
 
@@ -383,6 +390,44 @@ both."
         ;; The selected window (listed first) shows the file.
         (expect (car (portable-bookmarks-off-workspace-spec--window-files))
                 :to-equal (file-truename a-path)))))
+
+  (it "bookmark-jump-other-window into a workspace with no live tab leaves the painted layout's selected window alone and shows the file in another"
+    ;; Scenario: portable-bookmarks § An other-window jump keeps the painted
+    ;; layout's selected window.  The finish step replays the jump's own
+    ;; display function (seam/jump-display-intent), so the request for
+    ;; another window survives the deferred paint.
+    (workspace-bookmark-fixtures-hermetic
+      (let* ((a-path (expand-file-name "README.md" (plist-get world :wt-a)))
+             (b-path (expand-file-name "README.md" (plist-get world :wt-b)))
+             (painted-selected nil)
+             (painted-buffer nil))
+        (portable-bookmarks-off-workspace-spec--give-saved-layout
+         "wsbm-off-a" (portable-bookmarks-off-workspace-spec--two-window-state))
+        (workspace-bookmark-fixtures-set-bookmark b-path "readme")
+        (expect (workspace--tab-index-for "wsbm-off-a") :to-be nil)
+        (cl-letf* ((put (symbol-function 'window-state-put))
+                   ((symbol-function 'window-state-put)
+                    (lambda (&rest args)
+                      (prog1 (apply put args)
+                        (setq painted-selected (selected-window)
+                              painted-buffer (window-buffer (selected-window)))))))
+          (workspace-bookmark-fixtures-jump "readme" :pick "wsbm-off-a"
+                                            :jumper #'bookmark-jump-other-window)
+          (portable-bookmarks-off-workspace-spec--drain-timers))
+        (expect (workspace--current-name) :to-equal "wsbm-off-a")
+        (expect (window-live-p painted-selected) :to-be t)
+        ;; The file is shown once, in a window OTHER than the one the
+        ;; paint selected: that is what the caller asked for.
+        (expect (length (portable-bookmarks-off-workspace-spec--windows-visiting a-path))
+                :to-equal 1)
+        (expect (memq painted-selected
+                      (portable-bookmarks-off-workspace-spec--windows-visiting a-path))
+                :to-be nil)
+        ;; The paint's selected window still shows what the paint put there,
+        ;; and the pending jump state is cleared.
+        (expect (window-buffer painted-selected) :to-be painted-buffer)
+        (expect workspace-bookmark--jump-target :to-be nil)
+        (expect workspace-bookmark--jump-target-display :to-be nil))))
 
   (it "declines, never falling through to the stored path, when the restore itself fails — and still clears the pending jump state"
     (workspace-bookmark-fixtures-hermetic
