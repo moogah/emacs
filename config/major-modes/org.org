@@ -471,18 +471,6 @@ Better completions for org-babel and dynamic blocks.
   :straight (:host github :repo "isamert/corg.el"))
 #+end_src
 
-** Org Noter
-Annotate PDFs with Org mode.
-
-#+begin_src emacs-lisp
-;; ===============================================================================
-;; Install org noter for annotating pdf files
-;; ===============================================================================
-
-(use-package org-noter
-  :straight t)
-#+end_src
-
 ** Org Download
 Easily drag-and-drop images into Org files.
 
