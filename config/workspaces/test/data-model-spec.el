@@ -279,6 +279,42 @@
     (expect (workspace--recipe-p '(:recipe :split rows :panes ((:file "/w/a.org" :line 0))))
             :to-be nil)
     (expect (workspace--recipe-p '(:recipe :split rows :panes ((:file "a.org"))))
+            :to-be nil))
+
+  (it "rejects a pane path that starts with `~' (seam/recipe-shape)"
+    (expect (workspace--recipe-p '(:recipe :split columns :panes ((:file "~/x"))))
+            :to-be nil)
+    (expect (workspace--recipe-p '(:recipe :split columns :panes ((:file "~/x" :line 3))))
+            :to-be nil)
+    ;; Also inside a nested split.
+    (expect (workspace--recipe-p
+             '(:recipe :split columns
+                       :panes ((:file "/w/a.org")
+                               (:split rows :panes ((:file "~/x"))))))
+            :to-be nil))
+
+  (it "rejects pane keys out of order (seam/recipe-shape)"
+    (expect (workspace--recipe-p '(:recipe :split columns :panes ((:line 3 :file "/x"))))
+            :to-be nil)
+    (expect (workspace--recipe-p
+             '(:recipe :split columns :panes ((:panes ((:file "/x")) :split rows))))
+            :to-be nil)
+    (expect (workspace--recipe-p '(:recipe :panes ((:file "/x")) :split columns))
+            :to-be nil))
+
+  (it "rejects a pane or recipe with an extra key (seam/recipe-shape)"
+    (expect (workspace--recipe-p
+             '(:recipe :split columns :panes ((:file "/x" :line 3 :column 2))))
+            :to-be nil)
+    (expect (workspace--recipe-p
+             '(:recipe :split columns :panes ((:file "/x" :size 0.5))))
+            :to-be nil)
+    (expect (workspace--recipe-p
+             '(:recipe :split columns
+                       :panes ((:split rows :panes ((:file "/x")) :size 0.5))))
+            :to-be nil)
+    (expect (workspace--recipe-p
+             '(:recipe :split columns :panes ((:file "/x")) :name "demo"))
             :to-be nil)))
 
 (provide 'data-model-spec)
