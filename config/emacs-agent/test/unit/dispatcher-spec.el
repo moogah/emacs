@@ -124,27 +124,34 @@
 
 (describe "jf/agent-call: the reply's encoding (seam/dispatcher-args)"
 
-  ;; `json-parse-string' also accepts unibyte UTF-8, so these specs test
-  ;; the reply string itself: unibyte, emacsclient prints non-ASCII as
-  ;; octal escapes (\342\200\230 for ‘).
+  ;; The reply is json-serialize's unibyte UTF-8, not decoded: emacsclient
+  ;; prints its non-ASCII bytes as octal escapes (\342\200\230 for ‘), so
+  ;; it crosses the socket as ASCII and bin/emacs-agent turns the escapes
+  ;; back into the bytes.  `json-parse-string' also accepts unibyte UTF-8,
+  ;; so these specs test the reply string itself and parse its decoding.
 
-  (it "answers a non-ASCII result with a multibyte reply carrying the characters (seam/dispatcher-args)"
+  (it "answers a non-ASCII result with a unibyte UTF-8 reply that decodes to the characters (seam/dispatcher-args)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_non_ascii" :preset 'read
                     :function (lambda () "é ‘quoted’ →")))
       (let ((reply (jf/agent-call "call" "emacs_agent_test_non_ascii" "{}")))
-        (expect (multibyte-string-p reply) :to-be t)
-        (expect (string-search "é ‘quoted’ →" reply) :not :to-be nil)
-        (expect (plist-get (emacs-agent-test-envelope reply) :result)
+        (expect (multibyte-string-p reply) :to-be nil)
+        (expect (string-search (encode-coding-string "é ‘quoted’ →" 'utf-8) reply)
+                :not :to-be nil)
+        (expect (plist-get (emacs-agent-test-envelope
+                            (decode-coding-string reply 'utf-8))
+                           :result)
                 :to-equal "é ‘quoted’ →"))))
 
-  (it "answers a non-ASCII error with a multibyte reply carrying the characters (seam/dispatcher-args)"
+  (it "answers a non-ASCII error with a unibyte UTF-8 reply that decodes to the characters (seam/dispatcher-args)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_non_ascii_error" :preset 'read
                     :function (lambda () (user-error "Café ‘missing’"))))
       (let ((reply (jf/agent-call "call" "emacs_agent_test_non_ascii_error" "{}")))
-        (expect (multibyte-string-p reply) :to-be t)
-        (expect (plist-get (emacs-agent-test-envelope reply) :error)
+        (expect (multibyte-string-p reply) :to-be nil)
+        (expect (plist-get (emacs-agent-test-envelope
+                            (decode-coding-string reply 'utf-8))
+                           :error)
                 :to-equal "user-error Café ‘missing’"))))
 
   (it "answers the fixed failure envelope for a result or error text JSON cannot carry, and keeps serving (seam/dispatcher-args)"

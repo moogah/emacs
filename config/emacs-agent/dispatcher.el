@@ -41,17 +41,16 @@ are joined with spaces, as `gptel--handle-tool-use' does:
 (defun jf/agent--envelope (ok text)
   "Return the JSON reply for an outcome: success when OK, TEXT its text.
 OK non-nil gives {\"ok\":true,\"result\":TEXT}, nil gives
-{\"ok\":false,\"error\":TEXT}.  Never signals."
-  (let ((encode (lambda (plist)
-                  (decode-coding-string (json-serialize plist) 'utf-8))))
-    (condition-case nil
-        (funcall encode (if ok
-                            (list :ok t :result text)
-                          (list :ok :false :error text)))
-      (error
-       (funcall encode
-                (list :ok :false
-                      :error "The reply is not valid Unicode text and cannot be sent as JSON"))))))
+{\"ok\":false,\"error\":TEXT}.  The reply is `json-serialize's unibyte
+UTF-8, not decoded.  Never signals."
+  (condition-case nil
+      (json-serialize (if ok
+                          (list :ok t :result text)
+                        (list :ok :false :error text)))
+    (error
+     (json-serialize
+      (list :ok :false
+            :error "The reply is not valid Unicode text and cannot be sent as JSON")))))
 
 (defun jf/agent--in-presets-p (name presets)
   "Non-nil when the tool name NAME is in one of the gptel presets PRESETS."

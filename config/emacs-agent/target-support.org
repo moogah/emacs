@@ -127,17 +127,11 @@ lines, oldest first.  Batch Emacs and a daemon log there as an interactive sessi
 
 ** =jf/frame-state=
 
-The reply is a text (multibyte) string.  Emacs 30's =json-serialize= returns unibyte UTF-8 bytes,
-which =emacsclient= prints as octal escapes (=\342\200\230= for =‘=); decoded, a client reads the
-characters themselves.
-
-#+begin_src emacs-lisp
-(defun jf/frame-state--text (json)
-  "JSON, a string from `json-serialize', as a multibyte string."
-  (if (multibyte-string-p json)
-      json
-    (decode-coding-string json 'utf-8 t)))
-#+end_src
+The reply is =json-serialize='s unibyte UTF-8, not decoded, as the dispatcher's envelope is
+(seam/dispatcher-args): =emacsclient= prints its non-ASCII bytes as octal escapes (=\342\200\230= for
+=‘=), so the reply crosses the socket as ASCII, and =bin/emacs-agent= turns the escapes back into the
+bytes.  A decoded (multibyte) reply over about 1000 characters holding non-ASCII text reaches the
+client garbled on macOS.
 
 #+begin_src emacs-lisp
 (defun jf/frame-state ()
@@ -149,13 +143,13 @@ The object has:
   windows     [{buffer, selected}] for the selected frame's windows
   minibuffer  {active, contents}, contents null when not active
   messages    the last `jf/frame-state-message-lines' lines of *Messages*
-It needs no frame beyond a daemon's terminal frame."
-  (jf/frame-state--text
-   (json-serialize
-    (list :buffer (jf/frame-state--buffer (selected-window))
-          :windows (jf/frame-state--windows)
-          :minibuffer (jf/frame-state--minibuffer)
-          :messages (jf/frame-state--messages)))))
+It needs no frame beyond a daemon's terminal frame.  The string is
+`json-serialize's unibyte UTF-8, not decoded."
+  (json-serialize
+   (list :buffer (jf/frame-state--buffer (selected-window))
+         :windows (jf/frame-state--windows)
+         :minibuffer (jf/frame-state--minibuffer)
+         :messages (jf/frame-state--messages))))
 #+end_src
 
 * Control helpers

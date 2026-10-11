@@ -52,12 +52,6 @@ Contents past this many characters are cut, and the state's buffer
           (vconcat (split-string (buffer-substring-no-properties (point) (point-max))
                                  "\n" t)))))))
 
-(defun jf/frame-state--text (json)
-  "JSON, a string from `json-serialize', as a multibyte string."
-  (if (multibyte-string-p json)
-      json
-    (decode-coding-string json 'utf-8 t)))
-
 (defun jf/frame-state ()
   "Return the target's observable state as a JSON object string.
 The object has:
@@ -67,13 +61,13 @@ The object has:
   windows     [{buffer, selected}] for the selected frame's windows
   minibuffer  {active, contents}, contents null when not active
   messages    the last `jf/frame-state-message-lines' lines of *Messages*
-It needs no frame beyond a daemon's terminal frame."
-  (jf/frame-state--text
-   (json-serialize
-    (list :buffer (jf/frame-state--buffer (selected-window))
-          :windows (jf/frame-state--windows)
-          :minibuffer (jf/frame-state--minibuffer)
-          :messages (jf/frame-state--messages)))))
+It needs no frame beyond a daemon's terminal frame.  The string is
+`json-serialize's unibyte UTF-8, not decoded."
+  (json-serialize
+   (list :buffer (jf/frame-state--buffer (selected-window))
+         :windows (jf/frame-state--windows)
+         :minibuffer (jf/frame-state--minibuffer)
+         :messages (jf/frame-state--messages))))
 
 (defun jf/type-text (string)
   "Insert STRING literally at point in the selected window's buffer.

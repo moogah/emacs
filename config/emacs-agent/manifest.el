@@ -47,14 +47,13 @@ One object per agent preset tool name that gptel's registry holds, the
  \"args\": [{\"name\", \"type\", \"optional\", \"description\"}]}.
 TIER is \"read\" or \"write\" (`jf/agent-tool-tier').  A preset name no
 tool is registered under is left out.  Built from the presets and the
-registry at each call."
-  (decode-coding-string
-   (json-serialize
-    (vconcat (delq nil (mapcar (lambda (name)
-                                 (let ((tool (jf/agent--registry-lookup name)))
-                                   (and tool (jf/agent--manifest-entry tool))))
-                               (jf/agent--manifest-names)))))
-   'utf-8))
+registry at each call.  The string is `json-serialize's unibyte UTF-8,
+not decoded, as the dispatcher's envelope is."
+  (json-serialize
+   (vconcat (delq nil (mapcar (lambda (name)
+                                (let ((tool (jf/agent--registry-lookup name)))
+                                  (and tool (jf/agent--manifest-entry tool))))
+                              (jf/agent--manifest-names))))))
 
 (provide 'emacs-agent-manifest)
 ;;; manifest.el ends here
