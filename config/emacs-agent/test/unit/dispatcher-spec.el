@@ -11,7 +11,8 @@
 ;; or the seam whose clause it asserts.  The tools are stub `gptel-tool's
 ;; registered with `gptel-make-tool' and placed in the agent presets by
 ;; `emacs-agent-test-with-tools', which binds gptel's registry and preset
-;; table to copies.  Pending until config/emacs-agent/dispatcher.org exists.
+;; table to copies.  The request-id spec stays pending while D24 defers
+;; the asynchronous protocol.
 
 ;;; Code:
 
@@ -41,7 +42,7 @@
 (describe "jf/agent-call: arguments reach the tool as gptel passes them (seam/dispatcher-args)"
   (before-each (setq dispatcher-spec--calls nil))
 
-  (xit "passes {\"c\":3,\"a\":1} to a tool declaring (a b c) as 1, nil, 3 (Scenario: control-surface-discoverability § Arguments are mapped positionally by name)"
+  (it "passes {\"c\":3,\"a\":1} to a tool declaring (a b c) as 1, nil, 3 (Scenario: control-surface-discoverability § Arguments are mapped positionally by name)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool
                "emacs_agent_test_abc" 'read
@@ -54,7 +55,7 @@
         (expect (plist-get reply :result) :to-equal "recorded")
         (expect dispatcher-spec--calls :to-equal '((1 nil 3))))))
 
-  (xit "decodes arrays as vectors, objects as plists in sender order, false as :json-false and null as nil (seam/dispatcher-args)"
+  (it "decodes arrays as vectors, objects as plists in sender order, false as :json-false and null as nil (seam/dispatcher-args)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool
                "emacs_agent_test_shapes" 'read
@@ -68,7 +69,7 @@
       (expect dispatcher-spec--calls
               :to-equal '((["x" "y"] (:z 1 :a 2) :json-false nil)))))
 
-  (xit "ignores keys the tool does not declare, as gptel does (seam/dispatcher-args)"
+  (it "ignores keys the tool does not declare, as gptel does (seam/dispatcher-args)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_one" 'read
                                      :args (list (emacs-agent-test-arg "a"))))
@@ -78,7 +79,7 @@
               :to-be t)
       (expect dispatcher-spec--calls :to-equal '(("x")))))
 
-  (xit "turns a non-string result into text as gptel--to-string does (seam/dispatcher-args)"
+  (it "turns a non-string result into text as gptel--to-string does (seam/dispatcher-args)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_plist" :preset 'read
                     :function (lambda () '(:id "x" :n 1)))
@@ -91,7 +92,7 @@
                          :result)
               :to-equal "done")))
 
-  (xit "answers malformed or non-object JSON with a failure envelope and runs nothing (seam/dispatcher-args)"
+  (it "answers malformed or non-object JSON with a failure envelope and runs nothing (seam/dispatcher-args)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_one" 'read
                                      :args (list (emacs-agent-test-arg "a" t))))
@@ -105,7 +106,7 @@
 (describe "jf/agent-call: a failing tool is contained (seam/dispatcher-args)"
   (before-each (setq dispatcher-spec--calls nil))
 
-  (xit "returns a failure envelope for a signalling tool and serves the next call (Scenario: control-surface-discoverability § Tool error is contained)"
+  (it "returns a failure envelope for a signalling tool and serves the next call (Scenario: control-surface-discoverability § Tool error is contained)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_fails" :preset 'read
                     :args (list (emacs-agent-test-arg "what"))
@@ -124,7 +125,7 @@
 (describe "jf/agent-call: tiers (seam/tier-enforcement)"
   (before-each (setq dispatcher-spec--calls nil))
 
-  (xit "refuses a write-preset tool on the call tier, naming call-write, and does not run it (Scenario: agent-target-policy § Read tier refuses a write tool)"
+  (it "refuses a write-preset tool on the call tier, naming call-write, and does not run it (Scenario: agent-target-policy § Read tier refuses a write tool)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_writer" 'write))
       (let ((reply (dispatcher-spec--call "call" "emacs_agent_test_writer" "{}")))
@@ -132,7 +133,7 @@
         (expect (plist-get reply :error) :to-match "call-write"))
       (expect dispatcher-spec--calls :to-be nil)))
 
-  (xit "runs a write-preset tool on call-write and a read-preset tool on both tiers (seam/tier-enforcement)"
+  (it "runs a write-preset tool on call-write and a read-preset tool on both tiers (seam/tier-enforcement)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_writer" 'write)
               (dispatcher-spec--tool "emacs_agent_test_reader" 'read))
@@ -147,7 +148,7 @@
               :to-be t)
       (expect (length dispatcher-spec--calls) :to-equal 3)))
 
-  (xit "refuses a registered tool in neither preset on both tiers and does not run it (Scenario: agent-target-policy § Tool outside both presets is refused)"
+  (it "refuses a registered tool in neither preset on both tiers and does not run it (Scenario: agent-target-policy § Tool outside both presets is refused)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_outsider" nil))
       (dolist (tier '("call" "call-write"))
@@ -156,7 +157,7 @@
           (expect (plist-get reply :error) :to-match "emacs_agent_test_outsider")))
       (expect dispatcher-spec--calls :to-be nil)))
 
-  (xit "refuses a tier other than call and call-write, naming both, and runs nothing (seam/tier-enforcement)"
+  (it "refuses a tier other than call and call-write, naming both, and runs nothing (seam/tier-enforcement)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_reader" 'read))
       (dolist (tier '("eval" "read" "" "CALL"))
@@ -165,7 +166,7 @@
           (expect (plist-get reply :error) :to-match "call-write")))
       (expect dispatcher-spec--calls :to-be nil)))
 
-  (xit "invokes a tool a module registered with gptel-make-tool once a preset names it, with no other registration (Scenario: control-surface-discoverability § A module's gptel tool is callable by an external agent)"
+  (it "invokes a tool a module registered with gptel-make-tool once a preset names it, with no other registration (Scenario: control-surface-discoverability § A module's gptel tool is callable by an external agent)"
     ;; The stub is registered exactly as org-graph registers its tools:
     ;; one `gptel-make-tool' in the module's own category, and a preset
     ;; entry; nothing else names it.
@@ -181,7 +182,7 @@
 (describe "jf/agent-call: asynchronous tools (seam/async-protocol)"
   (before-each (setq dispatcher-spec--calls nil))
 
-  (xit "refuses an asynchronous tool with \"asynchronous tools are not supported\", without calling it, at once (Scenario: agent-target-policy § Asynchronous tool before the protocol exists)"
+  (it "refuses an asynchronous tool with \"asynchronous tools are not supported\", without calling it, at once (Scenario: agent-target-policy § Asynchronous tool before the protocol exists)"
     (emacs-agent-test-with-tools
         (list (dispatcher-spec--tool "emacs_agent_test_async" 'read :async t))
       (let* ((start (float-time))
@@ -211,12 +212,12 @@
 
 (describe "jf/agent-eval: the eval tier's entry on the live session (seam/dispatcher-args)"
 
-  (xit "evaluates a form string and returns its printed value in an envelope (seam/dispatcher-args)"
+  (it "evaluates a form string and returns its printed value in an envelope (seam/dispatcher-args)"
     (let ((reply (emacs-agent-test-envelope (jf/agent-eval "(list 1 \"two\" 'three)"))))
       (expect (plist-get reply :ok) :to-be t)
       (expect (plist-get reply :result) :to-equal "(1 \"two\" three)")))
 
-  (xit "returns a failure envelope for a signalling form and keeps serving (seam/dispatcher-args)"
+  (it "returns a failure envelope for a signalling form and keeps serving (seam/dispatcher-args)"
     (let ((reply (emacs-agent-test-envelope (jf/agent-eval "(error \"emacs-agent boom\")"))))
       (expect (plist-get reply :ok) :to-be nil)
       (expect (plist-get reply :error) :to-match "emacs-agent boom"))
