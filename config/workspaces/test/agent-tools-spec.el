@@ -183,6 +183,39 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
         (expect (agent-tools-spec--layout "emacs-mcp" "demo") :not :to-be nil)
         (expect (agent-tools-spec--layout "other" "demo") :to-be nil))))
 
+  (it "expands a relative pane path against the given directory (Scenario: workspaces § Relative paths count from the given directory)"
+    (let* ((home (workspace-bookmark-fixtures-make-workspace "emacs-mcp"))
+           (repo (expand-file-name "emacs" home))
+           (a (workspace-bookmark-fixtures-write-file repo "config/a.org")))
+      ;; The same relative name under the home too, so a home-based
+      ;; expansion would succeed and store the wrong file.
+      (workspace-bookmark-fixtures-write-file home "config/a.org")
+      (let ((result (agent-tools-spec--call
+                     "workspace_add_layout"
+                     :directory (directory-file-name repo) :layout_name "demo"
+                     :split "columns"
+                     :panes (vector (list :file "config/a.org")))))
+        (expect (car result) :to-be :ok)
+        (expect (workspace--layout-saved-state
+                 (agent-tools-spec--layout "emacs-mcp" "demo"))
+                :to-equal `(:recipe :split columns :panes ((:file ,a)))))))
+
+  (it "refuses a directory that names a file and adds nothing (seam/agent-tools)"
+    (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
+           (file (workspace-bookmark-fixtures-write-file home "emacs/file.org"))
+           (entry nil))
+      (workspace-bookmark-fixtures-write-file home "emacs/config/a.org")
+      (setq entry (copy-tree (gethash "code" workspace--registry)))
+      (let ((result (agent-tools-spec--call
+                     "workspace_add_layout"
+                     :directory file :layout_name "demo" :split "columns"
+                     :panes (vector (list :file "config/a.org")))))
+        (expect (car result) :to-be :error)
+        (expect (cadr result)
+                :to-equal (format "Directory \"%s\" is not a directory" file))
+        (expect (agent-tools-spec--layout "code" "demo") :to-be nil)
+        (expect (gethash "code" workspace--registry) :to-equal entry))))
+
   (it "reports a missing file by name and adds nothing (Scenario: workspaces § Invalid file is reported)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
            (entry nil))
@@ -263,7 +296,28 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
                      "workspace_remove_layout"
                      :workspace "code" :layout_name "ask/a1")))
         (expect (car result) :to-be :ok)
-        (expect (agent-tools-spec--layout "code" "ask/a1") :to-be nil)))))
+        (expect (cadr result) :to-match "Removed layout \"ask/a1\"")
+        (expect (agent-tools-spec--layout "code" "ask/a1") :to-be nil))))
+
+  (it "reports success when removing a layout the workspace does not have (Scenario: workspaces § Removing a layout that was never made reports success)"
+    (let ((home (workspace-bookmark-fixtures-make-workspace "code"))
+          (entry nil))
+      (workspace-bookmark-fixtures-write-file home "ask.org")
+      (expect (car (agent-tools-spec--call
+                    "workspace_add_layout"
+                    :workspace "code" :layout_name "ask/a1" :split "columns"
+                    :panes (vector (list :file "ask.org"))))
+              :to-be :ok)
+      (setq entry (copy-tree (gethash "code" workspace--registry)))
+      (spy-on 'workspace--flush-state :and-call-through)
+      (let ((result (agent-tools-spec--call
+                     "workspace_remove_layout"
+                     :directory home :layout_name "ask/a2")))
+        (expect (car result) :to-be :ok)
+        (expect (cadr result)
+                :to-equal "No layout \"ask/a2\" in workspace \"code\"; nothing to remove")
+        (expect (gethash "code" workspace--registry) :to-equal entry)
+        (expect 'workspace--flush-state :not :to-have-been-called)))))
 
 (describe "Registering the tools (seam/agent-tools)"
 

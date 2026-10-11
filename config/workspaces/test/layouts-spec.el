@@ -802,6 +802,34 @@ Return its absolute name."
       (expect 'workspace--flush-state :to-have-been-called-times 1)
       (expect (layouts-spec--on-disk-layout-names "code") :not :to-contain "ask/a1")))
 
+  (it "succeeds without a change or a flush when the workspace does not have the layout (Scenario: workspaces § Removing a layout the workspace does not have succeeds)"
+    (workspace-new "code")
+    (workspace-add-layout "code" "ask/a1" (layouts-spec--two-window-state)
+                          :origin 'agent :source "a1")
+    (let ((entry (copy-tree (gethash "code" workspace--registry)))
+          (recent-before (workspace--recent-group
+                          (gethash "code" workspace--registry))))
+      (spy-on 'workspace--flush-state :and-call-through)
+      (expect (workspace-remove-layout "code" "ask/a2") :to-be nil)
+      (expect (gethash "code" workspace--registry) :to-equal entry)
+      (expect (workspace--recent-group (gethash "code" workspace--registry))
+              :to-equal recent-before)
+      (expect 'workspace--flush-state :not :to-have-been-called)))
+
+  (it "still refuses an unregistered workspace and the reserved name when the layout is absent (seam/programmatic-layout-writes)"
+    (workspace-new "code")
+    (puthash "code" (workspace--remove-group
+                     (gethash "code" workspace--registry) "home")
+             workspace--registry)
+    (spy-on 'workspace--flush-state :and-call-through)
+    (expect (layouts-spec--refusal
+             (lambda () (workspace-remove-layout "nope" "ask/a2")))
+            :to-equal "No workspace named \"nope\"")
+    (expect (layouts-spec--refusal
+             (lambda () (workspace-remove-layout "code" "home")))
+            :to-match "reserved")
+    (expect 'workspace--flush-state :not :to-have-been-called))
+
   (it "refuses to remove a user layout, which stays as it was (Scenario: workspaces § User layout cannot be removed programmatically)"
     (workspace-new "code")
     (workspace-save-layout "review")
