@@ -70,6 +70,16 @@
         (expect (sort (split-string (plist-get result :stdout) "[\n]+" t) #'string<)
                 :to-equal '("smoke-a" "smoke-b")))))
 
+  (it "refuses to start a target under the name of one that answers, leaving that one running (seam/target-lifecycle)"
+    (bare-target-spec--scope
+      (bare-target-spec--start "smoke-twice")
+      (let ((pid (bare-target-spec--eval "smoke-twice" "(emacs-pid)"))
+            (result (bare-target-spec--run "target" "start" "smoke-twice" "--bare")))
+        (expect (plist-get result :exit) :to-equal 2)
+        (expect (plist-get result :stderr) :to-match "target smoke-twice is already running")
+        (expect (plist-get result :stderr) :not :to-match "already running (busy)")
+        (expect (bare-target-spec--eval "smoke-twice" "(emacs-pid)") :to-equal pid))))
+
   (it "stops a target: its process ends, its socket goes, and the next call fails (Scenario: isolated-emacs-targets § Disposed target no longer routes)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-stop")
@@ -188,7 +198,7 @@ Return the socket's path once the process is gone."
         (expect (plist-get result :stderr) :to-match "smoke-gone is not running")
         (expect (file-exists-p socket) :to-be nil))))
 
-  (it "reports a target or live session whose socket a process holds but that refuses connections as busy, exit 1, and neither lists, stops nor removes it (Scenario: isolated-emacs-targets § Detect a dead target)"
+  (it "reports a target or live session whose socket a process holds but that refuses connections as busy, exit 1, lists the target marked busy, and neither stops nor removes it (Scenario: isolated-emacs-targets § Detect a dead target; isolated-emacs-targets § Enumerate running targets)"
     (bare-target-spec--scope
       (assume (emacs-agent-test-refusing-socket-available-p)
               "no perl or lsof to hold a refusing socket")
@@ -203,7 +213,7 @@ Return the socket's path once the process is gone."
                     :to-match "smoke-busy is not accepting connections")))
         (let ((result (bare-target-spec--run "target" "list")))
           (expect (plist-get result :exit) :to-equal 0)
-          (expect (plist-get result :stdout) :to-equal ""))
+          (expect (plist-get result :stdout) :to-equal "smoke-busy (busy)\n"))
         (let ((result (bare-target-spec--run "live" "tools")))
           (expect (plist-get result :exit) :to-equal 1)
           (expect (plist-get result :stderr)

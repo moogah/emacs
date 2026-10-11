@@ -49,6 +49,26 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
        (null (emacs-agent-test-fake-calls "isolated"))))
 
 
+(defun wrapper-spec--stand-in-at (name)
+  "Stand a listening socket where the target name NAME would resolve.
+NAME is taken relative to the socket directory, `..' and subdirectories
+included, so a wrapper that let NAME through would find a socket there
+and run emacsclient against it.  Return the socket's path."
+  (let* ((path (expand-file-name name emacs-agent-test-socket-dir))
+         (relative (file-relative-name path emacs-agent-test-socket-dir)))
+    (make-directory (file-name-directory path) t)
+    (emacs-agent-test-stand-in-socket relative)))
+
+(defun wrapper-spec--with-real-emacsclient (thunk)
+  "Call THUNK with the real emacsclient behind the wrapper, the fake Emacs kept.
+For a socket that must really be connected to, while nothing the wrapper
+launches can start an Emacs."
+  (let ((process-environment (cons (concat "EMACS_AGENT_EMACSCLIENT="
+                                           (emacs-agent-test-emacsclient))
+                                   process-environment)))
+    (funcall thunk)))
+
+
 (describe "bin/emacs-agent: naming the target (seam/wrapper-cli)"
 
   (it "delivers a live call to the default server socket by its full path (Scenario: agent-target-policy § Live target is named explicitly)"
@@ -115,6 +135,26 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                 :to-be t))
       (expect (wrapper-spec--nothing-started-p) :to-be t)))
 
+  (it "refuses a target name that is server in another case or not a plain socket name, running nothing, though a socket waits where it resolves (Scenario: isolated-emacs-targets § Live socket name is refused)"
+    (dolist (name (list "Server" "SERVER" "sErVeR"
+                        (format "../emacs%d/x" (user-uid))
+                        "x/y" ".hidden" "-x" "a b"))
+      ;; One scope per name: on a case-insensitive file system the three
+      ;; spellings of server are one socket.
+      (wrapper-spec--scope
+        (wrapper-spec--stand-in-at name)
+        (dolist (args `(("target" ,name "tools")
+                        ("target" ,name "eval" "(+ 1 1)")
+                        ("target" "start" ,name "--bare")
+                        ("target" "start" ,name "--worktree"
+                         ,(emacs-agent-test-fake-worktree))
+                        ("target" "stop" ,name)))
+          (let ((result (apply #'emacs-agent-test-wrapper-run args)))
+            (expect (cons args (wrapper-spec--refused-p result))
+                    :to-equal (cons args t))))
+        (expect (cons name (wrapper-spec--nothing-started-p))
+                :to-equal (cons name t)))))
+
   (it "fails a call to a target that is not running, at once and without emacsclient (Scenario: isolated-emacs-targets § Detect a dead target)"
     (wrapper-spec--scope
       (let* ((start (float-time))
@@ -176,6 +216,53 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
         (expect (wrapper-spec--refused-p (apply #'emacs-agent-test-wrapper-run args))
                 :to-be t))
       (expect (length (emacs-agent-test-fake-calls "client")) :to-equal 4)))
+
+  (it "sends a target eval form that starts with - as the form after --eval, never as an emacsclient option (seam/wrapper-cli)"
+    (wrapper-spec--scope
+      (emacs-agent-test-stand-in-socket "smoke-1")
+      (let ((forms '("--socket-name=server" "--alternate-editor=emacs")))
+        (dolist (form forms)
+          (expect (plist-get (emacs-agent-test-wrapper-run "target" "smoke-1" "eval" form)
+                             :exit)
+                  :to-equal 0))
+        (let ((calls (emacs-agent-test-fake-calls "client")))
+          (expect (length calls) :to-equal (length forms))
+          (cl-loop for argv in calls
+                   for form in forms
+                   do (expect (seq-filter (lambda (arg) (string-prefix-p "--" arg)) argv)
+                              :to-equal '("--eval"))
+                      (expect (emacs-agent-test-socket-arg argv)
+                              :to-equal (emacs-agent-test-socket "smoke-1"))
+                      ;; The form is the last argument, after --eval.
+                      (expect (string-trim (car (last argv))) :to-equal form)
+                      (expect (cadr (member "--eval" argv)) :to-be (car (last argv))))))))
+
+  (it "keeps the caller's EMACS_SOCKET_NAME, ALTERNATE_EDITOR and EMACS_SERVER_FILE from emacsclient and Emacs (seam/wrapper-cli)"
+    (wrapper-spec--scope
+      (emacs-agent-test-stand-in-socket)
+      (emacs-agent-test-stand-in-socket "smoke-1")
+      (let ((process-environment
+             (append (list (concat "EMACS_SOCKET_NAME=" (emacs-agent-test-socket "server"))
+                           "ALTERNATE_EDITOR=emacs"
+                           (concat "EMACS_SERVER_FILE=" (emacs-agent-test-socket "server")))
+                     process-environment)))
+        (dolist (args `(("live" "tools")
+                        ("live" "call" "org_graph_query" "{}")
+                        ("target" "smoke-1" "tools")
+                        ("target" "smoke-1" "eval" "(+ 1 1)")
+                        ("target" "start" "smoke-2" "--bare")
+                        ("target" "start" "smoke-3" "--worktree"
+                         ,(emacs-agent-test-fake-worktree))))
+          (apply #'emacs-agent-test-wrapper-run args)))
+      (let ((unset (mapcar (lambda (var) (cons var "<unset>"))
+                           emacs-agent-test-fallback-variables))
+            (seen (append (emacs-agent-test-fake-vars "client")
+                          (emacs-agent-test-fake-vars "emacs")
+                          (emacs-agent-test-fake-vars "isolated"))))
+        (expect (length (emacs-agent-test-fake-vars "client")) :to-equal 4)
+        (expect (length seen) :to-equal 6)
+        (dolist (vars seen)
+          (expect vars :to-equal unset)))))
 
   (it "prints the target's manifest as JSON for tools (Scenario: agent-target-policy § Listing tools through the wrapper)"
     (wrapper-spec--scope
@@ -249,6 +336,28 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
         (expect (member "-Q" argv) :not :to-be nil)
         (expect (member "--daemon=smoke-2" argv) :not :to-be nil))
       (expect (emacs-agent-test-fake-calls "isolated") :to-be nil)))
+
+  (it "refuses to start a target whose socket a process holds while refusing connections, launching nothing and keeping the socket (seam/target-lifecycle)"
+    (assume (emacs-agent-test-binaries-available-p)
+            "no emacsclient to connect to the refusing socket with")
+    (assume (emacs-agent-test-refusing-socket-available-p)
+            "no perl or lsof to hold a refusing socket")
+    ;; The fake Emacs and launcher: a real one would take the socket over
+    ;; and outlive the scope, whose teardown never contacts that socket.
+    (wrapper-spec--scope
+      (let ((socket (emacs-agent-test-refusing-socket "smoke-busy")))
+        (wrapper-spec--with-real-emacsclient
+         (lambda ()
+           (dolist (args `(("target" "start" "smoke-busy" "--bare")
+                           ("target" "start" "smoke-busy" "--worktree"
+                            ,(emacs-agent-test-fake-worktree))))
+             (let ((result (apply #'emacs-agent-test-wrapper-run args)))
+               (expect (cons args (plist-get result :exit)) :to-equal (cons args 2))
+               (expect (plist-get result :stderr)
+                       :to-match (regexp-quote "target smoke-busy is already running (busy)"))))))
+        (expect (emacs-agent-test-fake-calls "emacs") :to-be nil)
+        (expect (emacs-agent-test-fake-calls "isolated") :to-be nil)
+        (expect (file-exists-p socket) :to-be t))))
 
   (it "states the default data profile in its usage text (seam/data-profile)"
     (let ((help (emacs-agent-test-wrapper-run "--help")))

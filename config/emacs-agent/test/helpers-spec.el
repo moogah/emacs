@@ -347,12 +347,19 @@ given both explicitly.  Use inside `emacs-agent-test-with-socket-dir'."
 (defvar emacs-agent-test-fake-dir nil
   "Directory of the fake binaries of the current fake-clients scope.")
 
+(defconst emacs-agent-test-fallback-variables
+  '("EMACS_SOCKET_NAME" "ALTERNATE_EDITOR" "EMACS_SERVER_FILE")
+  "Variables through which emacsclient would try another socket or start an Emacs.
+The fake binaries record each one's value.")
+
 (defun emacs-agent-test--write-fake (file kind)
   "Write the fake binary FILE (relative to the fake dir) recording as KIND.
-It records its argv, NUL-separated, in calls/KIND-NNNN and the value of
-EMACS_AGENT_DATA in calls/KIND-NNNN.env, and starts nothing.  The fake
-emacsclient prints FAKE_EMACSCLIENT_REPLY (default the Lisp string
-\"ok\") and exits FAKE_EMACSCLIENT_EXIT (default 0)."
+It records its argv, NUL-separated, in calls/KIND-NNNN, the value of
+EMACS_AGENT_DATA in calls/KIND-NNNN.env and the values of the variables
+in `emacs-agent-test-fallback-variables' in calls/KIND-NNNN.vars, and
+starts nothing.  The fake emacsclient prints FAKE_EMACSCLIENT_REPLY
+\(default the Lisp string \"ok\") and exits FAKE_EMACSCLIENT_EXIT
+\(default 0)."
   (let ((path (expand-file-name file emacs-agent-test-fake-dir)))
     (make-directory (file-name-directory path) t)
     (with-temp-file path
@@ -363,6 +370,12 @@ emacsclient prints FAKE_EMACSCLIENT_REPLY (default the Lisp string
               "f=\"$d/" kind "-$(printf %05d \"$n\")\"\n"
               "printf '%s\\0' \"$@\" > \"$f\"\n"
               "printf '%s' \"${EMACS_AGENT_DATA-<unset>}\" > \"$f.env\"\n"
+              "{\n"
+              (mapconcat (lambda (var)
+                           (format "printf '%%s=%%s\\n' %s \"${%s-<unset>}\"\n"
+                                   var var))
+                         emacs-agent-test-fallback-variables "")
+              "} > \"$f.vars\"\n"
               (if (equal kind "client")
                   (concat "printf '%s\\n' \"${FAKE_EMACSCLIENT_REPLY-\\\"ok\\\"}\"\n"
                           "exit \"${FAKE_EMACSCLIENT_EXIT:-0}\"\n")
@@ -413,6 +426,22 @@ bin/emacs-isolated.sh records the same way.  Use inside
       (mapcar (lambda (file)
                 (with-temp-buffer (insert-file-contents file) (buffer-string)))
               (directory-files dir t (concat "\\`" kind "-[0-9]+\\.env\\'"))))))
+
+(defun emacs-agent-test-fake-vars (kind)
+  "The fallback variables as each call of the fake KIND saw them, oldest first.
+Each element is an alist (NAME . VALUE) over
+`emacs-agent-test-fallback-variables', VALUE \"<unset>\" for an unset one."
+  (let ((dir (expand-file-name "calls" emacs-agent-test-fake-dir)))
+    (when (file-directory-p dir)
+      (mapcar (lambda (file)
+                (mapcar (lambda (line)
+                          (let ((eq (string-search "=" line)))
+                            (cons (substring line 0 eq) (substring line (1+ eq)))))
+                        (split-string (with-temp-buffer
+                                        (insert-file-contents file)
+                                        (buffer-string))
+                                      "\n" t)))
+              (directory-files dir t (concat "\\`" kind "-[0-9]+\\.vars\\'"))))))
 
 (defun emacs-agent-test-wrapper-run (&rest args)
   "Run bin/emacs-agent with ARGS; return (:exit N :stdout S :stderr S)."

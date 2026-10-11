@@ -11,7 +11,8 @@
 #
 # Exit status: 0 on success; 1 on a failure envelope, an eval error or a
 # target that refuses connections while a process holds its socket (busy);
-# 2 on a usage error or a target that is not running.
+# 2 on a usage error, a target that is not running, or a target start that
+# fails or is refused.
 #
 # Environment:
 #   EMACS_AGENT_EMACSCLIENT   emacsclient to run (default: beside the Emacs)
@@ -60,9 +61,13 @@ Targets:
   targets' names; target stop sends (kill-emacs) and returns once the
   target's socket is gone.  A target, or the live session, whose socket is
   missing, or refuses connections while no process holds it, is not running
-  (exit 2); list and stop remove such a target's socket.  One that refuses
-  connections while a process holds its socket is busy, its accept queue
-  full (exit 1): list leaves it out, stop fails, and its socket stays.
+  (exit 2); list and stop remove such a target's socket, and start replaces
+  it.  One that refuses connections while a process holds its socket is
+  busy, its accept queue full (exit 1): list prints it as `NAME (busy)',
+  stop fails, start refuses its name (exit 2), and its socket stays.  Busy
+  is told by lsof; without a working lsof a refusing socket counts as not
+  running, so start replaces it.  start refuses the name of a target that
+  answers too: Emacs reports it already running (exit 2).
 
   --data PROFILE   the data profile of a worktree target:
                      live            the user's notes
@@ -71,7 +76,8 @@ Targets:
 
 Exit status:
   0 success; 1 a failure envelope, an eval error or a busy target; 2 a
-  usage error or a target that is not running.
+  usage error, a target that is not running, or a target start that fails
+  or is refused.
 
 Environment:
   EMACS_AGENT_EMACSCLIENT, EMACS_AGENT_EMACS name the binaries; otherwise the
@@ -390,9 +396,12 @@ EMACS_AGENT_STOP_TIMEOUT=10
 # launcher exits 0 and the socket exists; otherwise show the launcher's
 # output and exit 2.  The output goes to a file, not a pipe: a process the
 # target starts while it initialises may hold a pipe open after the
-# launcher exits.
+# launcher exits.  A NAME whose socket a process holds while refusing
+# connections (busy) is refused, exit 2, before anything is launched; one
+# whose server answers is refused by Emacs and reported already running.
 emacs_agent_target_start() {
     local name="$1" worktree="$2" bare="$3" data="$4" launcher out status socket
+    local answered="" pids
     local -a cmd
     if [[ -n "$bare" ]]; then
         [[ -z "$worktree" ]] || emacs_agent_usage_error "--worktree does not apply to a --bare target"
@@ -404,17 +413,32 @@ emacs_agent_target_start() {
             emacs_agent_fail "no executable launcher at $launcher" 2
         cmd=(env "EMACS_AGENT_DATA=${data:-none}" "$launcher" "--daemon=$name")
     fi
+    socket="$(emacs_agent_socket "$name")"
+    # Emacs replaces a socket whose connection is refused, so a busy
+    # target's socket would be taken over and the target orphaned: refuse
+    # its name.  A target that answers is left for Emacs to refuse.
+    if [[ -S "$socket" ]]; then
+        emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
+        case $? in
+            0) answered=1 ;;
+            3)
+                pids="$(emacs_agent_socket_holders "$socket")"
+                emacs_agent_fail "target $name is already running (busy): process ${pids:-?} holds $socket but refuses connections; stop it or try again" 2 ;;
+        esac
+    fi
     out="$(mktemp "${TMPDIR:-/tmp}/emacs-agent-start.XXXXXX")" ||
         emacs_agent_fail "cannot create a temporary file" 2
     "${cmd[@]}" </dev/null >"$out" 2>&1
     status=$?
-    socket="$(emacs_agent_socket "$name")"
     if [[ $status -eq 0 && -S "$socket" ]]; then
         rm -f "$out"
         exit 0
     fi
     cat "$out" >&2
     rm -f "$out"
+    if [[ $status -ne 0 && -n "$answered" ]]; then
+        emacs_agent_fail "target $name is already running: its server answers on $socket" 2
+    fi
     if [[ $status -ne 0 ]]; then
         emacs_agent_fail "target $name did not start: the launcher exited $status" 2
     fi
@@ -423,11 +447,11 @@ emacs_agent_target_start() {
 
 # Print the name of every socket in the socket directory but `server', the
 # live session's: the directory is the registry of running targets.  A
-# target socket that refuses a connection is not listed; it is removed only
-# when no process holds it (its Emacs died without removing it), and kept
-# while one does (a busy Emacs whose accept queue is full).  A target that
-# accepts the connection but does not answer is still running and is
-# listed.
+# target socket that refuses a connection while no process holds it (its
+# Emacs died without removing it) is not listed and is removed; one that
+# refuses while a process holds it (a busy Emacs whose accept queue is
+# full) is listed as `NAME (busy)' and kept.  A target that accepts the
+# connection but does not answer is still running and is listed.
 emacs_agent_target_list() {
     local dir entry name
     dir="$(emacs_agent_socket_dir)"
@@ -439,7 +463,7 @@ emacs_agent_target_list() {
         emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
         case $? in
             2) emacs_agent_remove_stale_socket "$name"; continue ;;
-            3) continue ;;
+            3) printf '%s (busy)\n' "$name"; continue ;;
         esac
         printf '%s\n' "$name"
     done
