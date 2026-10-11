@@ -17,8 +17,10 @@ and the wrapper ever disagree.
 
 - **`live`** - the user's running Emacs (the default `server` socket). Their real
   notes, their frames, their workspaces.
-- **An isolated target** - a separate Emacs you start by name; nothing you do there
-  reaches the user's session.
+- **An isolated target** - a separate Emacs process you start by name. It cannot touch
+  the user's running Emacs (its buffers, frames, state), but it is not a filesystem
+  sandbox: files it writes are real files, and with `--data live` it reads and writes
+  the user's real notes.
 
 ```
 bin/emacs-agent live tools
@@ -113,8 +115,14 @@ The live session can answer only once the `config/emacs-agent` module is in the
 checkout Emacs.app loads and Emacs has been restarted. Until then `live tools`
 prints `[]`, and `live call` / `live call-write` fail with a void-function error
 for `jf/agent-call`. That means the module is not deployed to the live session,
-not that the call was wrong: use an isolated target started from a checkout that
-has the module, and tell the user the live session needs the deploy and a restart.
+not that the call was wrong. Tell the user the live session needs the deploy and a
+restart. Meanwhile:
+
+- for code or introspection work (reading definitions, trying config code), use an
+  isolated target started from a checkout that has the module;
+- for a data or layout write (a note, a workspace layout), stop and wait for the
+  user: do not write their notes from an isolated target instead (see the target
+  rules above).
 
 If no Emacs is serving the live socket, the wrapper says no live session is
 running and exits 2; it never falls back to an isolated target.
