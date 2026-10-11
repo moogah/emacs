@@ -40,8 +40,9 @@ layout has =:working-state= nil (no autosave drift yet) and =:etc= nil
 
 (defun workspace--layout-saved-state (layout)
   "Return the :saved-state window-state stored in LAYOUT.
-This is the explicit-save slot; written only by =workspace-save= and
-its variants.  Never written by autosave paths."
+Written by explicit saves (`workspace-save', `workspace-save-layout',
+`workspace--capture-home-layout') and by `workspace-add-layout'; never
+by autosave paths."
   (plist-get layout :saved-state))
 
 (defun workspace--layout-working-state (layout)
