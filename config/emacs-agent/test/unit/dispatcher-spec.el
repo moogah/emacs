@@ -122,6 +122,53 @@
         (expect (plist-get next :result) :to-equal "recorded")))))
 
 
+(describe "jf/agent-call: the reply's encoding (seam/dispatcher-args)"
+
+  ;; `json-parse-string' also accepts unibyte UTF-8, so these specs test
+  ;; the reply string itself: unibyte, emacsclient prints non-ASCII as
+  ;; octal escapes (\342\200\230 for ‘).
+
+  (it "answers a non-ASCII result with a multibyte reply carrying the characters (seam/dispatcher-args)"
+    (emacs-agent-test-with-tools
+        (list (list :name "emacs_agent_test_non_ascii" :preset 'read
+                    :function (lambda () "é ‘quoted’ →")))
+      (let ((reply (jf/agent-call "call" "emacs_agent_test_non_ascii" "{}")))
+        (expect (multibyte-string-p reply) :to-be t)
+        (expect (string-search "é ‘quoted’ →" reply) :not :to-be nil)
+        (expect (plist-get (emacs-agent-test-envelope reply) :result)
+                :to-equal "é ‘quoted’ →"))))
+
+  (it "answers a non-ASCII error with a multibyte reply carrying the characters (seam/dispatcher-args)"
+    (emacs-agent-test-with-tools
+        (list (list :name "emacs_agent_test_non_ascii_error" :preset 'read
+                    :function (lambda () (user-error "Café ‘missing’"))))
+      (let ((reply (jf/agent-call "call" "emacs_agent_test_non_ascii_error" "{}")))
+        (expect (multibyte-string-p reply) :to-be t)
+        (expect (plist-get (emacs-agent-test-envelope reply) :error)
+                :to-equal "user-error Café ‘missing’"))))
+
+  (it "answers the fixed failure envelope for a result or error text JSON cannot carry, and keeps serving (seam/dispatcher-args)"
+    (let ((fixed "{\"ok\":false,\"error\":\"The reply is not valid Unicode text and cannot be sent as JSON\"}")
+          (texts (list (unibyte-string #xff #xfe)                     ; raw bytes, unibyte
+                       (string ?a (unibyte-char-to-multibyte #xff))   ; a raw byte, multibyte
+                       (string ?a #x3fff00))))                        ; not a Unicode character
+      (emacs-agent-test-with-tools
+          (list (list :name "emacs_agent_test_bytes" :preset 'read
+                      :args (list (emacs-agent-test-arg "n" nil 'integer))
+                      :function (lambda (n) (nth n texts)))
+                (list :name "emacs_agent_test_bytes_error" :preset 'read
+                      :function (lambda () (user-error "Bad %s" (car texts))))
+                (dispatcher-spec--tool "emacs_agent_test_ok" 'read))
+        (dotimes (n (length texts))
+          (expect (cons n (jf/agent-call "call" "emacs_agent_test_bytes"
+                                         (format "{\"n\":%d}" n)))
+                  :to-equal (cons n fixed)))
+        (expect (jf/agent-call "call" "emacs_agent_test_bytes_error" "{}")
+                :to-equal fixed)
+        (expect (plist-get (dispatcher-spec--call "call" "emacs_agent_test_ok" "{}") :ok)
+                :to-be t)))))
+
+
 (describe "jf/agent-call: tiers (seam/tier-enforcement)"
   (before-each (setq dispatcher-spec--calls nil))
 

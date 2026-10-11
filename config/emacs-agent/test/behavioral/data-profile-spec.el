@@ -80,7 +80,7 @@ Expect the child to exit 0."
                                   (not (data-profile-child-spec--under-p runtime path))))
                   :to-equal (cons path t))))))
 
-  (xit "writes an org_graph_write_node note under the scratch vault and nothing under the real one (Scenario: isolated-emacs-targets § Scratch profile confines note writes)"
+  (it "writes an org_graph_write_node note under the scratch vault and nothing under the real one (Scenario: isolated-emacs-targets § Scratch profile confines note writes)"
     (emacs-agent-test-with-socket-dir
       (let* ((vault (data-profile-child-spec--vault))
              (result (data-profile-child-spec--child
