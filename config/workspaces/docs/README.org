@@ -545,7 +545,7 @@ the versions it reads, and Emacs starts with no workspaces.  See
 
 v4 adds no slot to v3.  What changes is what a layout may hold:
 
-- a /recipe/ as its =:saved-state= (a plist headed by =:recipe=,
+- a /recipe/ as its =:saved-state= (a list =(:recipe . SLOTS)= whose =cdr= is the plist =:split DIR :panes PANES=,
   describing panes by file rather than capturing a window tree) in
   place of a captured window-state;
 - layout metadata in its =:etc= alist: =origin= (=user= or =agent=),

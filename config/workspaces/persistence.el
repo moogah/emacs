@@ -52,8 +52,8 @@ History:
   workspace plist.  Inherits v2's per-layout =:saved-state= /
   =:working-state= split, per-leaf =workspace-buffer= reincarnation
   struct and =:etc= forward-compat alist.
-- v4 (current): a layout's =:saved-state= may be a recipe (a plist
-  headed by =:recipe=) rather than a captured window-state, and its
+- v4 (current): a layout's =:saved-state= may be a recipe (a list
+  =(:recipe . SLOTS)= whose =cdr= is the plist =:split DIR :panes PANES=) rather than a captured window-state, and its
   =:etc= alist may carry layout metadata (=origin=, =description=,
   =source=).  No slot is added; both ride inside =:layout-groups=.
 
