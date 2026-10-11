@@ -6,6 +6,8 @@ This file provides guidance to Claude Code when working with this repository.
 
 Isolated, modular Emacs configuration using **literate programming**. Runs independently via git worktrees with three-tier architecture (development, testing, production).
 
+**Driving Emacs (live session or an isolated target):** use `bin/emacs-agent`, never `emacsclient` directly; read `.claude/skills/emacs-agent/SKILL.md` first.
+
 ## Core Concepts
 
 ### Literate Programming

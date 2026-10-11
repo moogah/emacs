@@ -37,7 +37,7 @@
 
 (describe "The static seed (seam/bootstrap-seed)"
 
-  (xit "names the wrapper, the target choice, the tiers and the tools command (Scenario: control-surface-discoverability § Agent learns the entry point from static context)"
+  (it "names the wrapper, the target choice, the tiers and the tools command (Scenario: control-surface-discoverability § Agent learns the entry point from static context)"
     (let ((skill (bootstrap-seed-spec--read bootstrap-seed-spec--skill)))
       (expect skill :to-match "^name: emacs-agent$")
       (expect skill :to-match "^description: ")
@@ -49,7 +49,7 @@
     (expect (bootstrap-seed-spec--read (expand-file-name "CLAUDE.md" emacs-agent-test-root))
             :to-match "\\.claude/skills/emacs-agent"))
 
-  (xit "names no tool of either preset (Scenario: control-surface-discoverability § Seed does not change when tools change)"
+  (it "names no tool of either preset (Scenario: control-surface-discoverability § Seed does not change when tools change)"
     (let ((skill (bootstrap-seed-spec--read bootstrap-seed-spec--skill))
           (names (append bootstrap-seed-spec--initial-tools
                          (and (fboundp 'jf/agent-preset-tool-names)
