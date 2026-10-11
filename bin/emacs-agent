@@ -52,8 +52,14 @@ Targets:
   are not target names.
 
   target start runs the worktree's bin/emacs-isolated.sh --daemon=NAME
-  (--worktree defaults to the checkout holding this script), or with --bare
-  runs emacs -Q --daemon=NAME.
+  (--worktree defaults to the checkout holding this script) with the data
+  profile in EMACS_AGENT_DATA, or with --bare runs emacs -Q --daemon=NAME,
+  which loads no configuration and takes neither --worktree nor --data.  It
+  returns once the target's server is ready.  target list prints the running
+  targets' names, removing any socket a dead target left; target stop sends
+  (kill-emacs) and returns once the target's socket is gone.  A target, or
+  the live session, whose socket is missing or answers no connection is not
+  running.
 
   --data PROFILE   the data profile of a worktree target:
                      live            the user's notes
@@ -127,14 +133,26 @@ emacs_agent_emacsclient() {
 }
 
 # Run emacsclient against the socket NAME (`server' for live), always with -s
-# and the socket's absolute path; the remaining arguments follow.
+# and the socket's absolute path; the remaining arguments follow.  stdout
+# passes through.  When emacsclient cannot connect (it says "error accessing
+# socket": a socket nothing listens on, left by a target or live session
+# that died) report NAME as not running and return 2; otherwise pass its
+# stderr on and return its status.  No other socket is tried.
 emacs_agent_client() {
     local name="$1"
     shift
-    local client
+    local client socket err status
     client="$(emacs_agent_emacsclient)" ||
         emacs_agent_fail "no emacsclient found; set EMACS_AGENT_EMACSCLIENT"
-    "$client" -s "$(emacs_agent_socket "$name")" "$@"
+    socket="$(emacs_agent_socket "$name")"
+    { err="$("$client" -s "$socket" "$@" 2>&1 1>&3 3>&-)"; } 3>&1
+    status=$?
+    if [[ $status -ne 0 && "$err" == *"error accessing socket"* ]]; then
+        emacs_agent_not_running "$name" "nothing is listening on $socket"
+        return 2
+    fi
+    [[ -z "$err" ]] || printf '%s\n' "$err" >&2
+    return "$status"
 }
 
 # Print STRING as an Elisp string literal: backslash and double quote escaped,
@@ -202,23 +220,34 @@ emacs_agent_check_name() {
     fi
 }
 
-# Exit 2 unless the socket NAME exists; LABEL describes it in the message.
+# Say on stderr that the socket NAME (`server' for live) is served by no
+# Emacs; WHY ends the message.
+emacs_agent_not_running() {
+    local name="$1" why="$2"
+    if [[ "$name" == server ]]; then
+        printf 'emacs-agent: no live session is running (%s)\n' "$why" >&2
+    else
+        printf 'emacs-agent: target %s is not running (%s)\n' "$name" "$why" >&2
+    fi
+}
+
+# Exit 2 unless the socket NAME exists.
 emacs_agent_require_running() {
     local name="$1" socket
     socket="$(emacs_agent_socket "$name")"
     [[ -S "$socket" ]] && return 0
-    if [[ "$name" == server ]]; then
-        emacs_agent_fail "no live session is running (no socket at $socket)" 2
-    else
-        emacs_agent_fail "target $name is not running (no socket at $socket)" 2
-    fi
+    emacs_agent_not_running "$name" "no socket at $socket"
+    exit 2
 }
 
 # Send FORM to the socket NAME and print its string reply decoded.  With
 # ENVELOPE set, the exit status follows the envelope's `ok'.
 emacs_agent_json_call() {
-    local name="$1" form="$2" envelope="${3:-}" reply
-    if ! reply="$(emacs_agent_client "$name" --eval "$form")"; then
+    local name="$1" form="$2" envelope="${3:-}" reply status
+    reply="$(emacs_agent_client "$name" --eval "$form")"
+    status=$?
+    [[ $status -eq 2 ]] && exit 2
+    if [[ $status -ne 0 ]]; then
         [[ -n "$reply" ]] && printf '%s\n' "$reply"
         exit 1
     fi
@@ -276,23 +305,106 @@ emacs_agent_tier() {
             local form="$1"
             [[ "$form" == -* ]] && form=" $form"
             emacs_agent_client "$name" --eval "$form"
-            [[ $? -eq 0 ]] || exit 1
-            exit 0 ;;
+            case $? in
+                0) exit 0 ;;
+                2) exit 2 ;;
+                *) exit 1 ;;
+            esac ;;
     esac
 }
 
-# The target lifecycle (seam/target-lifecycle) is not implemented yet; the
-# grammar is parsed in full so its words are reserved.
+# Seconds `target stop' waits for a target to go: for the kill to be
+# delivered, then for the socket to disappear.
+EMACS_AGENT_STOP_TIMEOUT=10
+
+# Start the target NAME.  WORKTREE (default: this checkout) runs its
+# bin/emacs-isolated.sh --daemon=NAME with EMACS_AGENT_DATA set to DATA
+# (default none); BARE set runs EMACS -Q --daemon=NAME instead.  A --daemon
+# launch returns once its server is ready, so the target is up when the
+# launcher exits 0 and the socket exists; otherwise show the launcher's
+# output and exit 2.  The output goes to a file, not a pipe: a process the
+# target starts while it initialises may hold a pipe open after the
+# launcher exits.
 emacs_agent_target_start() {
-    emacs_agent_usage_error "target start is not yet implemented"
+    local name="$1" worktree="$2" bare="$3" data="$4" launcher out status socket
+    local -a cmd
+    if [[ -n "$bare" ]]; then
+        [[ -z "$worktree" ]] || emacs_agent_usage_error "--worktree does not apply to a --bare target"
+        [[ -z "$data" ]] || emacs_agent_usage_error "--data does not apply to a --bare target, which loads no configuration"
+        cmd=(env -u EMACS_AGENT_DATA "$(emacs_agent_emacs)" -Q "--daemon=$name")
+    else
+        launcher="${worktree:-$EMACS_AGENT_ROOT}/bin/emacs-isolated.sh"
+        [[ -x "$launcher" ]] ||
+            emacs_agent_fail "no executable launcher at $launcher" 2
+        cmd=(env "EMACS_AGENT_DATA=${data:-none}" "$launcher" "--daemon=$name")
+    fi
+    out="$(mktemp "${TMPDIR:-/tmp}/emacs-agent-start.XXXXXX")" ||
+        emacs_agent_fail "cannot create a temporary file" 2
+    "${cmd[@]}" </dev/null >"$out" 2>&1
+    status=$?
+    socket="$(emacs_agent_socket "$name")"
+    if [[ $status -eq 0 && -S "$socket" ]]; then
+        rm -f "$out"
+        exit 0
+    fi
+    cat "$out" >&2
+    rm -f "$out"
+    if [[ $status -ne 0 ]]; then
+        emacs_agent_fail "target $name did not start: the launcher exited $status" 2
+    fi
+    emacs_agent_fail "target $name did not start: the launcher exited 0 but there is no socket at $socket" 2
 }
 
+# Print the name of every socket in the socket directory but `server', the
+# live session's: the directory is the registry of running targets.  A
+# target socket nothing listens on (its Emacs died without removing it) is
+# not listed, and is removed, as `server-start' removes a stale socket.  A
+# target that accepts the connection but does not answer is still running
+# and is listed.
 emacs_agent_target_list() {
-    emacs_agent_usage_error "target list is not yet implemented"
+    local dir entry name
+    dir="$(emacs_agent_socket_dir)"
+    [[ -d "$dir" ]] || exit 0
+    for entry in "$dir"/*; do
+        [[ -S "$entry" ]] || continue
+        name="${entry##*/}"
+        [[ "$name" != server ]] || continue
+        emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
+        if [[ $? -eq 2 ]]; then
+            rm -f "$entry"
+            continue
+        fi
+        printf '%s\n' "$name"
+    done
+    exit 0
 }
 
+# Send (kill-emacs) to the target NAME and return once its socket is gone,
+# waiting at most EMACS_AGENT_STOP_TIMEOUT seconds for each step, so a hung
+# target fails the stop rather than blocking it.
 emacs_agent_target_stop() {
-    emacs_agent_usage_error "target stop is not yet implemented"
+    local name="$1" socket deadline
+    emacs_agent_require_running "$name"
+    socket="$(emacs_agent_socket "$name")"
+    # The connection closes as the target exits, so the reply and the
+    # client's status carry nothing; the socket's removal is the answer.
+    # A socket nothing listens on is removed, and the target reported as
+    # not running.
+    emacs_agent_client "$name" -w "$EMACS_AGENT_STOP_TIMEOUT" \
+        --eval "(kill-emacs)" >/dev/null 2>&1
+    if [[ $? -eq 2 ]]; then
+        rm -f "$socket"
+        emacs_agent_not_running "$name" "nothing was listening on $socket; removed it"
+        exit 2
+    fi
+    deadline=$((SECONDS + EMACS_AGENT_STOP_TIMEOUT))
+    while [[ -S "$socket" ]]; do
+        if [[ $SECONDS -ge $deadline ]]; then
+            emacs_agent_fail "target $name did not stop within ${EMACS_AGENT_STOP_TIMEOUT}s; its socket is still at $socket"
+        fi
+        sleep 0.1
+    done
+    exit 0
 }
 
 emacs_agent_target() {

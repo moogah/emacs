@@ -10,7 +10,7 @@
 ;; scope kills whatever is left in that directory on exit.  Nothing here
 ;; can reach the live socket.  Each spec `assume's the binaries, so a
 ;; machine without them skips it.  A -Q daemon starts in well under a
-;; second.  Pending until bin/emacs-agent exists.
+;; second.
 
 ;;; Code:
 
@@ -48,7 +48,7 @@
 
 (describe "Bare targets through bin/emacs-agent (seam/target-lifecycle)"
 
-  (xit "starts a bare target reachable by name with no configuration loaded (Scenario: isolated-emacs-targets § Start a bare target)"
+  (it "starts a bare target reachable by name with no configuration loaded (Scenario: isolated-emacs-targets § Start a bare target)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-bare")
       (expect (file-exists-p (emacs-agent-test-socket "smoke-bare")) :to-be t)
@@ -58,7 +58,7 @@
                "smoke-bare" "(list server-name (boundp 'jf/emacs-dir) (featurep 'gptel))")
               :to-equal "(\"smoke-bare\" nil nil)")))
 
-  (xit "lists running targets by name and never the server socket (Scenario: isolated-emacs-targets § Enumerate running targets)"
+  (it "lists running targets by name and never the server socket (Scenario: isolated-emacs-targets § Enumerate running targets)"
     (bare-target-spec--scope
       ;; A daemon named `server' in the private directory plays the live
       ;; session's socket.
@@ -70,7 +70,7 @@
         (expect (sort (split-string (plist-get result :stdout) "[\n]+" t) #'string<)
                 :to-equal '("smoke-a" "smoke-b")))))
 
-  (xit "stops a target: its process ends, its socket goes, and the next call fails (Scenario: isolated-emacs-targets § Disposed target no longer routes)"
+  (it "stops a target: its process ends, its socket goes, and the next call fails (Scenario: isolated-emacs-targets § Disposed target no longer routes)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-stop")
       (let ((pid (string-to-number (bare-target-spec--eval "smoke-stop" "(emacs-pid)"))))
@@ -82,7 +82,7 @@
         (expect (plist-get (bare-target-spec--run "target" "smoke-stop" "eval" "1") :exit)
                 :to-equal 2))))
 
-  (xit "answers tools on a bare target with an empty list and still evaluates (Scenario: control-surface-discoverability § Bare target has no manifest)"
+  (it "answers tools on a bare target with an empty list and still evaluates (Scenario: control-surface-discoverability § Bare target has no manifest)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-tools")
       (let ((result (bare-target-spec--run "target" "smoke-tools" "tools")))
@@ -91,7 +91,7 @@
                 :to-equal []))
       (expect (bare-target-spec--eval "smoke-tools" "(+ 1 2)") :to-equal "3")))
 
-  (xit "returns an eval error's message and keeps serving the target (Scenario: emacs-control-tools § Eval errors are reported to the client)"
+  (it "returns an eval error's message and keeps serving the target (Scenario: emacs-control-tools § Eval errors are reported to the client)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-error")
       (let ((result (bare-target-spec--run "target" "smoke-error" "eval"
@@ -101,7 +101,7 @@
                 :to-match "emacs-agent boom"))
       (expect (bare-target-spec--eval "smoke-error" "(+ 1 2)") :to-equal "3")))
 
-  (xit "evaluates and reports frame state with no frame attached (Scenario: emacs-control-tools § Headless target needs no frame for eval and observation)"
+  (it "evaluates and reports frame state with no frame attached (Scenario: emacs-control-tools § Headless target needs no frame for eval and observation)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-headless")
       (expect (bare-target-spec--eval
@@ -115,7 +115,7 @@
                               :buffer)
                 :not :to-be nil))))
 
-  (xit "returns frame state from a headless bare target through the wrapper (Scenario: frame-state-observation § Frame state returned for a headless target; frame-state-observation § Headless target relies on frame-state)"
+  (it "returns frame state from a headless bare target through the wrapper (Scenario: frame-state-observation § Frame state returned for a headless target; frame-state-observation § Headless target relies on frame-state)"
     (bare-target-spec--scope
       (bare-target-spec--start "smoke-state")
       (bare-target-spec--eval
@@ -132,5 +132,56 @@
         (expect (seq-some (lambda (line) (string-match-p "emacs-agent smoke marker" line))
                           (plist-get state :messages))
                 :to-be-truthy)))))
+
+(defun bare-target-spec--crash (name)
+  "Kill the target NAME with SIGKILL, so its socket file stays behind.
+Return the socket's path once the process is gone."
+  (let ((pid (string-to-number (cdr (emacs-agent-test-client name "(emacs-pid)")))))
+    (signal-process pid 'kill)
+    (expect (emacs-agent-test-wait-for (lambda () (null (process-attributes pid))) 5)
+            :to-be t)
+    (let ((socket (emacs-agent-test-socket name)))
+      (expect (file-exists-p socket) :to-be t)
+      socket)))
+
+
+(describe "Dead targets through bin/emacs-agent (seam/wrapper-cli, seam/target-lifecycle)"
+
+  (it "reports a crashed target or live session as not running, exit 2, though its socket file stays (Scenario: isolated-emacs-targets § Detect a dead target; agent-target-policy § Live session not running)"
+    (bare-target-spec--scope
+      (emacs-agent-test-start-daemon "server")
+      (bare-target-spec--start "smoke-crash")
+      (bare-target-spec--crash "smoke-crash")
+      (bare-target-spec--crash "server")
+      (dolist (args '(("target" "smoke-crash" "eval" "1")
+                      ("target" "smoke-crash" "tools")
+                      ("target" "smoke-crash" "state")))
+        (let ((result (apply #'bare-target-spec--run args)))
+          (expect (cons args (plist-get result :exit)) :to-equal (cons args 2))
+          (expect (plist-get result :stderr) :to-match "smoke-crash is not running")))
+      (dolist (args '(("live" "tools") ("live" "eval" "1")))
+        (let ((result (apply #'bare-target-spec--run args)))
+          (expect (cons args (plist-get result :exit)) :to-equal (cons args 2))
+          (expect (plist-get result :stderr) :to-match "no live session is running")))))
+
+  (it "lists no target whose socket nothing listens on, and removes that socket (Scenario: isolated-emacs-targets § Enumerate running targets)"
+    (bare-target-spec--scope
+      (bare-target-spec--start "smoke-alive")
+      (bare-target-spec--start "smoke-dead")
+      (let ((socket (bare-target-spec--crash "smoke-dead"))
+            (result (bare-target-spec--run "target" "list")))
+        (expect (plist-get result :exit) :to-equal 0)
+        (expect (split-string (plist-get result :stdout) "[\n]+" t)
+                :to-equal '("smoke-alive"))
+        (expect (file-exists-p socket) :to-be nil))))
+
+  (it "stops a crashed target by removing its socket, reporting it not running (Scenario: isolated-emacs-targets § Disposed target no longer routes)"
+    (bare-target-spec--scope
+      (bare-target-spec--start "smoke-gone")
+      (let* ((socket (bare-target-spec--crash "smoke-gone"))
+             (result (bare-target-spec--run "target" "stop" "smoke-gone")))
+        (expect (plist-get result :exit) :to-equal 2)
+        (expect (plist-get result :stderr) :to-match "smoke-gone is not running")
+        (expect (file-exists-p socket) :to-be nil)))))
 
 ;;; bare-target-spec.el ends here

@@ -14,8 +14,7 @@
 ;;
 ;; The daemon runs with HOME at an empty directory of the scope and TMPDIR
 ;; at the scope's private socket directory, so it can reach neither the
-;; user's vault nor the live socket; the scope stops it on exit.  Pending
-;; until bin/emacs-agent and the data profile exist.
+;; user's vault nor the live socket; the scope stops it on exit.
 
 ;;; Code:
 
@@ -37,6 +36,10 @@ VAULT is bound to the vault's true name inside BODY."
          (let* ((,vault (let ((dir (expand-file-name "vault/" emacs-agent-test--tmpdir)))
                           (make-directory dir t)
                           (file-name-as-directory (file-truename dir))))
+                ;; Expanded before HOME is rebound: an abbreviated "~/"
+                ;; directory would resolve under the fake HOME, where
+                ;; `call-process' cannot enter it.
+                (default-directory (expand-file-name default-directory))
                 (process-environment
                  (cons (concat "HOME=" (directory-file-name (emacs-agent-test-home)))
                        (seq-remove (lambda (entry) (string-prefix-p "HOME=" entry))
@@ -59,20 +62,20 @@ VAULT is bound to the vault's true name inside BODY."
 
 (describe "A worktree target on a scratch vault (seam/target-lifecycle, seam/data-profile)"
 
-  (xit "starts a worktree target that loads the configuration and answers eval (Scenario: isolated-emacs-targets § Start a worktree-configured target)"
+  (it "starts a worktree target that loads the configuration and answers eval (Scenario: isolated-emacs-targets § Start a worktree-configured target)"
     (full-config-spec--with-target "smoke-full" vault
       (expect (full-config-spec--eval "smoke-full" "(list server-name (featurep 'org-graph) (featurep 'emacs-agent))")
               :to-equal '("smoke-full" t t))
       (expect (file-exists-p (emacs-agent-test-socket "smoke-full")) :to-be t)))
 
-  (xit "evaluates configuration forms in the worktree's loaded configuration (Scenario: emacs-control-tools § Eval runs in the loaded configuration)"
+  (it "evaluates configuration forms in the worktree's loaded configuration (Scenario: emacs-control-tools § Eval runs in the loaded configuration)"
     (full-config-spec--with-target "smoke-eval" vault
       (expect (file-name-as-directory (full-config-spec--eval "smoke-eval" "jf/emacs-dir"))
               :to-equal emacs-agent-test-root)
       (expect (> (full-config-spec--eval "smoke-eval" "(length jf/enabled-modules)") 0)
               :to-be t)))
 
-  (xit "writes through call-write and finds the note through call, all in the scratch vault (seam/data-profile)"
+  (it "writes through call-write and finds the note through call, all in the scratch vault (seam/data-profile)"
     (full-config-spec--with-target "smoke-write" vault
       (let ((write (emacs-agent-test-wrapper-run
                     "target" "smoke-write" "call-write" "org_graph_write_node"
@@ -92,7 +95,7 @@ VAULT is bound to the vault's true name inside BODY."
                30)
               :to-be-truthy)))
 
-  (xit "indexes only notes under the scratch vault once startup sync has run (Scenario: isolated-emacs-targets § Scratch profile indexes only the scratch vault)"
+  (it "indexes only notes under the scratch vault once startup sync has run (Scenario: isolated-emacs-targets § Scratch profile indexes only the scratch vault)"
     (full-config-spec--with-target "smoke-index" vault
       (with-temp-file (expand-file-name "roam/seed.org" vault)
         (insert ":PROPERTIES:\n:ID: emacs-agent-smoke-seed\n:END:\n#+title: Seed\n"))

@@ -13,8 +13,7 @@
 ;; (`emacs-agent-test-with-socket-dir'), so no call can reach the user's
 ;; live Emacs.  A listening socket with nothing behind it
 ;; (`emacs-agent-test-stand-in-socket') plays a running live session or
-;; target where the wrapper checks for one.  Pending until bin/emacs-agent
-;; exists.
+;; target where the wrapper checks for one.
 
 ;;; Code:
 
@@ -225,7 +224,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
 
 (describe "bin/emacs-agent target start (seam/target-lifecycle, seam/data-profile)"
 
-  (xit "runs the worktree's emacs-isolated.sh --daemon=NAME with the profile exported verbatim (seam/target-lifecycle)"
+  (it "runs the worktree's emacs-isolated.sh --daemon=NAME with the profile exported verbatim (seam/target-lifecycle)"
     (wrapper-spec--scope
       (emacs-agent-test-wrapper-run "target" "start" "smoke-1"
                                     "--worktree" (emacs-agent-test-fake-worktree)
@@ -236,14 +235,14 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
       (expect (emacs-agent-test-fake-env "isolated")
               :to-equal '("scratch:/tmp/emacs-agent-vault"))))
 
-  (xit "exports none when --data is omitted (seam/data-profile)"
+  (it "exports none when --data is omitted (seam/data-profile)"
     (wrapper-spec--scope
       (let ((process-environment (cons "EMACS_AGENT_DATA=live" process-environment)))
         (emacs-agent-test-wrapper-run "target" "start" "smoke-1"
                                       "--worktree" (emacs-agent-test-fake-worktree)))
       (expect (emacs-agent-test-fake-env "isolated") :to-equal '("none"))))
 
-  (xit "runs EMACS -Q --daemon=NAME for a bare target (seam/target-lifecycle)"
+  (it "runs EMACS -Q --daemon=NAME for a bare target (seam/target-lifecycle)"
     (wrapper-spec--scope
       (emacs-agent-test-wrapper-run "target" "start" "smoke-2" "--bare")
       (let ((argv (car (emacs-agent-test-fake-calls "emacs"))))
@@ -251,7 +250,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
         (expect (member "--daemon=smoke-2" argv) :not :to-be nil))
       (expect (emacs-agent-test-fake-calls "isolated") :to-be nil)))
 
-  (xit "states the default data profile in its usage text (seam/data-profile)"
+  (it "states the default data profile in its usage text (seam/data-profile)"
     (let ((help (emacs-agent-test-wrapper-run "--help")))
       (expect (plist-get help :exit) :to-equal 0)
       (expect (plist-get help :stdout) :to-match "--data")

@@ -168,15 +168,21 @@ that is not absolute, gives (:kind none) and a warning naming VALUE."
        :warning)
       (list :kind 'none)))))
 
+(defun jf/data-state-directory-remove ()
+  "Delete `jf/data-state-directory' and everything in it, if it exists."
+  (when (and (stringp jf/data-state-directory)
+             (file-directory-p jf/data-state-directory))
+    (ignore-errors (delete-directory jf/data-state-directory t))))
+
 (defun jf/data-profile-apply (profile)
   "Turn PROFILE, as `jf/data-profile-parse' returns it, into settings.
 Record PROFILE in `jf/data-profile'.  For live or nil change nothing
 else.  For scratch and none make a fresh `jf/data-state-directory' under
 `temporary-file-directory', put the org-roam and org-id databases and
-the workspace state in it, and stop org-graph indexing workspace homes.
-Scratch points `jf/org-directory' at its directory, creating it; none
-points it at an empty directory in the state directory and turns
-org-graph sync off."
+the workspace state in it, remove it as Emacs exits, and stop org-graph
+indexing workspace homes.  Scratch points `jf/org-directory' at its
+directory, creating it; none points it at an empty directory in the
+state directory and turns org-graph sync off."
   (setq jf/data-profile profile)
   (let ((kind (plist-get profile :kind)))
     (when (memq kind '(scratch none))
@@ -187,6 +193,7 @@ org-graph sync off."
               org-roam-db-location (expand-file-name "org-roam.db" state)
               org-id-locations-file (expand-file-name ".org-id-locations" state)
               org-graph-watch-workspace-homes nil)
+        (add-hook 'kill-emacs-hook #'jf/data-state-directory-remove 100)
         (if (eq kind 'scratch)
             (let ((dir (plist-get profile :dir)))
               (make-directory dir t)

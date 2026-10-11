@@ -35,7 +35,8 @@
          (org-graph-watch-workspace-homes t)
          (org-graph-sync-enabled t)
          (org-roam-db-location "/sentinel/org-roam.db")
-         (org-id-locations-file "/sentinel/.org-id-locations"))
+         (org-id-locations-file "/sentinel/.org-id-locations")
+         (kill-emacs-hook nil))
      (unwind-protect (progn ,@body)
        (when (and (stringp jf/data-state-directory)
                   (string-prefix-p (expand-file-name temporary-file-directory)
@@ -100,6 +101,14 @@
       (expect (data-profile-spec--under-p jf/data-state-directory jf/org-directory) :to-be t)
       (expect org-graph-watch-workspace-homes :to-be nil)
       (expect org-graph-sync-enabled :to-be nil)))
+
+  (it "removes the state dir as Emacs exits, last on kill-emacs-hook (seam/data-profile)"
+    (data-profile-spec--bound
+      (jf/data-profile-apply (list :kind 'none))
+      (let ((state jf/data-state-directory))
+        (expect (last kill-emacs-hook) :to-equal '(jf/data-state-directory-remove))
+        (run-hooks 'kill-emacs-hook)
+        (expect (file-exists-p state) :to-be nil))))
 
   (it "changes nothing for live or for no profile (seam/data-profile)"
     (dolist (profile (list nil (list :kind 'live)))
