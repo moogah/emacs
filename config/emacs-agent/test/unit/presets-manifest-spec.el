@@ -88,7 +88,7 @@
 
 (describe "The manifest (seam/manifest)"
 
-  (xit "lists every preset tool of a full configuration with its tier and argument schema (Scenario: control-surface-discoverability § Agent discovers the callable tools)"
+  (it "lists every preset tool of a full configuration with its tier and argument schema (Scenario: control-surface-discoverability § Agent discovers the callable tools)"
     (let ((manifest (presets-manifest-spec--manifest)))
       (expect (presets-manifest-spec--sorted
                (mapcar (lambda (entry) (plist-get entry :name)) manifest))
