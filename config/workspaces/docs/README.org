@@ -405,6 +405,53 @@ pass the message on unchanged:
 | Unregistered workspace        | =No workspace named "W"=                                                                                           |
 | Removing a layout W lacks     | =No layout named "L" in workspace "W"=                                                                             |
 
+* Agent tools
+
+=agent-tools.el= gives gptel agents two tools, in the =workspaces=
+category, over the programmatic layout functions above.  Both are
+synchronous.  They register when gptel loads (=with-eval-after-load
+'gptel=, so the order in which workspaces and gptel load does not
+matter), and gptel stays optional: without it the module only defines
+functions.  Dropping its line from =workspaces.el= removes the tools and
+nothing else.
+
+| Tool                      | Arguments                                                                              |
+|---------------------------+----------------------------------------------------------------------------------------|
+| =workspace_add_layout=    | =workspace= or =directory=, =layout_name=, =split=, =panes=, =description?=, =source?= |
+| =workspace_remove_layout= | =workspace= or =directory=, =layout_name=                                              |
+
+- *Which workspace.*  Exactly one of =workspace= (a registered name) or
+  =directory= (an absolute directory inside a workspace's home, e.g. a
+  repository root; the deepest home containing it wins, as
+  =workspace-for-directory= decides).
+- *The layout.*  =split= is ="columns"= (side by side) or ="rows"=
+  (stacked).  =panes= is a non-empty array whose members are either
+  ={"file": PATH, "line": N}= (=line= optional, 1-based) or a nested
+  ={"split": …, "panes": […]}=, to any depth.  Panes in one split share
+  its space evenly.  The tool stores this as a recipe layout with origin
+  =agent=, =description= and =source= as its metadata.
+- *Paths.*  A relative =file= is taken relative to the workspace's home,
+  whether the workspace was named or found by =directory=; an absolute
+  one is kept, and a =~= is expanded.  Every file must exist and not be
+  a directory.  Nothing is opened: the files are visited only when the
+  user switches to the layout.
+- *Errors.*  Everything is checked before anything is written.  A bad
+  argument (both or neither of =workspace= / =directory=, an unknown
+  workspace or directory, a bad =split=, an empty or malformed pane, an
+  unknown pane key, a non-positive =line=, a missing file) and every
+  refusal in the table above come back to the agent as an error whose
+  text names the problem — the pane by its position (=panes[1].panes[0]=),
+  the file by name — and the workspace is left as it was.  On success
+  the tool returns a one-line confirmation.
+- *What the user sees.*  Nothing, until they switch to the layout: the
+  tools change no frame, tab, window or buffer.
+
+*Convention: a layout per orchestrator ask.*  An orchestrator that asks
+the user a decision names the layout =ask/<ask-id>=, sets =source= to the
+ask id, puts the ask file beside the files it refers to, and removes the
+layout with =workspace_remove_layout= when the ask is closed.  The
+add tool's description tells the model this.
+
 * Command reference
 
 Every command is reached from the =C-x w= menu (or by =M-x=).  The
