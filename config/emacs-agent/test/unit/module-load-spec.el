@@ -32,7 +32,7 @@
     (expect (gptel-tool-name (gptel-get-tool "emacs_describe_symbol"))
             :to-equal "emacs_describe_symbol"))
 
-  (xit "has one .org source per tangled file, each starting with the lexical-binding line (seam/module-load)"
+  (it "has one .org source per tangled file, each starting with the lexical-binding line (seam/module-load)"
     (let ((tangled (directory-files module-load-spec--dir t "\\.el\\'")))
       (expect (sort (mapcar #'file-name-base tangled) #'string<)
               :to-equal '("action-log" "dispatcher" "emacs-agent" "introspection-tools"
