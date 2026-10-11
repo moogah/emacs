@@ -246,11 +246,81 @@ Each fallback step is guarded with =condition-case= so one
 unrecoverable record (e.g. the =help-mode= =bug#56643=
 natively-compiled-subr issue) does not abort the whole restore.
 
+*A decline is not a failure.*  Step 1 tells two things apart that
+both leave the probe buffer unchanged.  A bookmark handler that
+FAILS — a read-back error, a missing handler, a =file-error= — has
+said nothing about the buffer, and the chain falls through to the
+filename.  A handler that DECLINES has made a decision the user is
+meant to see: it signalled =workspace-restore-declined=, the one
+condition core owns for that decision (data-model.org, "The decline
+condition").  For a declined leaf the
+chain skips steps 2 AND 3 and goes straight to the error buffer,
+which carries the handler's reason.  The saved filename is the
+absolute path the buffer had when the layout was captured, and a
+handler that refused to open its bookmark's location has, in
+general, refused to open THAT path (a bookmark resolved against
+another checkout says "not on this branch", and the stored filename
+is the other checkout's copy of the file); a live buffer of the same
+NAME is, in the same situations, the same wrong file already open.
+Falling back to either would turn "report and open nothing" into
+"open the stored path quietly", which is the shape
+=register/invariant/no-silent-wrong-file-open= exists to remove.
+
+How step 1 tells the three answers apart, and nothing else:
+
+- a buffer other than the probe's — the jump landed: step 1 wins;
+- =workspace-restore-declined= out of the jump — DECLINED: the gate
+  above, with the reason taken from the condition's datum;
+- any other =error= (a plain =user-error= included), or no signal and
+  no buffer change — FAILED: fall through to step 2.  =quit= is
+  neither; C-g aborts the restore.
+
+The dispatch has one arm per answer and SIGNALS for any other value,
+so a result nobody wrote an arm for can never reach the filename step
+(=register/invariant/no-silent-wrong-file-open=: a catch-all arm
+errors or does nothing, it never opens).  The decline is keyed on the
+owned condition alone, not on =user-error=, its parent: stock handlers
+signal =user-error= for reasons of their own (=Info-find-file='s "Info
+file ... does not exist; consider installing it"), and such a leaf must
+keep restoring through its stored filename or the live buffer of its
+name, as it did before the gate existed.  A third-party handler that
+wants a decline's treatment signals =workspace-restore-declined= and
+gets the same reason buffer.
+
+*Asking is not declining.*  Step 1 does NOT suppress interaction.  A
+stock handler that asks while visiting a leaf — =find-file-noselect='s
+large-file question, which goes through =read-multiple-choice=; the
+unsafe local variables query; =vc-follow-symlinks= — asks exactly as it
+would on any other visit, and the leaf is restored with the answer.
+Binding =inhibit-interaction= here would be wrong on two counts: it
+would silently change what every handler does, and in Emacs 30.2
+=read-multiple-choice= swallows the =inhibited-interaction= signal and
+re-issues its prompt forever, so any leaf over
+=large-file-warning-threshold= would spin the restore.
+
+What step 1 does instead is SAY that a layout leaf is being restored,
+through one neutral variable core owns: =workspace--restoring-layout-leaf=
+is bound non-nil around the leaf's jump.  A consumer whose handler
+would otherwise put a question of its own for every leaf of a layout
+reads it and declines (=workspace-restore-declined=) instead of
+asking, and that decline takes the gate.  A restore paints several leaves in one
+gesture; it must never turn into a series of per-leaf questions of a
+consumer's making.  Core names no consumer: the variable is core's, and
+a consumer reads it guarded by =boundp=.
+
+Declines are collected while the leaves are walked and reported ONCE
+per restore by =workspace--restore-frameset=, so a layout with three
+declined leaves produces one message naming all three.  This is a gate
+in front of the four-step chain, not a fifth step: the step vocabulary
+below is unchanged.
+
 The four step symbols are pinned in a closed, ordered set
 (=workspace--valid-reincarnation-steps=) with a membership
 predicate, mirroring the =workspace--valid-state-slots= /
 =workspace--state-slot-p= pair below.  The order is load-bearing:
-it matches the =or= chain in =workspace--deserialize-buffer=.
+it matches =workspace--deserialize-buffer=, whose dispatch on step 1's
+answer runs steps 2 → 3 → 4 in this order when step 1 FAILED, and
+jumps straight to step 4 when step 1 DECLINED.
 Adding a fifth step is a register-level change (see
 =register/vocabulary/buffer-reincarnation-fallback-chain= in
 =interfaces.org=), not a code-level addition.
@@ -259,8 +329,10 @@ Adding a fifth step is a register-level change (see
 (defconst workspace--valid-reincarnation-steps
   '(bookmark filename name error-buffer)
   "Closed, ordered set of reincarnation-chain step symbols.
-The order is load-bearing in production via the `or' chain in
-`workspace--deserialize-buffer'.  Adding a fifth member is a
+The order is load-bearing in production via `workspace--deserialize-buffer':
+a buffer from step 1 wins; when step 1 FAILED, steps 2, 3 and 4 are
+tried in this order; when step 1 DECLINED (the gate), steps 2 and 3
+are skipped and step 4 carries the reason.  Adding a fifth member is a
 register-level change (see register/vocabulary/buffer-
 reincarnation-fallback-chain in =interfaces.org=), not a
 code-level addition.")
@@ -315,9 +387,14 @@ fallback."
        :narrowed-p (buffer-narrowed-p)
        :indirect-p (and (buffer-base-buffer buffer) t)))))
 
-(defun workspace--error-buffer (ws-buffer)
+(defun workspace--error-buffer (ws-buffer &optional declined)
   "Return a live, named buffer explaining that WS-BUFFER could not be reincarnated.
-Modelled on `activities--error-buffer' (activities.el:855-862)."
+Modelled on `activities--error-buffer' (activities.el:855-862).
+
+DECLINED, when non-nil, is the message with which the buffer's
+bookmark handler declined to restore it; the text then says so and
+says that the saved filename was deliberately NOT opened, instead of
+listing the four steps as having failed."
   (let* ((orig-name (or (workspace-buffer-name ws-buffer) "<unknown>"))
          (name (format "*workspace-restore: %s*" orig-name))
          (buf (get-buffer-create name)))
@@ -330,22 +407,54 @@ Modelled on `activities--error-buffer' (activities.el:855-862)."
          (format "Original filename    : %s\n"
                  (or (workspace-buffer-filename ws-buffer) "<none>"))
          (format "Bookmark record      : %s\n\n"
-                 (if (workspace-buffer-bookmark ws-buffer)
-                     "present (failed to restore)"
-                   "absent"))
-         "All four fallback steps failed:\n"
-         "  1. bookmark restore\n"
-         "  2. find-file-noselect on filename\n"
-         "  3. get-buffer by name\n"
-         "  4. (this buffer is step 4)\n\n"
-         "It is likely that the buffer's major mode does not support\n"
-         "the bookmark system, or the underlying resource (file, repo,\n"
-         "process) is no longer available.\n"))
+                 (cond (declined "present (declined to restore)")
+                       ((workspace-buffer-bookmark ws-buffer)
+                        "present (failed to restore)")
+                       (t "absent"))))
+        (if declined
+            (insert
+             "The buffer's bookmark handler declined to restore it:\n\n"
+             (format "  %s\n\n" declined)
+             "The saved filename was NOT opened in its place: it is the\n"
+             "path this buffer had when the layout was captured, and the\n"
+             "handler has just said that path is not the right one here.\n"
+             "Open the file you want by hand, then save the layout again.\n")
+          (insert
+           "All four fallback steps failed:\n"
+           "  1. bookmark restore\n"
+           "  2. find-file-noselect on filename\n"
+           "  3. get-buffer by name\n"
+           "  4. (this buffer is step 4)\n\n"
+           "It is likely that the buffer's major mode does not support\n"
+           "the bookmark system, or the underlying resource (file, repo,\n"
+           "process) is no longer available.\n")))
       (visual-line-mode 1))
     buf))
 
+(defvar workspace--restoring-layout-leaf nil
+  "Non-nil while a layout leaf is being restored; consumers must not prompt.
+Bound by `workspace--bookmark-buffer' around the leaf's bookmark jump,
+and nil everywhere else.  It suppresses nothing by itself: stock
+handlers still ask whatever they ask on any visit.  A consumer whose
+handler would put a question of its own for every leaf of a layout
+reads it (guarded by `boundp') and signals `workspace-restore-declined'
+instead, which the reincarnation chain treats as a decline (see
+`workspace--deserialize-buffer').")
+
 (defun workspace--bookmark-buffer (ws-buffer)
-  "Return the buffer produced by jumping to WS-BUFFER's bookmark record, or nil.
+  "Return the buffer produced by jumping to WS-BUFFER's bookmark record.
+Returns the buffer on success, nil when the jump FAILED, or
+\(declined . MESSAGE) when the bookmark handler DECLINED to restore
+the buffer by signalling `workspace-restore-declined'; MESSAGE is the
+condition's datum.  Any other error, a plain `user-error' included,
+and a jump that returns without moving off the probe buffer, is a
+failure.  `quit' propagates.
+
+The jump runs with `workspace--restoring-layout-leaf' bound non-nil,
+so a consumer can tell a layout leaf from an interactive jump; nothing
+else about the handler's environment is changed, and a handler that
+asks the user is asked as on any other visit.
+
 Uses a temp-buffer probe to detect whether `bookmark-jump' actually
 moved off the temp buffer — `bookmark-handle-bookmark' swallows the
 \"file no longer exists\" error and returns nil, so the only reliable
@@ -361,37 +470,100 @@ workaround a failure to read here.  See bug#56643."
     (when bookmark
       (with-temp-buffer
         (let* ((temp-buffer (current-buffer))
+               (declined nil)
                (jumped-to-buffer
                 (save-window-excursion
-                  (condition-case _err
-                      (bookmark-jump bookmark)
-                    ;; bug#56643 et al.: read-back failures, missing
-                    ;; handlers, anything else.  Fall through.
-                    (error nil))
+                  (let ((workspace--restoring-layout-leaf t))
+                    (condition-case err
+                        (bookmark-jump bookmark)
+                      ;; The handler declined: a decision for the
+                      ;; user to see, not a failure to fall through.
+                      (workspace-restore-declined
+                       (setq declined
+                             (let ((message (cadr err)))
+                               (if (stringp message)
+                                   message
+                                 (error-message-string err)))))
+                      ;; bug#56643 et al.: read-back failures, missing
+                      ;; handlers, anything else.  Fall through.
+                      (error nil)))
                   (current-buffer))))
-          (unless (eq temp-buffer jumped-to-buffer)
-            jumped-to-buffer))))))
+          (cond
+           (declined (cons 'declined declined))
+           ((not (eq temp-buffer jumped-to-buffer))
+            jumped-to-buffer)))))))
+
+(defvar workspace--reincarnation-declines nil
+  "Collector for the bookmark declines of one layout restore, or nil.
+When non-nil it is a one-element list whose car accumulates
+\(NAME . MESSAGE) pairs, newest first, one per leaf whose bookmark
+handler declined.  `workspace--restore-frameset' binds it around the
+leaf walk and reports the collected declines once; when it is nil
+nothing is collecting and declines are not recorded.")
+
+(defun workspace--note-reincarnation-decline (ws-buffer message)
+  "Record that WS-BUFFER's bookmark declined with MESSAGE, if collecting."
+  (when workspace--reincarnation-declines
+    (push (cons (or (workspace-buffer-name ws-buffer) "<unknown>") message)
+          (car workspace--reincarnation-declines))))
+
+(defun workspace--report-reincarnation-declines (declines)
+  "Report DECLINES, a list of (NAME . MESSAGE) pairs, in ONE message.
+A no-op when DECLINES is nil.  One restore, one message: the user
+sees every leaf that was left on its error buffer and why, without a
+prompt or a message per leaf."
+  (when declines
+    (message "Workspaces: %d buffer%s not restored — the bookmark declined: %s"
+             (length declines)
+             (if (cdr declines) "s" "")
+             (mapconcat (lambda (decline)
+                          (format "%s (%s)" (car decline) (cdr decline)))
+                        (reverse declines)
+                        "; "))))
 
 (defun workspace--deserialize-buffer (ws-buffer)
   "Reincarnate the buffer represented by WS-BUFFER.
 Returns a live buffer.  Walks the four-step fallback chain:
 bookmark → filename → name → error buffer.  Never returns nil; the
-error buffer is the floor."
-  (or
-   ;; 1. Bookmark restore.
-   (and (workspace-buffer-bookmark ws-buffer)
-        (condition-case-unless-debug _err
-            (workspace--bookmark-buffer ws-buffer)
-          (error nil)))
-   ;; 2. Filename fallback.
-   (and (workspace-buffer-filename ws-buffer)
-        (ignore-errors
-          (find-file-noselect (workspace-buffer-filename ws-buffer))))
-   ;; 3. Name fallback.
-   (and (workspace-buffer-name ws-buffer)
-        (get-buffer (workspace-buffer-name ws-buffer)))
-   ;; 4. Error buffer.  Always live.
-   (workspace--error-buffer ws-buffer)))
+error buffer is the floor.
+
+A bookmark handler that DECLINES by signalling
+`workspace-restore-declined' (see `workspace--bookmark-buffer') gates
+the chain: steps 2 and 3 are skipped and the leaf lands on the
+error buffer carrying the handler's reason, and the decline is noted
+for the restore's single report.  The stored filename is the path the
+buffer had when the layout was captured; a handler that has just
+refused to open its bookmark's location must not be second-guessed
+by opening that path anyway.
+
+Step 1 has exactly three answers — a buffer, nil (FAILED) or
+\(declined . MESSAGE) — and the dispatch has an arm for each; any
+other value signals rather than reaching the filename step."
+  (let ((jumped (and (workspace-buffer-bookmark ws-buffer)
+                     (condition-case-unless-debug _err
+                         (workspace--bookmark-buffer ws-buffer)
+                       (error nil)))))
+    (cond
+     ;; 1. Bookmark restore.
+     ((bufferp jumped) jumped)
+     ;; The gate: declined.  Not a fifth step — the floor, with a reason.
+     ((eq (car-safe jumped) 'declined)
+      (workspace--note-reincarnation-decline ws-buffer (cdr jumped))
+      (workspace--error-buffer ws-buffer (cdr jumped)))
+     ;; Step 1 FAILED: the rest of the chain, in order.
+     ((null jumped)
+      (or
+       ;; 2. Filename fallback.
+       (and (workspace-buffer-filename ws-buffer)
+            (ignore-errors
+              (find-file-noselect (workspace-buffer-filename ws-buffer))))
+       ;; 3. Name fallback.
+       (and (workspace-buffer-name ws-buffer)
+            (get-buffer (workspace-buffer-name ws-buffer)))
+       ;; 4. Error buffer.  Always live.
+       (workspace--error-buffer ws-buffer)))
+     ;; Nothing else is an answer step 1 gives; never guess the filename.
+     (t (error "Not a reincarnation step-1 result: %S" jumped)))))
 #+end_src
 
 ** Window-state serialize / deserialize
@@ -531,17 +703,25 @@ pending, the older closure no-ops.  The counter is incremented
 HERE — at the single restore choke point — so every entry path
 (`workspace--apply-saved-layout', `workspace-switch-layout', and
 any future caller of `workspace--restore-frameset') participates
-in the race guard."
+in the race guard.
+
+Leaves whose bookmark handler declined (see
+`workspace--deserialize-buffer') are collected during the walk and
+reported in ONE message here, after the walk and before the deferred
+paint — one restore, one report, no per-leaf prompt."
   ;; Note: only the INNER let binding of `window-persistent-parameters'
   ;; (inside the deferred lambda) is load-bearing — that is the binding
   ;; in scope when `window-state-put' runs.  An earlier draft also
   ;; bound it around `workspace--window-state-deserialize', but that
   ;; deserializer reads the per-leaf `workspace-buffer' struct from the
   ;; saved parameters map; it does not consult the dynamic variable.
-  (let* ((bufferized (workspace--window-state-deserialize
+  (let* ((workspace--reincarnation-declines (list nil))
+         (bufferized (workspace--window-state-deserialize
                       (copy-tree state)))
          (gen (cl-incf workspace--restore-generation))
          (frame (selected-frame)))
+    (workspace--report-reincarnation-declines
+     (car workspace--reincarnation-declines))
     (run-at-time nil nil
                  (lambda ()
                    (when (= gen workspace--restore-generation)

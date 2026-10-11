@@ -7,10 +7,10 @@ Per-machine on-disk persistence for workspaces.  Every trigger flushes
 synchronously through =workspace--flush-state= — auto-save on layout
 context switch, intra-workspace layout switch, idle tick, and Emacs
 shutdown, plus explicit =workspace-save=.  There is no debounce (see
-"Synchronous save").  Restore on startup populates the registry and
-re-creates tabs without disturbing the active tab; layout/buffer restore
-is deferred to the first selection of each restored workspace (lazy
-activation).
+"Synchronous save").  Restore on startup populates the registry only
+and creates no tabs; a saved workspace gets a tab, its layout and its
+buffers only when the user restores it with =workspace-restore= (see
+"Restore on startup").
 
 * Lexical Binding
 
@@ -138,7 +138,7 @@ Does NOT create tabs — startup hydrates the registry only; tabs are
 materialized later by the explicit `workspace-restore' command.  Assumes
 STATE has already been version-checked by `workspace--read-state'.
 
-Three filtering rules apply per entry (design.md §D5, §D6; cycle-2
+Four filtering rules apply per entry (design.md §D5, §D6; cycle-2
 architect finding =arch-cycle-20260525-213500-04= for the
 absolute-path arm):
 
@@ -155,6 +155,15 @@ absolute-path arm):
   requirement (the constructor =workspace--make= is the other entry
   point, but we cannot rely on it for hand-edited or corrupted
   persistence files).
+
+- Entries whose =:home= is remote (TRAMP) are tagged broken via
+  `workspace--mark-broken' WITHOUT any filesystem call on the home
+  (stat'ing it would open a connection at startup), with one
+  `display-warning' naming the entry.  Remote workspace homes are not
+  supported (user decision 2026-09-27); the entry is kept rather than
+  skipped, so its layouts survive the next save, and being broken it
+  is never restored.  It never signals, so one such entry cannot
+  abort the load of its siblings.
 
 - Entries whose =:home= directory does not exist on disk are tagged
   via `workspace--mark-broken' before insertion.  The broken tag is
@@ -175,6 +184,20 @@ absolute-path arm):
           (message
            "Workspaces: skipping persisted entry %S — :home %S is not absolute"
            name home))
+         ((file-remote-p home)
+          ;; Remote homes are not supported (user decision 2026-09-27).
+          ;; No filesystem call on HOME: stat'ing it would open a
+          ;; connection at startup.  Kept (so its data survives the next
+          ;; save) and tagged broken (so it is never restored or opened).
+          (display-warning
+           'workspaces
+           (format
+            "Workspace %S has a remote :home %s. Remote workspace homes are not supported; it was loaded broken and not contacted. Use `workspace-re-anchor' to point it at a local directory, or `workspace-delete' to unregister it."
+            name home)
+           :warning)
+          (let ((with-broken (workspace--mark-broken ws)))
+            (puthash name with-broken workspace--registry)
+            (push with-broken restored)))
          (t
           (let* ((broken-p (not (file-directory-p home)))
                  (with-broken (if broken-p
@@ -233,14 +256,14 @@ untrustworthy — fix/remove the file and restart).")
 (defvar workspace--persistence-blocked-warned nil
   "Non-nil once the suppressed-write warning has been emitted.
 Keeps the block warning to one message per session rather than one
-per debounce tick.")
+per suppressed write.")
 #+end_src
 
 The write-time readable assert uses a =prin1=→=read= round-trip rather
 than =readablep=.  =readablep= (Emacs 28+) would be cheaper and the
 runtime binary here is Emacs 30, but the round-trip is the version-safe
 fallback the task/design call for and its cost is negligible against
-the debounced, human-paced write cadence; it also catches the exact
+the human-paced, event-driven write cadence; it also catches the exact
 failure mode we care about (a =#<…>= token making the printed form
 unreadable) by construction.
 
@@ -632,7 +655,9 @@ new path or `workspace-purge' to remove the registry entry."
   (let ((ws (gethash name workspace--registry)))
     (when (and ws (workspace--broken-p ws))
       (user-error
-       "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'."
+       (if (file-remote-p (workspace--home ws))
+           "Workspace %s is broken: :home %s is remote, and remote workspace homes are not supported. Use `workspace-re-anchor' or `workspace-delete'."
+         "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'.")
        name (workspace--home ws))))
   (if-let ((idx (workspace--tab-index-for name)))
       (tab-bar-select-tab idx)

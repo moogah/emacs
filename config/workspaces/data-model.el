@@ -24,6 +24,10 @@ Slots:
   (local-variables nil)
   (etc nil))
 
+(define-error 'workspace-restore-declined
+  "Bookmark handler declined to restore"
+  'user-error)
+
 (defun workspace--layout-make (saved-state &optional timestamp)
   "Build a layout plist wrapping SAVED-STATE.
 TIMESTAMP defaults to current time as an integer.  The freshly-built
@@ -255,11 +259,91 @@ Non-destructive: WS is not modified.  Sets =:broken nil= on the copy."
   (let ((copy (copy-sequence ws)))
     (plist-put copy :broken nil)))
 
+(defun workspace--unhealthy-reason (ws)
+  "Return why workspace WS is not healthy, or nil when it is.
+
+WS is healthy when it is not tagged broken (`workspace--broken-p') and
+its `:home' is an existing local directory.  Otherwise the reason, a
+symbol, the first that applies: `broken' (the tag persistence sets at
+load when the home was missing or remote), `no-home' (no `:home' on the
+plist, or WS is nil), `home-remote' (remote homes are unsupported),
+`home-missing' (the home is not a directory on disk, however it went —
+the broken tag is load-time only and cannot record a deletion since).
+`file-remote-p' is asked before `file-directory-p', so a remote home is
+never stat'ed and no connection is opened."
+  (let ((home (workspace--home ws)))
+    (cond
+     ((workspace--broken-p ws) 'broken)
+     ((not (stringp home)) 'no-home)
+     ((file-remote-p home) 'home-remote)
+     ((not (file-directory-p home)) 'home-missing))))
+
+(defun workspace--healthy-p (ws)
+  "Return non-nil when workspace WS is healthy.
+That is, WS is non-nil and `workspace--unhealthy-reason' finds nothing
+wrong with it: not tagged broken, and its `:home' an existing local
+directory.  Never contacts a remote host."
+  (and ws (not (workspace--unhealthy-reason ws))))
+
 (defun workspace--sessions-dir (home)
   "Return =<HOME>/sessions/= as an absolute path.
 Pure function: does not touch the filesystem.  HOME is the
 workspace's =:home= directory."
   (expand-file-name "sessions" home))
+
+(defun workspace--same-file-p (a b)
+  "Return non-nil when A and B name the same existing local file.
+
+Compares the device and inode numbers of the two paths' truenames, so
+spelling, symlinks and timestamps do not matter.  `file-equal-p' is
+deliberately not used: it compares whole attribute lists, timestamps
+included, and so reports a directory modified between its two stats as
+unequal to itself.  Nil when either is not a string, is remote, or does
+not exist.  Never signals."
+  (and (stringp a) (stringp b)
+       (not (file-remote-p a))
+       (not (file-remote-p b))
+       (condition-case nil
+           (let ((attrs-a (file-attributes (file-truename (expand-file-name a))))
+                 (attrs-b (file-attributes (file-truename (expand-file-name b)))))
+             (and attrs-a attrs-b
+                  (file-attribute-inode-number attrs-a)
+                  (file-attribute-device-number attrs-a)
+                  (equal (file-attribute-inode-number attrs-a)
+                         (file-attribute-inode-number attrs-b))
+                  (equal (file-attribute-device-number attrs-a)
+                         (file-attribute-device-number attrs-b))))
+         (error nil))))
+
+(defun workspace--path-within-p (path dir)
+  "Return non-nil when PATH is DIR or lies inside it.
+
+Both must be local and exist (a missing PATH is inside nothing); DIR
+must be a directory.  Containment is by file identity: PATH is
+truenamed, then it and each of its ancestors is compared to DIR with
+`workspace--same-file-p', so differences of spelling (trailing slash,
+`~', symlinked prefixes, letter case on a case-insensitive filesystem)
+do not matter, and neither do DIR's timestamps changing during the
+walk.  `file-in-directory-p' is deliberately not used: it compares
+spellings case-sensitively and ends in `file-equal-p'.  Never signals."
+  (and (stringp path) (stringp dir)
+       (not (file-remote-p path))
+       (not (file-remote-p dir))
+       (condition-case nil
+           (let ((current (directory-file-name
+                           (file-truename (expand-file-name path))))
+                 (previous nil)
+                 (found nil))
+             (when (and (file-exists-p (expand-file-name path))
+                        (file-directory-p (expand-file-name dir)))
+               (while (and (not found) (not (equal current previous)))
+                 (if (workspace--same-file-p current dir)
+                     (setq found t)
+                   (setq previous current
+                         current (directory-file-name
+                                  (file-name-directory current))))))
+             found)
+         (error nil))))
 
 (provide 'workspace-data-model)
 ;;; data-model.el ends here

@@ -111,6 +111,80 @@
       (expect (length (funcall tab-bar-tabs-function))
               :to-equal tabs-before))))
 
+(describe "workspace-new default-path registry-name guard"
+  ;; The registry is keyed by name, so `workspace-new NAME' while a
+  ;; workspace is already registered as NAME (anchored elsewhere, or
+  ;; broken) would REPLACE that entry and lose its layouts, membership
+  ;; and recent-layout pointer.  Refused, with the anchor branch's
+  ;; message, before any scaffold, tab or registry work.
+  (before-each
+    (wnd-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through))
+  (after-each (wnd-spec--cleanup))
+
+  (it "refuses a name registered to a workspace anchored elsewhere and keeps its entry"
+    (let* ((anchored (file-name-as-directory
+                      (expand-file-name "anchored/proj" wnd-spec--tmp-parent)))
+           (original (workspace--set-recent-group
+                      (workspace--make "proj" anchored) "home"))
+           (target (expand-file-name "proj" wnd-spec--tmp-parent))
+           (tabs-before (length (funcall tab-bar-tabs-function))))
+      (make-directory anchored t)
+      (puthash "proj" original workspace--registry)
+      (expect (file-exists-p target) :to-be nil)
+      (expect (workspace-new "proj")
+              :to-throw 'user-error
+              (list (format "A workspace named proj already exists (home %s)"
+                            anchored)))
+      (expect (gethash "proj" workspace--registry) :to-be original)
+      (expect (hash-table-count workspace--registry) :to-equal 1)
+      (expect 'workspace-scaffold :not :to-have-been-called)
+      (expect 'tab-bar-new-tab :not :to-have-been-called)
+      (expect (length (funcall tab-bar-tabs-function)) :to-equal tabs-before)
+      (expect (file-exists-p target) :to-be nil)))
+
+  (it "refuses a name registered to a BROKEN workspace, naming re-anchor and purge"
+    (let* ((gone (file-name-as-directory
+                  (expand-file-name "gone" wnd-spec--tmp-parent)))
+           (original (workspace--mark-broken (workspace--make "gone" gone))))
+      (puthash "gone" original workspace--registry)
+      (expect (file-exists-p gone) :to-be nil)
+      (expect (workspace-new "gone")
+              :to-throw 'user-error
+              (list (format (concat "A workspace named gone already exists (home %s);"
+                                    " it is broken: use `workspace-re-anchor'"
+                                    " or `workspace-purge'")
+                            gone)))
+      (expect (gethash "gone" workspace--registry) :to-be original)
+      (expect 'workspace-scaffold :not :to-have-been-called)
+      (expect 'tab-bar-new-tab :not :to-have-been-called)
+      (expect (file-exists-p gone) :to-be nil))))
+
+(describe "workspace-new default-path refuses a NAME that is not a single directory name"
+  ;; register/invariant/registry-name-equals-basename: the registry key
+  ;; must equal the home's basename.  A NAME with a separator, an absolute
+  ;; or ~ path, . or .. would register under a key that is not the
+  ;; directory's basename (and could land on another workspace's home).
+  (before-each
+    (wnd-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through))
+  (after-each (wnd-spec--cleanup))
+
+  (it "refuses sub/acme, ../ext/x, an absolute path, ~/x, ., .. and the empty name before any work"
+    (dolist (bad (list "sub/acme" "../ext/x"
+                       (expand-file-name "abs" wnd-spec--tmp-parent)
+                       "~/x" "." ".." ""))
+      (expect (workspace-new bad)
+              :to-throw 'user-error
+              (list (format "Workspace name must be a single directory name (no /, ~, . or ..): %S"
+                            bad))))
+    (expect (hash-table-count workspace--registry) :to-equal 0)
+    (expect 'workspace-scaffold :not :to-have-been-called)
+    (expect 'tab-bar-new-tab :not :to-have-been-called)
+    (expect (directory-files wnd-spec--tmp-parent nil "\\`[^.]") :to-equal nil)))
+
 (describe "workspace-new default-path scaffold failure"
   (before-each
     (wnd-spec--reset)

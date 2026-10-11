@@ -130,10 +130,18 @@ encode each window as a `leaf' node."
 
   (it "restores a file buffer to the window it was saved in"
     (save-restore-spec--with-state-file
-      ;; Use a real, readable file so find-file-noselect works.
-      (let ((path (expand-file-name "init.el"
-                                    (or (and (boundp 'jf/emacs-dir) jf/emacs-dir)
-                                        default-directory))))
+      ;; A real, readable file so find-file-noselect works — and one
+      ;; OUTSIDE any git checkout.  A tracked file (init.el of the
+      ;; configuration checkout, say) gets a portable-bookmarks stamp in
+      ;; its leaf record, and a workspace that holds no checkout of that
+      ;; repository then has its bookmark DECLINED at restore, which the
+      ;; reincarnation chain honours by not opening the stored path.
+      ;; This spec is about a plain file round-tripping, so use one.  The
+      ;; truename, because the temp directory is under /var, which macOS
+      ;; links to /private/var, and the visited name is compared by string.
+      (let ((path (file-truename
+                   (expand-file-name "plain.txt" save-restore-spec--tmp-dir))))
+        (with-temp-file path (insert "plain\n"))
         (workspace-new "alpha")
         (find-file path)
         (workspace-save)

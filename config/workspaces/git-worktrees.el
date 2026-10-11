@@ -1,29 +1,142 @@
 ;;; git-worktrees.el --- Git worktree workspace integration -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'seq)
+
+(declare-function workspace--same-file-p "data-model" (a b))
+
+(defvar jf/workspace--worktree-warning-state nil
+  "Whether a discovery warning may be shown.
+nil outside a candidate collection: every failure is reported.
+`jf/workspace--worktree-repo-candidates' binds it to `collecting', and
+the first warning inside that collection sets it to `warned', which
+suppresses the rest.")
+
+(defun jf/workspace--worktree-warn-discovery (what err)
+  "Display a warning that WHAT failed with ERR.
+Within one candidate collection only the first failure is shown; see
+`jf/workspace--worktree-warning-state'."
+  (unless (eq jf/workspace--worktree-warning-state 'warned)
+    (when (eq jf/workspace--worktree-warning-state 'collecting)
+      (setq jf/workspace--worktree-warning-state 'warned))
+    (display-warning
+     'workspace-git-worktrees
+     (format "%s unavailable (portable-bookmarks discovery failed): %s"
+             what (error-message-string err))
+     :warning)))
+
+(defun jf/workspace--worktree-local-only (dirs)
+  "Return the entries of DIRS that are local directory names.
+Non-strings and remote (TRAMP) names are dropped.  The only question
+asked of an entry is `file-remote-p' without its CONNECTED argument,
+which is answered from the name alone, so this touches no network."
+  (seq-filter (lambda (dir) (and (stringp dir) (not (file-remote-p dir))))
+              dirs))
+
+(defun jf/workspace--worktree-git-derived-candidates ()
+  "Return the canonical checkouts of the repositories in view, or nil.
+Calls `workspace-bookmark-canonical-checkouts-in-view' with no argument:
+the checkouts already in view, each resolved to its repository's main
+worktree, which is kept only when portable-bookmarks' one canonical
+predicate admits it.  That public function is one of the two public
+portable-bookmarks symbols this module calls (see the Overview), and the
+module is never required.  When it is unbound, the result is nil.  Never signals: if it signals, a warning
+naming the error is displayed and the result is nil."
+  (when (fboundp 'workspace-bookmark-canonical-checkouts-in-view)
+    (condition-case err
+        (funcall 'workspace-bookmark-canonical-checkouts-in-view)
+      (error
+       (jf/workspace--worktree-warn-discovery "Git-derived repo candidates" err)
+       nil))))
+
+(defun jf/workspace--worktree-canonical-only (dirs)
+  "Return the canonical checkouts of the repositories of DIRS.
+Calls `workspace-bookmark-canonical-checkouts-in-view' with DIRS, so a
+candidate from another source is admitted by the same predicate as the
+git-derived ones; a directory in DIRS that is a checkout of a repository
+yields that repository's main worktree only when the predicate admits
+it.  DIRS nil yields nil.  When the function is unbound (portable-bookmarks
+not loaded), DIRS is returned unchanged.  Never signals: if it signals,
+a warning naming the error is displayed and the result is nil, so
+nothing unchecked is offered and the caller's floor prompt still
+works."
+  (cond
+   ((null dirs) nil)
+   ((not (fboundp 'workspace-bookmark-canonical-checkouts-in-view)) dirs)
+   (t
+    (condition-case err
+        (funcall 'workspace-bookmark-canonical-checkouts-in-view dirs)
+      (error
+       (jf/workspace--worktree-warn-discovery "Repo candidate classification" err)
+       nil)))))
+
+(defun jf/workspace--worktree-in-one-discovery-call (function)
+  "Call FUNCTION with no arguments as one portable-bookmarks discovery call.
+Returns FUNCTION's value.  When `workspace-bookmark-call-with-discovery-memo'
+is bound, FUNCTION runs inside it, so every call of
+`workspace-bookmark-canonical-checkouts-in-view' FUNCTION makes shares
+one memo of git's answers; otherwise FUNCTION is simply called.  Like
+that function, the scope is reached through a call-time `fboundp' guard
+and portable-bookmarks is never required.  FUNCTION is called at most
+once.
+
+The scope is error-barriered like every portable-bookmarks call, in two
+cases: when the call into the scope signals before FUNCTION has
+started, a warning is displayed (`jf/workspace--worktree-warn-discovery')
+and FUNCTION is called unscoped; once FUNCTION has started, any error
+is FUNCTION's own and propagates unchanged, with no warning."
+  (if (not (fboundp 'workspace-bookmark-call-with-discovery-memo))
+      (funcall function)
+    (let ((started nil))
+      (condition-case err
+          (funcall 'workspace-bookmark-call-with-discovery-memo
+                   (lambda ()
+                     (setq started t)
+                     (funcall function)))
+        (error
+         (if started
+             (signal (car err) (cdr err))
+           (jf/workspace--worktree-warn-discovery "Discovery scope" err)
+           (funcall function)))))))
 
 (defun jf/workspace--worktree-repo-candidates ()
-  "Return a de-duped list of git-repo roots from available project sources.
-Collects candidate directories from `projectile-known-projects'
-\(when projectile is loaded), `(magit-list-repos)' (when magit is
-loaded), and `project-known-project-roots' (when project.el is
-available).  Each source is guarded so none is required.  Paths are
-expanded to absolute form and de-duped with `delete-dups', then
-filtered to directories that are actual git repositories (via
-`locate-dominating-file' on \".git\", or `magit-toplevel' when magit
-is loaded).  Returns the surviving list; does not prompt."
-  (let ((raw '()))
-    (when (and (featurep 'projectile)
-               (boundp 'projectile-known-projects))
-      (setq raw (append raw projectile-known-projects)))
-    (when (and (featurep 'magit) (fboundp 'magit-list-repos))
-      (setq raw (append raw (magit-list-repos))))
-    (when (fboundp 'project-known-project-roots)
-      (setq raw (append raw (project-known-project-roots))))
-    (let ((expanded (delete-dups
-                     (mapcar (lambda (d) (expand-file-name d))
-                             (delq nil raw)))))
-      (seq-filter #'jf/workspace--worktree-git-repo-p expanded))))
+  "Return the canonical git-repo roots offered as worktree sources.
+The sources, in order, are the git-derived candidates
+\(`jf/workspace--worktree-git-derived-candidates', canonical already)
+and then `(magit-list-repos)' when magit is loaded, classified by
+`jf/workspace--worktree-canonical-only'.  Both are built in one
+portable-bookmarks discovery call
+\(`jf/workspace--worktree-in-one-discovery-call').  Projectile and
+project.el lists are deliberately not consulted.  Magit's remote
+\(TRAMP) entries are dropped where its list enters
+\(`jf/workspace--worktree-local-only'), before classification.
+
+The appended sources are de-duplicated in this one place: nil entries
+are dropped, each entry is expanded to a directory name with a trailing
+slash, and two entries are one when `workspace--same-file-p' says they
+are the same directory (device and inode), the first occurrence kept
+at its position and in its spelling.  That `seq-uniq' is quadratic in
+the number of candidates, which is tens at most.  The result is then
+filtered to actual git repositories (via `locate-dominating-file' on
+\".git\", or `magit-toplevel' when magit is loaded).  At most one
+discovery warning is shown per call.  Returns the list; does not
+prompt."
+  (let* ((jf/workspace--worktree-warning-state 'collecting)
+         (sources
+          (jf/workspace--worktree-in-one-discovery-call
+           (lambda ()
+             (let ((git-derived (jf/workspace--worktree-git-derived-candidates)))
+               (append git-derived
+                       (and (featurep 'magit) (fboundp 'magit-list-repos)
+                            (jf/workspace--worktree-canonical-only
+                             (jf/workspace--worktree-local-only
+                              (magit-list-repos))))))))))
+    (seq-filter #'jf/workspace--worktree-git-repo-p
+                (seq-uniq (mapcar (lambda (dir)
+                                    (file-name-as-directory
+                                     (expand-file-name dir)))
+                                  (seq-remove #'null sources))
+                          #'workspace--same-file-p))))
 
 (defun jf/workspace--worktree-git-repo-p (dir)
   "Return non-nil when DIR is the root (or inside) a git repository.
@@ -39,12 +152,18 @@ Offers `jf/workspace--worktree-repo-candidates' via `completing-read'
 with `require-match' nil, so a free-form path is always accepted.  If
 the entered path is not an existing directory, falls back to a
 `read-directory-name' floor — guaranteeing a repo present in no project
-source is still reachable.  Returns the chosen directory, expanded."
+source is still reachable.  An empty or blank answer is no choice: it
+goes straight to the floor, never probing `default-directory' (which
+may be remote).  Returns the chosen directory, expanded and slash-ended
+so it can be bound as `default-directory'."
   (let* ((cands (jf/workspace--worktree-repo-candidates))
          (choice (completing-read "Source git repo: " cands nil nil)))
-    (if (and choice (file-directory-p (expand-file-name choice)))
-        (expand-file-name choice)
-      (expand-file-name (read-directory-name "Source git repo: ")))))
+    (file-name-as-directory
+     (if (and choice
+              (not (string-blank-p choice))
+              (file-directory-p (expand-file-name choice)))
+         (expand-file-name choice)
+       (expand-file-name (read-directory-name "Source git repo: "))))))
 
 (defun jf/workspace--worktree-sanitize-branch (name)
   "Return NAME sanitized into a valid git ref-component default.
@@ -67,35 +186,56 @@ PAYLOAD is the workspace-integration anchor plist; this reads `:name'
 `:home' (the workspace container directory, used as the worktree
 parent).  Operates solely on PAYLOAD, never on the current tab.
 
-Prompts for a source repo (`jf/workspace--worktree-read-repo'),
-detects its main branch (`magit-main-branch' with `default-directory'
-bound to the repo), and prompts for a branch name defaulting to the
-sanitized workspace name.  The worktree directory is a child of
-`:home' named for the source repo's basename.
+The source repo is PAYLOAD's `:source-repo' when present — no source
+prompt, no candidate discovery — and otherwise prompted for
+\(`jf/workspace--worktree-read-repo').  A `:source-repo' that is not an
+existing local directory returns (failed . REASON) without prompting.  Then
+detects the repo's main branch (`magit-main-branch' with
+`default-directory' bound to the repo), and prompts for a branch name
+defaulting to the sanitized workspace name.  The worktree directory is
+a child of `:home' named for the source repo's basename.
 
-If the target directory already exists, returns
-\(failed . REASON) and makes NO magit call — never overwriting.
-Otherwise creates the worktree on a NEW branch off main via
-`magit-worktree-branch' (again with `default-directory' bound to the
-repo).  Returns `ok' on success, or (failed . REASON) on any git
-error."
-  (let* ((repo (jf/workspace--worktree-read-repo))
-         (main (let ((default-directory repo))
-                 (magit-main-branch)))
-         (default-branch (jf/workspace--worktree-sanitize-branch
-                          (plist-get payload :name)))
-         (branch (read-string "Worktree branch: " default-branch))
-         (dir (expand-file-name
-               (file-name-nondirectory (directory-file-name repo))
-               (plist-get payload :home))))
-    (if (file-exists-p dir)
-        (cons 'failed (format "worktree dir already exists: %s" dir))
-      (condition-case err
-          (progn
-            (let ((default-directory repo))
-              (magit-worktree-branch dir branch main))
-            'ok)
-        (error (cons 'failed (error-message-string err)))))))
+After the prompts, immediately before any worktree is made, `:home'
+is checked (the callers' health gates ran before the prompts): when
+it is not an existing LOCAL directory (deleted while a prompt was up,
+remote, or absent) returns (failed . REASON) and makes NO magit call,
+because `git worktree add' would recreate a missing home.
+`file-remote-p' is asked first, without its CONNECTED argument, so a
+remote home is never contacted.  If the target directory already exists, returns (failed . REASON) and makes NO magit
+call — never overwriting.  Otherwise creates the worktree on a NEW
+branch off main via `magit-worktree-branch' (again with
+`default-directory' bound to the repo).  Returns `ok' on success, or
+\(failed . REASON) on any git error."
+  (let ((source (plist-get payload :source-repo)))
+    (if (and (plist-member payload :source-repo)
+             (not (and (stringp source)
+                       (not (file-remote-p source))
+                       (file-directory-p source))))
+        (cons 'failed (format "source repository is not a directory: %s" source))
+      (let* ((repo (if source
+                       (file-name-as-directory (expand-file-name source))
+                     (jf/workspace--worktree-read-repo)))
+             (main (let ((default-directory repo))
+                     (magit-main-branch)))
+             (default-branch (jf/workspace--worktree-sanitize-branch
+                              (plist-get payload :name)))
+             (branch (read-string "Worktree branch: " default-branch))
+             (home (plist-get payload :home)))
+        (if (not (and (stringp home)
+                      (not (file-remote-p home))
+                      (file-directory-p home)))
+            (cons 'failed (format "workspace home is not a local directory: %s" home))
+          (let ((dir (expand-file-name
+                      (file-name-nondirectory (directory-file-name repo))
+                      home)))
+            (if (file-exists-p dir)
+                (cons 'failed (format "worktree dir already exists: %s" dir))
+              (condition-case err
+                  (progn
+                    (let ((default-directory repo))
+                      (magit-worktree-branch dir branch main))
+                    'ok)
+                (error (cons 'failed (error-message-string err)))))))))))
 
 (defun jf/workspace--worktree-children (home)
   "Return a list of linked-worktree descriptors under HOME.
@@ -106,8 +246,10 @@ For each, binds `default-directory' into the child and calls
 whose FIRST element is the source repo's primary worktree.  Returns a
 list of plists (:dir CHILD :branch BRANCH :source SOURCE-REPO), where
 BRANCH is the child worktree's branch and SOURCE-REPO is the source
-repo's primary worktree directory.  Children that do not resolve are
-skipped."
+repo's primary worktree directory.  The child's own entry in magit's
+list is found with `workspace--same-file-p' (device and inode), so a
+child written to while it is looked up still finds its branch.
+Children that do not resolve are skipped."
   (let ((acc '()))
     (when (and home (file-directory-p home))
       (dolist (child (directory-files home t directory-files-no-dot-files-regexp))
@@ -118,7 +260,7 @@ skipped."
                  (source (car (car worktrees)))
                  (self (seq-find
                         (lambda (wt)
-                          (file-equal-p (car wt) child))
+                          (workspace--same-file-p (car wt) child))
                         worktrees))
                  (branch (and self (nth 2 self))))
             (when source
