@@ -124,17 +124,24 @@
         (expect (plist-get entry :category) :to-equal "emacs-agent-test")
         (expect (plist-get (aref (plist-get entry :args) 0) :name) :to-equal "q"))))
 
-  (it "returns a multibyte string carrying a non-ASCII description as characters (seam/manifest)"
+  (it "returns a unibyte UTF-8 string that decodes to a non-ASCII description (seam/manifest)"
     ;; `json-parse-string' also accepts unibyte UTF-8, so the reply string
-    ;; itself is tested: unibyte, emacsclient prints ‘ as \342\200\230.
+    ;; itself is tested: unibyte and not decoded, so that emacsclient prints
+    ;; ‘ as \342\200\230 and the reply crosses the socket as ASCII.
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_non_ascii" :preset 'read
                     :description "Finds a café’s ‘notes’ →"))
-      (let ((manifest (jf/agent-api)))
-        (expect (multibyte-string-p manifest) :to-be t)
-        (expect (string-search "Finds a café’s ‘notes’ →" manifest) :not :to-be nil)
-        (expect (plist-get (presets-manifest-spec--entry "emacs_agent_test_non_ascii")
-                           :description)
+      (let* ((manifest (jf/agent-api))
+             (entry (seq-find (lambda (entry)
+                                (equal (plist-get entry :name)
+                                       "emacs_agent_test_non_ascii"))
+                              (json-parse-string (decode-coding-string manifest 'utf-8)
+                                                 :object-type 'plist))))
+        (expect (multibyte-string-p manifest) :to-be nil)
+        (expect (string-search (encode-coding-string "Finds a café’s ‘notes’ →" 'utf-8)
+                               manifest)
+                :not :to-be nil)
+        (expect (plist-get entry :description)
                 :to-equal "Finds a café’s ‘notes’ →"))))
 
   (it "keeps a registered tool named in neither preset out of the manifest and the tiers (Scenario: control-surface-discoverability § Preset membership decides exposure)"
