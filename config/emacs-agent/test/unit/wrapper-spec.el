@@ -29,13 +29,23 @@
      (emacs-agent-test-with-fake-clients
        ,@body)))
 
-(defun wrapper-spec--with-reply (text thunk)
+(defun wrapper-spec--with-reply (text thunk &optional pad)
   "Call THUNK with the fake emacsclient answering the string TEXT.
-The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
-  (let ((process-environment (cons (concat "FAKE_EMACSCLIENT_REPLY="
-                                           (prin1-to-string text))
+The fake prints TEXT as emacsclient prints the reply of a form the
+wrapper sends: the base64 of TEXT's UTF-8 as a printed string, ending
+in the pad character with PAD (`emacs-agent-test-printed-reply')."
+  (wrapper-spec--with-raw-reply (emacs-agent-test-printed-reply text pad) thunk))
+
+(defun wrapper-spec--with-raw-reply (output thunk)
+  "Call THUNK with the fake emacsclient printing OUTPUT as it is."
+  (let ((process-environment (cons (concat "FAKE_EMACSCLIENT_REPLY=" output)
                                    process-environment)))
     (funcall thunk)))
+
+(defun wrapper-spec--subforms (form)
+  "FORM, when it is a list, and every list nested in it."
+  (when (consp form)
+    (cons form (mapcan #'wrapper-spec--subforms (seq-filter #'consp form)))))
 
 (defun wrapper-spec--refused-p (result)
   "Non-nil when RESULT is a usage refusal: exit 2 with a message."
@@ -83,7 +93,7 @@ launches can start an Emacs."
           (expect (length calls) :to-equal 1)
           (expect (emacs-agent-test-socket-arg (car calls))
                   :to-equal (emacs-agent-test-socket "server"))
-          (expect (emacs-agent-test-sent-form (car calls))
+          (expect (emacs-agent-test-sent-payload (car calls))
                   :to-equal '(jf/agent-call "call" "org_graph_query" "{}"))))))
 
   (it "refuses a call that names no target, and runs no emacsclient (Scenario: agent-target-policy § Missing target is refused)"
@@ -193,7 +203,7 @@ launches can start an Emacs."
                                     (string-prefix-p emacs-agent-test-socket-dir socket)))
                     :to-equal (cons argv t)))))))
 
-  (it "exposes call, call-write and eval as distinct leading words and never sends a raw form for a call (Scenario: agent-target-policy § Tiers are distinguishable by permission rules)"
+  (it "exposes call, call-write and eval as distinct leading words and never sends a raw form for a call, each sent form wrapped in the reply encoder (Scenario: agent-target-policy § Tiers are distinguishable by permission rules)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (wrapper-spec--with-reply
@@ -204,7 +214,9 @@ launches can start an Emacs."
          (emacs-agent-test-wrapper-run "live" "eval" "(+ 1 2)")
          ;; A form in the tool position is a tool name, never evaluated.
          (emacs-agent-test-wrapper-run "live" "call" "(kill-emacs)" "{}")))
-      (expect (mapcar #'emacs-agent-test-sent-form (emacs-agent-test-fake-calls "client"))
+      ;; The tier's form is what the encoder evaluates, never the bare
+      ;; form: `emacs-agent-test-sent-payload' is nil for anything else.
+      (expect (mapcar #'emacs-agent-test-sent-payload (emacs-agent-test-fake-calls "client"))
               :to-equal '((jf/agent-call "call" "org_graph_query" "{}")
                           (jf/agent-call "call-write" "org_graph_write_node" "{}")
                           (jf/agent-eval "(+ 1 2)")
@@ -217,10 +229,10 @@ launches can start an Emacs."
                 :to-be t))
       (expect (length (emacs-agent-test-fake-calls "client")) :to-equal 4)))
 
-  (it "sends a target eval form that starts with - as the form after --eval, never as an emacsclient option (seam/wrapper-cli)"
+  (it "sends a target eval form that starts with - as a string literal inside the form after --eval, never as an emacsclient option (seam/wrapper-cli)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket "smoke-1")
-      (let ((forms '("--socket-name=server" "--alternate-editor=emacs")))
+      (let ((forms '("--socket-name=server" "--alternate-editor=emacs" "(+ 1 2)")))
         (dolist (form forms)
           (expect (plist-get (emacs-agent-test-wrapper-run "target" "smoke-1" "eval" form)
                              :exit)
@@ -233,9 +245,16 @@ launches can start an Emacs."
                               :to-equal '("--eval"))
                       (expect (emacs-agent-test-socket-arg argv)
                               :to-equal (emacs-agent-test-socket "smoke-1"))
-                      ;; The form is the last argument, after --eval.
-                      (expect (string-trim (car (last argv))) :to-equal form)
-                      (expect (cadr (member "--eval" argv)) :to-be (car (last argv))))))))
+                      ;; The argument after --eval is a form, the last one.
+                      (expect (cadr (member "--eval" argv)) :to-be (car (last argv)))
+                      (expect (substring (car (last argv)) 0 1) :to-equal "(")
+                      ;; The caller's form arrives as a string literal, read
+                      ;; and evaluated in Emacs, its value printed with pp.
+                      (let ((payload (emacs-agent-test-sent-payload argv)))
+                        (expect (member (list 'read-from-string form)
+                                        (wrapper-spec--subforms payload))
+                                :not :to-be nil)
+                        (expect (memq 'pp (flatten-tree payload)) :not :to-be nil)))))))
 
   (it "keeps the caller's EMACS_SOCKET_NAME, ALTERNATE_EDITOR and EMACS_SERVER_FILE from emacsclient and Emacs (seam/wrapper-cli)"
     (wrapper-spec--scope
@@ -286,13 +305,14 @@ launches can start an Emacs."
          "{\"ok\":true,\"result\":\"x\"}"
          (lambda () (emacs-agent-test-wrapper-run
                      "live" "call-write" "org_graph_write_node" json)))
-        (expect (nth 3 (emacs-agent-test-sent-form
+        (expect (nth 3 (emacs-agent-test-sent-payload
                         (car (emacs-agent-test-fake-calls "client"))))
                 :to-equal json))))
 
-  (it "exits 0 on a success envelope and 1 on a failure envelope, printing it decoded (seam/wrapper-cli)"
+  (it "exits 0 on a success envelope and 1 on a failure envelope, printing it decoded from base64 (seam/wrapper-cli)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
+      ;; `wrapper-spec--with-reply' answers the envelope as base64.
       (let ((ok (wrapper-spec--with-reply
                  "{\"ok\":true,\"result\":\"a \\\"b\\\"\"}"
                  (lambda () (emacs-agent-test-wrapper-run "live" "call" "t" "{}"))))
@@ -306,7 +326,65 @@ launches can start an Emacs."
         (expect (plist-get failed :exit) :to-equal 1)
         (expect (plist-get (json-parse-string (plist-get failed :stdout) :object-type 'plist)
                            :error)
-                :to-equal "user-error Nope")))))
+                :to-equal "user-error Nope"))))
+
+  (it "drops the pad from a base64 reply and prints the bytes it carries, a target eval value byte for byte (seam/wrapper-cli)"
+    (wrapper-spec--scope
+      (emacs-agent-test-stand-in-socket)
+      (emacs-agent-test-stand-in-socket "smoke-1")
+      (let ((coding-system-for-read 'utf-8)
+            (envelope "{\"ok\":true,\"result\":\"caf\u00e9 \u2014 a-b & c\"}")
+            ;; pp's text of a value: it ends in a newline, printed as it is.
+            (value "(\"caf\u00e9\" \"a\nb\")\n"))
+        (dolist (pad '(nil t))
+          (let ((call (wrapper-spec--with-reply
+                       envelope
+                       (lambda () (emacs-agent-test-wrapper-run "live" "call" "t" "{}"))
+                       pad))
+                (eval (wrapper-spec--with-reply
+                       value
+                       (lambda () (emacs-agent-test-wrapper-run "target" "smoke-1" "eval" "x"))
+                       pad)))
+            (expect (list pad (plist-get call :exit) (plist-get call :stdout))
+                    :to-equal (list pad 0 (concat envelope "\n")))
+            (expect (list pad (plist-get eval :exit) (plist-get eval :stdout))
+                    :to-equal (list pad 0 value)))))))
+
+  (it "exits 1 on a reply that is not the base64 string it asked for, printing it undecoded (seam/wrapper-cli)"
+    (wrapper-spec--scope
+      (emacs-agent-test-stand-in-socket)
+      (emacs-agent-test-stand-in-socket "smoke-1")
+      ;; The printed JSON an encoder-less form would answer, text that is
+      ;; not base64, and base64 of a length no encoding gives.
+      (dolist (output '("\"{\\\"ok\\\":true}\"" "\"not base64\"" "\"QUJD.\"x" "\"QUJ\""))
+        (dolist (args '(("live" "call" "t" "{}")
+                        ("target" "smoke-1" "eval" "x")))
+          (let ((result (wrapper-spec--with-raw-reply
+                         output (lambda () (apply #'emacs-agent-test-wrapper-run args)))))
+            (expect (list output args (plist-get result :exit))
+                    :to-equal (list output args 1))
+            (expect (plist-get result :stdout) :to-equal (concat output "\n"))
+            (expect (plist-get result :stderr) :to-match "not decoded"))))))
+
+  (it "exits 1 on emacsclient output holding \"*ERROR*: Unknown message\" on every path, target eval included, printing it (seam/wrapper-cli)"
+    (wrapper-spec--scope
+      (emacs-agent-test-stand-in-socket)
+      (emacs-agent-test-stand-in-socket "smoke-1")
+      ;; How emacsclient shows a reply whose messages it misread.
+      (let ((output (concat "\"" (make-string 1000 ?Q)
+                            "\n*ERROR*: Unknown message: -"
+                            "\n*ERROR*: Unknown message: print-nonl QQQQ\"")))
+        (dolist (args '(("live" "call" "t" "{}")
+                        ("live" "call-write" "t" "{}")
+                        ("live" "eval" "(+ 1 1)")
+                        ("live" "tools")
+                        ("target" "smoke-1" "eval" "(+ 1 1)")
+                        ("target" "smoke-1" "state")))
+          (let ((result (wrapper-spec--with-raw-reply
+                         output (lambda () (apply #'emacs-agent-test-wrapper-run args)))))
+            (expect (cons args (plist-get result :exit)) :to-equal (cons args 1))
+            (expect (plist-get result :stdout) :to-match "Unknown message: -")
+            (expect (plist-get result :stderr) :to-match "garbled")))))))
 
 
 (describe "bin/emacs-agent target start (seam/target-lifecycle, seam/data-profile)"

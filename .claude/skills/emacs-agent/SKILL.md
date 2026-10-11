@@ -85,8 +85,11 @@ Choose by what is at risk. Isolation protects against **bad code**, not against
 - Replies: `tools` and `state` print JSON. `call`, `call-write` and `live eval`
   print a JSON envelope, `{"ok":true,"result":...}` or `{"ok":false,"error":...}`.
   `target NAME eval` prints the value's printed form.
-- Exit status: 0 success; 1 a failure envelope or an eval error; 2 a usage error or
-  a target that is not running.
+- Exit status: 0 success; 1 a failure envelope, an eval error, or a reply the
+  wrapper could not decode; 2 a usage error or a target that is not running.
+- A reply that could not be decoded (the wrapper prints it and says so) means the
+  call ran in Emacs and only its reply was lost: a `call-write` that exits 1 this
+  way may already have written. Check what it did before running it again.
 
 ## Finding out what is callable
 

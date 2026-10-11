@@ -128,10 +128,11 @@ lines, oldest first.  Batch Emacs and a daemon log there as an interactive sessi
 ** =jf/frame-state=
 
 The reply is =json-serialize='s unibyte UTF-8, not decoded, as the dispatcher's envelope is
-(seam/dispatcher-args): =emacsclient= prints its non-ASCII bytes as octal escapes (=\342\200\230= for
-=‘=), so the reply crosses the socket as ASCII, and =bin/emacs-agent= turns the escapes back into the
-bytes.  A decoded (multibyte) reply over about 1000 characters holding non-ASCII text reaches the
-client garbled on macOS.
+(seam/dispatcher-args).  =bin/emacs-agent state= wraps the call in a form that answers the reply's
+bytes as base64, padded at some lengths, and decodes them: =emacsclient= on macOS garbles a long reply
+when server.el shortens a message so that a cut does not split one of its two-character escapes (of a
+space, =-=, =&= or a newline), and when a message is longer in bytes than in characters, from a
+decoded (multibyte) reply holding non-ASCII text.  base64 holds neither an escape nor non-ASCII.
 
 #+begin_src emacs-lisp
 (defun jf/frame-state ()

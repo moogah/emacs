@@ -352,14 +352,31 @@ given both explicitly.  Use inside `emacs-agent-test-with-socket-dir'."
   "Variables through which emacsclient would try another socket or start an Emacs.
 The fake binaries record each one's value.")
 
+(defun emacs-agent-test-printed-reply (text &optional pad)
+  "TEXT as emacsclient prints the reply of a form bin/emacs-agent sends.
+The wrapper asks Emacs for the base64 of the reply's UTF-8 bytes
+\(`emacs_agent_encoded_form'), and emacsclient prints that string
+quoted, like `prin1'.  With PAD, the pad character `.' ends the
+string, as Emacs appends it at the lengths where a cut would split
+the trailing newline's escape."
+  (prin1-to-string
+   (concat (base64-encode-string (encode-coding-string text 'utf-8) t)
+           (and pad "."))))
+
+(defconst emacs-agent-test-default-reply
+  (emacs-agent-test-printed-reply "\"ok\"\n")
+  "What the fake emacsclient prints when no reply is set.
+The Lisp string \"ok\" printed as `target NAME eval' prints a value,
+carried as bin/emacs-agent asks Emacs to send it.")
+
 (defun emacs-agent-test--write-fake (file kind)
   "Write the fake binary FILE (relative to the fake dir) recording as KIND.
 It records its argv, NUL-separated, in calls/KIND-NNNN, the value of
 EMACS_AGENT_DATA in calls/KIND-NNNN.env and the values of the variables
 in `emacs-agent-test-fallback-variables' in calls/KIND-NNNN.vars, and
 starts nothing.  The fake emacsclient prints FAKE_EMACSCLIENT_REPLY
-\(default the Lisp string \"ok\") and exits FAKE_EMACSCLIENT_EXIT
-\(default 0)."
+\(default `emacs-agent-test-default-reply') and exits
+FAKE_EMACSCLIENT_EXIT (default 0)."
   (let ((path (expand-file-name file emacs-agent-test-fake-dir)))
     (make-directory (file-name-directory path) t)
     (with-temp-file path
@@ -377,7 +394,11 @@ starts nothing.  The fake emacsclient prints FAKE_EMACSCLIENT_REPLY
                          emacs-agent-test-fallback-variables "")
               "} > \"$f.vars\"\n"
               (if (equal kind "client")
-                  (concat "printf '%s\\n' \"${FAKE_EMACSCLIENT_REPLY-\\\"ok\\\"}\"\n"
+                  (concat "printf '%s\\n' \"${FAKE_EMACSCLIENT_REPLY-"
+                          ;; Quotes and base64 only: escaping the
+                          ;; quotes is all the double quotes need.
+                          (string-replace "\"" "\\\"" emacs-agent-test-default-reply)
+                          "}\"\n"
                           "exit \"${FAKE_EMACSCLIENT_EXIT:-0}\"\n")
                 "exit 0\n")))
     (set-file-modes path #o755)
@@ -461,6 +482,21 @@ Each element is an alist (NAME . VALUE) over
   "The form an emacsclient ARGV carries after --eval, read, or nil."
   (let ((tail (member "--eval" argv)))
     (and tail (cadr tail) (car (read-from-string (cadr tail))))))
+
+(defun emacs-agent-test-encoded-payload (form)
+  "The form FORM wraps in bin/emacs-agent's encoder, or nil.
+The encoder (`emacs_agent_encoded_form') binds the payload's value
+first, as `emacs-agent--reply', and answers it as padded base64
+sized by `server-msg-size'.  nil when FORM is not that shape."
+  (pcase form
+    (`(let* ((emacs-agent--reply ,payload) . ,_) . ,_)
+     (and (memq 'base64-encode-string (flatten-tree form))
+          (memq 'server-msg-size (flatten-tree form))
+          payload))))
+
+(defun emacs-agent-test-sent-payload (argv)
+  "The form an emacsclient ARGV asks Emacs to encode the reply of, or nil."
+  (emacs-agent-test-encoded-payload (emacs-agent-test-sent-form argv)))
 
 (defun emacs-agent-test-socket-arg (argv)
   "The value ARGV passes with -s (or --socket-name=), or nil."

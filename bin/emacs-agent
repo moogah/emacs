@@ -9,10 +9,10 @@
 #
 # Usage: see `emacs_agent_usage' below, or run `emacs-agent --help'.
 #
-# Exit status: 0 on success; 1 on a failure envelope, an eval error or a
-# target that refuses connections while a process holds its socket (busy);
-# 2 on a usage error, a target that is not running, or a target start that
-# fails or is refused.
+# Exit status: 0 on success; 1 on a failure envelope, an eval error, a
+# reply that cannot be decoded or a target that refuses connections while a
+# process holds its socket (busy); 2 on a usage error, a target that is not
+# running, or a target start that fails or is refused.
 #
 # Environment:
 #   EMACS_AGENT_EMACSCLIENT   emacsclient to run (default: beside the Emacs)
@@ -75,7 +75,8 @@ Targets:
                      none            no notes (the default when --data is omitted)
 
 Exit status:
-  0 success; 1 a failure envelope, an eval error or a busy target; 2 a
+  0 success; 1 a failure envelope, an eval error, a busy target, or a reply
+  emacsclient garbled (the call has run; only its reply was lost); 2 a
   usage error, a target that is not running, or a target start that fails
   or is refused.
 
@@ -215,41 +216,50 @@ emacs_agent_lisp_string() {
     printf '"%s"' "$s"
 }
 
-# Undo emacsclient's printing of a string value (`prin1', with newlines and
-# form feeds escaped as \n and \f) and print the string itself followed by a
-# newline.  Return 1, printing nothing, when the reply is not a printed string.
+# Print the form that evaluates FORM (Lisp text whose value is a string)
+# and answers that string's bytes as base64: the UTF-8 encoding of a
+# multibyte string, a unibyte one as it is, with no line breaks.  A reply
+# reaches emacsclient as `-print' messages of at most `server-msg-size' (S)
+# characters, cut after S-8 and then every S-13, and every space, `-', `&'
+# and newline in it becomes a two-character escape that a cut must not
+# split.  emacsclient on macOS reads 1024 bytes at a time, so a message
+# that is shortened to keep an escape whole, or one that is longer in bytes
+# than in characters, garbles the reply ("*ERROR*: Unknown message").
+# base64 holds neither escapes nor non-ASCII; the one escape left is the
+# newline `pp' prints after the string, which falls on a cut when the
+# encoded length L is S-11 plus a multiple of S-13.  Such an L gets one `.'
+# appended, which `emacs_agent_decode_reply' drops.
+emacs_agent_encoded_form() {
+    printf '%s' "(let* ((emacs-agent--reply $1) (emacs-agent--base64 (base64-encode-string (if (multibyte-string-p emacs-agent--reply) (encode-coding-string emacs-agent--reply 'utf-8) emacs-agent--reply) t)) (emacs-agent--length (length emacs-agent--base64)) (emacs-agent--first (- server-msg-size 11))) (if (and (>= emacs-agent--length emacs-agent--first) (= 0 (% (- emacs-agent--length emacs-agent--first) (- server-msg-size 13)))) (concat emacs-agent--base64 \".\") emacs-agent--base64))"
+}
+
+# Print the reply of a form built by `emacs_agent_encoded_form' as the
+# bytes it carries.  REPLY is emacsclient's output: the base64 string
+# printed, quoted, with an optional trailing `.' and `pp''s newline.  Return
+# 1, printing nothing, when REPLY does not have that shape.
 emacs_agent_decode_reply() {
-    # Bytes, not characters: the escapes are ASCII, and the UTF-8 locale
-    # makes pattern substitution over a long reply take seconds.
     local LC_ALL=C
-    local s="$1" bs='\' dq='"' mark=''
+    local s="$1"
     s="${s%$'\n'}"
-    if [[ ${#s} -lt 2 || "${s:0:1}" != "$dq" || "${s: -1}" != "$dq" ]]; then
-        return 1
-    fi
-    s="${s:1:${#s}-2}"
-    # A printed string carries its newlines as \n.  A raw one is emacsclient
-    # reporting a reply it could not read: on macOS it splits a long reply
-    # holding non-ASCII characters and prints "*ERROR*: Unknown message".
-    [[ "$s" != *$'\n'* ]] || return 1
-    # An escaped backslash becomes a control character the text lacks, so
-    # every backslash left starts one of the other escapes.
-    for mark in $'\001' $'\002' $'\003' $'\004' $'\005' $'\006' ''; do
-        [[ "$s" != *"$mark"* ]] && break
-    done
-    [[ -n "$mark" ]] || return 1
-    s="${s//"$bs$bs"/$mark}"
-    s="${s//"$bs$dq"/$dq}"
-    s="${s//"${bs}n"/$'\n'}"
-    s="${s//"${bs}f"/$'\f'}"
-    # What is left are the octal escapes of raw bytes (a unibyte string's
-    # UTF-8, \303\251 for é), always three digits: printed as the bytes.
-    if [[ "$s" == *"$bs"* ]]; then
-        s="$(printf '%b' "${s//"$bs"/${bs}0}"; printf x)"
-        s="${s%x}"
-    fi
-    s="${s//"$mark"/$bs}"
-    printf '%s\n' "$s"
+    [[ "$s" =~ ^\"([A-Za-z0-9+/]*={0,2})\.?\"$ ]] || return 1
+    s="${BASH_REMATCH[1]}"
+    (( ${#s} % 4 == 0 )) || return 1
+    printf '%s' "$s" | base64 -d
+}
+
+# Exit 1 when the emacsclient output REPLY reports a reply emacsclient could
+# not read ("*ERROR*: Unknown message"), printing it and saying so.  The
+# form has run in Emacs by then: only its reply was lost.
+emacs_agent_check_garbled() {
+    [[ "$1" == *"*ERROR*: Unknown message"* ]] || return 0
+    printf '%s\n' "$1"
+    emacs_agent_fail "emacsclient garbled the reply above (\"*ERROR*: Unknown message\"), so it was not decoded; the form did run in Emacs"
+}
+
+# Exit 1 when emacsclient's output REPLY cannot be decoded, printing it.
+emacs_agent_undecodable() {
+    printf '%s\n' "$1"
+    emacs_agent_fail "the reply above is not the base64 string the wrapper asked Emacs for, so it was not decoded; the form did run in Emacs"
 }
 
 # Refuse NAME as a target name: missing, reserved, or not a plain socket name.
@@ -312,25 +322,50 @@ emacs_agent_require_running() {
     exit 2
 }
 
-# Send FORM to the socket NAME and print its string reply decoded.  With
-# ENVELOPE set, the exit status follows the envelope's `ok'.
+# Send FORM, whose value is a string, to the socket NAME as
+# `emacs_agent_encoded_form' wraps it, and print the string followed by a
+# newline.  With ENVELOPE set, the exit status follows the envelope's `ok'.
 emacs_agent_json_call() {
-    local name="$1" form="$2" envelope="${3:-}" reply status
-    reply="$(emacs_agent_client "$name" --eval "$form")"
+    local name="$1" form="$2" envelope="${3:-}" reply status text
+    reply="$(emacs_agent_client "$name" --eval "$(emacs_agent_encoded_form "$form")")"
     status=$?
     [[ $status -eq 2 ]] && exit 2
     if [[ $status -ne 0 ]]; then
         [[ -n "$reply" ]] && printf '%s\n' "$reply"
         exit 1
     fi
-    if ! emacs_agent_decode_reply "$reply"; then
-        printf '%s\n' "$reply"
-        emacs_agent_fail "the reply above is not a printed string, so it was not decoded (emacsclient garbles a long reply holding non-ASCII text)"
-    fi
-    # The envelope's first key is ok; printed, it begins "{\"ok\":true.
-    if [[ -n "$envelope" && "$reply" != '"{\"ok\":true'* ]]; then
+    emacs_agent_check_garbled "$reply"
+    # A JSON reply holds no NUL and does not end in a newline, so the
+    # command substitution keeps it whole.
+    text="$(emacs_agent_decode_reply "$reply")" || emacs_agent_undecodable "$reply"
+    printf '%s\n' "$text"
+    # The envelope's first key is ok, so it begins {"ok":true.
+    if [[ -n "$envelope" && "$text" != '{"ok":true'* ]]; then
         exit 1
     fi
+    exit 0
+}
+
+# Evaluate FORM, Lisp text, in the target NAME and print the value as
+# server.el prints an --eval value: `pp''s text, which ends in a newline.
+# The form travels as a string literal, read and evaluated as server.el
+# reads and evaluates one, and the printed text comes back through
+# `emacs_agent_encoded_form', so an unreadable reply is caught rather than
+# printed.  An error in FORM signals before anything is encoded, so
+# emacsclient reports it as for any --eval.
+emacs_agent_target_eval() {
+    local name="$1" form="$2" reply status
+    reply="$(emacs_agent_client "$name" --eval "$(emacs_agent_encoded_form "(let ((emacs-agent--value (eval (car (read-from-string $(emacs_agent_lisp_string "$form"))) t))) (with-temp-buffer (let ((standard-output (current-buffer))) (pp emacs-agent--value)) (buffer-substring-no-properties (point-min) (point-max))))")")"
+    status=$?
+    [[ $status -eq 2 ]] && exit 2
+    if [[ $status -ne 0 ]]; then
+        [[ -n "$reply" ]] && printf '%s\n' "$reply"
+        exit 1
+    fi
+    emacs_agent_check_garbled "$reply"
+    # Decoded straight to stdout: the printed value may end in newlines or
+    # hold bytes a command substitution would drop.
+    emacs_agent_decode_reply "$reply" || emacs_agent_undecodable "$reply"
     exit 0
 }
 
@@ -372,16 +407,7 @@ emacs_agent_tier() {
                 emacs_agent_json_call "$name" \
                     "(jf/agent-eval $(emacs_agent_lisp_string "$1"))" envelope
             fi
-            # The form goes as given; a leading space keeps a form that
-            # starts with `-' from being read as an emacsclient option.
-            local form="$1"
-            [[ "$form" == -* ]] && form=" $form"
-            emacs_agent_client "$name" --eval "$form"
-            case $? in
-                0) exit 0 ;;
-                2) exit 2 ;;
-                *) exit 1 ;;
-            esac ;;
+            emacs_agent_target_eval "$name" "$1" ;;
     esac
 }
 
