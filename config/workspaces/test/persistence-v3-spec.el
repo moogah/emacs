@@ -6,8 +6,9 @@
 ;;   register/invariant/broken-tag-runtime-only
 ;;
 ;; Covers:
-;; - The schema-version constant equals 3 (the contract that broke
-;;   the v2 file format).
+;; - The written schema-version constant equals 4 and the reader
+;;   accepts versions 3 and 4 (a v3 file is a v4 file without recipes
+;;   or layout metadata).
 ;; - The reader rejects v1 and v2 files with a *Messages* notice and
 ;;   leaves the registry empty.
 ;; - The writer never emits the runtime-only :broken tag, even when
@@ -84,9 +85,9 @@ synthetic :home directories the tests construct.")
     (insert-file-contents (workspace--state-file))
     (read (current-buffer))))
 
-(describe "Schema v3 constant"
-  (it "workspace--state-version is 3"
-    (expect workspace--state-version :to-equal 3)))
+(describe "Schema v4 constant"
+  (it "workspace--state-version is 4"
+    (expect workspace--state-version :to-equal 4)))
 
 (describe "v3 reader rejects v1 and v2 files"
   (before-each (persistence-v3-spec--reset))
@@ -107,7 +108,7 @@ synthetic :home directories the tests construct.")
         (let ((messages-after (with-current-buffer "*Messages*"
                                 (buffer-string))))
           (expect (substring messages-after (length messages-before))
-                  :to-match "v3 required")))))
+                  :to-match "readable versions are 3, 4")))))
 
   (it "rejects a v2 file with a notice and returns nil"
     (persistence-v3-spec--with-state-file
@@ -124,7 +125,7 @@ synthetic :home directories the tests construct.")
         (let ((messages-after (with-current-buffer "*Messages*"
                                 (buffer-string))))
           (expect (substring messages-after (length messages-before))
-                  :to-match "v3 required")))))
+                  :to-match "readable versions are 3, 4")))))
 
   (it "leaves the registry empty after workspace--restore on a v2 file"
     (persistence-v3-spec--with-state-file
@@ -147,7 +148,7 @@ synthetic :home directories the tests construct.")
         (clrhash workspace--registry)
         (let ((state (workspace--read-state)))
           (expect state :not :to-be nil)
-          (expect (plist-get state :version) :to-equal 3)
+          (expect (plist-get state :version) :to-equal 4)
           (workspace--deserialize-state state))
         (let ((alpha (gethash "alpha" workspace--registry)))
           (expect alpha :not :to-be nil)
@@ -251,8 +252,7 @@ synthetic :home directories the tests construct.")
 ;;; Change workspaces-programmatic-layouts: schema version 4
 ;;; (seam/persistence-schema, design.md § Scenario coverage).  The reader
 ;;; accepts 3 and 4 and writes 4; recipes and layout metadata ride inside
-;;; :layout-groups.  The v5 spec holds at HEAD; the others are pending
-;;; (`xit') until the bump and the metadata accessors land.
+;;; :layout-groups.
 
 (describe "Schema v4: reading v3, writing v4 (seam/persistence-schema)"
   (before-each (persistence-v3-spec--reset))
@@ -278,7 +278,7 @@ synthetic :home directories the tests construct.")
           (expect notice :to-match (regexp-quote (workspace--state-file)))
           (expect notice :to-match ":version 5")))))
 
-  (xit "loads a version-3 file without loss, its layouts the user's, and writes version 4 on the next flush (Scenario: workspaces § Version-3 file loads and is upgraded on next flush)"
+  (it "loads a version-3 file without loss, its layouts the user's, and writes version 4 on the next flush (Scenario: workspaces § Version-3 file loads and is upgraded on next flush)"
     (persistence-v3-spec--with-state-file
       (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
              (groups '((:name "home"
@@ -312,7 +312,7 @@ synthetic :home directories the tests construct.")
           (expect (workspace--layout-groups (car (plist-get raw :workspaces)))
                   :to-equal groups)))))
 
-  (xit "round-trips a recipe :saved-state and its metadata through flush and restore (Scenario: workspaces § Recipe and metadata round-trip across restart)"
+  (it "round-trips a recipe :saved-state and its metadata through flush and restore (Scenario: workspaces § Recipe and metadata round-trip across restart)"
     (persistence-v3-spec--with-state-file
       (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
              (recipe `(:recipe :split columns

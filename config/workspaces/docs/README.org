@@ -405,17 +405,34 @@ The path is relative to the configuration checkout (=jf/emacs-dir=);
 =default= stands in for =<machine-role>= when =jf/machine-role= is
 unset.  Like everything under =state/=, the file is ignored by git.
 
-The file is plain elisp (readable with =read=).  Schema is
-=:version 3=.  The package does /not/ read v1 or v2 files; if one
-exists, the reader emits a =*Messages*= notice naming the file and
-the version mismatch, and Emacs starts with no workspaces.  See
+The file is plain elisp (readable with =read=).  The package writes
+=:version 4= and reads versions 3 and 4.  A v3 file loads without
+loss and is rewritten as v4 on the next save.  The package does /not/
+read v1, v2 or any later version; if such a file exists, the reader
+emits a =*Messages*= notice naming the file, the version it found and
+the versions it reads, and Emacs starts with no workspaces.  See
 *State format is pre-alpha* below.
 
-** Schema v3
+** Schema v4
 
-v3 records each workspace with its required =:home= absolute path —
-v2 had no =:home= slot and treated workspaces as floating contexts
-keyed by name only.  v3 also enforces absolute =:home= paths at
+v4 adds no slot to v3.  What changes is what a layout may hold:
+
+- a /recipe/ as its =:saved-state= (a plist headed by =:recipe=,
+  describing panes by file rather than capturing a window tree) in
+  place of a captured window-state;
+- layout metadata in its =:etc= alist: =origin= (=user= or =agent=),
+  =description= and =source=.
+
+Both ride inside =:layout-groups=, so a v3 file is exactly a v4 file
+with no recipes and no metadata: each of its layouts reads as the
+user's, with a captured window-state.  The version still bumps so that
+code older than recipes ignores a v4 file (with its version notice)
+instead of handing a recipe to =window-state-put=.  See *State format
+is pre-alpha* for what that older code then does to the file.
+
+v4 keeps everything v3 introduced.  v3 records each workspace with
+its required =:home= absolute path — v2 had no =:home= slot and
+treated workspaces as floating contexts keyed by name only.  v3 also enforces absolute =:home= paths at
 deserialize time: entries with a relative =:home= are skipped and a
 =*Messages*= notice is emitted for each.  Relative paths cannot be
 disambiguated (the workspace might restore in a different working
@@ -568,7 +585,9 @@ unreadable file.
 ** State format is pre-alpha
 
 The on-disk schema may break between refinement cycles.  There is no
-migration code.  A file of another version is ignored, not protected:
+migration code beyond reading the previous version: a v3 file is read
+as v4 and upgraded in place by the next save.  A file of any other
+version is ignored, not protected:
 the first write of the session replaces it, at the latest the
 =kill-emacs= write when Emacs exits.  If you see the
 version-mismatch notice on startup and want to keep the old file, copy
@@ -577,6 +596,14 @@ it aside before saving; otherwise delete
 your workspaces by hand on the current reader.  This policy is
 intentional (design.md §D3): a real migration story is reserved for
 beta.
+
+The same holds in the other direction.  Code older than v4 (a checkout
+of an older commit, a revert, a bisect) reads only v3: it ignores a v4
+file with its version notice and then overwrites it with its empty
+registry on its first save, at the latest when Emacs exits.  Until
+=.tasks/workspaces-version-mismatch-state-file-overwritten.md= is
+fixed, copy =workspaces.eld= aside before running older code against
+the same state directory, and put it back afterwards.
 
 * Buffer reincarnation
 

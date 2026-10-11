@@ -44,14 +44,29 @@ Resolves in three tiers (see the module commentary):
   "Return the absolute path of the persistence file."
   (expand-file-name "workspaces.eld" (workspace--state-directory)))
 
-(defconst workspace--state-version 3
-  "Schema version for the workspaces persistence file.
-v3 (current): adds the required =:home= filesystem-anchor slot to every
-workspace plist.  Inherits v2's per-layout =:saved-state= /
-=:working-state= split, per-leaf =workspace-buffer= reincarnation struct,
-=:etc= forward-compat alist.  The reader emits an *Messages* notice and
-returns nil for any file whose =:version= is not 3 (no migration: v1 and
+(defconst workspace--state-version 4
+  "Schema version the writer stamps on the workspaces persistence file.
+History:
+
+- v3: adds the required =:home= filesystem-anchor slot to every
+  workspace plist.  Inherits v2's per-layout =:saved-state= /
+  =:working-state= split, per-leaf =workspace-buffer= reincarnation
+  struct and =:etc= forward-compat alist.
+- v4 (current): a layout's =:saved-state= may be a recipe (a plist
+  headed by =:recipe=) rather than a captured window-state, and its
+  =:etc= alist may carry layout metadata (=origin=, =description=,
+  =source=).  No slot is added; both ride inside =:layout-groups=.
+
+The reader accepts the versions in `workspace--readable-state-versions'
+and ignores any other with a *Messages* notice (no migration: v1 and
 v2 files are rejected; delete the file to start fresh, design.md §D5).")
+
+(defconst workspace--readable-state-versions '(3 4)
+  "Schema versions `workspace--read-state' accepts.
+Version 3 stays readable because a v3 file is exactly a v4 file with
+no recipes and no layout metadata: every v3 layout reads as the user's,
+with a captured window-state.  Such a file loads without loss and is
+rewritten as `workspace--state-version' on the next flush.")
 
 (defun workspace--persistence-serialize-workspace (ws)
   "Return WS reduced to its persistable shape.
@@ -231,8 +246,11 @@ truncate the live file.  Creates the parent directory if missing."
 Three outcomes (design.md §D2):
 
 - File absent → nil (fresh start; saving stays permitted).
-- File present and readable: a v3 plist → that plist; any other
-  =:version= → nil with a *Messages* notice (recognized \"ignore and
+- File present and readable: a plist whose =:version= is in
+  `workspace--readable-state-versions' → that plist, unchanged (a v3
+  file is read as a v4 file with no recipes or metadata); any other
+  =:version= → nil with a *Messages* notice naming the file, the
+  version found and the readable versions (recognized \"ignore and
   start fresh\", not corruption — no backup, no block).
 - File present but unreadable (a `read'/parse error): the corrupt bytes
   are renamed aside to a =workspaces.eld.corrupt-<ts>= sibling, a loud
@@ -246,11 +264,13 @@ Three outcomes (design.md §D2):
                         (insert-file-contents file)
                         (read (current-buffer)))))
             (let ((v (plist-get form :version)))
-              (if (eql v workspace--state-version)
+              (if (memql v workspace--readable-state-versions)
                   form
                 (message
-                 "Workspaces: persistence file at %s is schema :version %S; v%d required — file ignored. Delete the file to start fresh."
-                 file v workspace--state-version)
+                 "Workspaces: persistence file at %s is schema :version %S; readable versions are %s — file ignored. Delete the file to start fresh."
+                 file v
+                 (mapconcat #'number-to-string
+                            workspace--readable-state-versions ", "))
                 nil)))
         (error
          (let ((backup (concat file ".corrupt-"
