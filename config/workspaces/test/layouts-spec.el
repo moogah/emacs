@@ -684,7 +684,7 @@ Return its absolute name."
   (before-each (layouts-spec--programmatic-reset))
   (after-each (layouts-spec--programmatic-cleanup))
 
-  (xit "adds a layout to the user's workspace without disturbing anything (Scenario: workspaces § Adding a layout does not disturb the user)"
+  (it "adds a layout to the user's workspace without disturbing anything (Scenario: workspaces § Adding a layout does not disturb the user)"
     (workspace-new "code")
     (let* ((state (layouts-spec--two-window-state))
            (recent-before (workspace--recent-group
@@ -703,7 +703,7 @@ Return its absolute name."
       (expect 'workspace--flush-state :to-have-been-called-times 1)
       (expect (layouts-spec--on-disk-layout-names "code") :to-contain "demo")))
 
-  (xit "adds a layout to a workspace that has no tab, opening none (Scenario: workspaces § Adding a layout to a workspace without a tab)"
+  (it "adds a layout to a workspace that has no tab, opening none (Scenario: workspaces § Adding a layout to a workspace without a tab)"
     (workspace-new "notes")
     (tab-bar-select-tab 1)
     (tab-bar-close-tab (workspace--tab-index-for "notes"))
@@ -716,7 +716,7 @@ Return its absolute name."
       (expect (workspace--tab-index-for "notes") :to-be nil)
       (layouts-spec--expect-surroundings-unchanged before)))
 
-  (xit "refuses the reserved layout name `home', leaving `home' unchanged (Scenario: workspaces § The home layout cannot be added programmatically)"
+  (it "refuses the reserved layout name `home', leaving `home' unchanged (Scenario: workspaces § The home layout cannot be added programmatically)"
     (workspace-new "code")
     (let* ((home-before (copy-tree (layouts-spec--layout "code" "home")))
            (state (layouts-spec--two-window-state))
@@ -731,7 +731,7 @@ Return its absolute name."
   (before-each (layouts-spec--programmatic-reset))
   (after-each (layouts-spec--programmatic-cleanup))
 
-  (xit "refuses to overwrite a user layout, which stays as it was (Scenario: workspaces § User layout is never overwritten)"
+  (it "refuses to overwrite a user layout, which stays as it was (Scenario: workspaces § User layout is never overwritten)"
     (workspace-new "code")
     ;; The user's own layout, saved with the user's command.
     (workspace-save-layout "review")
@@ -746,7 +746,7 @@ Return its absolute name."
       (expect message :to-match "belongs to the user")
       (expect (layouts-spec--layout "code" "review") :to-equal before)))
 
-  (xit "refuses to replace an agent layout that is on screen (Scenario: workspaces § On-screen agent layout is not replaced)"
+  (it "refuses to replace an agent layout that is on screen (Scenario: workspaces § On-screen agent layout is not replaced)"
     (workspace-new "code")
     (let ((state (layouts-spec--two-window-state)))
       (workspace-add-layout "code" "demo" state :origin 'agent)
@@ -761,7 +761,7 @@ Return its absolute name."
         (expect message :to-match "on screen")
         (expect (layouts-spec--layout "code" "demo") :to-equal before))))
 
-  (xit "replaces an off-screen agent layout, discarding its working state (Scenario: workspaces § Off-screen agent layout is replaced)"
+  (it "replaces an off-screen agent layout, discarding its working state (Scenario: workspaces § Off-screen agent layout is replaced)"
     (workspace-new "code")
     (workspace-add-layout "code" "demo" (layouts-spec--two-window-state) :origin 'agent)
     (workspace-switch-layout "demo")
@@ -786,7 +786,7 @@ Return its absolute name."
   (before-each (layouts-spec--programmatic-reset))
   (after-each (layouts-spec--programmatic-cleanup))
 
-  (xit "removes an off-screen agent layout without disturbing anything (Scenario: workspaces § Agent layout removed when its artifact closes)"
+  (it "removes an off-screen agent layout without disturbing anything (Scenario: workspaces § Agent layout removed when its artifact closes)"
     (workspace-new "code")
     (workspace-add-layout "code" "ask/a1" (layouts-spec--two-window-state)
                           :origin 'agent :source "a1")
@@ -802,7 +802,7 @@ Return its absolute name."
       (expect 'workspace--flush-state :to-have-been-called-times 1)
       (expect (layouts-spec--on-disk-layout-names "code") :not :to-contain "ask/a1")))
 
-  (xit "refuses to remove a user layout, which stays as it was (Scenario: workspaces § User layout cannot be removed programmatically)"
+  (it "refuses to remove a user layout, which stays as it was (Scenario: workspaces § User layout cannot be removed programmatically)"
     (workspace-new "code")
     (workspace-save-layout "review")
     (workspace-switch-layout "home")
@@ -814,7 +814,7 @@ Return its absolute name."
       (expect message :to-match "belongs to the user")
       (expect (layouts-spec--layout "code" "review") :to-equal before)))
 
-  (xit "refuses to remove a layout that is on screen (Scenario: workspaces § On-screen layout is not removed)"
+  (it "refuses to remove a layout that is on screen (Scenario: workspaces § On-screen layout is not removed)"
     (workspace-new "code")
     (workspace-add-layout "code" "ask/a1" (layouts-spec--two-window-state)
                           :origin 'agent :source "a1")
@@ -826,7 +826,7 @@ Return its absolute name."
       (expect message :to-match "on screen")
       (expect (layouts-spec--layout "code" "ask/a1") :not :to-be nil)))
 
-  (xit "reassigns the recent pointer as `workspace-delete-layout' does when the removed layout was recent (seam/programmatic-layout-writes)"
+  (it "reassigns the recent pointer as `workspace-delete-layout' does when the removed layout was recent (seam/programmatic-layout-writes)"
     (workspace-new "code")
     (workspace-add-layout "code" "ask/a1" (layouts-spec--two-window-state)
                           :origin 'agent :source "a1")
