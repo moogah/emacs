@@ -1,6 +1,7 @@
 ;;; workspaces.el --- Named tab-based workspaces -*- lexical-binding: t; -*-
 
 (require 'cl-lib)
+(require 'seq)
 
 (defgroup workspaces nil
   "Named tab-based workspaces with per-workspace layouts and buffer scoping."
@@ -289,6 +290,68 @@ active workspace's home.  It MUST NOT signal and has no side effects."
     (let ((dir (workspace--sessions-dir home)))
       (when (file-directory-p dir)
         dir))))
+
+(defun workspace-names ()
+  "Return the names of the registered workspaces."
+  (workspace--registered-names))
+
+(defun workspace-get (name)
+  "Return the workspace plist registered as NAME, or nil.
+The plist is a top-level copy: changing its slots does not change the
+registry.  The slots' values are shared with the registry; treat them
+as read-only."
+  (let ((ws (gethash name workspace--registry)))
+    (and ws (copy-sequence ws))))
+
+(cl-defun workspace-layouts (name &key origin source)
+  "Return the layouts of workspace NAME as plists, in group order.
+Each entry is (:name N :origin O :description D :source S), the
+metadata read from the group's recent layout.  When ORIGIN is non-nil
+keep only the entries whose origin is `eq' to it; when SOURCE is
+non-nil keep only those whose source is `equal' to it.  Return nil
+when NAME is not registered.  Changes nothing."
+  (when-let* ((ws (gethash name workspace--registry)))
+    (seq-filter
+     (lambda (entry)
+       (and (or (null origin) (eq origin (plist-get entry :origin)))
+            (or (null source) (equal source (plist-get entry :source)))))
+     (mapcar (lambda (group)
+               (let ((layout (workspace--group-recent-layout group)))
+                 (list :name (workspace--group-name group)
+                       :origin (workspace--layout-origin layout)
+                       :description (workspace--layout-description layout)
+                       :source (workspace--layout-source layout))))
+             (workspace--layout-groups ws)))))
+
+(defun workspace-for-directory (dir)
+  "Return the name of the workspace whose home contains DIR, or nil.
+Containment is by file identity (`workspace--path-within-p'), so the
+spelling of DIR does not matter.  When several homes contain DIR, the
+one whose truename is deepest wins.  A remote or missing home owns
+nothing and is never contacted."
+  (let (best best-depth)
+    (dolist (name (workspace--registered-names))
+      (let ((home (workspace--home (gethash name workspace--registry))))
+        (when (workspace--path-within-p dir home)
+          (let ((depth (length (split-string (file-truename home) "/" t))))
+            (when (or (null best-depth) (> depth best-depth))
+              (setq best name
+                    best-depth depth))))))
+    best))
+
+(defun workspace-layout-on-screen-p (name layout)
+  "Return non-nil when LAYOUT of workspace NAME is on screen.
+That is: LAYOUT is NAME's recent layout group and some live frame has
+a tab named NAME, whether or not it is that frame's current tab."
+  (let ((ws (gethash name workspace--registry)))
+    (and ws layout
+         (equal layout (workspace--recent-group ws))
+         (seq-some (lambda (frame)
+                     (seq-some (lambda (tab)
+                                 (equal (workspace--tab-name tab) name))
+                               (frame-parameter frame 'tabs)))
+                   (frame-list))
+         t)))
 
 (when (fboundp 'workspace--restore)
   (workspace--restore))
