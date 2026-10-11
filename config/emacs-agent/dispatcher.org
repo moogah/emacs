@@ -91,11 +91,15 @@ are joined with spaces, as `gptel--handle-tool-use' does:
 
 =jf/agent--envelope= is the only producer of a reply (seam/dispatcher-args): ={"ok":true,"result":R}=
 or ={"ok":false,"error":E}=, =ok= always the first key and a JSON boolean.  The reply is Emacs 30's
-=json-serialize= output as it comes, unibyte UTF-8, and is not decoded: =emacsclient= prints its
-non-ASCII bytes as octal escapes (=\303\251= for =é=), so the reply crosses the socket as ASCII, and
-=bin/emacs-agent= turns the escapes back into the bytes.  A decoded (multibyte) reply over about 1000
-characters holding non-ASCII text reaches the client garbled on macOS.  A text JSON cannot carry (raw
-bytes, a non-Unicode character) turns the reply into a failure envelope rather than a signal.
+=json-serialize= output as it comes, unibyte UTF-8, and is not decoded.  =bin/emacs-agent= does not
+send =jf/agent-call= bare: it wraps the call in a form that answers the reply's bytes as base64, and
+decodes them.  =emacsclient= on macOS garbles a long reply in two ways: when server.el shortens a
+message by one character so that a cut does not split one of its two-character escapes (of a space,
+=-=, =&= or a newline, the newline =pp= ends every reply with included), and when a message is longer
+in bytes than in characters, from a decoded (multibyte) reply holding non-ASCII text.  base64 holds
+neither an escape nor non-ASCII, and the wrapper pads it at the lengths where the trailing newline
+would fall on a cut.  A text JSON cannot carry (raw bytes, a non-Unicode character) turns the reply
+into a failure envelope rather than a signal.
 
 #+begin_src emacs-lisp
 (defun jf/agent--envelope (ok text)
