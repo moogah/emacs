@@ -114,7 +114,7 @@
         (expect (plist-get title :optional) :to-be nil)
         (expect (plist-get tags :type) :to-equal "array"))))
 
-  (xit "includes a tool added to emacs-agent-read on the next manifest, with tier read (Scenario: control-surface-discoverability § Manifest follows the presets)"
+  (it "includes a tool added to emacs-agent-read on the next manifest, with tier read (Scenario: control-surface-discoverability § Manifest follows the presets)"
     (expect (presets-manifest-spec--entry "emacs_agent_test_added") :to-be nil)
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_added" :preset 'read
@@ -124,7 +124,7 @@
         (expect (plist-get entry :category) :to-equal "emacs-agent-test")
         (expect (plist-get (aref (plist-get entry :args) 0) :name) :to-equal "q"))))
 
-  (xit "keeps a registered tool named in neither preset out of the manifest and the tiers (Scenario: control-surface-discoverability § Preset membership decides exposure)"
+  (it "keeps a registered tool named in neither preset out of the manifest and the tiers (Scenario: control-surface-discoverability § Preset membership decides exposure)"
     (let ((ran nil))
       (emacs-agent-test-with-tools
           (list (list :name "emacs_agent_test_outsider" :preset nil
@@ -138,7 +138,7 @@
                   :to-be nil)))
       (expect ran :to-be nil)))
 
-  (xit "omits a preset tool that is not registered and names it when invoked (Scenario: control-surface-discoverability § A preset tool missing from the registry)"
+  (it "omits a preset tool that is not registered and names it when invoked (Scenario: control-surface-discoverability § A preset tool missing from the registry)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_unloaded" :preset 'read :register nil))
       (expect (member "emacs_agent_test_unloaded"
@@ -150,7 +150,7 @@
         (expect (plist-get reply :ok) :to-be nil)
         (expect (plist-get reply :error) :to-match "emacs_agent_test_unloaded"))))
 
-  (xit "lists none of the control helpers, and no gptel tool runs one (Scenario: emacs-control-tools § Helpers absent from the manifest)"
+  (it "lists none of the control helpers, and no gptel tool runs one (Scenario: emacs-control-tools § Helpers absent from the manifest)"
     (let ((helpers '(jf/type-text jf/send-keys jf/run-command jf/frame-state)))
       (dolist (entry (presets-manifest-spec--manifest))
         (let ((tool (jf/agent--registry-lookup (plist-get entry :name))))
