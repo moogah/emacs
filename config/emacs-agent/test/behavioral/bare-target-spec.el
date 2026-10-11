@@ -164,8 +164,10 @@ Return the socket's path once the process is gone."
           (expect (cons args (plist-get result :exit)) :to-equal (cons args 2))
           (expect (plist-get result :stderr) :to-match "no live session is running")))))
 
-  (it "lists no target whose socket nothing listens on, and removes that socket (Scenario: isolated-emacs-targets § Enumerate running targets)"
+  (it "lists no target whose socket nothing holds, and removes that socket (Scenario: isolated-emacs-targets § Enumerate running targets)"
     (bare-target-spec--scope
+      (assume (emacs-agent-test-refusing-socket-available-p)
+              "no lsof to tell a dead target's socket from a busy one's")
       (bare-target-spec--start "smoke-alive")
       (bare-target-spec--start "smoke-dead")
       (let ((socket (bare-target-spec--crash "smoke-dead"))
@@ -175,13 +177,38 @@ Return the socket's path once the process is gone."
                 :to-equal '("smoke-alive"))
         (expect (file-exists-p socket) :to-be nil))))
 
-  (it "stops a crashed target by removing its socket, reporting it not running (Scenario: isolated-emacs-targets § Disposed target no longer routes)"
+  (it "stops a crashed target, whose socket nothing holds, by removing that socket, reporting it not running (Scenario: isolated-emacs-targets § Disposed target no longer routes)"
     (bare-target-spec--scope
+      (assume (emacs-agent-test-refusing-socket-available-p)
+              "no lsof to tell a dead target's socket from a busy one's")
       (bare-target-spec--start "smoke-gone")
       (let* ((socket (bare-target-spec--crash "smoke-gone"))
              (result (bare-target-spec--run "target" "stop" "smoke-gone")))
         (expect (plist-get result :exit) :to-equal 2)
         (expect (plist-get result :stderr) :to-match "smoke-gone is not running")
-        (expect (file-exists-p socket) :to-be nil)))))
+        (expect (file-exists-p socket) :to-be nil))))
+
+  (it "reports a target or live session whose socket a process holds but that refuses connections as busy, exit 1, and neither lists, stops nor removes it (Scenario: isolated-emacs-targets § Detect a dead target)"
+    (bare-target-spec--scope
+      (assume (emacs-agent-test-refusing-socket-available-p)
+              "no perl or lsof to hold a refusing socket")
+      (let ((socket (emacs-agent-test-refusing-socket "smoke-busy"))
+            (live (emacs-agent-test-refusing-socket "server")))
+        (dolist (args '(("target" "smoke-busy" "eval" "1")
+                        ("target" "smoke-busy" "tools")
+                        ("target" "stop" "smoke-busy")))
+          (let ((result (apply #'bare-target-spec--run args)))
+            (expect (cons args (plist-get result :exit)) :to-equal (cons args 1))
+            (expect (plist-get result :stderr)
+                    :to-match "smoke-busy is not accepting connections")))
+        (let ((result (bare-target-spec--run "target" "list")))
+          (expect (plist-get result :exit) :to-equal 0)
+          (expect (plist-get result :stdout) :to-equal ""))
+        (let ((result (bare-target-spec--run "live" "tools")))
+          (expect (plist-get result :exit) :to-equal 1)
+          (expect (plist-get result :stderr)
+                  :to-match "live session is not accepting connections"))
+        (expect (file-exists-p socket) :to-be t)
+        (expect (file-exists-p live) :to-be t)))))
 
 ;;; bare-target-spec.el ends here

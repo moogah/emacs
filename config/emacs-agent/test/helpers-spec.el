@@ -301,6 +301,34 @@ Return the socket's path."
     (push path emacs-agent-test--fake-sockets)
     path))
 
+(defun emacs-agent-test-refusing-socket-available-p ()
+  "Non-nil when `emacs-agent-test-refusing-socket' can run here.
+It needs perl to hold the socket and lsof for the wrapper to find it."
+  (and (executable-find "perl")
+       (or (executable-find "lsof") (file-executable-p "/usr/sbin/lsof"))
+       t))
+
+(defun emacs-agent-test-refusing-socket (name)
+  "Hold the socket NAME in the private directory and refuse connections.
+A perl process binds the socket and never listens, so a connection is
+refused while a process still holds the socket: what an Emacs whose
+accept queue is full looks like to emacsclient.  The scope kills it.
+Return the socket's path once it exists."
+  (make-directory emacs-agent-test-socket-dir t)
+  (set-file-modes emacs-agent-test-socket-dir #o700)
+  (let ((path (emacs-agent-test-socket name)))
+    (push (make-process
+           :name (concat "emacs-agent-test-refusing-" name)
+           :command (list "perl" "-MSocket" "-e"
+                          "socket(my $s, PF_UNIX, SOCK_STREAM, 0) or die $!; bind($s, pack_sockaddr_un($ARGV[0])) or die $!; sleep 600"
+                          path)
+           :buffer nil :noquery t :connection-type 'pipe)
+          emacs-agent-test--procs)
+    (push path emacs-agent-test--fake-sockets)
+    (unless (emacs-agent-test-wait-for (lambda () (file-exists-p path)) 5)
+      (error "No process bound the refusing socket %s" path))
+    path))
+
 (defmacro emacs-agent-test-with-real-binaries (&rest body)
   "Run BODY with the wrapper pointed at the real Emacs and emacsclient.
 The `emacs' on PATH may not be the binary under test, so the wrapper is

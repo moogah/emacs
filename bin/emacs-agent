@@ -9,7 +9,8 @@
 #
 # Usage: see `emacs_agent_usage' below, or run `emacs-agent --help'.
 #
-# Exit status: 0 on success; 1 on a failure envelope or an eval error;
+# Exit status: 0 on success; 1 on a failure envelope, an eval error or a
+# target that refuses connections while a process holds its socket (busy);
 # 2 on a usage error or a target that is not running.
 #
 # Environment:
@@ -56,10 +57,12 @@ Targets:
   profile in EMACS_AGENT_DATA, or with --bare runs emacs -Q --daemon=NAME,
   which loads no configuration and takes neither --worktree nor --data.  It
   returns once the target's server is ready.  target list prints the running
-  targets' names, removing any socket a dead target left; target stop sends
-  (kill-emacs) and returns once the target's socket is gone.  A target, or
-  the live session, whose socket is missing or answers no connection is not
-  running.
+  targets' names; target stop sends (kill-emacs) and returns once the
+  target's socket is gone.  A target, or the live session, whose socket is
+  missing, or refuses connections while no process holds it, is not running
+  (exit 2); list and stop remove such a target's socket.  One that refuses
+  connections while a process holds its socket is busy, its accept queue
+  full (exit 1): list leaves it out, stop fails, and its socket stays.
 
   --data PROFILE   the data profile of a worktree target:
                      live            the user's notes
@@ -67,8 +70,8 @@ Targets:
                      none            no notes (the default when --data is omitted)
 
 Exit status:
-  0 success; 1 a failure envelope or an eval error; 2 a usage error or a
-  target that is not running.
+  0 success; 1 a failure envelope, an eval error or a busy target; 2 a
+  usage error or a target that is not running.
 
 Environment:
   EMACS_AGENT_EMACSCLIENT, EMACS_AGENT_EMACS name the binaries; otherwise the
@@ -132,12 +135,53 @@ emacs_agent_emacsclient() {
     command -v emacsclient
 }
 
+# Print the pids of the processes that hold SOCKET open, as lsof finds
+# them.  Return 0 when some process holds it, 1 when lsof finds none, and 2
+# when that cannot be told (no lsof, or lsof reports an error).
+emacs_agent_socket_holders() {
+    local socket="$1" lsof pids status
+    lsof="$(command -v lsof)" || lsof=/usr/sbin/lsof
+    [[ -x "$lsof" ]] || return 2
+    pids="$("$lsof" -t -- "$socket" 2>/dev/null)"
+    status=$?
+    if [[ -n "$pids" ]]; then
+        printf '%s' "${pids//$'\n'/ }"
+        return 0
+    fi
+    # lsof exits 1 both when nothing holds the file and when the file is
+    # gone (it then complains on stderr); only the first answers the
+    # question.
+    [[ $status -eq 1 && -S "$socket" ]] && return 1
+    return 2
+}
+
+# Report why the socket NAME (`server' for live) refused emacsclient's
+# connection.  On macOS a listening socket also refuses one when its accept
+# queue is full, so a refusal alone does not mean the Emacs is gone: while
+# a process holds the socket the Emacs is busy, and the refusal is a
+# transient failure (return 3); otherwise it is not running (return 2).
+emacs_agent_refused() {
+    local name="$1" socket pids
+    socket="$(emacs_agent_socket "$name")"
+    pids="$(emacs_agent_socket_holders "$socket")"
+    case $? in
+        0)
+            emacs_agent_not_accepting "$name" "process $pids holds $socket"
+            return 3 ;;
+        1)
+            emacs_agent_not_running "$name" "no process holds $socket" ;;
+        *)
+            emacs_agent_not_running "$name" "nothing accepted a connection on $socket" ;;
+    esac
+    return 2
+}
+
 # Run emacsclient against the socket NAME (`server' for live), always with -s
 # and the socket's absolute path; the remaining arguments follow.  stdout
 # passes through.  When emacsclient cannot connect (it says "error accessing
-# socket": a socket nothing listens on, left by a target or live session
-# that died) report NAME as not running and return 2; otherwise pass its
-# stderr on and return its status.  No other socket is tried.
+# socket") return what `emacs_agent_refused' finds: 2 for an Emacs that is
+# not running, 3 for one that is busy.  Otherwise pass its stderr on and
+# return its status.  No other socket is tried.
 emacs_agent_client() {
     local name="$1"
     shift
@@ -148,8 +192,8 @@ emacs_agent_client() {
     { err="$("$client" -s "$socket" "$@" 2>&1 1>&3 3>&-)"; } 3>&1
     status=$?
     if [[ $status -ne 0 && "$err" == *"error accessing socket"* ]]; then
-        emacs_agent_not_running "$name" "nothing is listening on $socket"
-        return 2
+        emacs_agent_refused "$name"
+        return
     fi
     [[ -z "$err" ]] || printf '%s\n' "$err" >&2
     return "$status"
@@ -229,6 +273,28 @@ emacs_agent_not_running() {
     else
         printf 'emacs-agent: target %s is not running (%s)\n' "$name" "$why" >&2
     fi
+}
+
+# Say on stderr that the Emacs serving the socket NAME (`server' for live)
+# refused a connection though it is still running; WHY ends the message.
+emacs_agent_not_accepting() {
+    local name="$1" why="$2"
+    if [[ "$name" == server ]]; then
+        printf 'emacs-agent: the live session is not accepting connections (busy?): %s; try again\n' "$why" >&2
+    else
+        printf 'emacs-agent: target %s is not accepting connections (busy?): %s; try again\n' "$name" "$why" >&2
+    fi
+}
+
+# Remove the socket NAME when no process holds it, as `server-start'
+# removes a stale socket.  Return 0 when it was removed.
+emacs_agent_remove_stale_socket() {
+    local socket
+    socket="$(emacs_agent_socket "$1")"
+    [[ "$1" != server ]] || return 1
+    emacs_agent_socket_holders "$socket" >/dev/null
+    [[ $? -eq 1 ]] || return 1
+    rm -f "$socket"
 }
 
 # Exit 2 unless the socket NAME exists.
@@ -357,10 +423,11 @@ emacs_agent_target_start() {
 
 # Print the name of every socket in the socket directory but `server', the
 # live session's: the directory is the registry of running targets.  A
-# target socket nothing listens on (its Emacs died without removing it) is
-# not listed, and is removed, as `server-start' removes a stale socket.  A
-# target that accepts the connection but does not answer is still running
-# and is listed.
+# target socket that refuses a connection is not listed; it is removed only
+# when no process holds it (its Emacs died without removing it), and kept
+# while one does (a busy Emacs whose accept queue is full).  A target that
+# accepts the connection but does not answer is still running and is
+# listed.
 emacs_agent_target_list() {
     local dir entry name
     dir="$(emacs_agent_socket_dir)"
@@ -370,10 +437,10 @@ emacs_agent_target_list() {
         name="${entry##*/}"
         [[ "$name" != server ]] || continue
         emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
-        if [[ $? -eq 2 ]]; then
-            rm -f "$entry"
-            continue
-        fi
+        case $? in
+            2) emacs_agent_remove_stale_socket "$name"; continue ;;
+            3) continue ;;
+        esac
         printf '%s\n' "$name"
     done
     exit 0
@@ -383,20 +450,26 @@ emacs_agent_target_list() {
 # waiting at most EMACS_AGENT_STOP_TIMEOUT seconds for each step, so a hung
 # target fails the stop rather than blocking it.
 emacs_agent_target_stop() {
-    local name="$1" socket deadline
+    local name="$1" socket deadline err
     emacs_agent_require_running "$name"
     socket="$(emacs_agent_socket "$name")"
     # The connection closes as the target exits, so the reply and the
     # client's status carry nothing; the socket's removal is the answer.
-    # A socket nothing listens on is removed, and the target reported as
-    # not running.
-    emacs_agent_client "$name" -w "$EMACS_AGENT_STOP_TIMEOUT" \
-        --eval "(kill-emacs)" >/dev/null 2>&1
-    if [[ $? -eq 2 ]]; then
-        rm -f "$socket"
-        emacs_agent_not_running "$name" "nothing was listening on $socket; removed it"
-        exit 2
-    fi
+    # A refused connection is reported as `emacs_agent_client' found it: a
+    # target not running has its socket removed when no process holds it
+    # (exit 2); a busy one keeps its socket for a later stop (exit 1).
+    err="$(emacs_agent_client "$name" -w "$EMACS_AGENT_STOP_TIMEOUT" \
+        --eval "(kill-emacs)" 2>&1 >/dev/null)"
+    case $? in
+        2)
+            printf '%s\n' "$err" >&2
+            emacs_agent_remove_stale_socket "$name" &&
+                printf 'emacs-agent: removed the stale socket %s\n' "$socket" >&2
+            exit 2 ;;
+        3)
+            printf '%s\n' "$err" >&2
+            exit 1 ;;
+    esac
     deadline=$((SECONDS + EMACS_AGENT_STOP_TIMEOUT))
     while [[ -S "$socket" ]]; do
         if [[ $SECONDS -ge $deadline ]]; then
