@@ -163,40 +163,56 @@ Modelled on `activities--error-buffer' (activities.el:855-862).
 DECLINED, when non-nil, is the message with which the buffer's
 bookmark handler declined to restore it; the text then says so and
 says that the saved filename was deliberately NOT opened, instead of
-listing the four steps as having failed."
-  (let* ((orig-name (or (workspace-buffer-name ws-buffer) "<unknown>"))
-         (name (format "*workspace-restore: %s*" orig-name))
+listing the four steps as having failed.
+
+A WS-BUFFER whose `etc' alist carries `missing-file' is a recipe pane
+whose file did not exist when the layout was applied (see
+`workspace--recipe->window-state'); it has no name, and the buffer is
+named after, and explains, the missing path."
+  (let* ((missing (alist-get 'missing-file (workspace-buffer-etc ws-buffer)))
+         (orig-name (or (workspace-buffer-name ws-buffer) "<unknown>"))
+         (name (format "*workspace-restore: %s*"
+                       (if missing (format "%s (missing)" missing) orig-name)))
          (buf (get-buffer-create name)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert
-         "Workspaces could not reincarnate this buffer.\n\n"
-         (format "Original buffer name : %s\n" orig-name)
-         (format "Original filename    : %s\n"
-                 (or (workspace-buffer-filename ws-buffer) "<none>"))
-         (format "Bookmark record      : %s\n\n"
-                 (cond (declined "present (declined to restore)")
-                       ((workspace-buffer-bookmark ws-buffer)
-                        "present (failed to restore)")
-                       (t "absent"))))
-        (if declined
+        (if missing
             (insert
-             "The buffer's bookmark handler declined to restore it:\n\n"
-             (format "  %s\n\n" declined)
-             "The saved filename was NOT opened in its place: it is the\n"
-             "path this buffer had when the layout was captured, and the\n"
-             "handler has just said that path is not the right one here.\n"
-             "Open the file you want by hand, then save the layout again.\n")
+             "Workspaces could not open a file this layout names.\n\n"
+             (format "Missing file : %s\n\n" missing)
+             "The layout's recipe names this file, but it does not exist\n"
+             "(it may have been moved, renamed or deleted).  The layout's\n"
+             "other panes were built as usual, and nothing was created at\n"
+             "this path.\n")
           (insert
-           "All four fallback steps failed:\n"
-           "  1. bookmark restore\n"
-           "  2. find-file-noselect on filename\n"
-           "  3. get-buffer by name\n"
-           "  4. (this buffer is step 4)\n\n"
-           "It is likely that the buffer's major mode does not support\n"
-           "the bookmark system, or the underlying resource (file, repo,\n"
-           "process) is no longer available.\n")))
+           "Workspaces could not reincarnate this buffer.\n\n"
+           (format "Original buffer name : %s\n" orig-name)
+           (format "Original filename    : %s\n"
+                   (or (workspace-buffer-filename ws-buffer) "<none>"))
+           (format "Bookmark record      : %s\n\n"
+                   (cond (declined "present (declined to restore)")
+                         ((workspace-buffer-bookmark ws-buffer)
+                          "present (failed to restore)")
+                         (t "absent"))))
+          (if declined
+              (insert
+               "The buffer's bookmark handler declined to restore it:\n\n"
+               (format "  %s\n\n" declined)
+               "The saved filename was NOT opened in its place: it is the\n"
+               "path this buffer had when the layout was captured, and the\n"
+               "handler has just said that path is not the right one here.\n"
+               "Open the file you want by hand, then save the layout again.\n")
+            (insert
+             "All four fallback steps failed:\n"
+             "  1. bookmark restore\n"
+             "  2. find-file-noselect on filename\n"
+             "  3. get-buffer by name\n"
+             "  4. (this buffer is step 4)\n\n"
+             "It is likely that the buffer's major mode does not support\n"
+             "the bookmark system, or the underlying resource (file, repo,\n"
+             "process) is no longer available.\n")))
+        (goto-char (point-min)))
       (visual-line-mode 1))
     buf))
 
@@ -395,6 +411,144 @@ The deferred restore closure captures the value at scheduling time
 and compares it on fire; a mismatch indicates a newer restore was
 queued and the closure should no-op.")
 
+(defconst workspace--recipe-leaf-buffer-state
+  '((hscroll . 0) (fringes nil nil nil nil) (margins nil)
+    (scroll-bars nil nil t nil nil t nil) (vscroll . 0) (dedicated))
+  "Display state of a recipe leaf's window, in `window-state-get' form.
+What a fresh window has: no scroll, frame-default fringes, margins and
+scroll bars.  `window-state-put' applies each entry unguarded, so every
+one must be present.")
+
+(defun workspace--recipe-pane-workspace-buffer (pane)
+  "Return the `workspace-buffer' record for file PANE, decided now.
+An existing file gets a record with only `:filename'.  A missing one
+gets no filename (the reincarnation chain would visit, so create, it)
+and `(missing-file . PATH)' in `etc', which lands the leaf on
+`workspace--error-buffer'.  A pane's line is carried as `(line . N)'
+in `etc' for `workspace--window-state-place-points'."
+  (let ((path (plist-get pane :file))
+        (line (plist-get pane :line)))
+    (if (file-exists-p path)
+        (make-workspace-buffer :filename path
+                               :etc (and line (list (cons 'line line))))
+      (make-workspace-buffer :etc (list (cons 'missing-file path))))))
+
+(defun workspace--recipe-node (pane normal-height normal-width first last)
+  "Expand recipe PANE into a window-state node and its minimum sizes.
+NORMAL-HEIGHT and NORMAL-WIDTH are the node's share of its parent.
+FIRST non-nil marks the first pane of the whole recipe, whose window
+is selected; LAST non-nil marks the last child of its parent.
+
+Return (NODE . SIZES), SIZES an alist of the node's minimum sizes
+keyed `min-height', `min-width', `min-height-safe' and
+`min-width-safe'."
+  (let ((head (append (and last '((last . t)))
+                      `((normal-height . ,normal-height)
+                        (normal-width . ,normal-width)))))
+    (pcase pane
+      (`(:split ,_dir :panes (,only))
+       (workspace--recipe-node only normal-height normal-width first last))
+      (`(:split ,dir :panes ,panes)
+       (let* ((columns (eq dir 'columns))
+              (share (/ 1.0 (length panes)))
+              (children
+               (cl-loop for child in panes
+                        for index from 0
+                        collect (workspace--recipe-node
+                                 child
+                                 (if columns 1.0 share)
+                                 (if columns share 1.0)
+                                 (and first (= index 0))
+                                 (null (nthcdr (1+ index) panes)))))
+              (combine
+               ;; Children's minimum KEY sizes, summed along the split
+               ;; (ALONG non-nil) or the largest across it.
+               (lambda (key along)
+                 (cons key (apply (if along #'+ #'max)
+                                  (mapcar (lambda (child)
+                                            (alist-get key (cdr child)))
+                                          children))))))
+         (cons (append (list (if columns 'hc 'vc))
+                       head
+                       '((combination-limit))
+                       (mapcar #'car children))
+               (list (funcall combine 'min-height (not columns))
+                     (funcall combine 'min-width columns)
+                     (funcall combine 'min-height-safe (not columns))
+                     (funcall combine 'min-width-safe columns)))))
+      (_
+       (cons `(leaf ,@head
+                    (parameters
+                     (workspace-buffer
+                      . ,(workspace--recipe-pane-workspace-buffer pane)))
+                    (buffer ,(plist-get pane :file)
+                            ,@(and first '((selected . t)))
+                            ,@(copy-tree workspace--recipe-leaf-buffer-state)))
+             `((min-height . ,window-min-height)
+               (min-width . ,window-min-width)
+               (min-height-safe . ,window-safe-min-height)
+               (min-width-safe . ,window-safe-min-width)))))))
+
+(defun workspace--recipe->window-state (recipe)
+  "Return the window-state RECIPE describes, ready for the restore path.
+RECIPE satisfies `workspace--recipe-p'.  The result has the shape of
+`workspace--capture-frameset''s: a header of minimum sizes, then an
+`hc' (`columns') or `vc' (`rows') combination per split with even
+normal sizes, and one leaf per file pane carrying a `workspace-buffer'
+record (see `workspace--recipe-pane-workspace-buffer').  A one-pane
+recipe is a one-window state.  Checks whether each pane's file exists;
+visits none and creates no window."
+  (pcase-let* ((`(,node . ,sizes)
+                (workspace--recipe-node (cdr recipe) 1.0 1.0 t nil))
+               (header (list (cons 'min-height (alist-get 'min-height sizes))
+                             (cons 'min-width (alist-get 'min-width sizes))
+                             (cons 'min-height-ignore
+                                   (alist-get 'min-height-safe sizes))
+                             (cons 'min-width-ignore
+                                   (alist-get 'min-width-safe sizes))
+                             (cons 'min-height-safe
+                                   (alist-get 'min-height-safe sizes))
+                             (cons 'min-width-safe
+                                   (alist-get 'min-width-safe sizes))))
+               (`(,type . ,attrs) node))
+    (append (list header type '(total-width . 0) '(total-height . 0))
+            attrs)))
+
+(defun workspace--window-state-place-points (state)
+  "Return STATE with a window position in each leaf that has none.
+STATE is a deserialized window-state: each leaf's `buffer' entry holds
+a live buffer.  A leaf whose `workspace-buffer' record carries
+`(line . N)' in its `etc', or whose `buffer' entry has no `start',
+gets `point' and `start' from that buffer: point at the beginning of
+line N (counted from the start of the buffer), or the buffer's own
+point when there is no line, and start at the beginning of point's
+line.  Other leaves, every captured one among them, are returned
+unchanged."
+  (workspace--window-state-walk-leaves
+   state
+   (lambda (leaf)
+     (pcase-let* ((`(leaf . ,attrs) leaf)
+                  ((map parameters ('buffer `(,buffer . ,buffer-attrs))) attrs)
+                  ((map workspace-buffer) parameters)
+                  (line (and (workspace-buffer-p workspace-buffer)
+                             (alist-get 'line
+                                        (workspace-buffer-etc workspace-buffer)))))
+       (when (and (buffer-live-p buffer)
+                  (or line (not (assq 'start buffer-attrs))))
+         (pcase-let ((`(,point . ,start)
+                      (with-current-buffer buffer
+                        (save-restriction
+                          (widen)
+                          (save-excursion
+                            (when line
+                              (goto-char (point-min))
+                              (forward-line (1- line)))
+                            (cons (point) (line-beginning-position)))))))
+           (setf (alist-get 'point buffer-attrs) point
+                 (alist-get 'start buffer-attrs) start
+                 (map-elt attrs 'buffer) (cons buffer buffer-attrs))))
+       (cons 'leaf attrs)))))
+
 (defun workspace--capture-frameset ()
   "Return a window-state capturing the selected frame's root window.
 Extends `window-persistent-parameters' with
@@ -414,6 +568,13 @@ across restart via the four-step fallback chain."
   "Apply window-state STATE to the selected frame's root window.
 STATE is expected to carry a `workspace-buffer' struct in each
 leaf's `parameters' map (see `workspace--capture-frameset').
+
+STATE may instead be a layout recipe (`workspace--recipe-p'); it is
+first expanded with `workspace--recipe->window-state', and the rest
+of the path is the same.  This is the only place a recipe becomes
+windows.  After the leaves are reincarnated, each recipe leaf gets
+its window position, a pane's line becoming its window's point
+(`workspace--window-state-place-points').
 
 The state is `copy-tree'-ed before mutation so the in-memory
 registry is not affected by buffer-replacement side effects.  The
@@ -439,9 +600,13 @@ paint — one restore, one report, no per-leaf prompt."
   ;; bound it around `workspace--window-state-deserialize', but that
   ;; deserializer reads the per-leaf `workspace-buffer' struct from the
   ;; saved parameters map; it does not consult the dynamic variable.
-  (let* ((workspace--reincarnation-declines (list nil))
-         (bufferized (workspace--window-state-deserialize
-                      (copy-tree state)))
+  (let* ((state (if (workspace--recipe-p state)
+                    (workspace--recipe->window-state state)
+                  state))
+         (workspace--reincarnation-declines (list nil))
+         (bufferized (workspace--window-state-place-points
+                      (workspace--window-state-deserialize
+                       (copy-tree state))))
          (gen (cl-incf workspace--restore-generation))
          (frame (selected-frame)))
     (workspace--report-reincarnation-declines

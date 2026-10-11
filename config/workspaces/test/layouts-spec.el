@@ -897,7 +897,7 @@ Return its absolute name."
   (before-each (layouts-spec--programmatic-reset))
   (after-each (layouts-spec--programmatic-cleanup))
 
-  (xit "builds two side-by-side panes, point on the given line (Scenario: workspaces § Switching to a recipe layout builds it)"
+  (it "builds two side-by-side panes, point on the given line (Scenario: workspaces § Switching to a recipe layout builds it)"
     (workspace-new "code")
     (let ((a (layouts-spec--write-file "a.org"))
           (design (layouts-spec--write-file "design.md")))
@@ -920,7 +920,7 @@ Return its absolute name."
                 :to-be-less-than 2)
         (expect (layouts-spec--window-line (nth 0 windows)) :to-equal 40))))
 
-  (xit "builds a main pane beside a stack of two (Scenario: workspaces § Nested recipe builds a main pane beside a stack)"
+  (it "builds a main pane beside a stack of two (Scenario: workspaces § Nested recipe builds a main pane beside a stack)"
     (workspace-new "code")
     (let ((ask (layouts-spec--write-file "ask.org"))
           (scaffold (layouts-spec--write-file "scaffold.org"))
@@ -948,7 +948,7 @@ Return its absolute name."
                 :to-be-less-than (window-top-line (nth 2 windows)))
         (expect (layouts-spec--window-line (nth 1 windows)) :to-equal 157))))
 
-  (xit "shows a placeholder naming a missing file and builds the other panes (Scenario: workspaces § Missing file does not break the layout)"
+  (it "shows a placeholder naming a missing file and builds the other panes (Scenario: workspaces § Missing file does not break the layout)"
     (workspace-new "code")
     (let ((missing (expand-file-name "deleted.org" layouts-spec--files-dir))
           (present (layouts-spec--write-file "present.org")))

@@ -258,7 +258,7 @@
 
 (describe "workspace--recipe-p (seam/recipe-shape)"
 
-  (xit "tells a recipe from a captured window-state and rejects a malformed tree (seam/recipe-shape)"
+  (it "tells a recipe from a captured window-state and rejects a malformed tree (seam/recipe-shape)"
     (expect (workspace--recipe-p
              '(:recipe :split columns
                        :panes ((:file "/w/ask.org")

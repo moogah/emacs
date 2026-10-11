@@ -212,7 +212,7 @@
           (expect (workspace--layout-working-state demo) :to-be nil)
           (expect (workspace--layout-saved-state demo) :to-equal state)))))
 
-  (xit "re-applies the recipe and keeps it as :saved-state (Scenario: workspaces § Revert rebuilds from the recipe)"
+  (it "re-applies the recipe and keeps it as :saved-state (Scenario: workspaces § Revert rebuilds from the recipe)"
     (revert-spec--with-state-file
       (workspace-new "code")
       (let* ((a (revert-spec--write-file "a.org"))
