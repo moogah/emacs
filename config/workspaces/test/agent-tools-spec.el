@@ -198,6 +198,36 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
         (expect (agent-tools-spec--layout "code" "demo") :to-be nil)
         (expect (gethash "code" workspace--registry) :to-equal entry))))
 
+  (it "treats a JSON null as not given and re-emits pane keys in canonical order (seam/agent-tools)"
+    (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
+           (a (workspace-bookmark-fixtures-write-file
+               home "a.org" (agent-tools-spec--lines 10)))
+           (result (agent-tools-spec--call
+                    "workspace_add_layout"
+                    :workspace "code" :directory :null :layout_name "demo"
+                    :split "columns"
+                    :panes (vector (list :line 3 :file "a.org"))
+                    :description :null :source :null)))
+      (expect (car result) :to-be :ok)
+      (let ((demo (agent-tools-spec--layout "code" "demo")))
+        (expect (workspace--layout-description demo) :to-be nil)
+        (expect (workspace--layout-source demo) :to-be nil)
+        (expect (workspace--layout-saved-state demo)
+                :to-equal `(:recipe :split columns :panes ((:file ,a :line 3)))))))
+
+  (it "refuses a pane with an unknown key and adds nothing (seam/agent-tools)"
+    (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
+           (entry nil))
+      (workspace-bookmark-fixtures-write-file home "a.org")
+      (setq entry (copy-tree (gethash "code" workspace--registry)))
+      (let ((result (agent-tools-spec--call
+                     "workspace_add_layout"
+                     :workspace "code" :layout_name "demo" :split "columns"
+                     :panes (vector (list :file "a.org" :colour "red")))))
+        (expect (car result) :to-be :error)
+        (expect (agent-tools-spec--layout "code" "demo") :to-be nil)
+        (expect (gethash "code" workspace--registry) :to-equal entry))))
+
   (it "reports that a layout belongs to the user and leaves it as it was (Scenario: workspaces § Refusal is reported to the agent)"
     (let ((home (workspace-bookmark-fixtures-make-workspace "code")))
       (workspace-bookmark-fixtures-write-file home "design.md")
