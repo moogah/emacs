@@ -324,6 +324,35 @@ handler lives under =config/gptel/= and attaches itself via
 =workspace-register-integration=; the workspaces package itself names
 no gptel symbol.
 
+* Public read API
+
+Programs read workspaces by name, without needing a selected frame or a
+current tab, through five functions.  Each one only reads: it changes no
+frame, tab, window, buffer or registry entry, and never writes the state
+file.
+
+| Function                                      | Returns                                                                          |
+|-----------------------------------------------+----------------------------------------------------------------------------------|
+| =(workspace-names)=                           | The registered workspace names                                                   |
+| =(workspace-get NAME)=                        | NAME's workspace plist (a top-level copy; treat its values as read-only), or nil |
+| =(workspace-layouts NAME &key origin source)= | One =(:name :origin :description :source)= plist per layout, in group order      |
+| =(workspace-for-directory DIR)=               | The name of the workspace whose home contains DIR (deepest home wins), or nil    |
+| =(workspace-layout-on-screen-p NAME LAYOUT)=  | Non-nil when LAYOUT is NAME's recent layout and NAME has a tab in any frame      |
+
+- =workspace-layouts= reads each layout's origin, description and
+  source; a layout with no recorded origin is the user's (=user=).
+  =:origin= filters with =eq= (=user= or =agent=), =:source= with
+  =equal=.  An unknown NAME has no layouts.
+- =workspace-for-directory= judges containment by file identity, so a
+  trailing slash, =~= or a symlinked spelling of DIR finds the same
+  workspace.  A remote or missing home owns nothing, and a remote home is
+  never contacted.
+- =workspace-layout-on-screen-p= counts a tab that is open but not the
+  current one, in any live frame.
+
+org-graph reads the workspace homes it indexes through =workspace-names=
+and =workspace-get=.
+
 * Command reference
 
 Every command is reached from the =C-x w= menu (or by =M-x=).  The

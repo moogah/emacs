@@ -93,7 +93,7 @@
   (before-each (public-api-spec--setup))
   (after-each (public-api-spec--teardown))
 
-  (xit "names and gets the registered workspaces (seam/public-read-api)"
+  (it "names and gets the registered workspaces (seam/public-read-api)"
     (let ((home (workspace-bookmark-fixtures-make-workspace "code")))
       (workspace-bookmark-fixtures-make-workspace "notes")
       (expect (sort (copy-sequence (workspace-names)) #'string<)
@@ -101,7 +101,7 @@
       (expect (workspace--home (workspace-get "code")) :to-equal home)
       (expect (workspace-get "absent") :to-be nil)))
 
-  (xit "lists the layouts and metadata of a workspace that has no tab, opening none (Scenario: workspaces § Listing layouts of a workspace that has no tab)"
+  (it "lists the layouts and metadata of a workspace that has no tab, opening none (Scenario: workspaces § Listing layouts of a workspace that has no tab)"
     (workspace-bookmark-fixtures-make-workspace "notes")
     (public-api-spec--put-layout "notes" "home" (workspace--layout-make 'home-state))
     (public-api-spec--put-layout
@@ -123,7 +123,7 @@
       (expect (gethash "notes" workspace--registry) :to-equal entry)
       (expect 'workspace--flush-state :not :to-have-been-called)))
 
-  (xit "lists only the agent layouts of one source when filtered (Scenario: workspaces § Listing agent layouts for one source)"
+  (it "lists only the agent layouts of one source when filtered (Scenario: workspaces § Listing agent layouts for one source)"
     (workspace-bookmark-fixtures-make-workspace "code")
     (public-api-spec--put-layout "code" "home" (workspace--layout-make 'home-state))
     (dolist (source '("a1" "a2"))
@@ -145,7 +145,7 @@
   (before-each (public-api-spec--setup))
   (after-each (public-api-spec--teardown))
 
-  (xit "finds the owner of a nested directory under any spelling, and none outside every home (Scenario: workspaces § Workspace found from a nested directory)"
+  (it "finds the owner of a nested directory under any spelling, and none outside every home (Scenario: workspaces § Workspace found from a nested directory)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "emacs-mcp"))
            (nested (file-name-as-directory (expand-file-name "emacs/openspec" home)))
            (link-parent (workspace-bookmark-fixtures-temp-dir "wsapi-link-"))
@@ -161,7 +161,7 @@
       (expect (workspace-for-directory home) :to-equal "emacs-mcp")
       (expect (workspace-for-directory elsewhere) :to-be nil)))
 
-  (xit "answers the workspace whose home is deepest (Scenario: workspaces § The deepest owning home wins)"
+  (it "answers the workspace whose home is deepest (Scenario: workspaces § The deepest owning home wins)"
     (let* ((outer (workspace-bookmark-fixtures-make-workspace "outer"))
            (inner (file-name-as-directory (expand-file-name "inner" outer))))
       (make-directory (expand-file-name "src" inner) t)
@@ -172,7 +172,7 @@
       (expect (workspace-for-directory (expand-file-name "docs" outer))
               :to-equal "outer")))
 
-  (xit "never answers a remote home and never contacts it (Scenario: workspaces § A remote home owns nothing and is not contacted)"
+  (it "never answers a remote home and never contacts it (Scenario: workspaces § A remote home owns nothing and is not contacted)"
     (let ((local (workspace-bookmark-fixtures-make-workspace "local"))
           (elsewhere (workspace-bookmark-fixtures-temp-dir "wsapi-elsewhere-")))
       (workspaces-test-with-fake-remote
@@ -190,7 +190,7 @@
   (before-each (public-api-spec--setup))
   (after-each (public-api-spec--teardown))
 
-  (xit "reports the recent layout of a workspace with an open tab, and nothing else (Scenario: workspaces § On-screen check)"
+  (it "reports the recent layout of a workspace with an open tab, and nothing else (Scenario: workspaces § On-screen check)"
     (dolist (name '("code" "notes"))
       (workspace-bookmark-fixtures-make-workspace name)
       (public-api-spec--put-layout name "home" (workspace--layout-make 'home-state))

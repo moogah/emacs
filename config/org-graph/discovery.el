@@ -3,8 +3,8 @@
 (require 'cl-lib)
 (require 'org-id)   ; built-in; the org-id-locations seed depends on it explicitly
 
-(defvar workspace--registry)
-(declare-function workspace--registered-names "workspace-tabs" ())
+(declare-function workspace-names "workspaces" ())
+(declare-function workspace-get "workspaces" (name))
 (declare-function workspace--home "workspace-data-model" (ws))
 (declare-function workspace--sessions-dir "workspace-data-model" (home))
 
@@ -28,14 +28,15 @@
 
 (defun org-graph--active-workspace-homes ()
   "Return active workspace `:home' dirs and their `sessions/' subdirs.
-Reads the `workspaces' registry (`workspace--registry').  Each home is
-returned canonicalised (absolute, trailing slash) and followed by its
+Reads the workspaces through `workspace-names' / `workspace-get'.
+Each home is returned canonicalised (absolute, trailing slash) and
+followed by its
 `sessions/' subdirectory.  Returns nil when the `workspaces' feature is
 not loaded — workspaces is a soft dependency."
   (when (featurep 'workspaces)
     (let (dirs)
-      (dolist (name (workspace--registered-names))
-        (let* ((ws (gethash name workspace--registry))
+      (dolist (name (workspace-names))
+        (let* ((ws (workspace-get name))
                (home (and ws (workspace--home ws))))
           (when home
             (push (file-name-as-directory (expand-file-name home)) dirs)
