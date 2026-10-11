@@ -534,17 +534,26 @@ filesystem.
 Each layout holds two window-state slots and an open-ended =:etc=
 alist:
 
-- =:saved-state= — written only by explicit =workspace-save= (and
-  its variants =workspace-save-layout NAME= and the =workspace-new=
-  home stamp).  This is the user's "I mean this configuration"
-  baseline.  Authoritative across restarts.
+- =:saved-state= — written by explicit saves (=workspace-save=,
+  =workspace-save-layout NAME= and =workspace--capture-home-layout=,
+  the =workspace-new= home stamp, all through
+  =workspace--autosave-current-layout=) and by =workspace-add-layout=
+  (see *Programmatic layouts*).  This is the user's "I mean this
+  configuration" baseline, or the program's for an added layout.
+  Authoritative across restarts.  =workspace-add-layout= stores
+  whatever STATE it is given; only the agent tool passes it a recipe
+  (below).
 - =:working-state= — written only by autosaves (leaving a workspace's
   tab, switching layouts within a workspace, the idle timer,
   =kill-emacs=).  May be nil.  Captures drift
   between explicit saves so a restart lands the user back where they
   actually were.
 - =:etc= — alist for forward-compatible extension data.  Replaces
-  the legacy =:git-state= placeholder.
+  the legacy =:git-state= placeholder.  Today it holds the layout
+  metadata: =origin= (=user= or =agent=; absent reads as =user=),
+  =description= and =source=, written only by
+  =workspace--layout-with-metadata= (see *Programmatic layouts*).
+  Other entries are kept as they are.
 
 Autosaves /never/ write =:saved-state=; explicit saves /always/
 clear =:working-state=.  This pair of invariants means the user's
@@ -1121,9 +1130,10 @@ These are designed-for but not implemented in v2.
   =layout-group= can hold a list of layouts; today it always holds
   exactly one).  Commands to browse and restore prior revisions are
   not implemented.
-- Per-layout-group git observations.  The layout shape carries an
-  open-ended =:etc= alist intended to host them, but no producer or
-  consumer exists yet.
+- Per-layout-group git observations.  The layout's =:etc= alist would
+  host them; today it holds only the layout metadata (=origin=,
+  =description=, =source=, see *Programmatic layouts*), and nothing
+  records git observations.
 - Restoring an explicit "selected tab at save time" — the state file
   does not record which workspace was selected, and startup restores
   no tabs, so Emacs starts on its own initial tab rather than the
