@@ -90,7 +90,7 @@ VAULT is bound to the vault's true name inside BODY."
                                "{\"title_match\":\"Full smoke\"}")))
                    (string-match-p "Full smoke" (plist-get query :stdout))))
                30)
-              :to-be t)))
+              :to-be-truthy)))
 
   (xit "indexes only notes under the scratch vault once startup sync has run (Scenario: isolated-emacs-targets § Scratch profile indexes only the scratch vault)"
     (full-config-spec--with-target "smoke-index" vault

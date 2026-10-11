@@ -48,11 +48,14 @@
 ;;; Paths and binaries
 
 (defconst emacs-agent-test-root
+  ;; Expanded: `locate-dominating-file' abbreviates to "~/...", which a child
+  ;; process run under a fake HOME would resolve elsewhere.
   (file-name-as-directory
-   (or (locate-dominating-file
-        (file-name-directory (or load-file-name buffer-file-name))
-        "early-init.el")
-       (and (boundp 'jf/emacs-dir) jf/emacs-dir)))
+   (expand-file-name
+    (or (locate-dominating-file
+         (file-name-directory (or load-file-name buffer-file-name))
+         "early-init.el")
+        (and (boundp 'jf/emacs-dir) jf/emacs-dir))))
   "Root of the configuration checkout under test (the code root).")
 
 (defconst emacs-agent-test-wrapper
