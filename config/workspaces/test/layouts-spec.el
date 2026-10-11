@@ -843,7 +843,7 @@ Return its absolute name."
   (before-each (layouts-spec--programmatic-reset))
   (after-each (layouts-spec--programmatic-cleanup))
 
-  (xit "makes the recent agent layout the user's on `workspace-save', keeping its other metadata (Scenario: workspaces § Explicit save takes ownership)"
+  (it "makes the recent agent layout the user's on `workspace-save', keeping its other metadata (Scenario: workspaces § Explicit save takes ownership)"
     (workspace-new "code")
     (layouts-spec--put-layout
      "code" "demo"
@@ -864,7 +864,7 @@ Return its absolute name."
       (expect (layouts-spec--count-leaves (workspace--layout-saved-state demo))
               :to-equal 3)))
 
-  (xit "makes an agent layout the user's when `workspace-save-layout' saves over its name (Scenario: workspaces § Saving under an agent layout's name takes ownership)"
+  (it "makes an agent layout the user's when `workspace-save-layout' saves over its name (Scenario: workspaces § Saving under an agent layout's name takes ownership)"
     (workspace-new "code")
     (layouts-spec--put-layout
      "code" "demo"
