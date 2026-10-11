@@ -918,25 +918,25 @@ flushes the registry once.  Return LAYOUT-NAME."
 
 (defun workspace-remove-layout (ws-name layout-name)
   "Remove layout LAYOUT-NAME from workspace WS-NAME.
-The reserved name, a layout that belongs to the user, an agent layout
-on screen and a layout WS-NAME does not have are refused with a
-`user-error', changing nothing.
+The reserved name, a layout that belongs to the user and an agent
+layout on screen are refused with a `user-error', changing nothing.
+A layout WS-NAME does not have is not an error: nothing changes,
+nothing is flushed, and the return value is nil.
 
 The recent pointer moves only when it named LAYOUT-NAME or was nil, as
 `workspace-delete-layout' moves it (`workspace--reassign-recent-group').
 Works on any registered workspace, with or without a tab.  Touches no
-frame, tab, window or buffer, and flushes the registry once.  Return
-LAYOUT-NAME."
+frame, tab, window or buffer, and flushes the registry once after a
+removal.  Return LAYOUT-NAME when it was removed, nil when WS-NAME did
+not have it."
   (let ((ws (workspace--programmatic-write-target ws-name layout-name)))
-    (unless (workspace--find-group ws layout-name)
-      (user-error "No layout named \"%s\" in workspace \"%s\""
-                  layout-name ws-name))
-    (puthash ws-name
-             (workspace--reassign-recent-group
-              (workspace--remove-group ws layout-name) layout-name)
-             workspace--registry)
-    (workspace--flush-state)
-    layout-name))
+    (when (workspace--find-group ws layout-name)
+      (puthash ws-name
+               (workspace--reassign-recent-group
+                (workspace--remove-group ws layout-name) layout-name)
+               workspace--registry)
+      (workspace--flush-state)
+      layout-name)))
 
 (defun workspace--capture-home-layout ()
   "Stamp the current frame's window config as the current workspace's `home'.
