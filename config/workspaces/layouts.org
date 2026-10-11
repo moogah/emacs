@@ -806,6 +806,15 @@ to pass a slot triggers `cl-assert' rather than silently defaulting
 to the explicit-save slot.  This is the structural fix for v1 MVP
 gap D8.
 
+Every explicit save — `workspace-save', `workspace-save-layout' and
+`workspace--capture-home-layout' — passes through here with
+`:saved-state', so this is the one place an explicit save takes
+ownership: re-saving a layout whose origin is `agent' makes it the
+user's, keeping its other metadata (`workspace--layout-with-metadata').
+A layout created here keeps :etc nil, which already reads as the
+user's.  The `:working-state' path leaves :saved-state and :etc as
+they were.
+
 Captures only the window-state; does NOT update `:buffer-files'.
 That sync is intentionally limited to explicit user save paths
 (`workspace-save'); doing it here would wipe the file list whenever
@@ -836,10 +845,15 @@ the workspace has no recent layout-group yet."
                            ;; any prior :working-state (the caller —
                            ;; typically `workspace-save' — decides
                            ;; whether to clear it as a separate step).
+                           ;; An agent layout becomes the user's (R4).
                            (let ((copy (copy-sequence existing)))
                              (plist-put copy :timestamp
                                         (time-convert nil 'integer))
-                             (plist-put copy :saved-state captured)))
+                             (plist-put copy :saved-state captured)
+                             (if (eq (workspace--layout-origin existing) 'agent)
+                                 (workspace--layout-with-metadata
+                                  copy :origin 'user)
+                               copy)))
                           (t
                            ;; No existing layout — construct a fresh one.
                            ;; A :working-state-only first write would

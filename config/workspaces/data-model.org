@@ -44,7 +44,8 @@ Restore precedence: =workspace--layout-effective-state= prefers
 =:working-state= when non-nil, else =:saved-state=.
 
 The =:etc= slot is an alist forward-compat hook; replaces the v1
-=:git-state= placeholder.
+=:git-state= placeholder.  It holds the layout's metadata (origin,
+description, source); see Layout metadata below.
 
 Public-facing commands live in sibling modules (=tabs.el=,
 =layouts.el=, =buffer-membership.el=, =persistence.el=) and call into
@@ -202,6 +203,59 @@ regression risk."
 (defun workspace--layout-timestamp (layout)
   "Return the integer timestamp stored in LAYOUT."
   (plist-get layout :timestamp))
+#+end_src
+
+* Layout metadata
+
+A layout's =:etc= slot is an alist (=register/shape/layout-v2-plist=
+in =interfaces.org=: consumers tolerate nil and unknown keys).  Layout
+metadata is three entries of it, keyed by symbol:
+
+- =origin= — =user= or =agent=: who made the layout.  Absent means
+  =user=, so every layout written before metadata existed (=:etc= nil)
+  counts as the user's.
+- =description= — a short human-readable string, or absent.
+- =source= — a string naming what the layout was made for (an
+  artifact, a change), or absent.
+
+The four functions below are the only writer and readers of these
+entries.  =workspace--layout-with-metadata= is non-destructive in the
+style of =workspace--upsert-group=: it returns a new layout and leaves
+the input, =:etc= included, as it was.  Entries it is not asked to set —
+including ones another extension wrote — survive the write.
+
+#+begin_src emacs-lisp
+(cl-defun workspace--layout-with-metadata
+    (layout &key (origin nil origin-p)
+            (description nil description-p)
+            (source nil source-p))
+  "Return a new layout like LAYOUT with the given metadata set in its :etc.
+Each keyword that is passed — ORIGIN (`user' or `agent'), DESCRIPTION,
+SOURCE — sets its entry of the :etc alist; every other entry is kept.
+Non-destructive: LAYOUT, its :etc alist included, is not modified."
+  (let ((etc (copy-alist (plist-get layout :etc)))
+        (copy (copy-sequence layout)))
+    (when origin-p
+      (setf (alist-get 'origin etc) origin))
+    (when description-p
+      (setf (alist-get 'description etc) description))
+    (when source-p
+      (setf (alist-get 'source etc) source))
+    (plist-put copy :etc etc)))
+
+(defun workspace--layout-origin (layout)
+  "Return LAYOUT's origin, `user' or `agent'.
+A layout without an origin entry — including one whose :etc is nil —
+is the user's."
+  (or (alist-get 'origin (plist-get layout :etc)) 'user))
+
+(defun workspace--layout-description (layout)
+  "Return LAYOUT's description string, or nil when it has none."
+  (alist-get 'description (plist-get layout :etc)))
+
+(defun workspace--layout-source (layout)
+  "Return LAYOUT's source string, or nil when it has none."
+  (alist-get 'source (plist-get layout :etc)))
 #+end_src
 
 * Layout-group helpers

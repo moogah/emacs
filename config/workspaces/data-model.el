@@ -67,6 +67,38 @@ regression risk."
   "Return the integer timestamp stored in LAYOUT."
   (plist-get layout :timestamp))
 
+(cl-defun workspace--layout-with-metadata
+    (layout &key (origin nil origin-p)
+            (description nil description-p)
+            (source nil source-p))
+  "Return a new layout like LAYOUT with the given metadata set in its :etc.
+Each keyword that is passed — ORIGIN (`user' or `agent'), DESCRIPTION,
+SOURCE — sets its entry of the :etc alist; every other entry is kept.
+Non-destructive: LAYOUT, its :etc alist included, is not modified."
+  (let ((etc (copy-alist (plist-get layout :etc)))
+        (copy (copy-sequence layout)))
+    (when origin-p
+      (setf (alist-get 'origin etc) origin))
+    (when description-p
+      (setf (alist-get 'description etc) description))
+    (when source-p
+      (setf (alist-get 'source etc) source))
+    (plist-put copy :etc etc)))
+
+(defun workspace--layout-origin (layout)
+  "Return LAYOUT's origin, `user' or `agent'.
+A layout without an origin entry — including one whose :etc is nil —
+is the user's."
+  (or (alist-get 'origin (plist-get layout :etc)) 'user))
+
+(defun workspace--layout-description (layout)
+  "Return LAYOUT's description string, or nil when it has none."
+  (alist-get 'description (plist-get layout :etc)))
+
+(defun workspace--layout-source (layout)
+  "Return LAYOUT's source string, or nil when it has none."
+  (alist-get 'source (plist-get layout :etc)))
+
 (defconst workspace--reserved-group-names '("home")
   "Layout-group names that cannot be deleted by user commands.")
 

@@ -231,7 +231,7 @@
 
 (describe "Layout metadata in :etc (seam/layout-metadata)"
 
-  (xit "reports origin `user' for a layout with no metadata (Scenario: workspaces § Pre-existing layouts count as the user's)"
+  (it "reports origin `user' for a layout with no metadata (Scenario: workspaces § Pre-existing layouts count as the user's)"
     ;; A layout read from a version-3 file has `:etc' nil, or entries
     ;; another extension wrote; neither carries an origin.
     (let ((bare (workspace--layout-make 'fs))
@@ -242,7 +242,7 @@
       (expect (workspace--layout-description bare) :to-be nil)
       (expect (workspace--layout-source foreign) :to-be nil)))
 
-  (xit "writes metadata into a new layout, keeping other :etc entries (seam/layout-metadata)"
+  (it "writes metadata into a new layout, keeping other :etc entries (seam/layout-metadata)"
     (let* ((layout (plist-put (workspace--layout-make 'fs) :etc
                               (list (cons 'other 1))))
            (before (copy-tree layout))
