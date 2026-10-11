@@ -131,6 +131,6 @@
         (expect (plist-get (plist-get state :minibuffer) :active) :to-be nil)
         (expect (seq-some (lambda (line) (string-match-p "emacs-agent smoke marker" line))
                           (plist-get state :messages))
-                :to-be t)))))
+                :to-be-truthy)))))
 
 ;;; bare-target-spec.el ends here

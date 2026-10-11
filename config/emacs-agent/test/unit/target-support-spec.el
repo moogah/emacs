@@ -54,7 +54,7 @@ sends as commands."
 
 (describe "jf/frame-state (seam/target-support)"
 
-  (xit "returns JSON with buffer, windows, point, minibuffer and messages (Scenario: frame-state-observation § State is machine-parseable for assertions)"
+  (it "returns JSON with buffer, windows, point, minibuffer and messages (Scenario: frame-state-observation § State is machine-parseable for assertions)"
     (target-support-spec--in-shown-buffer "hello"
       (goto-char 3)
       (message "emacs-agent-test marker")
@@ -70,7 +70,7 @@ sends as commands."
         (expect (plist-get (plist-get state :minibuffer) :active) :to-be nil)
         (expect (seq-some (lambda (line) (string-match-p "emacs-agent-test marker" line))
                           (plist-get state :messages))
-                :to-be t))))
+                :to-be-truthy))))
 
   (it "truncates contents over jf/frame-state-max-chars and says so (Scenario: frame-state-observation § Large buffer content is truncated with an indicator)"
     (target-support-spec--in-shown-buffer (make-string 1000 ?x)
