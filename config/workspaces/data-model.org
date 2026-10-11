@@ -35,7 +35,9 @@ the persistence boundary (=persistence.org=) and in =scaffold.el=,
 not here.
 
 The =:saved-state= slot holds the window-state written by explicit
-saves (=workspace-save= and its variants).  The =:working-state= slot
+saves (=workspace-save= and its variants), or the state given to
+=workspace-add-layout= (a recipe when the agent tools add the layout;
+see =workspace--recipe-p=).  The =:working-state= slot
 holds the window-state written by autosaves (tab-switch advice, idle
 timer, kill-emacs-hook); nil when no drift has accumulated since the
 last explicit save.
