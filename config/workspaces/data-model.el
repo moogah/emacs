@@ -345,5 +345,50 @@ spellings case-sensitively and ends in `file-equal-p'.  Never signals."
              found)
          (error nil))))
 
+(defun workspace--recipe-split-p (dir)
+  "Return non-nil if DIR is a recipe split direction, `columns' or `rows'."
+  (memq dir '(columns rows)))
+
+(defun workspace--recipe-path-p (path)
+  "Return non-nil if PATH is an absolute file name a recipe pane may name.
+Pure string test: a name starting with `~' is refused because its
+meaning depends on the environment when it is read."
+  (and (stringp path)
+       (file-name-absolute-p path)
+       (not (string-prefix-p "~" path))))
+
+(defun workspace--recipe-pane-p (pane)
+  "Return non-nil if PANE is a well-formed recipe pane.
+A pane is `(:file PATH)', `(:file PATH :line N)' with N a positive
+integer, or a nested `(:split DIR :panes PANES)'."
+  (pcase pane
+    (`(:file ,path) (workspace--recipe-path-p path))
+    (`(:file ,path :line ,line)
+     (and (workspace--recipe-path-p path)
+          (natnump line)
+          (> line 0)))
+    (`(:split ,dir :panes ,panes)
+     (and (workspace--recipe-split-p dir)
+          (workspace--recipe-panes-p panes)))))
+
+(defun workspace--recipe-panes-p (panes)
+  "Return non-nil if PANES is a non-empty proper list of recipe panes."
+  (and (consp panes)
+       (proper-list-p panes)
+       (cl-every #'workspace--recipe-pane-p panes)))
+
+(defun workspace--recipe-p (state)
+  "Return non-nil if STATE is a layout recipe, not a captured window-state.
+A recipe is `(:recipe :split DIR :panes PANES)': DIR is `columns' or
+`rows'; PANES is a non-empty list of `(:file PATH)', `(:file PATH
+:line N)' or nested `(:split DIR :panes PANES)' panes, PATH an
+absolute file name and N a positive integer.  Total over any input
+and touches no file."
+  (pcase state
+    (`(:recipe :split ,dir :panes ,panes)
+     (and (workspace--recipe-split-p dir)
+          (workspace--recipe-panes-p panes)
+          t))))
+
 (provide 'workspace-data-model)
 ;;; data-model.el ends here

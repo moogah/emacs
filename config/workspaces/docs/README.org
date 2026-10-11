@@ -454,6 +454,22 @@ deliberate save can never be silently overwritten by transient or
 post-debug frame state, and a fresh explicit save becomes a clean
 baseline.
 
+=:saved-state= may also hold a /recipe/ instead of a captured
+window-state: a declarative tree of file panes, split into columns or
+rows (nested to any depth, panes sharing each split evenly), each
+pane optionally at a line —
+=(:recipe :split columns :panes ((:file "/abs/a.org" :line 40) (:file "/abs/b.md")))=.
+Storing a recipe opens nothing.  It becomes windows only when the
+layout is applied (switching to it, restoring the workspace or
+reverting), at which point each pane's file is visited and point put
+on its line; a pane whose file no longer exists shows a placeholder
+buffer naming the missing path, and the other panes are built as
+usual.  Once you have looked at the layout, autosaves capture what is
+on screen into =:working-state= as usual, while the recipe stays the
+=:saved-state=: =workspace-revert= rebuilds the layout from the
+recipe against the files as they are now.  An explicit save replaces
+the recipe with a captured snapshot.
+
 ** What persists
 
 - Workspace names, =:home= absolute paths, and recent-layout

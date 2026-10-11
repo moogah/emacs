@@ -650,6 +650,89 @@ spellings case-sensitively and ends in `file-equal-p'.  Never signals."
          (error nil))))
 #+end_src
 
+* Recipe shape
+
+A layout's =:saved-state= holds either a window-state captured from
+real windows or a declarative *recipe*: a tree of file panes that is
+turned into windows only when the layout is applied (layouts.org,
+"Recipe expansion").  The form is
+
+#+begin_example
+(:recipe :split columns            ; or rows
+         :panes ((:file "/abs/ask.org")
+                 (:split rows      ; a pane may itself be a split
+                  :panes ((:file "/abs/scaffold.org" :line 157)
+                          (:file "/abs/design.md")))))
+#+end_example
+
+- =:split= is =columns= (panes side by side) or =rows= (panes stacked).
+- =:panes= is a non-empty list.  Each pane is exactly =(:file PATH)=,
+  =(:file PATH :line N)= or a nested =(:split DIR :panes PANES)=, to any
+  depth.  The panes of one split share its space evenly.
+- PATH is an absolute file name string.  A name starting with =~= is
+  rejected even though =file-name-absolute-p= accepts it: what it names
+  depends on =$HOME= (and, for =~user=, on the password database) when
+  it is read, not when it was stored.  The builder that turns tool
+  arguments into a recipe expands every path, so it never produces one.
+- N is a positive integer, the line point lands on when the layout is
+  applied.
+
+=workspace--recipe-p= is the one predicate that tells a recipe from a
+captured window-state; a captured state's car is a cons (its size
+header), never =:recipe=.  It is pure shape: it never touches the
+filesystem (whether a pane's file exists is decided when the layout is
+applied) and it is total, answering nil rather than signalling for any
+malformed tree, dotted pair or improper list.  The keys are matched in
+the order shown and no others are accepted, so a form that is almost a
+recipe is not one.
+
+#+begin_src emacs-lisp
+(defun workspace--recipe-split-p (dir)
+  "Return non-nil if DIR is a recipe split direction, `columns' or `rows'."
+  (memq dir '(columns rows)))
+
+(defun workspace--recipe-path-p (path)
+  "Return non-nil if PATH is an absolute file name a recipe pane may name.
+Pure string test: a name starting with `~' is refused because its
+meaning depends on the environment when it is read."
+  (and (stringp path)
+       (file-name-absolute-p path)
+       (not (string-prefix-p "~" path))))
+
+(defun workspace--recipe-pane-p (pane)
+  "Return non-nil if PANE is a well-formed recipe pane.
+A pane is `(:file PATH)', `(:file PATH :line N)' with N a positive
+integer, or a nested `(:split DIR :panes PANES)'."
+  (pcase pane
+    (`(:file ,path) (workspace--recipe-path-p path))
+    (`(:file ,path :line ,line)
+     (and (workspace--recipe-path-p path)
+          (natnump line)
+          (> line 0)))
+    (`(:split ,dir :panes ,panes)
+     (and (workspace--recipe-split-p dir)
+          (workspace--recipe-panes-p panes)))))
+
+(defun workspace--recipe-panes-p (panes)
+  "Return non-nil if PANES is a non-empty proper list of recipe panes."
+  (and (consp panes)
+       (proper-list-p panes)
+       (cl-every #'workspace--recipe-pane-p panes)))
+
+(defun workspace--recipe-p (state)
+  "Return non-nil if STATE is a layout recipe, not a captured window-state.
+A recipe is `(:recipe :split DIR :panes PANES)': DIR is `columns' or
+`rows'; PANES is a non-empty list of `(:file PATH)', `(:file PATH
+:line N)' or nested `(:split DIR :panes PANES)' panes, PATH an
+absolute file name and N a positive integer.  Total over any input
+and touches no file."
+  (pcase state
+    (`(:recipe :split ,dir :panes ,panes)
+     (and (workspace--recipe-split-p dir)
+          (workspace--recipe-panes-p panes)
+          t))))
+#+end_src
+
 * Provide
 
 #+begin_src emacs-lisp
