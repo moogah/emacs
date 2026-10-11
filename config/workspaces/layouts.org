@@ -1219,7 +1219,33 @@ restored."
 
 Public command.  Refuses to delete reserved layout names.
 
+When a layout goes, the workspace's recent pointer may have to move.
+=workspace--reassign-recent-group= holds the one rule, shared with the
+programmatic =workspace-remove-layout= below: a pointer that names
+another layout is kept; otherwise (it named the removed layout, or it
+was nil) it moves to the first remaining group, or to =home= when none
+remains.
+
+The interactive command updates the registry without flushing; the
+next save trigger writes it.
+
 #+begin_src emacs-lisp
+(defun workspace--reassign-recent-group (ws removed-name)
+  "Return WS with its recent pointer reassigned after REMOVED-NAME went.
+WS is the workspace with REMOVED-NAME's group already removed; its
+recent pointer is still the one it had before the removal.  A pointer
+naming another layout is kept.  A pointer that named REMOVED-NAME, or
+was nil, moves to the first remaining group, else to `home'.
+Non-destructive."
+  (let ((recent (workspace--recent-group ws))
+        (remaining (workspace--layout-groups ws)))
+    (if (and recent (not (equal recent removed-name)))
+        ws
+      (workspace--set-recent-group
+       ws (if remaining
+              (workspace--group-name (car remaining))
+            "home")))))
+
 (defun workspace-delete-layout (name)
   "Delete layout NAME from the current workspace.
 
@@ -1240,22 +1266,149 @@ remaining group (or `home' if none)."
            (existed (workspace--find-group ws name)))
       (unless existed
         (user-error "No layout named %s" name))
-      (let* ((updated (workspace--remove-group ws name))
-             (remaining (workspace--layout-groups updated))
-             (new-recent
-              (cond
-               ;; Pointer was something else; keep it.
-               ((and (workspace--recent-group ws)
-                     (not (equal (workspace--recent-group ws) name)))
-                (workspace--recent-group ws))
-               ;; Pointer was the deleted layout; pick a survivor.
-               (remaining
-                (workspace--group-name (car remaining)))
-               (t "home"))))
-        (puthash ws-name
-                 (workspace--set-recent-group updated new-recent)
-                 workspace--registry)
-        name))))
+      (puthash ws-name
+               (workspace--reassign-recent-group
+                (workspace--remove-group ws name) name)
+               workspace--registry)
+      name)))
+#+end_src
+
+* Programmatic layout writes
+
+=workspace-add-layout= and =workspace-remove-layout= are how a program
+— an agent tool, an integration — gives a workspace a layout or takes
+one away.  They are the only programmatic writers of a workspace's
+layout groups.
+
+They address the workspace by name, not by the selected tab, and work
+on any registered workspace, whether or not it has a tab.  They change
+only the workspace's registry entry, through the pure data layer
+(=workspace--layout-make=, =workspace--layout-with-metadata=,
+=workspace--upsert-group=, =workspace--remove-group=), and then flush
+the registry once with =workspace--flush-state=.  They never touch a
+frame, tab, window or buffer.
+
+They do not go through =workspace--autosave-current-layout=.  That
+funnel captures the /selected frame/ into the /current/ workspace's
+recent layout: the wrong workspace, the wrong layout, and a capture the
+program never asked for.  For the same reason adding a layout never
+moves the recent pointer: the user's next =workspace-restore= or
+=workspace-switch-to-recent-layout= lands where it did before.
+
+The rules that keep a program's writes from fighting the user's:
+
+- *R1.*  An added layout holds its window-state as =:saved-state=, with
+  =:working-state= nil and origin =agent= unless the caller says
+  otherwise.  Whatever the user changes while viewing it autosaves into
+  =:working-state=, so =workspace-revert= brings back the version the
+  program added.
+- *R2.*  A program never replaces or removes a layout whose origin is
+  =user=.  A layout with no recorded origin — every layout made before
+  layout metadata existed — is the user's.
+- *R3.*  A program may replace or remove an =agent= layout, discarding
+  any working-state drift on it, unless the layout is on screen
+  (=workspace-layout-on-screen-p=: the workspace's recent layout, with
+  a tab open in some frame).  Tab-bar restores an open tab's own window
+  configuration, and the next autosave would bury a replacement under
+  =:working-state=: the change would be silently invisible.  Removal is
+  refused on screen for the same reason.
+- The reserved =home= layout is never written by a program.
+
+One guard, =workspace--programmatic-write-refusal=, decides all three
+refusals and their messages, before anything changes; both writers
+signal its message as a =user-error=.  The messages are written for an
+agent to read: agent tools pass them on unchanged.
+
+Two cases outside the guard: an unregistered workspace name is a
+=user-error= naming it, and removing a layout the workspace does not
+have is a =user-error= naming the layout, as =workspace-delete-layout=
+does.
+
+=workspace-layout-on-screen-p= lives in =workspaces.el=, which loads
+after this module; it is called only at run time.
+
+#+begin_src emacs-lisp
+(declare-function workspace-layout-on-screen-p "workspaces" (name layout))
+
+(defun workspace--programmatic-write-refusal (ws layout-name)
+  "Return why a program may not write LAYOUT-NAME of workspace WS, or nil.
+The message, for the reserved name, a layout that belongs to the user
+\(R2) or an agent layout that is on screen (R3), is written to be shown
+to an agent unchanged.  Changes nothing."
+  (let* ((ws-name (workspace--name ws))
+         (group (workspace--find-group ws layout-name))
+         (layout (and group (workspace--group-recent-layout group))))
+    (cond
+     ((workspace--group-name-reserved-p layout-name)
+      (format "Layout \"%s\" is reserved for the workspace's home layout; \
+a program cannot add, replace or remove it" layout-name))
+     ((and group (eq (workspace--layout-origin layout) 'user))
+      (format "Layout \"%s\" in workspace \"%s\" belongs to the user; \
+a program cannot replace or remove it (to add a layout, use another name)"
+              layout-name ws-name))
+     ((and group (workspace-layout-on-screen-p ws-name layout-name))
+      (format "Layout \"%s\" in workspace \"%s\" is on screen; \
+it cannot be replaced or removed while the user is looking at it"
+              layout-name ws-name)))))
+
+(defun workspace--programmatic-write-target (ws-name layout-name)
+  "Return the registered workspace WS-NAME, if a program may write LAYOUT-NAME.
+Signal a `user-error' when WS-NAME is not registered or
+`workspace--programmatic-write-refusal' refuses."
+  (let ((ws (gethash ws-name workspace--registry)))
+    (unless ws
+      (user-error "No workspace named \"%s\"" ws-name))
+    (when-let* ((refusal (workspace--programmatic-write-refusal ws layout-name)))
+      (user-error "%s" refusal))
+    ws))
+
+(defun workspace-add-layout (ws-name layout-name state &rest metadata)
+  "Add layout LAYOUT-NAME holding window-state STATE to workspace WS-NAME.
+STATE is stored as the layout's `:saved-state', with `:working-state'
+nil.  METADATA is keyword arguments for `workspace--layout-with-metadata'
+\(:origin, :description, :source); :origin defaults to `agent'.
+
+An existing agent layout of that name that is not on screen is
+replaced, its working state discarded.  The reserved name, a layout
+that belongs to the user and an agent layout on screen are refused
+with a `user-error', changing nothing.
+
+Works on any registered workspace, with or without a tab.  Touches no
+frame, tab, window or buffer, leaves the recent pointer as it was, and
+flushes the registry once.  Return LAYOUT-NAME."
+  (let* ((ws (workspace--programmatic-write-target ws-name layout-name))
+         (layout (apply #'workspace--layout-with-metadata
+                        (workspace--layout-make state)
+                        (if (plist-member metadata :origin)
+                            metadata
+                          (append metadata '(:origin agent))))))
+    (puthash ws-name
+             (workspace--upsert-group ws layout-name layout)
+             workspace--registry)
+    (workspace--flush-state)
+    layout-name))
+
+(defun workspace-remove-layout (ws-name layout-name)
+  "Remove layout LAYOUT-NAME from workspace WS-NAME.
+The reserved name, a layout that belongs to the user, an agent layout
+on screen and a layout WS-NAME does not have are refused with a
+`user-error', changing nothing.
+
+The recent pointer moves only when it named LAYOUT-NAME or was nil, as
+`workspace-delete-layout' moves it (`workspace--reassign-recent-group').
+Works on any registered workspace, with or without a tab.  Touches no
+frame, tab, window or buffer, and flushes the registry once.  Return
+LAYOUT-NAME."
+  (let ((ws (workspace--programmatic-write-target ws-name layout-name)))
+    (unless (workspace--find-group ws layout-name)
+      (user-error "No layout named \"%s\" in workspace \"%s\""
+                  layout-name ws-name))
+    (puthash ws-name
+             (workspace--reassign-recent-group
+              (workspace--remove-group ws layout-name) layout-name)
+             workspace--registry)
+    (workspace--flush-state)
+    layout-name))
 #+end_src
 
 * Home layout capture for new workspaces

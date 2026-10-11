@@ -353,6 +353,58 @@ file.
 org-graph reads the workspace homes it indexes through =workspace-names=
 and =workspace-get=.
 
+* Programmatic layouts
+
+A program — an agent tool, an integration — gives a workspace a layout
+or takes one away with two functions.  They address the workspace by
+name, work whether or not it has a tab, change only its registry entry,
+and write the state file once.  They never switch layouts or touch a
+frame, tab, window or buffer, so the user sees nothing until they choose
+to switch to the new layout.
+
+| Function                                                     | What it does                                                         |
+|--------------------------------------------------------------+----------------------------------------------------------------------|
+| =(workspace-add-layout WS-NAME LAYOUT-NAME STATE &rest META)= | Store window-state STATE as layout LAYOUT-NAME of WS-NAME            |
+| =(workspace-remove-layout WS-NAME LAYOUT-NAME)=               | Remove layout LAYOUT-NAME from WS-NAME                               |
+
+META is keyword arguments: =:origin= (=agent= by default, or =user=),
+=:description= and =:source=.  Adding never moves the workspace's recent
+layout pointer.  Removing moves it only when it named the removed layout
+(or was unset), the same way =workspace-delete-layout= does: to the
+first remaining layout, else =home=.
+
+Four rules keep a program's writes from fighting the user's:
+
+- *R1 — added content is the baseline.*  An added layout holds STATE as
+  its =:saved-state= with no =:working-state=.  Whatever the user
+  changes while viewing it autosaves into =:working-state= as usual, so
+  =workspace-revert= brings back the layout as the program added it.
+- *R2 — user layouts are off limits.*  A program never replaces or
+  removes a layout whose origin is =user=.  A layout with no recorded
+  origin, which includes every layout saved before origins existed, is
+  the user's.  The program must pick another name.
+- *R3 — not while it is on screen.*  A program may replace or remove an
+  =agent= layout, discarding any drift on it, unless that layout is on
+  screen (=workspace-layout-on-screen-p=: it is the workspace's recent
+  layout and the workspace has a tab open in some frame).  An open tab
+  restores its own window configuration, and the next autosave would
+  hide the replacement under =:working-state=, so the write is refused
+  rather than silently lost.
+- *R4 — an explicit save takes ownership.*  Saving over an =agent= layout
+  with =workspace-save= or =workspace-save-layout= makes it the user's;
+  from then on R2 protects it.
+
+A refused write signals a =user-error= and changes nothing.  Agent tools
+pass the message on unchanged:
+
+| Refusal                       | Message (for layout =L= of workspace =W=)                                                                              |
+|-------------------------------+--------------------------------------------------------------------------------------------------------------------|
+| Reserved name                 | =Layout "home" is reserved for the workspace's home layout; a program cannot add, replace or remove it=              |
+| R2: the user's layout         | =Layout "L" in workspace "W" belongs to the user; a program cannot replace or remove it (to add a layout, use another name)= |
+| R3: on screen                 | =Layout "L" in workspace "W" is on screen; it cannot be replaced or removed while the user is looking at it=        |
+| Unregistered workspace        | =No workspace named "W"=                                                                                           |
+| Removing a layout W lacks     | =No layout named "L" in workspace "W"=                                                                             |
+
 * Command reference
 
 Every command is reached from the =C-x w= menu (or by =M-x=).  The

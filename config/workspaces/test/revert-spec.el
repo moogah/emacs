@@ -190,7 +190,7 @@
     (setq revert-spec--files-dir nil)
     (revert-spec--cleanup))
 
-  (xit "restores the layout as added and clears the drift (Scenario: workspaces § User drift on an added layout is revertible)"
+  (it "restores the layout as added and clears the drift (Scenario: workspaces § User drift on an added layout is revertible)"
     (revert-spec--with-state-file
       (workspace-new "code")
       (delete-other-windows)
