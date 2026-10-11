@@ -21,7 +21,33 @@ decoding anything, reads the tool through =jf/agent--registry-lookup=, passes th
 exactly as =gptel--handle-tool-use= does, and refuses asynchronous tools while D24 holds
 (design.md seam/dispatcher-args, seam/tier-enforcement, seam/registry-access, seam/async-protocol).
 
-Until a later task of the change fills it, this file is a stub: it loads cleanly and requires nothing.
+Until a later task of the change fills it, the dispatcher proper is absent; the file loads cleanly and
+requires nothing.
+
+* Reading gptel's tool registry
+
+=jf/agent--registry-lookup= is the only reader of gptel's tool registry in =config/emacs-agent/=
+(design.md D11, seam/registry-access): a change in gptel's registry touches this one function.
+
+It goes through =gptel-get-tool=, which in gptel 0.9.9.3 signals ="No tool matches for …"= on a name
+nothing registered and returns a list of tools when the name is a category's.  Neither reaches the
+caller: the lookup answers a tool struct or nil, and never signals.
+
+#+begin_src emacs-lisp
+(declare-function gptel-get-tool "gptel-request" (path))
+(declare-function gptel-tool-p "gptel-request" (object))
+
+(defun jf/agent--registry-lookup (name)
+  "Return the gptel tool registered under the name NAME, or nil.
+NAME is a tool name string.  Nil when nothing is registered under NAME,
+when NAME names a category rather than a tool, or when gptel is not
+loaded.  Never signals."
+  (let ((found (and (stringp name)
+                    (condition-case nil
+                        (gptel-get-tool name)
+                      (error nil)))))
+    (and found (fboundp 'gptel-tool-p) (gptel-tool-p found) found)))
+#+end_src
 
 * Module Initialization
 

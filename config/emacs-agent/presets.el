@@ -1,4 +1,61 @@
 ;;; presets.el --- emacs-agent-read / emacs-agent-write presets -*- lexical-binding: t; -*-
 
+(declare-function gptel-get-preset "gptel" (name))
+(declare-function jf/gptel-preset-register "gptel-preset-registration" (name &rest config))
+(declare-function jf/gptel-scope-profile--resolve-tool-names "scope-profiles" (tools-spec))
+
+(defconst jf/agent-presets--read-tools
+  '("org_graph_query" "org_graph_typed_edges"
+    "search_roam_nodes" "list_roam_nodes" "read_roam_node"
+    "get_roam_node_metadata" "query_roam_backlinks"
+    "emacs_describe_symbol" "emacs_find_definition"
+    "emacs_variable_value" "emacs_apropos")
+  "Tool names of the initial `emacs-agent-read' preset.")
+
+(defconst jf/agent-presets--write-tools
+  '("org_graph_write_node" "workspace_add_layout" "workspace_remove_layout")
+  "Tool names of the initial `emacs-agent-write' preset.")
+
+(defun jf/agent-presets-register ()
+  "Register the `emacs-agent-read' and `emacs-agent-write' gptel presets.
+Each preset's :tools is a list of tool names.  Idempotent: registering
+again replaces both presets with the initial lists."
+  (jf/gptel-preset-register
+   'emacs-agent-read
+   :description "Tools an external agent may run read-only (emacs-agent call tier)."
+   :tools (copy-sequence jf/agent-presets--read-tools))
+  (jf/gptel-preset-register
+   'emacs-agent-write
+   :description "Tools an external agent may run that change state (emacs-agent call-write tier)."
+   :tools (copy-sequence jf/agent-presets--write-tools)))
+
+(defun jf/agent-preset-tool-names (preset)
+  "Return the tool names of the gptel preset PRESET (a symbol), or nil.
+The preset's :tools is resolved to name strings with
+`jf/gptel-scope-profile--resolve-tool-names'.  Nil when gptel is not
+loaded or PRESET is not registered."
+  (let ((spec (and (fboundp 'gptel-get-preset) (gptel-get-preset preset))))
+    (and spec
+         (jf/gptel-scope-profile--resolve-tool-names (plist-get spec :tools)))))
+
+(defun jf/agent--tier-presets (tier)
+  "Return the agent presets the tier TIER (a string) opens.
+\"call\" opens `emacs-agent-read'; \"call-write\" opens it and
+`emacs-agent-write'.  Any other TIER opens nothing: nil."
+  (pcase tier
+    ("call" (list 'emacs-agent-read))
+    ("call-write" (list 'emacs-agent-read 'emacs-agent-write))))
+
+(defun jf/agent-tool-tier (name)
+  "Return the manifest tier of the tool NAME: \"read\", \"write\" or nil.
+\"read\" when NAME is in `emacs-agent-read', \"write\" when it is only in
+`emacs-agent-write', nil when it is in neither."
+  (cond ((member name (jf/agent-preset-tool-names 'emacs-agent-read)) "read")
+        ((member name (jf/agent-preset-tool-names 'emacs-agent-write)) "write")))
+
+(with-eval-after-load 'gptel
+  (with-eval-after-load 'gptel-preset-registration
+    (jf/agent-presets-register)))
+
 (provide 'emacs-agent-presets)
 ;;; presets.el ends here
