@@ -428,23 +428,29 @@ PROFILE is the value of EMACS_AGENT_DATA for the child, or nil to leave
 it unset.  FORM is a string, read and evaluated after init.el.  The
 child runs with HOME at `emacs-agent-test-home' and the private TMPDIR.
 Return (:exit N :value VALUE :output TEXT), VALUE read from what the
-child printed after the marker line, or nil."
-  (let ((process-environment
-         (append
-          (list (concat "HOME=" (directory-file-name (emacs-agent-test-home)))
-                (concat "EMACS_USER_DIRECTORY="
-                        (expand-file-name "runtime" emacs-agent-test-root)))
-          (and profile (list (concat "EMACS_AGENT_DATA=" profile)))
-          (seq-remove (lambda (entry)
-                        (or (string-prefix-p "HOME=" entry)
-                            (string-prefix-p "EMACS_AGENT_DATA=" entry)
-                            (string-prefix-p "EMACS_USER_DIRECTORY=" entry)))
-                      process-environment))))
+child printed after the marker line, or nil.
+Paths are expanded before HOME is rebound: `expand-file-name' reads
+HOME from `process-environment', so a `~/' path (an abbreviated
+`default-directory' or checkout root) would otherwise resolve under
+the fake HOME."
+  (let* ((root (expand-file-name emacs-agent-test-root))
+         (default-directory root)
+         (process-environment
+          (append
+           (list (concat "HOME=" (directory-file-name (emacs-agent-test-home)))
+                 (concat "EMACS_USER_DIRECTORY="
+                         (expand-file-name "runtime" root)))
+           (and profile (list (concat "EMACS_AGENT_DATA=" profile)))
+           (seq-remove (lambda (entry)
+                         (or (string-prefix-p "HOME=" entry)
+                             (string-prefix-p "EMACS_AGENT_DATA=" entry)
+                             (string-prefix-p "EMACS_USER_DIRECTORY=" entry)))
+                       process-environment))))
     (with-temp-buffer
       (let* ((exit (call-process
                     (emacs-agent-test-emacs) nil t nil
-                    "-q" "--load" (expand-file-name "early-init.el" emacs-agent-test-root)
-                    "--load" (expand-file-name "init.el" emacs-agent-test-root)
+                    "-q" "--load" (expand-file-name "early-init.el" root)
+                    "--load" (expand-file-name "init.el" root)
                     "-batch" "--eval"
                     (format "(progn (setq kill-emacs-hook nil) (princ \"\\n@@emacs-agent-test@@\\n\") (prin1 (eval (car (read-from-string %S)) t)) (terpri))"
                             form)))

@@ -171,7 +171,7 @@ Integrates [[https://github.com/ryanobjc/gptel-org-utils][ryanobjc/gptel-org-uti
 
 The utils module requires the heading-adjust module internally — one =use-package= declaration covers both. =gptel-org-heading-adjust-mode-enable= is a plain function (despite the name — it's not a real minor mode), globally installs the hooks and advice when called; nothing auto-enables.
 
-=gptel-org-utils-dailies-directory= is overridden to =~/org/roam/daily/= to match the org-roam dailies convention (upstream default is =~/Documents/org/dailies=).
+=gptel-org-utils-dailies-directory= is overridden to =roam/daily/= under =jf/org-directory= (=~/org/roam/daily/= with no data profile) to match the org-roam dailies convention (upstream default is =~/Documents/org/dailies=). It derives from =jf/org-directory= so a data profile (=config/core/defaults.org=) moves it with the other note paths.
 
 #+begin_src emacs-lisp
 (use-package gptel-org-utils
@@ -179,7 +179,8 @@ The utils module requires the heading-adjust module internally — one =use-pack
                              :files ("*.el"))
   :after gptel
   :custom
-  (gptel-org-utils-dailies-directory "~/org/roam/daily/")
+  (gptel-org-utils-dailies-directory
+   (abbreviate-file-name (expand-file-name "roam/daily/" jf/org-directory)))
   :config
   (gptel-org-heading-adjust-mode-enable))
 #+end_src
