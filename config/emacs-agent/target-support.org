@@ -1,0 +1,30 @@
+#+title: emacs-agent: Target support helpers
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle target-support.el
+#+auto_tangle: y
+
+A submodule of the =emacs-agent= module, loaded by =emacs-agent.org= through =jf/load-module=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so this first block uses
+=:comments no= to keep org structure comments from being inserted ahead of it.
+
+#+begin_src emacs-lisp :comments no
+;;; target-support.el --- Target-side observation and control helpers -*- lexical-binding: t; -*-
+#+end_src
+
+* The target support helpers
+
+=jf/frame-state= and =jf/type-text= / =jf/send-keys= / =jf/run-command= will live here; the file
+needs only built-in libraries and does nothing as it loads, so a =-Q= target loads it by path
+(design.md seam/target-support).
+
+Until a later task of the change fills it, this file is a stub: it loads cleanly and requires nothing.
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'emacs-agent-target-support)
+;;; target-support.el ends here
+#+end_src

@@ -1,0 +1,31 @@
+#+title: emacs-agent: Dispatcher
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle dispatcher.el
+#+auto_tangle: y
+
+A submodule of the =emacs-agent= module, loaded by =emacs-agent.org= through =jf/load-module=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so this first block uses
+=:comments no= to keep org structure comments from being inserted ahead of it.
+
+#+begin_src emacs-lisp :comments no
+;;; dispatcher.el --- Agent call dispatcher -*- lexical-binding: t; -*-
+#+end_src
+
+* The dispatcher
+
+=jf/agent-call TIER TOOL-NAME JSON= will live here: it refuses a tool outside the tier's preset before
+decoding anything, reads the tool through =jf/agent--registry-lookup=, passes the JSON arguments
+exactly as =gptel--handle-tool-use= does, and refuses asynchronous tools while D24 holds
+(design.md seam/dispatcher-args, seam/tier-enforcement, seam/registry-access, seam/async-protocol).
+
+Until a later task of the change fills it, this file is a stub: it loads cleanly and requires nothing.
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'emacs-agent-dispatcher)
+;;; dispatcher.el ends here
+#+end_src

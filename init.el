@@ -146,6 +146,11 @@ resolve to a real file."
     ;; into the gptel tool registry and the workspaces integration registry,
     ;; so both must already be loaded for the registration to take effect.
     ("org-graph/org-graph" "Layered knowledge graph over vulpea, plugged into workspaces")
+
+    ;; emacs-agent - the dispatcher, presets and target support an external
+    ;; agent drives Emacs through (bin/emacs-agent).  After org-graph: its
+    ;; read preset names org-graph's tools.
+    ("emacs-agent/emacs-agent" "Agent-facing dispatcher, presets and target support")
     )
   "List of enabled modules with their paths and descriptions.")
 
