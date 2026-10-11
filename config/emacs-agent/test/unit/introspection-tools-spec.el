@@ -45,14 +45,14 @@ ALPHA and BETA are ignored."
 
 (describe "Introspection tools (seam/introspection-tools)"
 
-  (xit "registers four synchronous tools in the introspection category (seam/introspection-tools)"
+  (it "registers four synchronous tools in the introspection category (seam/introspection-tools)"
     (dolist (name '("emacs_describe_symbol" "emacs_find_definition"
                     "emacs_variable_value" "emacs_apropos"))
       (let ((tool (gptel-get-tool (list "introspection" name))))
         (expect (gptel-tool-name tool) :to-equal name)
         (expect (gptel-tool-async tool) :to-be nil))))
 
-  (xit "returns the documentation and arglist of a defined function (Scenario: agent-introspection-tools § Describe a function)"
+  (it "returns the documentation and arglist of a defined function (Scenario: agent-introspection-tools § Describe a function)"
     (let ((text (introspection-spec--result
                  "emacs_describe_symbol"
                  "{\"name\":\"introspection-spec--fixture-function\"}")))
@@ -60,7 +60,7 @@ ALPHA and BETA are ignored."
       (expect text :to-match "alpha")
       (expect text :to-match "&optional beta")))
 
-  (xit "returns the file and line of a function defined in the configuration (Scenario: agent-introspection-tools § Find where a function is defined)"
+  (it "returns the file and line of a function defined in the configuration (Scenario: agent-introspection-tools § Find where a function is defined)"
     (let* ((text (introspection-spec--result
                   "emacs_find_definition" "{\"name\":\"jf/resolve-module-path\"}"))
            (first-line (car (split-string text "\n"))))
@@ -75,13 +75,13 @@ ALPHA and BETA are ignored."
           (forward-line (1- line))
           (expect (looking-at-p "(defun jf/resolve-module-path") :to-be t)))))
 
-  (xit "visits no file to find a definition (seam/introspection-tools)"
+  (it "visits no file to find a definition (seam/introspection-tools)"
     (let ((before (buffer-list)))
       (introspection-spec--result "emacs_find_definition"
                                   "{\"name\":\"jf/resolve-module-path\"}")
       (expect (seq-difference (buffer-list) before) :to-be nil)))
 
-  (xit "returns a bound variable's value as readable text and leaves it unchanged (Scenario: agent-introspection-tools § Read a variable)"
+  (it "returns a bound variable's value as readable text and leaves it unchanged (Scenario: agent-introspection-tools § Read a variable)"
     (let* ((before introspection-spec--probe-variable)
            (copy (copy-tree before))
            (text (introspection-spec--result
@@ -91,7 +91,7 @@ ALPHA and BETA are ignored."
       (expect introspection-spec--probe-variable :to-be before)
       (expect introspection-spec--probe-variable :to-equal copy)))
 
-  (xit "returns only interactive commands matching the pattern for the kind command (Scenario: agent-introspection-tools § Search symbols by pattern and kind)"
+  (it "returns only interactive commands matching the pattern for the kind command (Scenario: agent-introspection-tools § Search symbols by pattern and kind)"
     (let ((names (split-string
                   (introspection-spec--result
                    "emacs_apropos"
@@ -99,14 +99,14 @@ ALPHA and BETA are ignored."
                   "[\n ]+" t)))
       (expect names :to-equal '("introspection-spec--probe-command"))))
 
-  (xit "states that an undefined symbol is not defined, without signalling or interning it (Scenario: agent-introspection-tools § Unknown symbol)"
+  (it "states that an undefined symbol is not defined, without signalling or interning it (Scenario: agent-introspection-tools § Unknown symbol)"
     (let* ((name (concat "emacs-agent-test-" "no-such-symbol-xyzzy"))
            (text (introspection-spec--result
                   "emacs_describe_symbol" (format "{\"name\":%S}" name))))
       (expect text :to-match "not defined")
       (expect (intern-soft name) :to-be nil)))
 
-  (xit "answers softly from every tool for a name that is not defined (seam/introspection-tools)"
+  (it "answers softly from every tool for a name that is not defined (seam/introspection-tools)"
     (let ((name (concat "emacs-agent-test-" "absent-plugh")))
       (dolist (tool '("emacs_find_definition" "emacs_variable_value"))
         (expect (introspection-spec--result tool (format "{\"name\":%S}" name))

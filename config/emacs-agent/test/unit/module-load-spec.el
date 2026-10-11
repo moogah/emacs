@@ -21,7 +21,7 @@
 
 (describe "The emacs-agent module (seam/module-load)"
 
-  (xit "is enabled after org-graph and loads with its presets and introspection tools (seam/module-load)"
+  (it "is enabled after org-graph and loads with its presets and introspection tools (seam/module-load)"
     (let ((order (mapcar #'car jf/enabled-modules)))
       (expect (member "emacs-agent/emacs-agent" order) :not :to-be nil)
       (expect (member "emacs-agent/emacs-agent" (member "org-graph/org-graph" order))

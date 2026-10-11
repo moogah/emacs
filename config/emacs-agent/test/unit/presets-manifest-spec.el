@@ -74,7 +74,7 @@
 
 (describe "gptel's registry, read in one place (seam/registry-access)"
 
-  (xit "finds every preset tool under exactly one category of gptel's registry (seam/registry-access)"
+  (it "finds every preset tool under exactly one category of gptel's registry (seam/registry-access)"
     (dolist (name (append (jf/agent-preset-tool-names 'emacs-agent-read)
                           (jf/agent-preset-tool-names 'emacs-agent-write)))
       (expect (cons name (seq-count (lambda (category) (assoc name (cdr category)))
