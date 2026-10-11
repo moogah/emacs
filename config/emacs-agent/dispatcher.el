@@ -112,6 +112,15 @@ keyword :NAME, as `gptel--handle-tool-use' maps them."
       (cons nil (format "Tool %s is asynchronous: asynchronous tools are not supported" name)))
      (t (jf/agent--apply-tool tool json)))))
 
+(declare-function jf/agent--live-session-p "action-log" ())
+(declare-function jf/agent-log-call "action-log" (tier name args outcome))
+
+(defun jf/agent--record (tier name args outcome)
+  "Log the call NAME on TIER with ARGS and OUTCOME when this is the live session.
+OUTCOME is (OK . TEXT); see `jf/agent-log-call'."
+  (when (jf/agent--live-session-p)
+    (jf/agent-log-call tier name args (car outcome))))
+
 (defun jf/agent-call (tier tool-name json)
   "Run the gptel tool TOOL-NAME on TIER with the JSON object JSON.
 TIER is \"call\" (the `emacs-agent-read' tools) or \"call-write\" (those
@@ -119,6 +128,7 @@ and the `emacs-agent-write' tools).  JSON's members are passed to the
 tool by name, as gptel passes a model's arguments.  Return the JSON
 envelope: {\"ok\":true,\"result\":R} or {\"ok\":false,\"error\":E}."
   (let ((outcome (jf/agent--call-outcome tier tool-name json)))
+    (jf/agent--record tier tool-name json outcome)
     (jf/agent--envelope (car outcome) (cdr outcome))))
 
 (defun jf/agent-eval (form)
@@ -129,6 +139,7 @@ gptel's text for it."
                      (cons t (prin1-to-string
                               (eval (car (read-from-string form)) t)))
                    (error (cons nil (jf/agent--error-text err))))))
+    (jf/agent--record "eval" form nil outcome)
     (jf/agent--envelope (car outcome) (cdr outcome))))
 
 (provide 'emacs-agent-dispatcher)

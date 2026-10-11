@@ -45,7 +45,7 @@
 
 (describe "Dispatched calls leave the user's windows alone (seam/live-no-disruption)"
 
-  (xit "leaves frame, window, window configuration and tab as they were across the preset tools (Scenario: agent-target-policy § Live call leaves the user's windows alone)"
+  (it "leaves frame, window, window configuration and tab as they were across the preset tools (Scenario: agent-target-policy § Live call leaves the user's windows alone)"
     (let* ((home (file-name-as-directory (make-temp-file "ea-home" t)))
            (pane (expand-file-name "pane.txt" home))
            (workspace--registry (make-hash-table :test 'equal))
