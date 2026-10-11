@@ -47,9 +47,9 @@
 ;; Enable org-roam-protocol
 (require 'org-roam-protocol)
 
-;; Start Emacs server if not already running (required for protocol)
-;; Safe for isolated instances - won't conflict with existing servers
-(unless (server-running-p)
+;; Start Emacs server if not already running (required for protocol).
+;; A daemon starts its own server, under its own name, once init is done.
+(unless (or (daemonp) (server-running-p))
   (server-start))
 
 ;; Configure standard capture templates
