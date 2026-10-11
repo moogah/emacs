@@ -164,6 +164,9 @@ definition (its `definition-name' property) is searched for by that name."
   (with-temp-buffer
     (insert-file-contents file)
     (with-syntax-table emacs-lisp-mode-syntax-table
+      ;; A temp buffer's `parse-sexp-ignore-comments' is nil, so without this
+      ;; `forward-sexp' counts an unbalanced paren or quote inside a comment.
+      (setq-local parse-sexp-ignore-comments t)
       (let ((case-fold-search nil)
             (regexp (jf/agent-introspection--definition-regexp symbol kind)))
         (goto-char (point-min))

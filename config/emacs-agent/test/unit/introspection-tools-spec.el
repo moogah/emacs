@@ -111,6 +111,20 @@ ALPHA and BETA are ignored."
       (dolist (tool '("emacs_find_definition" "emacs_variable_value"))
         (expect (introspection-spec--result tool (format "{\"name\":%S}" name))
                 :to-match "not defined"))
-      (expect (intern-soft name) :to-be nil))))
+      (expect (intern-soft name) :to-be nil)))
+
+  (it "ends a definition's source at its closing paren when a comment holds an unbalanced paren (seam/introspection-tools)"
+    (let ((file (make-temp-file "emacs-agent-introspection" nil ".el"
+                                (concat "(defun emacs-agent-test-commented ()\n"
+                                        "  ;; an unbalanced ( paren and a \" quote\n"
+                                        "  1)\n"
+                                        "\n(defun emacs-agent-test-after () 2)\n"))))
+      (unwind-protect
+          (let ((found (jf/agent-introspection--locate
+                        'emacs-agent-test-commented 'function file)))
+            (expect (car found) :to-equal 1)
+            (expect (cdr found) :to-match "  1)\\'")
+            (expect (cdr found) :not :to-match "emacs-agent-test-after"))
+        (delete-file file)))))
 
 ;;; introspection-tools-spec.el ends here
