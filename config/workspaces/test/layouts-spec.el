@@ -837,7 +837,53 @@ Return its absolute name."
     (tab-bar-close-tab (workspace--tab-index-for "code"))
     (workspace-remove-layout "code" "ask/a1")
     (expect (workspace--recent-group (gethash "code" workspace--registry))
-            :to-equal "home")))
+            :to-equal "home"))
+
+  (it "reassigns a nil recent pointer to the first remaining group, else to `home' (seam/programmatic-layout-writes)"
+    (workspace-new "code")
+    ;; Groups u1, ask/a1, ask/a2 with no `home' group, so the first
+    ;; remaining group is told apart from the `home' fallback.
+    (let ((state (layouts-spec--two-window-state)))
+      (puthash "code" (workspace--remove-group
+                       (gethash "code" workspace--registry) "home")
+               workspace--registry)
+      (layouts-spec--put-layout
+       "code" "u1" (workspace--layout-with-metadata
+                    (workspace--layout-make state) :origin 'user))
+      (dolist (name '("ask/a1" "ask/a2"))
+        (layouts-spec--put-layout
+         "code" name (workspace--layout-with-metadata
+                      (workspace--layout-make state) :origin 'agent))))
+    (puthash "code" (workspace--set-recent-group
+                     (gethash "code" workspace--registry) nil)
+             workspace--registry)
+    (workspace-remove-layout "code" "ask/a1")
+    (expect (workspace--recent-group (gethash "code" workspace--registry))
+            :to-equal "u1")
+    ;; Only ask/a2 left, pointer nil again: removing it falls back to `home'.
+    (puthash "code" (workspace--set-recent-group
+                     (workspace--remove-group
+                      (gethash "code" workspace--registry) "u1")
+                     nil)
+             workspace--registry)
+    (workspace-remove-layout "code" "ask/a2")
+    (expect (workspace--layout-groups (gethash "code" workspace--registry))
+            :to-equal nil)
+    (expect (workspace--recent-group (gethash "code" workspace--registry))
+            :to-equal "home"))
+
+  (it "keeps a recent pointer that names another layout, not moving it to the first remaining group (seam/programmatic-layout-writes)"
+    (workspace-new "code")
+    (let ((state (layouts-spec--two-window-state)))
+      (workspace-add-layout "code" "ask/a1" state :origin 'agent)
+      (workspace-add-layout "code" "ask/a2" state :origin 'agent))
+    ;; Groups home, ask/a1, ask/a2; the pointer names ask/a2, not the first.
+    (puthash "code" (workspace--set-recent-group
+                     (gethash "code" workspace--registry) "ask/a2")
+             workspace--registry)
+    (workspace-remove-layout "code" "ask/a1")
+    (expect (workspace--recent-group (gethash "code" workspace--registry))
+            :to-equal "ask/a2")))
 
 (describe "Explicit saves take ownership of agent layouts (seam/explicit-save-ownership)"
   (before-each (layouts-spec--programmatic-reset))
