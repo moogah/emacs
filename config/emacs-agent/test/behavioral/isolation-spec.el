@@ -16,6 +16,11 @@
 ;; user's live session, a daemon named `server' in that private directory
 ;; stands in for it: the real live session is never contacted.  Each spec
 ;; `assume's the Emacs and emacsclient binaries.
+;;
+;; One guard is the configuration's own: org-roam.el starts a server only
+;; outside a daemon, so a daemon target never takes the default `server'
+;; socket during its init.  Its spec evaluates that one form with
+;; `daemonp' stubbed, starting nothing.
 
 ;;; Code:
 
@@ -23,6 +28,8 @@
          (expand-file-name "../helpers-spec.el"
                            (file-name-directory
                             (or load-file-name buffer-file-name))))
+
+(defvar native-comp-enable-subr-trampolines)
 
 (defmacro isolation-spec--scope (&rest body)
   "Run BODY in a private socket directory, when the binaries exist."
@@ -98,5 +105,41 @@
          "ea-writer" (format "(progn (write-region \"from the target\" nil %S) t)" file))
         (expect (with-temp-buffer (insert-file-contents file) (buffer-string))
                 :to-equal "from the target")))))
+
+(defun isolation-spec--server-start-forms ()
+  "The top-level forms of org-roam.el that call `server-start'."
+  (let ((file (expand-file-name "config/major-modes/org-roam.el"
+                                emacs-agent-test-root))
+        forms)
+    (with-temp-buffer
+      (insert-file-contents file)
+      (goto-char (point-min))
+      (condition-case nil
+          (while t (push (read (current-buffer)) forms))
+        (end-of-file nil)))
+    (seq-filter (lambda (form) (memq 'server-start (flatten-tree form)))
+                (nreverse forms))))
+
+
+(describe "The org-roam server-start guard (seam/target-lifecycle)"
+
+  (it "starts no server during a daemon's init, and one outside a daemon when none runs (seam/target-lifecycle)"
+    ;; Only the guarded form is evaluated, never the module: loading it
+    ;; would start org-roam in the test process.
+    (let ((forms (isolation-spec--server-start-forms))
+          (daemon nil))
+      (expect (length forms) :to-equal 1)
+      (spy-on 'server-start)
+      (spy-on 'server-running-p :and-return-value nil)
+      ;; `daemonp' is a primitive: redefining it must not compile a
+      ;; native trampoline.
+      (let ((native-comp-enable-subr-trampolines nil))
+        (cl-letf (((symbol-function 'daemonp) (lambda () daemon)))
+          (setq daemon t)
+          (eval (car forms) t)
+          (expect 'server-start :not :to-have-been-called)
+          (setq daemon nil)
+          (eval (car forms) t)
+          (expect 'server-start :to-have-been-called-times 1))))))
 
 ;;; isolation-spec.el ends here
