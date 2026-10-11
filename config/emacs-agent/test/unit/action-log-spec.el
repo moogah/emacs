@@ -35,7 +35,7 @@
   (before-each (action-log-spec--fresh))
   (after-each (action-log-spec--fresh))
 
-  (xit "logs a live call-write with its tier, tool and outcome (Scenario: agent-target-policy § Live call is logged)"
+  (it "logs a live call-write with its tier, tool and outcome (Scenario: agent-target-policy § Live call is logged)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_writer" :preset 'write
                     :args (list (emacs-agent-test-arg "title"))
@@ -48,7 +48,7 @@
       (expect log :to-match "Note")
       (expect log :to-match "\\_<ok\\_>")))
 
-  (xit "logs a refused or failing live call with an error outcome (seam/action-log)"
+  (it "logs a refused or failing live call with an error outcome (seam/action-log)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_writer" :preset 'write))
       (let ((server-name "server"))
@@ -57,14 +57,14 @@
       (expect log :to-match "emacs_agent_test_writer")
       (expect log :to-match "\\_<error\\_>")))
 
-  (xit "logs a live eval with its form (seam/action-log)"
+  (it "logs a live eval with its form (seam/action-log)"
     (let ((server-name "server"))
       (jf/agent-eval "(+ 40 2)"))
     (let ((log (action-log-spec--text)))
       (expect log :to-match "eval")
       (expect log :to-match (regexp-quote "(+ 40 2)"))))
 
-  (xit "logs nothing in an Emacs that is not the live session (seam/action-log)"
+  (it "logs nothing in an Emacs that is not the live session (seam/action-log)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_reader" :preset 'read))
       (let ((server-name "smoke-target"))
@@ -74,7 +74,7 @@
       (expect (or (null log) (not (string-match-p "emacs_agent_test_reader" log)))
               :to-be t)))
 
-  (xit "keeps each entry's argument summary within jf/agent-log-args-max (seam/action-log)"
+  (it "keeps each entry's argument summary within jf/agent-log-args-max (seam/action-log)"
     (emacs-agent-test-with-tools
         (list (list :name "emacs_agent_test_writer" :preset 'write
                     :args (list (emacs-agent-test-arg "body"))))
