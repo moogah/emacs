@@ -54,7 +54,7 @@ Expect the child to exit 0."
 
 (describe "Data profiles in a full-configuration Emacs (seam/data-profile, seam/note-roots)"
 
-  (xit "points every module-load note path under the scratch vault and creates nothing under the real one (Scenario: isolated-emacs-targets § Module-load paths follow the profile)"
+  (it "points every module-load note path under the scratch vault and creates nothing under the real one (Scenario: isolated-emacs-targets § Module-load paths follow the profile)"
     (emacs-agent-test-with-socket-dir
       (let* ((vault (data-profile-child-spec--vault))
              (paths (data-profile-child-spec--child
@@ -66,7 +66,7 @@ Expect the child to exit 0."
                   :to-equal (cons path t)))
         (expect (data-profile-child-spec--real-vault-untouched-p) :to-be t))))
 
-  (xit "keeps the note databases and workspace state out of the worktree's runtime under scratch (seam/data-profile)"
+  (it "keeps the note databases and workspace state out of the worktree's runtime under scratch (seam/data-profile)"
     (emacs-agent-test-with-socket-dir
       (let* ((vault (data-profile-child-spec--vault))
              (runtime (expand-file-name "runtime" emacs-agent-test-root))
@@ -95,7 +95,7 @@ Expect the child to exit 0."
                 :to-match "Scratch smoke")
         (expect (data-profile-child-spec--real-vault-untouched-p) :to-be t))))
 
-  (xit "syncs only the scratch vault, without workspace homes (Scenario: isolated-emacs-targets § Scratch profile indexes only the scratch vault)"
+  (it "syncs only the scratch vault, without workspace homes (Scenario: isolated-emacs-targets § Scratch profile indexes only the scratch vault)"
     (emacs-agent-test-with-socket-dir
       (let* ((vault (data-profile-child-spec--vault))
              (ws-home (expand-file-name "ws-home/" emacs-agent-test--tmpdir))
@@ -111,7 +111,7 @@ Expect the child to exit 0."
                 :to-equal (list vault))
         (expect (cadr values) :to-be nil))))
 
-  (xit "starts no org-graph sync and watches no note directory under none (Scenario: isolated-emacs-targets § None profile disables graph sync)"
+  (it "starts no org-graph sync and watches no note directory under none (Scenario: isolated-emacs-targets § None profile disables graph sync)"
     (emacs-agent-test-with-socket-dir
       (let ((values (data-profile-child-spec--child
                      "none"
