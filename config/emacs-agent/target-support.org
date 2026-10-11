@@ -5,6 +5,23 @@
 
 A submodule of the =emacs-agent= module, loaded by =emacs-agent.org= through =jf/load-module=.
 
+The helpers a target Emacs needs so that an agent driving it through =emacsclient= can observe it
+and act in it: =jf/frame-state= reports what the target shows as a JSON string, and
+=jf/type-text=, =jf/send-keys= and =jf/run-command= act on the selected window's buffer
+(design.md D5, seam/target-support).
+
+The file needs only built-in libraries and does nothing as it loads: it defines variables and
+functions, starts no server and adds no hook.  A full-config target loads it as part of the
+configuration; a =-Q= target loads it by path (=emacs -Q -l .../target-support.el=, or a =load=
+sent over =emacsclient=).  Its presence in the live session is harmless, and none of its
+functions is reachable from a gptel tool or an agent preset.
+
+A headless target (=emacs --daemon=) has only its terminal frame, and these helpers need no other:
+=jf/frame-state=, =jf/type-text= and =jf/run-command= read and change buffers and windows, and
+=jf/send-keys= runs its keys through the command loop as a keyboard macro.  Behavior that depends
+on a real display (redisplay, input methods, a terminal's key decoding) needs a frame attached on
+demand, =emacsclient -s <socket> -c= (graphical) or =-t= (terminal) (design.md D6).
+
 * Lexical Binding
 
 The lexical-binding mode line MUST be on line 1 of the tangled file, so this first block uses
@@ -14,13 +31,182 @@ The lexical-binding mode line MUST be on line 1 of the tangled file, so this fir
 ;;; target-support.el --- Target-side observation and control helpers -*- lexical-binding: t; -*-
 #+end_src
 
-* The target support helpers
+* Frame state
 
-=jf/frame-state= and =jf/type-text= / =jf/send-keys= / =jf/run-command= will live here; the file
-needs only built-in libraries and does nothing as it loads, so a =-Q= target loads it by path
-(design.md seam/target-support).
+** Limits
 
-Until a later task of the change fills it, this file is a stub: it loads cleanly and requires nothing.
+The buffer contents =jf/frame-state= returns are bounded, so a large buffer cannot produce an
+unbounded reply; =truncated= says when they were cut.  The contents are the first
+=jf/frame-state-max-chars= characters of the buffer's accessible portion.
+
+#+begin_src emacs-lisp
+(defvar jf/frame-state-max-chars 20000
+  "Most characters of buffer contents `jf/frame-state' returns.
+Contents past this many characters are cut, and the state's buffer
+`truncated' is true.")
+
+(defvar jf/frame-state-message-lines 10
+  "How many of the last lines of *Messages* `jf/frame-state' returns.")
+#+end_src
+
+** JSON booleans
+
+=json-serialize= writes =t= as =true= and =:false= as =false=; =nil= would be an empty object.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--bool (value)
+  "VALUE as a JSON boolean for `json-serialize'."
+  (if value t :false))
+#+end_src
+
+** The selected window's buffer
+
+=point= is the selected window's point, counted from 1 as =point= is.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--buffer (window)
+  "The `buffer' object of `jf/frame-state' for WINDOW's buffer."
+  (with-current-buffer (window-buffer window)
+    (let* ((start (point-min))
+           (end (min (point-max)
+                     (+ start (max 0 jf/frame-state-max-chars)))))
+      (list :name (buffer-name)
+            :contents (buffer-substring-no-properties start end)
+            :truncated (jf/frame-state--bool (< end (point-max)))
+            :point (window-point window)))))
+#+end_src
+
+** Windows
+
+The windows of the selected frame, selected one first; the minibuffer window is listed while the
+minibuffer is active.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--windows ()
+  "The `windows' array of `jf/frame-state'."
+  (vconcat
+   (mapcar (lambda (window)
+             (list :buffer (buffer-name (window-buffer window))
+                   :selected (jf/frame-state--bool (eq window (selected-window)))))
+           (window-list nil nil))))
+#+end_src
+
+** Minibuffer
+
+=contents= is the minibuffer's input while it is active, and =null= otherwise.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--minibuffer ()
+  "The `minibuffer' object of `jf/frame-state'."
+  (let ((window (active-minibuffer-window)))
+    (list :active (jf/frame-state--bool window)
+          :contents (if window
+                        (with-current-buffer (window-buffer window)
+                          (minibuffer-contents-no-properties))
+                      :null))))
+#+end_src
+
+** Messages
+
+The echo area's recent history, as =*Messages*= logs it: its last =jf/frame-state-message-lines=
+lines, oldest first.  Batch Emacs and a daemon log there as an interactive session does.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--messages ()
+  "The `messages' array of `jf/frame-state'."
+  (let ((buffer (get-buffer "*Messages*")))
+    (if (not buffer)
+        []
+      (with-current-buffer buffer
+        (save-excursion
+          (goto-char (point-max))
+          (forward-line (- (max 0 jf/frame-state-message-lines)))
+          (vconcat (split-string (buffer-substring-no-properties (point) (point-max))
+                                 "\n" t)))))))
+#+end_src
+
+** =jf/frame-state=
+
+The reply is a text (multibyte) string.  Emacs 30's =json-serialize= returns unibyte UTF-8 bytes,
+which =emacsclient= prints as octal escapes (=\342\200\230= for =‘=); decoded, a client reads the
+characters themselves.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--text (json)
+  "JSON, a string from `json-serialize', as a multibyte string."
+  (if (multibyte-string-p json)
+      json
+    (decode-coding-string json 'utf-8 t)))
+#+end_src
+
+#+begin_src emacs-lisp
+(defun jf/frame-state ()
+  "Return the target's observable state as a JSON object string.
+The object has:
+  buffer      {name, contents, truncated, point} for the selected
+              window's buffer; contents are cut to
+              `jf/frame-state-max-chars' and truncated is true when cut
+  windows     [{buffer, selected}] for the selected frame's windows
+  minibuffer  {active, contents}, contents null when not active
+  messages    the last `jf/frame-state-message-lines' lines of *Messages*
+It needs no frame beyond a daemon's terminal frame."
+  (jf/frame-state--text
+   (json-serialize
+    (list :buffer (jf/frame-state--buffer (selected-window))
+          :windows (jf/frame-state--windows)
+          :minibuffer (jf/frame-state--minibuffer)
+          :messages (jf/frame-state--messages)))))
+#+end_src
+
+* Control helpers
+
+Each acts on the selected window's buffer, the one =jf/frame-state= reports, and returns =nil=:
+the effect is read back through =jf/frame-state=.
+
+** =jf/type-text=
+
+#+begin_src emacs-lisp
+(defun jf/type-text (string)
+  "Insert STRING literally at point in the selected window's buffer.
+No character of STRING is read as a key: control characters, `C-x'
+spelled out and backslashes all go in as written.  Return nil."
+  (unless (stringp string)
+    (signal 'wrong-type-argument (list #'stringp string)))
+  (with-current-buffer (window-buffer (selected-window))
+    (insert string))
+  nil)
+#+end_src
+
+** =jf/send-keys=
+
+#+begin_src emacs-lisp
+(defun jf/send-keys (keys)
+  "Run KEYS, a key sequence in `kbd' notation, as a keyboard macro.
+The keys go through the command loop as if typed, in the selected
+window, with whatever keymaps and modes are active there.  Behavior
+that depends on a real display (redisplay, a terminal's key decoding)
+needs a frame attached first, `emacsclient -c' or `-t'.  Return nil."
+  (unless (stringp keys)
+    (signal 'wrong-type-argument (list #'stringp keys)))
+  (execute-kbd-macro (kbd keys))
+  nil)
+#+end_src
+
+** =jf/run-command=
+
+#+begin_src emacs-lisp
+(defun jf/run-command (name)
+  "Run the interactive command NAME with `call-interactively'.
+NAME is a string or a symbol.  The command runs with the selected
+window's buffer current.  Signal a `user-error' when NAME does not name
+an interactive command.  Return nil."
+  (let ((command (if (symbolp name) name (intern-soft name))))
+    (unless (and command (commandp command))
+      (user-error "Not an interactive command: %s" name))
+    (with-current-buffer (window-buffer (selected-window))
+      (call-interactively command))
+    nil))
+#+end_src
 
 * Module Initialization
 

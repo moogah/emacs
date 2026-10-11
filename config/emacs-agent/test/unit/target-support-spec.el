@@ -8,7 +8,6 @@
 ;; that window, and their effect is read back through `jf/frame-state', as
 ;; a client would read it.  The headless-daemon scenarios run the same
 ;; functions through the wrapper in behavioral/bare-target-spec.el.
-;; Pending until config/emacs-agent/target-support.org exists.
 
 ;;; Code:
 
@@ -29,7 +28,10 @@
   (insert (if (called-interactively-p 'any) "interactive" "direct")))
 
 (defmacro target-support-spec--in-shown-buffer (contents &rest body)
-  "Run BODY with a fresh buffer holding CONTENTS shown in the selected window."
+  "Run BODY with a fresh buffer holding CONTENTS shown in the selected window.
+The buffer is in Emacs state, as on a bare -Q target: the test process
+runs evil-mode, whose normal state would read the keys `jf/send-keys'
+sends as commands."
   (declare (indent 1))
   `(let ((saved (current-window-configuration))
          (buffer (generate-new-buffer "*emacs-agent-test target*")))
@@ -37,6 +39,8 @@
          (progn
            (delete-other-windows)
            (switch-to-buffer buffer)
+           (when (fboundp 'evil-local-mode)
+             (evil-local-mode -1))
            (insert ,contents)
            ,@body)
        (set-window-configuration saved)
@@ -68,14 +72,14 @@
                           (plist-get state :messages))
                 :to-be t))))
 
-  (xit "truncates contents over jf/frame-state-max-chars and says so (Scenario: frame-state-observation § Large buffer content is truncated with an indicator)"
+  (it "truncates contents over jf/frame-state-max-chars and says so (Scenario: frame-state-observation § Large buffer content is truncated with an indicator)"
     (target-support-spec--in-shown-buffer (make-string 1000 ?x)
       (let* ((jf/frame-state-max-chars 100)
              (buffer (plist-get (target-support-spec--state) :buffer)))
         (expect (<= (length (plist-get buffer :contents)) 100) :to-be t)
         (expect (plist-get buffer :truncated) :to-be t))))
 
-  (xit "loads into emacs -Q with nothing else and reports state there (seam/target-support)"
+  (it "loads into emacs -Q with nothing else and reports state there (seam/target-support)"
     (with-temp-buffer
       (let ((exit (call-process (emacs-agent-test-emacs) nil t nil
                                 "-Q" "--batch" "-l" target-support-spec--file
@@ -87,20 +91,20 @@
 
 (describe "The control helpers (seam/target-support)"
 
-  (xit "inserts a string literally into the current buffer, seen by jf/frame-state (Scenario: emacs-control-tools § Type literal text into the current buffer)"
+  (it "inserts a string literally into the current buffer, seen by jf/frame-state (Scenario: emacs-control-tools § Type literal text into the current buffer)"
     (let ((text "a\tb (C-x C-c) \"q\" \\n é"))
       (target-support-spec--in-shown-buffer ""
         (jf/type-text text)
         (expect (plist-get (plist-get (target-support-spec--state) :buffer) :contents)
                 :to-equal text))))
 
-  (xit "executes a kbd sequence as if typed, seen by jf/frame-state (Scenario: emacs-control-tools § Send a key sequence in kbd notation)"
+  (it "executes a kbd sequence as if typed, seen by jf/frame-state (Scenario: emacs-control-tools § Send a key sequence in kbd notation)"
     (target-support-spec--in-shown-buffer ""
       (jf/send-keys "a b C-a x")
       (expect (plist-get (plist-get (target-support-spec--state) :buffer) :contents)
               :to-equal "xab")))
 
-  (xit "runs a named command interactively, seen by jf/frame-state (Scenario: emacs-control-tools § Run a named interactive command)"
+  (it "runs a named command interactively, seen by jf/frame-state (Scenario: emacs-control-tools § Run a named interactive command)"
     (target-support-spec--in-shown-buffer ""
       (jf/run-command "target-support-spec--command")
       (expect (plist-get (plist-get (target-support-spec--state) :buffer) :contents)
