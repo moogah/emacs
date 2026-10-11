@@ -79,6 +79,16 @@ sends as commands."
         (expect (<= (length (plist-get buffer :contents)) 100) :to-be t)
         (expect (plist-get buffer :truncated) :to-be t))))
 
+  (it "returns a multibyte string carrying non-ASCII buffer text as characters (seam/target-support)"
+    ;; `json-parse-string' also accepts unibyte UTF-8, so the reply string
+    ;; itself is tested: unibyte, emacsclient prints ‘ as \342\200\230.
+    (target-support-spec--in-shown-buffer "é ‘quoted’ →"
+      (let ((state (jf/frame-state)))
+        (expect (multibyte-string-p state) :to-be t)
+        (expect (string-search "é ‘quoted’ →" state) :not :to-be nil)
+        (expect (plist-get (plist-get (target-support-spec--state) :buffer) :contents)
+                :to-equal "é ‘quoted’ →"))))
+
   (it "loads into emacs -Q with nothing else and reports state there (seam/target-support)"
     (with-temp-buffer
       (let ((exit (call-process (emacs-agent-test-emacs) nil t nil
