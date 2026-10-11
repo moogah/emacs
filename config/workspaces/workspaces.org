@@ -127,6 +127,11 @@ inherits the package's own ordering guarantees.  It reads
 =workspace--registry= / =workspace--current-name= (=tabs=) and calls
 =workspace-restore= (=persistence=), so it loads after both.
 
+=agent-tools= is loaded the same way, last: it holds the gptel tools
+=workspace_add_layout= / =workspace_remove_layout=, which register only
+once gptel loads (=with-eval-after-load 'gptel=), since workspaces loads
+before gptel.
+
 #+begin_src emacs-lisp
 (jf/load-module (expand-file-name "config/workspaces/data-model.el"        jf/emacs-dir))
 (jf/load-module (expand-file-name "config/workspaces/integrations.el"      jf/emacs-dir))
@@ -151,6 +156,12 @@ inherits the package's own ordering guarantees.  It reads
 ;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
 ;; (integrations), so it loads last.
 (jf/load-module (expand-file-name "config/workspaces/workspaces-transient.el" jf/emacs-dir))
+;; gptel tools workspace_add_layout / workspace_remove_layout: call the
+;; programmatic layout API (layouts.el) and `workspace-for-directory' (this
+;; file) at run time only.  Droppable: gptel is a soft dependency and
+;; registration is gated behind `with-eval-after-load 'gptel', so removing
+;; this one line leaves workspaces fully functional.
+(jf/load-module (expand-file-name "config/workspaces/agent-tools.el"       jf/emacs-dir))
 #+end_src
 
 * Re-anchor command

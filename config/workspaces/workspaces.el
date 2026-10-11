@@ -65,6 +65,12 @@ The explicit `workspace-save' command never consults this list."
 ;; (tabs), `workspace--broken-p' (data-model), and `workspace--integrations'
 ;; (integrations), so it loads last.
 (jf/load-module (expand-file-name "config/workspaces/workspaces-transient.el" jf/emacs-dir))
+;; gptel tools workspace_add_layout / workspace_remove_layout: call the
+;; programmatic layout API (layouts.el) and `workspace-for-directory' (this
+;; file) at run time only.  Droppable: gptel is a soft dependency and
+;; registration is gated behind `with-eval-after-load 'gptel', so removing
+;; this one line leaves workspaces fully functional.
+(jf/load-module (expand-file-name "config/workspaces/agent-tools.el"       jf/emacs-dir))
 
 (defun workspace-re-anchor (name new-home)
   "Point broken workspace NAME at NEW-HOME on the filesystem.

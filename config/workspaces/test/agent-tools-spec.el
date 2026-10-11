@@ -12,10 +12,6 @@
 ;; name, their arguments laid out in the order of the tool's `:args', JSON
 ;; arrays as vectors and objects as plists, and an error signalled by the
 ;; function turned into the text the model receives.
-;;
-;; Pending (`xit') until config/workspaces/agent-tools.el exists; it is
-;; loaded below only when present.  The hooks use only what HEAD defines,
-;; because buttercup runs the hooks of a pending spec.
 
 (require 'buttercup)
 (require 'cl-lib)
@@ -49,8 +45,7 @@
   (load (expand-file-name "../persistence.el"       dir))
   (load (expand-file-name "../workspaces.el"        dir))
   (load (expand-file-name "portable-bookmarks-fixtures.el" dir))
-  ;; Introduced by the change; absent at HEAD.
-  (load (expand-file-name "../agent-tools.el" dir) t))
+  (load (expand-file-name "../agent-tools.el" dir)))
 
 (defvar agent-tools-spec--saved-state-override nil
   "`workspace-state-directory-override' as it was before the spec.")
@@ -129,7 +124,7 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
   (before-each (agent-tools-spec--setup))
   (after-each (agent-tools-spec--teardown))
 
-  (xit "stores an agent recipe with absolute paths and visits neither file (Scenario: workspaces § Agent adds a demonstration layout)"
+  (it "stores an agent recipe with absolute paths and visits neither file (Scenario: workspaces § Agent adds a demonstration layout)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
            (a (workspace-bookmark-fixtures-write-file
                home "config/a.org" (agent-tools-spec--lines 60)))
@@ -154,7 +149,7 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
       (expect (workspace-bookmark-fixtures-visits-p design) :to-be nil)
       (expect (seq-difference (buffer-list) buffers) :to-equal nil)))
 
-  (xit "stores a nested split with the same nesting (Scenario: workspaces § Agent adds a nested layout)"
+  (it "stores a nested split with the same nesting (Scenario: workspaces § Agent adds a nested layout)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
            (ask (workspace-bookmark-fixtures-write-file home "ask.org"))
            (scaffold (workspace-bookmark-fixtures-write-file
@@ -175,7 +170,7 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
                                                   :panes ((:file ,scaffold :line 157)
                                                           (:file ,design))))))))
 
-  (xit "adds to the workspace whose home owns the given directory (Scenario: workspaces § Agent addresses the workspace by directory)"
+  (it "adds to the workspace whose home owns the given directory (Scenario: workspaces § Agent addresses the workspace by directory)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "emacs-mcp"))
            (repo (file-name-as-directory (expand-file-name "emacs" home)))
            (file (workspace-bookmark-fixtures-write-file repo "init.org")))
@@ -188,7 +183,7 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
         (expect (agent-tools-spec--layout "emacs-mcp" "demo") :not :to-be nil)
         (expect (agent-tools-spec--layout "other" "demo") :to-be nil))))
 
-  (xit "reports a missing file by name and adds nothing (Scenario: workspaces § Invalid file is reported)"
+  (it "reports a missing file by name and adds nothing (Scenario: workspaces § Invalid file is reported)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
            (entry nil))
       (workspace-bookmark-fixtures-write-file home "design.md")
@@ -203,7 +198,7 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
         (expect (agent-tools-spec--layout "code" "demo") :to-be nil)
         (expect (gethash "code" workspace--registry) :to-equal entry))))
 
-  (xit "reports that a layout belongs to the user and leaves it as it was (Scenario: workspaces § Refusal is reported to the agent)"
+  (it "reports that a layout belongs to the user and leaves it as it was (Scenario: workspaces § Refusal is reported to the agent)"
     (let ((home (workspace-bookmark-fixtures-make-workspace "code")))
       (workspace-bookmark-fixtures-write-file home "design.md")
       ;; A layout with no metadata is the user's (seam/layout-metadata).
@@ -225,7 +220,7 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
   (before-each (agent-tools-spec--setup))
   (after-each (agent-tools-spec--teardown))
 
-  (xit "removes an agent layout that is not on screen and reports success (Scenario: workspaces § Agent removes its ask layout)"
+  (it "removes an agent layout that is not on screen and reports success (Scenario: workspaces § Agent removes its ask layout)"
     (let ((home (workspace-bookmark-fixtures-make-workspace "code")))
       (workspace-bookmark-fixtures-write-file home "ask.org")
       (expect (car (agent-tools-spec--call
@@ -242,14 +237,14 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
 
 (describe "Registering the tools (seam/agent-tools)"
 
-  (xit "registers both tools when gptel is loaded after the workspaces package (Scenario: workspaces § Tools are registered when gptel loads after workspaces)"
+  (it "registers both tools when gptel is loaded after the workspaces package (Scenario: workspaces § Tools are registered when gptel loads after workspaces)"
     (let ((report (agent-tools-spec--child-report)))
       (expect (plist-get report :exit) :to-equal 0)
       (expect (plist-get report :output) :to-match "^gptel-before=nil$")
       (expect (plist-get report :output) :to-match "^workspace_add_layout=t$")
       (expect (plist-get report :output) :to-match "^workspace_remove_layout=t$")))
 
-  (xit "registers both tools in the `workspaces' category when gptel was loaded first (seam/agent-tools)"
+  (it "registers both tools in the `workspaces' category when gptel was loaded first (seam/agent-tools)"
     ;; The harness loads gptel through init.el; agent-tools.el was loaded
     ;; after it, above.
     (dolist (name '("workspace_add_layout" "workspace_remove_layout"))
