@@ -51,7 +51,7 @@
 
 (describe "The agent presets (seam/agent-presets)"
 
-  (xit "registers emacs-agent-read and emacs-agent-write with the initial tools (seam/agent-presets)"
+  (it "registers emacs-agent-read and emacs-agent-write with the initial tools (seam/agent-presets)"
     (expect (presets-manifest-spec--sorted
              (jf/agent-preset-tool-names 'emacs-agent-read))
             :to-equal (presets-manifest-spec--sorted presets-manifest-spec--read-tools))
@@ -59,14 +59,14 @@
              (jf/agent-preset-tool-names 'emacs-agent-write))
             :to-equal (presets-manifest-spec--sorted presets-manifest-spec--write-tools)))
 
-  (xit "maps the tier call to the read preset and call-write to both, and nothing else (seam/agent-presets)"
+  (it "maps the tier call to the read preset and call-write to both, and nothing else (seam/agent-presets)"
     (expect (jf/agent--tier-presets "call") :to-equal '(emacs-agent-read))
     (expect (jf/agent--tier-presets "call-write")
             :to-equal '(emacs-agent-read emacs-agent-write))
     (dolist (other '("eval" "read" "write" ""))
       (expect (jf/agent--tier-presets other) :to-be nil)))
 
-  (xit "answers read, write or nil for a tool's manifest tier (seam/agent-presets)"
+  (it "answers read, write or nil for a tool's manifest tier (seam/agent-presets)"
     (expect (jf/agent-tool-tier "org_graph_query") :to-equal "read")
     (expect (jf/agent-tool-tier "org_graph_write_node") :to-equal "write")
     (expect (jf/agent-tool-tier "create_file") :to-be nil)))
@@ -82,7 +82,7 @@
               :to-equal (cons name 1))
       (expect (gptel-tool-name (jf/agent--registry-lookup name)) :to-equal name)))
 
-  (xit "answers nil for a name nothing registered, without signalling (seam/registry-access)"
+  (it "answers nil for a name nothing registered, without signalling (seam/registry-access)"
     (expect (jf/agent--registry-lookup "emacs_agent_test_no_such_tool") :to-be nil)))
 
 
