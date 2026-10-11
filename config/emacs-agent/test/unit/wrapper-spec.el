@@ -52,7 +52,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
 
 (describe "bin/emacs-agent: naming the target (seam/wrapper-cli)"
 
-  (xit "delivers a live call to the default server socket by its full path (Scenario: agent-target-policy § Live target is named explicitly)"
+  (it "delivers a live call to the default server socket by its full path (Scenario: agent-target-policy § Live target is named explicitly)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (let ((result (wrapper-spec--with-reply
@@ -67,7 +67,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
           (expect (emacs-agent-test-sent-form (car calls))
                   :to-equal '(jf/agent-call "call" "org_graph_query" "{}"))))))
 
-  (xit "refuses a call that names no target, and runs no emacsclient (Scenario: agent-target-policy § Missing target is refused)"
+  (it "refuses a call that names no target, and runs no emacsclient (Scenario: agent-target-policy § Missing target is refused)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (dolist (args '(()
@@ -83,7 +83,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                   :to-equal (cons args t))))
       (expect (wrapper-spec--nothing-started-p) :to-be t)))
 
-  (xit "fails with \"no live session is running\" when the default socket is absent, using no other socket (Scenario: agent-target-policy § Live session not running)"
+  (it "fails with \"no live session is running\" when the default socket is absent, using no other socket (Scenario: agent-target-policy § Live session not running)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket "smoke-1")
       (dolist (args '(("live" "tools")
@@ -94,7 +94,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
           (expect (plist-get result :stderr) :to-match "no live session is running")))
       (expect (emacs-agent-test-fake-calls "client") :to-be nil)))
 
-  (xit "refuses to start or address a target named server, starting nothing (Scenario: isolated-emacs-targets § Live socket name is refused)"
+  (it "refuses to start or address a target named server, starting nothing (Scenario: isolated-emacs-targets § Live socket name is refused)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (dolist (args `(("target" "start" "server" "--bare")
@@ -108,7 +108,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                   :to-equal (cons args t))))
       (expect (wrapper-spec--nothing-started-p) :to-be t)))
 
-  (xit "refuses start, list and stop as target names (seam/wrapper-cli)"
+  (it "refuses start, list and stop as target names (seam/wrapper-cli)"
     (wrapper-spec--scope
       (dolist (name '("start" "list" "stop"))
         (expect (wrapper-spec--refused-p
@@ -116,7 +116,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                 :to-be t))
       (expect (wrapper-spec--nothing-started-p) :to-be t)))
 
-  (xit "fails a call to a target that is not running, at once and without emacsclient (Scenario: isolated-emacs-targets § Detect a dead target)"
+  (it "fails a call to a target that is not running, at once and without emacsclient (Scenario: isolated-emacs-targets § Detect a dead target)"
     (wrapper-spec--scope
       (let* ((start (float-time))
              (result (emacs-agent-test-wrapper-run "target" "ghost" "eval" "(+ 1 1)")))
@@ -129,7 +129,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
 
 (describe "bin/emacs-agent: tiers and what reaches Emacs (seam/wrapper-cli)"
 
-  (xit "passes -s with a socket path on every emacsclient invocation (Scenario: agent-target-policy § Wrapper never omits the socket)"
+  (it "passes -s with a socket path on every emacsclient invocation (Scenario: agent-target-policy § Wrapper never omits the socket)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (emacs-agent-test-stand-in-socket "smoke-1")
@@ -154,7 +154,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                                     (string-prefix-p emacs-agent-test-socket-dir socket)))
                     :to-equal (cons argv t)))))))
 
-  (xit "exposes call, call-write and eval as distinct leading words and never sends a raw form for a call (Scenario: agent-target-policy § Tiers are distinguishable by permission rules)"
+  (it "exposes call, call-write and eval as distinct leading words and never sends a raw form for a call (Scenario: agent-target-policy § Tiers are distinguishable by permission rules)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (wrapper-spec--with-reply
@@ -178,7 +178,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                 :to-be t))
       (expect (length (emacs-agent-test-fake-calls "client")) :to-equal 4)))
 
-  (xit "prints the target's manifest as JSON for tools (Scenario: agent-target-policy § Listing tools through the wrapper)"
+  (it "prints the target's manifest as JSON for tools (Scenario: agent-target-policy § Listing tools through the wrapper)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (let ((result (wrapper-spec--with-reply
@@ -192,7 +192,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                                      (car (emacs-agent-test-fake-calls "client")))))
                 :not :to-be nil))))
 
-  (xit "carries JSON with quotes, backslashes, newlines and non-ASCII to Emacs unchanged (seam/wrapper-cli)"
+  (it "carries JSON with quotes, backslashes, newlines and non-ASCII to Emacs unchanged (seam/wrapper-cli)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (let ((json "{\"body\":\"line 1\nline \\\"2\\\" \\\\ é\",\"tags\":[\"a b\"]}"))
@@ -204,7 +204,7 @@ The fake prints TEXT as emacsclient prints a string value: `prin1'ed."
                         (car (emacs-agent-test-fake-calls "client"))))
                 :to-equal json))))
 
-  (xit "exits 0 on a success envelope and 1 on a failure envelope, printing it decoded (seam/wrapper-cli)"
+  (it "exits 0 on a success envelope and 1 on a failure envelope, printing it decoded (seam/wrapper-cli)"
     (wrapper-spec--scope
       (emacs-agent-test-stand-in-socket)
       (let ((ok (wrapper-spec--with-reply
