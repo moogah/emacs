@@ -203,7 +203,28 @@ encode each window as a `leaf' node."
 
   (it "errors when no saved workspace by that name exists"
     (save-restore-spec--with-state-file
-      (expect (workspace-restore "nonexistent") :to-throw 'user-error))))
+      (expect (workspace-restore "nonexistent") :to-throw 'user-error)))
+
+  (it "applies :working-state, not :saved-state, after a restart (Scenario: workspaces § Restart restores working-state, not saved-state, when both present)"
+    (save-restore-spec--with-state-file
+      (workspace-new "code")
+      (delete-other-windows)
+      (workspace-save)                  ; S: one window
+      (split-window-right)
+      (split-window-below)
+      (workspace--autosave-current-layout :working-state) ; W: three windows
+      (workspace--flush-state)
+      ;; Restart: the tab is gone and the registry is rebuilt from disk.
+      (tab-bar-select-tab 1)
+      (tab-bar-close-tab (workspace--tab-index-for "code"))
+      (clrhash workspace--registry)
+      (workspace--restore)
+      (expect (gethash "code" workspace--registry) :not :to-be nil)
+      (expect (workspace--tab-index-for "code") :to-be nil)
+      (workspace-restore "code")
+      (save-restore-spec--drain-timers)
+      (expect (workspace--current-name) :to-equal "code")
+      (expect (length (window-list)) :to-equal 3))))
 
 (provide 'save-restore-spec)
 ;;; save-restore-spec.el ends here

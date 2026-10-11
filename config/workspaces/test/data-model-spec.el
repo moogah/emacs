@@ -225,5 +225,61 @@
       (expect (workspace-buffer-indirect-p round-tripped) :to-be t)
       (expect (workspace-buffer-name round-tripped) :to-equal "foo"))))
 
+;;; Layout metadata and the recipe predicate (change
+;;; workspaces-programmatic-layouts, design.md § Seams).  Pending (`xit')
+;;; until data-model.el defines the accessors they drive.
+
+(describe "Layout metadata in :etc (seam/layout-metadata)"
+
+  (xit "reports origin `user' for a layout with no metadata (Scenario: workspaces § Pre-existing layouts count as the user's)"
+    ;; A layout read from a version-3 file has `:etc' nil, or entries
+    ;; another extension wrote; neither carries an origin.
+    (let ((bare (workspace--layout-make 'fs))
+          (foreign (plist-put (workspace--layout-make 'fs) :etc
+                              (list (cons 'other 1)))))
+      (expect (workspace--layout-origin bare) :to-be 'user)
+      (expect (workspace--layout-origin foreign) :to-be 'user)
+      (expect (workspace--layout-description bare) :to-be nil)
+      (expect (workspace--layout-source foreign) :to-be nil)))
+
+  (xit "writes metadata into a new layout, keeping other :etc entries (seam/layout-metadata)"
+    (let* ((layout (plist-put (workspace--layout-make 'fs) :etc
+                              (list (cons 'other 1))))
+           (before (copy-tree layout))
+           (tagged (workspace--layout-with-metadata
+                    layout :origin 'agent :description "Ask a1" :source "a1")))
+      ;; Non-destructive: the input layout, `:etc' included, is untouched.
+      (expect layout :to-equal before)
+      (expect (workspace--layout-origin tagged) :to-be 'agent)
+      (expect (workspace--layout-description tagged) :to-equal "Ask a1")
+      (expect (workspace--layout-source tagged) :to-equal "a1")
+      (expect (alist-get 'other (plist-get tagged :etc)) :to-equal 1)
+      (expect (workspace--layout-saved-state tagged) :to-equal 'fs))))
+
+(describe "workspace--recipe-p (seam/recipe-shape)"
+
+  (xit "tells a recipe from a captured window-state and rejects a malformed tree (seam/recipe-shape)"
+    (expect (workspace--recipe-p
+             '(:recipe :split columns
+                       :panes ((:file "/w/ask.org")
+                               (:split rows
+                                       :panes ((:file "/w/scaffold.org" :line 157)
+                                               (:file "/w/design.md"))))))
+            :to-be-truthy)
+    ;; A captured window-state, as `window-state-get' returns it.
+    (expect (workspace--recipe-p
+             '((min-height . 4) (min-width . 10) leaf (buffer "x")))
+            :to-be nil)
+    (expect (workspace--recipe-p nil) :to-be nil)
+    ;; Unknown split, no panes, a non-positive line, a relative path.
+    (expect (workspace--recipe-p '(:recipe :split diagonal :panes ((:file "/w/a.org"))))
+            :to-be nil)
+    (expect (workspace--recipe-p '(:recipe :split rows :panes ()))
+            :to-be nil)
+    (expect (workspace--recipe-p '(:recipe :split rows :panes ((:file "/w/a.org" :line 0))))
+            :to-be nil)
+    (expect (workspace--recipe-p '(:recipe :split rows :panes ((:file "a.org"))))
+            :to-be nil)))
+
 (provide 'data-model-spec)
 ;;; data-model-spec.el ends here
