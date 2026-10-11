@@ -66,11 +66,14 @@ names an existing file which is not a directory.  Changes nothing."
      (directory
       (unless (file-name-absolute-p directory)
         (user-error "Directory \"%s\" is not absolute" directory))
-      (when (and (file-exists-p directory) (not (file-directory-p directory)))
-        (user-error "Directory \"%s\" is not a directory" directory))
-      (or (workspace-for-directory directory)
-          (user-error "No workspace home contains directory \"%s\""
-                      directory)))
+      ;; The owner lookup comes first: it never answers a remote home and
+      ;; never contacts one, so the file test below only sees local paths.
+      (let ((owner (or (workspace-for-directory directory)
+                       (user-error "No workspace home contains directory \"%s\""
+                                   directory))))
+        (when (and (file-exists-p directory) (not (file-directory-p directory)))
+          (user-error "Directory \"%s\" is not a directory" directory))
+        owner))
      (t
       (user-error "Give workspace (a workspace name) or directory \
 \(a directory inside a workspace home)")))))

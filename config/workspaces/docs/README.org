@@ -403,7 +403,11 @@ pass the message on unchanged:
 | R2: the user's layout         | =Layout "L" in workspace "W" belongs to the user; a program cannot replace or remove it (to add a layout, use another name)= |
 | R3: on screen                 | =Layout "L" in workspace "W" is on screen; it cannot be replaced or removed while the user is looking at it=        |
 | Unregistered workspace        | =No workspace named "W"=                                                                                           |
-| Removing a layout W lacks     | =No layout named "L" in workspace "W"=                                                                             |
+
+Removing a layout =W= does not have is not a refusal: it succeeds,
+changes nothing and writes nothing, so an agent's cleanup can run again
+safely (=workspace-delete-layout=, the interactive command, still
+reports an unknown name).
 
 * Agent tools
 
@@ -430,9 +434,10 @@ nothing else.
   ={"split": …, "panes": […]}=, to any depth.  Panes in one split share
   its space evenly.  The tool stores this as a recipe layout with origin
   =agent=, =description= and =source= as its metadata.
-- *Paths.*  A relative =file= is taken relative to the workspace's home,
-  whether the workspace was named or found by =directory=; an absolute
-  one is kept, and a =~= is expanded.  Every file must exist and not be
+- *Paths.*  A relative =file= is taken relative to =directory= when the
+  workspace was found by one, and relative to the workspace's home when
+  it was named; an absolute one is kept, and a =~= is expanded.  A
+  =directory= that names a file is refused.  Every file must exist and not be
   a directory.  Nothing is opened: the files are visited only when the
   user switches to the layout.
 - *Errors.*  Everything is checked before anything is written.  A bad
