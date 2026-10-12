@@ -51,29 +51,28 @@
 (defvar org-graph-vault-root "~/org/")
 (defvar org-graph-watch-workspace-homes t)
 
-;; `workspace--registry' lives in `workspace-tabs' (not loaded here).
-;; Declare it special so specs can dynamically `let'-bind a fixture
-;; registry that the discovery helper reads via `gethash'.
-(defvar workspace--registry nil)
-
 (defmacro org-graph-test--with-workspaces (homes &rest body)
-  "Run BODY with the `workspaces' feature and a fixture registry present.
-HOMES is a list of absolute home-directory strings.  Installs a fixture
-`workspace--registry' plus scoped stubs for the registry accessors so
+  "Run BODY with the `workspaces' feature and fixture workspaces present.
+HOMES is a list of absolute home-directory strings, each also the name
+of its workspace.  Installs scoped stubs for the public read API
+(`workspace-names' / `workspace-get') and the data accessors so
 `org-graph--active-workspace-homes' reads HOMES.  `sessions/' is derived
 as <HOME>/sessions/ to mirror `workspace--sessions-dir'."
   (declare (indent 1) (debug (form body)))
-  `(let ((workspace--registry (make-hash-table :test 'equal))
-         (features (cons 'workspaces features)))
-     (dolist (h ,homes)
-       (puthash h (list :name h :home h) workspace--registry))
-     (cl-letf (((symbol-function 'workspace--registered-names)
-                (lambda () (copy-sequence ,homes)))
-               ((symbol-function 'workspace--home)
-                (lambda (ws) (plist-get ws :home)))
-               ((symbol-function 'workspace--sessions-dir)
-                (lambda (home) (expand-file-name "sessions" home))))
-       ,@body)))
+  (let ((homes-var (make-symbol "homes")))
+    `(let ((features (cons 'workspaces features))
+           (,homes-var ,homes))
+       (cl-letf (((symbol-function 'workspace-names)
+                  (lambda () (copy-sequence ,homes-var)))
+                 ((symbol-function 'workspace-get)
+                  (lambda (name)
+                    (when (member name ,homes-var)
+                      (list :name name :home name))))
+                 ((symbol-function 'workspace--home)
+                  (lambda (ws) (plist-get ws :home)))
+                 ((symbol-function 'workspace--sessions-dir)
+                  (lambda (home) (expand-file-name "sessions" home))))
+         ,@body))))
 
 (describe "org-graph/index-roots"
 

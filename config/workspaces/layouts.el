@@ -98,8 +98,10 @@ prefix before it preserved."
 (defconst workspace--valid-reincarnation-steps
   '(bookmark filename name error-buffer)
   "Closed, ordered set of reincarnation-chain step symbols.
-The order is load-bearing in production via the `or' chain in
-`workspace--deserialize-buffer'.  Adding a fifth member is a
+The order is load-bearing in production via `workspace--deserialize-buffer':
+a buffer from step 1 wins; when step 1 FAILED, steps 2, 3 and 4 are
+tried in this order; when step 1 DECLINED (the gate), steps 2 and 3
+are skipped and step 4 carries the reason.  Adding a fifth member is a
 register-level change (see register/vocabulary/buffer-
 reincarnation-fallback-chain in =interfaces.org=), not a
 code-level addition.")
@@ -154,37 +156,90 @@ fallback."
        :narrowed-p (buffer-narrowed-p)
        :indirect-p (and (buffer-base-buffer buffer) t)))))
 
-(defun workspace--error-buffer (ws-buffer)
+(defun workspace--error-buffer (ws-buffer &optional declined)
   "Return a live, named buffer explaining that WS-BUFFER could not be reincarnated.
-Modelled on `activities--error-buffer' (activities.el:855-862)."
-  (let* ((orig-name (or (workspace-buffer-name ws-buffer) "<unknown>"))
-         (name (format "*workspace-restore: %s*" orig-name))
+Modelled on `activities--error-buffer' (activities.el:855-862).
+
+DECLINED, when non-nil, is the message with which the buffer's
+bookmark handler declined to restore it; the text then says so and
+says that the saved filename was deliberately NOT opened, instead of
+listing the four steps as having failed.
+
+A WS-BUFFER whose `etc' alist carries `missing-file' is a recipe pane
+whose file did not exist when the layout was applied (see
+`workspace--recipe->window-state'); it has no name, and the buffer is
+named after, and explains, the missing path."
+  (let* ((missing (alist-get 'missing-file (workspace-buffer-etc ws-buffer)))
+         (orig-name (or (workspace-buffer-name ws-buffer) "<unknown>"))
+         (name (format "*workspace-restore: %s*"
+                       (if missing (format "%s (missing)" missing) orig-name)))
          (buf (get-buffer-create name)))
     (with-current-buffer buf
       (let ((inhibit-read-only t))
         (erase-buffer)
-        (insert
-         "Workspaces could not reincarnate this buffer.\n\n"
-         (format "Original buffer name : %s\n" orig-name)
-         (format "Original filename    : %s\n"
-                 (or (workspace-buffer-filename ws-buffer) "<none>"))
-         (format "Bookmark record      : %s\n\n"
-                 (if (workspace-buffer-bookmark ws-buffer)
-                     "present (failed to restore)"
-                   "absent"))
-         "All four fallback steps failed:\n"
-         "  1. bookmark restore\n"
-         "  2. find-file-noselect on filename\n"
-         "  3. get-buffer by name\n"
-         "  4. (this buffer is step 4)\n\n"
-         "It is likely that the buffer's major mode does not support\n"
-         "the bookmark system, or the underlying resource (file, repo,\n"
-         "process) is no longer available.\n"))
+        (if missing
+            (insert
+             "Workspaces could not open a file this layout names.\n\n"
+             (format "Missing file : %s\n\n" missing)
+             "The layout's recipe names this file, but it does not exist\n"
+             "(it may have been moved, renamed or deleted).  The layout's\n"
+             "other panes were built as usual, and nothing was created at\n"
+             "this path.\n")
+          (insert
+           "Workspaces could not reincarnate this buffer.\n\n"
+           (format "Original buffer name : %s\n" orig-name)
+           (format "Original filename    : %s\n"
+                   (or (workspace-buffer-filename ws-buffer) "<none>"))
+           (format "Bookmark record      : %s\n\n"
+                   (cond (declined "present (declined to restore)")
+                         ((workspace-buffer-bookmark ws-buffer)
+                          "present (failed to restore)")
+                         (t "absent"))))
+          (if declined
+              (insert
+               "The buffer's bookmark handler declined to restore it:\n\n"
+               (format "  %s\n\n" declined)
+               "The saved filename was NOT opened in its place: it is the\n"
+               "path this buffer had when the layout was captured, and the\n"
+               "handler has just said that path is not the right one here.\n"
+               "Open the file you want by hand, then save the layout again.\n")
+            (insert
+             "All four fallback steps failed:\n"
+             "  1. bookmark restore\n"
+             "  2. find-file-noselect on filename\n"
+             "  3. get-buffer by name\n"
+             "  4. (this buffer is step 4)\n\n"
+             "It is likely that the buffer's major mode does not support\n"
+             "the bookmark system, or the underlying resource (file, repo,\n"
+             "process) is no longer available.\n")))
+        (goto-char (point-min)))
       (visual-line-mode 1))
     buf))
 
+(defvar workspace--restoring-layout-leaf nil
+  "Non-nil while a layout leaf is being restored; consumers must not prompt.
+Bound by `workspace--bookmark-buffer' around the leaf's bookmark jump,
+and nil everywhere else.  It suppresses nothing by itself: stock
+handlers still ask whatever they ask on any visit.  A consumer whose
+handler would put a question of its own for every leaf of a layout
+reads it (guarded by `boundp') and signals `workspace-restore-declined'
+instead, which the reincarnation chain treats as a decline (see
+`workspace--deserialize-buffer').")
+
 (defun workspace--bookmark-buffer (ws-buffer)
-  "Return the buffer produced by jumping to WS-BUFFER's bookmark record, or nil.
+  "Return the buffer produced by jumping to WS-BUFFER's bookmark record.
+Returns the buffer on success, nil when the jump FAILED, or
+\(declined . MESSAGE) when the bookmark handler DECLINED to restore
+the buffer by signalling `workspace-restore-declined'; MESSAGE is the
+condition's datum.  Any other error, a plain `user-error' included,
+and a jump that returns without moving off the probe buffer, is a
+failure.  `quit' propagates.
+
+The jump runs with `workspace--restoring-layout-leaf' bound non-nil,
+so a consumer can tell a layout leaf from an interactive jump; nothing
+else about the handler's environment is changed, and a handler that
+asks the user is asked as on any other visit.
+
 Uses a temp-buffer probe to detect whether `bookmark-jump' actually
 moved off the temp buffer — `bookmark-handle-bookmark' swallows the
 \"file no longer exists\" error and returns nil, so the only reliable
@@ -200,37 +255,100 @@ workaround a failure to read here.  See bug#56643."
     (when bookmark
       (with-temp-buffer
         (let* ((temp-buffer (current-buffer))
+               (declined nil)
                (jumped-to-buffer
                 (save-window-excursion
-                  (condition-case _err
-                      (bookmark-jump bookmark)
-                    ;; bug#56643 et al.: read-back failures, missing
-                    ;; handlers, anything else.  Fall through.
-                    (error nil))
+                  (let ((workspace--restoring-layout-leaf t))
+                    (condition-case err
+                        (bookmark-jump bookmark)
+                      ;; The handler declined: a decision for the
+                      ;; user to see, not a failure to fall through.
+                      (workspace-restore-declined
+                       (setq declined
+                             (let ((message (cadr err)))
+                               (if (stringp message)
+                                   message
+                                 (error-message-string err)))))
+                      ;; bug#56643 et al.: read-back failures, missing
+                      ;; handlers, anything else.  Fall through.
+                      (error nil)))
                   (current-buffer))))
-          (unless (eq temp-buffer jumped-to-buffer)
-            jumped-to-buffer))))))
+          (cond
+           (declined (cons 'declined declined))
+           ((not (eq temp-buffer jumped-to-buffer))
+            jumped-to-buffer)))))))
+
+(defvar workspace--reincarnation-declines nil
+  "Collector for the bookmark declines of one layout restore, or nil.
+When non-nil it is a one-element list whose car accumulates
+\(NAME . MESSAGE) pairs, newest first, one per leaf whose bookmark
+handler declined.  `workspace--restore-frameset' binds it around the
+leaf walk and reports the collected declines once; when it is nil
+nothing is collecting and declines are not recorded.")
+
+(defun workspace--note-reincarnation-decline (ws-buffer message)
+  "Record that WS-BUFFER's bookmark declined with MESSAGE, if collecting."
+  (when workspace--reincarnation-declines
+    (push (cons (or (workspace-buffer-name ws-buffer) "<unknown>") message)
+          (car workspace--reincarnation-declines))))
+
+(defun workspace--report-reincarnation-declines (declines)
+  "Report DECLINES, a list of (NAME . MESSAGE) pairs, in ONE message.
+A no-op when DECLINES is nil.  One restore, one message: the user
+sees every leaf that was left on its error buffer and why, without a
+prompt or a message per leaf."
+  (when declines
+    (message "Workspaces: %d buffer%s not restored — the bookmark declined: %s"
+             (length declines)
+             (if (cdr declines) "s" "")
+             (mapconcat (lambda (decline)
+                          (format "%s (%s)" (car decline) (cdr decline)))
+                        (reverse declines)
+                        "; "))))
 
 (defun workspace--deserialize-buffer (ws-buffer)
   "Reincarnate the buffer represented by WS-BUFFER.
 Returns a live buffer.  Walks the four-step fallback chain:
 bookmark → filename → name → error buffer.  Never returns nil; the
-error buffer is the floor."
-  (or
-   ;; 1. Bookmark restore.
-   (and (workspace-buffer-bookmark ws-buffer)
-        (condition-case-unless-debug _err
-            (workspace--bookmark-buffer ws-buffer)
-          (error nil)))
-   ;; 2. Filename fallback.
-   (and (workspace-buffer-filename ws-buffer)
-        (ignore-errors
-          (find-file-noselect (workspace-buffer-filename ws-buffer))))
-   ;; 3. Name fallback.
-   (and (workspace-buffer-name ws-buffer)
-        (get-buffer (workspace-buffer-name ws-buffer)))
-   ;; 4. Error buffer.  Always live.
-   (workspace--error-buffer ws-buffer)))
+error buffer is the floor.
+
+A bookmark handler that DECLINES by signalling
+`workspace-restore-declined' (see `workspace--bookmark-buffer') gates
+the chain: steps 2 and 3 are skipped and the leaf lands on the
+error buffer carrying the handler's reason, and the decline is noted
+for the restore's single report.  The stored filename is the path the
+buffer had when the layout was captured; a handler that has just
+refused to open its bookmark's location must not be second-guessed
+by opening that path anyway.
+
+Step 1 has exactly three answers — a buffer, nil (FAILED) or
+\(declined . MESSAGE) — and the dispatch has an arm for each; any
+other value signals rather than reaching the filename step."
+  (let ((jumped (and (workspace-buffer-bookmark ws-buffer)
+                     (condition-case-unless-debug _err
+                         (workspace--bookmark-buffer ws-buffer)
+                       (error nil)))))
+    (cond
+     ;; 1. Bookmark restore.
+     ((bufferp jumped) jumped)
+     ;; The gate: declined.  Not a fifth step — the floor, with a reason.
+     ((eq (car-safe jumped) 'declined)
+      (workspace--note-reincarnation-decline ws-buffer (cdr jumped))
+      (workspace--error-buffer ws-buffer (cdr jumped)))
+     ;; Step 1 FAILED: the rest of the chain, in order.
+     ((null jumped)
+      (or
+       ;; 2. Filename fallback.
+       (and (workspace-buffer-filename ws-buffer)
+            (ignore-errors
+              (find-file-noselect (workspace-buffer-filename ws-buffer))))
+       ;; 3. Name fallback.
+       (and (workspace-buffer-name ws-buffer)
+            (get-buffer (workspace-buffer-name ws-buffer)))
+       ;; 4. Error buffer.  Always live.
+       (workspace--error-buffer ws-buffer)))
+     ;; Nothing else is an answer step 1 gives; never guess the filename.
+     (t (error "Not a reincarnation step-1 result: %S" jumped)))))
 
 (defun workspace--window-state-serialize (state)
   "Return a fresh window-state like STATE with `workspace-buffer' embedded.
@@ -293,6 +411,144 @@ The deferred restore closure captures the value at scheduling time
 and compares it on fire; a mismatch indicates a newer restore was
 queued and the closure should no-op.")
 
+(defconst workspace--recipe-leaf-buffer-state
+  '((hscroll . 0) (fringes nil nil nil nil) (margins nil)
+    (scroll-bars nil nil t nil nil t nil) (vscroll . 0) (dedicated))
+  "Display state of a recipe leaf's window, in `window-state-get' form.
+What a fresh window has: no scroll, frame-default fringes, margins and
+scroll bars.  `window-state-put' applies each entry unguarded, so every
+one must be present.")
+
+(defun workspace--recipe-pane-workspace-buffer (pane)
+  "Return the `workspace-buffer' record for file PANE, decided now.
+An existing file gets a record with only `:filename'.  A missing one
+gets no filename (the reincarnation chain would visit, so create, it)
+and `(missing-file . PATH)' in `etc', which lands the leaf on
+`workspace--error-buffer'.  A pane's line is carried as `(line . N)'
+in `etc' for `workspace--window-state-place-points'."
+  (let ((path (plist-get pane :file))
+        (line (plist-get pane :line)))
+    (if (file-exists-p path)
+        (make-workspace-buffer :filename path
+                               :etc (and line (list (cons 'line line))))
+      (make-workspace-buffer :etc (list (cons 'missing-file path))))))
+
+(defun workspace--recipe-node (pane normal-height normal-width first last)
+  "Expand recipe PANE into a window-state node and its minimum sizes.
+NORMAL-HEIGHT and NORMAL-WIDTH are the node's share of its parent.
+FIRST non-nil marks the first pane of the whole recipe, whose window
+is selected; LAST non-nil marks the last child of its parent.
+
+Return (NODE . SIZES), SIZES an alist of the node's minimum sizes
+keyed `min-height', `min-width', `min-height-safe' and
+`min-width-safe'."
+  (let ((head (append (and last '((last . t)))
+                      `((normal-height . ,normal-height)
+                        (normal-width . ,normal-width)))))
+    (pcase pane
+      (`(:split ,_dir :panes (,only))
+       (workspace--recipe-node only normal-height normal-width first last))
+      (`(:split ,dir :panes ,panes)
+       (let* ((columns (eq dir 'columns))
+              (share (/ 1.0 (length panes)))
+              (children
+               (cl-loop for child in panes
+                        for index from 0
+                        collect (workspace--recipe-node
+                                 child
+                                 (if columns 1.0 share)
+                                 (if columns share 1.0)
+                                 (and first (= index 0))
+                                 (null (nthcdr (1+ index) panes)))))
+              (combine
+               ;; Children's minimum KEY sizes, summed along the split
+               ;; (ALONG non-nil) or the largest across it.
+               (lambda (key along)
+                 (cons key (apply (if along #'+ #'max)
+                                  (mapcar (lambda (child)
+                                            (alist-get key (cdr child)))
+                                          children))))))
+         (cons (append (list (if columns 'hc 'vc))
+                       head
+                       '((combination-limit))
+                       (mapcar #'car children))
+               (list (funcall combine 'min-height (not columns))
+                     (funcall combine 'min-width columns)
+                     (funcall combine 'min-height-safe (not columns))
+                     (funcall combine 'min-width-safe columns)))))
+      (_
+       (cons `(leaf ,@head
+                    (parameters
+                     (workspace-buffer
+                      . ,(workspace--recipe-pane-workspace-buffer pane)))
+                    (buffer ,(plist-get pane :file)
+                            ,@(and first '((selected . t)))
+                            ,@(copy-tree workspace--recipe-leaf-buffer-state)))
+             `((min-height . ,window-min-height)
+               (min-width . ,window-min-width)
+               (min-height-safe . ,window-safe-min-height)
+               (min-width-safe . ,window-safe-min-width)))))))
+
+(defun workspace--recipe->window-state (recipe)
+  "Return the window-state RECIPE describes, ready for the restore path.
+RECIPE satisfies `workspace--recipe-p'.  The result has the shape of
+`workspace--capture-frameset''s: a header of minimum sizes, then an
+`hc' (`columns') or `vc' (`rows') combination per split with even
+normal sizes, and one leaf per file pane carrying a `workspace-buffer'
+record (see `workspace--recipe-pane-workspace-buffer').  A one-pane
+recipe is a one-window state.  Checks whether each pane's file exists;
+visits none and creates no window."
+  (pcase-let* ((`(,node . ,sizes)
+                (workspace--recipe-node (cdr recipe) 1.0 1.0 t nil))
+               (header (list (cons 'min-height (alist-get 'min-height sizes))
+                             (cons 'min-width (alist-get 'min-width sizes))
+                             (cons 'min-height-ignore
+                                   (alist-get 'min-height-safe sizes))
+                             (cons 'min-width-ignore
+                                   (alist-get 'min-width-safe sizes))
+                             (cons 'min-height-safe
+                                   (alist-get 'min-height-safe sizes))
+                             (cons 'min-width-safe
+                                   (alist-get 'min-width-safe sizes))))
+               (`(,type . ,attrs) node))
+    (append (list header type '(total-width . 0) '(total-height . 0))
+            attrs)))
+
+(defun workspace--window-state-place-points (state)
+  "Return STATE with a window position in each leaf that has none.
+STATE is a deserialized window-state: each leaf's `buffer' entry holds
+a live buffer.  A leaf whose `workspace-buffer' record carries
+`(line . N)' in its `etc', or whose `buffer' entry has no `start',
+gets `point' and `start' from that buffer: point at the beginning of
+line N (counted from the start of the buffer), or the buffer's own
+point when there is no line, and start at the beginning of point's
+line.  Other leaves, every captured one among them, are returned
+unchanged."
+  (workspace--window-state-walk-leaves
+   state
+   (lambda (leaf)
+     (pcase-let* ((`(leaf . ,attrs) leaf)
+                  ((map parameters ('buffer `(,buffer . ,buffer-attrs))) attrs)
+                  ((map workspace-buffer) parameters)
+                  (line (and (workspace-buffer-p workspace-buffer)
+                             (alist-get 'line
+                                        (workspace-buffer-etc workspace-buffer)))))
+       (when (and (buffer-live-p buffer)
+                  (or line (not (assq 'start buffer-attrs))))
+         (pcase-let ((`(,point . ,start)
+                      (with-current-buffer buffer
+                        (save-restriction
+                          (widen)
+                          (save-excursion
+                            (when line
+                              (goto-char (point-min))
+                              (forward-line (1- line)))
+                            (cons (point) (line-beginning-position)))))))
+           (setf (alist-get 'point buffer-attrs) point
+                 (alist-get 'start buffer-attrs) start
+                 (map-elt attrs 'buffer) (cons buffer buffer-attrs))))
+       (cons 'leaf attrs)))))
+
 (defun workspace--capture-frameset ()
   "Return a window-state capturing the selected frame's root window.
 Extends `window-persistent-parameters' with
@@ -313,6 +569,13 @@ across restart via the four-step fallback chain."
 STATE is expected to carry a `workspace-buffer' struct in each
 leaf's `parameters' map (see `workspace--capture-frameset').
 
+STATE may instead be a layout recipe (`workspace--recipe-p'); it is
+first expanded with `workspace--recipe->window-state', and the rest
+of the path is the same.  This is the only place a recipe becomes
+windows.  After the leaves are reincarnated, each recipe leaf gets
+its window position, a pane's line becoming its window's point
+(`workspace--window-state-place-points').
+
 The state is `copy-tree'-ed before mutation so the in-memory
 registry is not affected by buffer-replacement side effects.  The
 `window-state-put' call is deferred via `run-at-time' nil nil to
@@ -325,17 +588,29 @@ pending, the older closure no-ops.  The counter is incremented
 HERE — at the single restore choke point — so every entry path
 (`workspace--apply-saved-layout', `workspace-switch-layout', and
 any future caller of `workspace--restore-frameset') participates
-in the race guard."
+in the race guard.
+
+Leaves whose bookmark handler declined (see
+`workspace--deserialize-buffer') are collected during the walk and
+reported in ONE message here, after the walk and before the deferred
+paint — one restore, one report, no per-leaf prompt."
   ;; Note: only the INNER let binding of `window-persistent-parameters'
   ;; (inside the deferred lambda) is load-bearing — that is the binding
   ;; in scope when `window-state-put' runs.  An earlier draft also
   ;; bound it around `workspace--window-state-deserialize', but that
   ;; deserializer reads the per-leaf `workspace-buffer' struct from the
   ;; saved parameters map; it does not consult the dynamic variable.
-  (let* ((bufferized (workspace--window-state-deserialize
-                      (copy-tree state)))
+  (let* ((state (if (workspace--recipe-p state)
+                    (workspace--recipe->window-state state)
+                  state))
+         (workspace--reincarnation-declines (list nil))
+         (bufferized (workspace--window-state-place-points
+                      (workspace--window-state-deserialize
+                       (copy-tree state))))
          (gen (cl-incf workspace--restore-generation))
          (frame (selected-frame)))
+    (workspace--report-reincarnation-declines
+     (car workspace--reincarnation-declines))
     (run-at-time nil nil
                  (lambda ()
                    (when (= gen workspace--restore-generation)
@@ -379,6 +654,15 @@ to pass a slot triggers `cl-assert' rather than silently defaulting
 to the explicit-save slot.  This is the structural fix for v1 MVP
 gap D8.
 
+Every explicit save — `workspace-save', `workspace-save-layout' and
+`workspace--capture-home-layout' — passes through here with
+`:saved-state', so this is the one place an explicit save takes
+ownership: re-saving a layout whose origin is `agent' makes it the
+user's, keeping its other metadata (`workspace--layout-with-metadata').
+A layout created here keeps :etc nil, which already reads as the
+user's.  The `:working-state' path leaves :saved-state and :etc as
+they were.
+
 Captures only the window-state; does NOT update `:buffer-files'.
 That sync is intentionally limited to explicit user save paths
 (`workspace-save'); doing it here would wipe the file list whenever
@@ -409,10 +693,15 @@ the workspace has no recent layout-group yet."
                            ;; any prior :working-state (the caller —
                            ;; typically `workspace-save' — decides
                            ;; whether to clear it as a separate step).
+                           ;; An agent layout becomes the user's (R4).
                            (let ((copy (copy-sequence existing)))
                              (plist-put copy :timestamp
                                         (time-convert nil 'integer))
-                             (plist-put copy :saved-state captured)))
+                             (plist-put copy :saved-state captured)
+                             (if (eq (workspace--layout-origin existing) 'agent)
+                                 (workspace--layout-with-metadata
+                                  copy :origin 'user)
+                               copy)))
                           (t
                            ;; No existing layout — construct a fresh one.
                            ;; A :working-state-only first write would
@@ -525,6 +814,22 @@ restored."
       (user-error "No recent layout for this workspace"))
     (workspace-switch-layout recent)))
 
+(defun workspace--reassign-recent-group (ws removed-name)
+  "Return WS with its recent pointer reassigned after REMOVED-NAME went.
+WS is the workspace with REMOVED-NAME's group already removed; its
+recent pointer is still the one it had before the removal.  A pointer
+naming another layout is kept.  A pointer that named REMOVED-NAME, or
+was nil, moves to the first remaining group, else to `home'.
+Non-destructive."
+  (let ((recent (workspace--recent-group ws))
+        (remaining (workspace--layout-groups ws)))
+    (if (and recent (not (equal recent removed-name)))
+        ws
+      (workspace--set-recent-group
+       ws (if remaining
+              (workspace--group-name (car remaining))
+            "home")))))
+
 (defun workspace-delete-layout (name)
   "Delete layout NAME from the current workspace.
 
@@ -545,22 +850,93 @@ remaining group (or `home' if none)."
            (existed (workspace--find-group ws name)))
       (unless existed
         (user-error "No layout named %s" name))
-      (let* ((updated (workspace--remove-group ws name))
-             (remaining (workspace--layout-groups updated))
-             (new-recent
-              (cond
-               ;; Pointer was something else; keep it.
-               ((and (workspace--recent-group ws)
-                     (not (equal (workspace--recent-group ws) name)))
-                (workspace--recent-group ws))
-               ;; Pointer was the deleted layout; pick a survivor.
-               (remaining
-                (workspace--group-name (car remaining)))
-               (t "home"))))
-        (puthash ws-name
-                 (workspace--set-recent-group updated new-recent)
-                 workspace--registry)
-        name))))
+      (puthash ws-name
+               (workspace--reassign-recent-group
+                (workspace--remove-group ws name) name)
+               workspace--registry)
+      name)))
+
+(declare-function workspace-layout-on-screen-p "workspaces" (name layout))
+
+(defun workspace--programmatic-write-refusal (ws layout-name)
+  "Return why a program may not write LAYOUT-NAME of workspace WS, or nil.
+The message, for the reserved name, a layout that belongs to the user
+\(R2) or an agent layout that is on screen (R3), is written to be shown
+to an agent unchanged.  Changes nothing."
+  (let* ((ws-name (workspace--name ws))
+         (group (workspace--find-group ws layout-name))
+         (layout (and group (workspace--group-recent-layout group))))
+    (cond
+     ((workspace--group-name-reserved-p layout-name)
+      (format "Layout \"%s\" is reserved for the workspace's home layout; \
+a program cannot add, replace or remove it" layout-name))
+     ((and group (eq (workspace--layout-origin layout) 'user))
+      (format "Layout \"%s\" in workspace \"%s\" belongs to the user; \
+a program cannot replace or remove it (to add a layout, use another name)"
+              layout-name ws-name))
+     ((and group (workspace-layout-on-screen-p ws-name layout-name))
+      (format "Layout \"%s\" in workspace \"%s\" is on screen; \
+it cannot be replaced or removed while the user is looking at it"
+              layout-name ws-name)))))
+
+(defun workspace--programmatic-write-target (ws-name layout-name)
+  "Return the registered workspace WS-NAME, if a program may write LAYOUT-NAME.
+Signal a `user-error' when WS-NAME is not registered or
+`workspace--programmatic-write-refusal' refuses."
+  (let ((ws (gethash ws-name workspace--registry)))
+    (unless ws
+      (user-error "No workspace named \"%s\"" ws-name))
+    (when-let* ((refusal (workspace--programmatic-write-refusal ws layout-name)))
+      (user-error "%s" refusal))
+    ws))
+
+(defun workspace-add-layout (ws-name layout-name state &rest metadata)
+  "Add layout LAYOUT-NAME holding window-state STATE to workspace WS-NAME.
+STATE is stored as the layout's `:saved-state', with `:working-state'
+nil.  METADATA is keyword arguments for `workspace--layout-with-metadata'
+\(:origin, :description, :source); :origin defaults to `agent'.
+
+An existing agent layout of that name that is not on screen is
+replaced, its working state discarded.  The reserved name, a layout
+that belongs to the user and an agent layout on screen are refused
+with a `user-error', changing nothing.
+
+Works on any registered workspace, with or without a tab.  Touches no
+frame, tab, window or buffer, leaves the recent pointer as it was, and
+flushes the registry once.  Return LAYOUT-NAME."
+  (let* ((ws (workspace--programmatic-write-target ws-name layout-name))
+         (layout (apply #'workspace--layout-with-metadata
+                        (workspace--layout-make state)
+                        (if (plist-member metadata :origin)
+                            metadata
+                          (append metadata '(:origin agent))))))
+    (puthash ws-name
+             (workspace--upsert-group ws layout-name layout)
+             workspace--registry)
+    (workspace--flush-state)
+    layout-name))
+
+(defun workspace-remove-layout (ws-name layout-name)
+  "Remove layout LAYOUT-NAME from workspace WS-NAME.
+The reserved name, a layout that belongs to the user and an agent
+layout on screen are refused with a `user-error', changing nothing.
+A layout WS-NAME does not have is not an error: nothing changes,
+nothing is flushed, and the return value is nil.
+
+The recent pointer moves only when it named LAYOUT-NAME or was nil, as
+`workspace-delete-layout' moves it (`workspace--reassign-recent-group').
+Works on any registered workspace, with or without a tab.  Touches no
+frame, tab, window or buffer, and flushes the registry once after a
+removal.  Return LAYOUT-NAME when it was removed, nil when WS-NAME did
+not have it."
+  (let ((ws (workspace--programmatic-write-target ws-name layout-name)))
+    (when (workspace--find-group ws layout-name)
+      (puthash ws-name
+               (workspace--reassign-recent-group
+                (workspace--remove-group ws layout-name) layout-name)
+               workspace--registry)
+      (workspace--flush-state)
+      layout-name)))
 
 (defun workspace--capture-home-layout ()
   "Stamp the current frame's window config as the current workspace's `home'.

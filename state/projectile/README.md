@@ -1,41 +1,33 @@
 # Projectile Known Projects
 
-This directory contains git-controlled projectile bookmarks (known projects list).
+This directory is where this configuration keeps projectile's known-projects
+list. Only this README is in git.
 
 ## Files
 
-- `projectile-bookmarks.eld` - Default list of known projects (base configuration)
+- `projectile-bookmarks.eld` - the default known-projects file, set in
+  `config/language-modes/projectile.org`:
 
-## Machine-Specific Configuration
+  ```elisp
+  (projectile-known-projects-file
+   (expand-file-name "state/projectile/projectile-bookmarks.eld" jf/emacs-dir))
+  ```
 
-**Default behavior**: Each machine uses its own project list file.
+- `apploi-mac-bookmarks.eld` - used instead on the `apploi-mac` machine role,
+  which overrides `projectile-known-projects-file` in
+  `config/local/apploi-mac.el`. No other machine role overrides it today; a
+  role can do the same in its own `config/local/{machine-role}.el`:
 
-In `config/local/{machine-role}.el`, set the machine-specific bookmarks file:
+  ```elisp
+  (setq projectile-known-projects-file
+        (expand-file-name "state/projectile/{machine-role}-bookmarks.eld" jf/emacs-dir))
+  ```
 
-```elisp
-;; Use machine-specific bookmarks file (recommended)
-(setq projectile-known-projects-file
-      (expand-file-name "state/projectile/apploi-mac-bookmarks.eld" jf/emacs-dir))
-```
+## Not in git, not shared
 
-This allows each machine to have different projects while keeping them in git.
-
-To use a shared project list across all machines:
-
-```elisp
-;; Use shared bookmarks file (alternative)
-(setq projectile-known-projects-file
-      (expand-file-name "state/projectile/projectile-bookmarks.eld" jf/emacs-dir))
-```
-
-## Why Git-Control Projectile Bookmarks?
-
-Unlike the default behavior (gitignored runtime state), version-controlling projectile bookmarks allows:
-- **Backup**: Restore project lists if configuration is reset
-- **Sharing**: Use the same base project set across multiple machines
-- **Machine-specific**: Override with local bookmarks per machine
-- **History**: Track which projects were active when
-
-## Configuration
-
-The default location is configured in the projectile module. Machine-specific overrides go in `config/local/{machine-role}.el`.
+- **Not version-controlled.** `.gitignore` ignores everything under `state/`
+  except directories and `README.md` files, so the project lists here are
+  local to the checkout. There is no git history or backup of them.
+- **Not shared across worktrees.** `jf/emacs-dir` is the root of whichever
+  checkout Emacs was started from, so every checkout or worktree of this
+  configuration keeps its own `state/projectile/` list.

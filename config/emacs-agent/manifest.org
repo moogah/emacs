@@ -1,0 +1,116 @@
+#+title: emacs-agent: Agent manifest
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle manifest.el
+#+auto_tangle: y
+
+A submodule of the =emacs-agent= module, loaded by =emacs-agent.org= through =jf/load-module=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so this first block uses
+=:comments no= to keep org structure comments from being inserted ahead of it.
+
+#+begin_src emacs-lisp :comments no
+;;; manifest.el --- The agent tool manifest -*- lexical-binding: t; -*-
+#+end_src
+
+* The agent manifest
+
+=jf/agent-api= is what an agent reads to learn which tools it may call (design.md D9 L2,
+seam/manifest; surfaced as =emacs-agent <target> tools=).  It is built at call time from the two
+agent presets and gptel's registry, so it cannot drift from either: there is no other list of agent
+tools.
+
+- The names are the read preset's, then the write preset's not already listed, each as
+  =jf/agent-preset-tool-names= answers them.
+- A name =jf/agent--registry-lookup= does not find (a preset tool whose module is not loaded) is
+  left out; calling it names it in the dispatcher's refusal.
+- The tier is =jf/agent-tool-tier='s, so the manifest and the dispatcher read one vocabulary.
+
+Nothing is required at load: the gptel struct accessors run only on a tool the lookup found, and
+without gptel the presets hold no names, so the manifest is the empty array.
+
+#+begin_src emacs-lisp
+(require 'seq)
+
+(declare-function gptel-tool-name "gptel-request" (tool))
+(declare-function gptel-tool-category "gptel-request" (tool))
+(declare-function gptel-tool-description "gptel-request" (tool))
+(declare-function gptel-tool-args "gptel-request" (tool))
+(declare-function jf/agent-preset-tool-names "presets" (preset))
+(declare-function jf/agent-tool-tier "presets" (name))
+(declare-function jf/agent--registry-lookup "dispatcher" (name))
+#+end_src
+
+* One argument
+
+An argument object carries exactly =name=, =type=, =optional= and =description=, in that order.
+=gptel-make-tool= turns a symbol =:type= into its name, so =type= is already a string for every tool
+registered through it; a symbol left by any other constructor is given as its name too.  =optional=
+is a JSON boolean: an argument with no =:optional= key is =false=, never =null=.  A tool's further
+schema (=:enum=, =:items=, =:properties=) is not in the manifest; the introspection tools reach it.
+
+#+begin_src emacs-lisp
+(defun jf/agent--manifest-text (value)
+  "Return VALUE as manifest text: a string as is, a symbol its name, nil \"\"."
+  (cond ((stringp value) value)
+        ((null value) "")
+        ((symbolp value) (symbol-name value))
+        (t (format "%s" value))))
+
+(defun jf/agent--manifest-arg (arg)
+  "Return the manifest object of the gptel argument plist ARG."
+  (list :name (jf/agent--manifest-text (plist-get arg :name))
+        :type (jf/agent--manifest-text (plist-get arg :type))
+        :optional (if (plist-get arg :optional) t :false)
+        :description (jf/agent--manifest-text (plist-get arg :description))))
+#+end_src
+
+* One tool
+
+The category is the one gptel files the tool under: its =:category=, or ="misc"= when it has none,
+as =gptel-make-tool= does.
+
+#+begin_src emacs-lisp
+(defun jf/agent--manifest-entry (tool)
+  "Return the manifest object of the gptel tool TOOL."
+  (let ((name (gptel-tool-name tool)))
+    (list :name name
+          :category (or (gptel-tool-category tool) "misc")
+          :tier (jf/agent-tool-tier name)
+          :description (jf/agent--manifest-text (gptel-tool-description tool))
+          :args (vconcat (mapcar #'jf/agent--manifest-arg (gptel-tool-args tool))))))
+#+end_src
+
+* The manifest
+
+#+begin_src emacs-lisp
+(defun jf/agent--manifest-names ()
+  "Return the agent preset tool names: the read preset's, then the write
+preset's not already listed."
+  (seq-uniq (append (jf/agent-preset-tool-names 'emacs-agent-read)
+                    (jf/agent-preset-tool-names 'emacs-agent-write))))
+
+(defun jf/agent-api ()
+  "Return the manifest of the tools an agent may call, as a JSON array string.
+One object per agent preset tool name that gptel's registry holds, the
+`emacs-agent-read' names first:
+{\"name\", \"category\", \"tier\", \"description\",
+ \"args\": [{\"name\", \"type\", \"optional\", \"description\"}]}.
+TIER is \"read\" or \"write\" (`jf/agent-tool-tier').  A preset name no
+tool is registered under is left out.  Built from the presets and the
+registry at each call.  The string is `json-serialize's unibyte UTF-8,
+not decoded, as the dispatcher's envelope is."
+  (json-serialize
+   (vconcat (delq nil (mapcar (lambda (name)
+                                (let ((tool (jf/agent--registry-lookup name)))
+                                  (and tool (jf/agent--manifest-entry tool))))
+                              (jf/agent--manifest-names))))))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'emacs-agent-manifest)
+;;; manifest.el ends here
+#+end_src

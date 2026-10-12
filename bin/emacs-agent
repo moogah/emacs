@@ -1,0 +1,608 @@
+#!/usr/bin/env bash
+# emacs-agent - the single entry point through which an agent drives Emacs
+#
+# Every call names its target: `live' (the user's Emacs, serving the default
+# `server' socket) or an isolated target by name.  Every emacsclient run goes
+# through `emacs_agent_client', which passes `-s' with the absolute socket
+# path, so no call reaches an Emacs it did not name.  Tool names, JSON and
+# forms reach Emacs as Lisp string literals, never spliced into a form.
+#
+# Usage: see `emacs_agent_usage' below, or run `emacs-agent --help'.
+#
+# Exit status: 0 on success; 1 on a failure envelope, an eval error, a
+# reply that cannot be decoded or a target that refuses connections while a
+# process holds its socket (busy); 2 on a usage error, a target that is not
+# running, or a target start that fails or is refused.
+#
+# Environment:
+#   EMACS_AGENT_EMACSCLIENT   emacsclient to run (default: beside the Emacs)
+#   EMACS_AGENT_EMACS         Emacs to run (default: Emacs.app, else PATH)
+
+set -uo pipefail
+# Bash 5.2 reads `&' in a ${var//pattern/replacement} replacement as the match.
+shopt -u patsub_replacement 2>/dev/null || true
+
+# emacsclient falls back on these when a connection fails; the wrapper names
+# its socket explicitly and must never start an Emacs or try another socket.
+unset ALTERNATE_EDITOR EMACS_SOCKET_NAME EMACS_SERVER_FILE
+
+EMACS_AGENT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+EMACS_AGENT_TARGET_SUPPORT="$EMACS_AGENT_ROOT/config/emacs-agent/target-support.el"
+
+emacs_agent_usage() {
+    cat <<'EOF'
+Usage:
+  emacs-agent live tools                          list the live session's tools (JSON)
+  emacs-agent live call       TOOL 'JSON'         call a read-preset tool
+  emacs-agent live call-write TOOL 'JSON'         call a read- or write-preset tool
+  emacs-agent live eval       'FORM'              evaluate raw Elisp (JSON envelope)
+
+  emacs-agent target start NAME [--worktree PATH] [--bare] [--data PROFILE]
+  emacs-agent target list
+  emacs-agent target stop NAME
+  emacs-agent target NAME tools
+  emacs-agent target NAME call       TOOL 'JSON'
+  emacs-agent target NAME call-write TOOL 'JSON'
+  emacs-agent target NAME eval       'FORM'       prints the value's printed form
+  emacs-agent target NAME state                   frame state (JSON)
+
+  emacs-agent --help
+
+Targets:
+  live is the user's Emacs, serving the default `server' socket.  An isolated
+  target is addressed by NAME, its socket name; server, start, list and stop
+  are not target names.
+
+  target start runs the worktree's bin/emacs-isolated.sh --daemon=NAME
+  (--worktree defaults to the checkout holding this script) with the data
+  profile in EMACS_AGENT_DATA, or with --bare runs emacs -Q --daemon=NAME,
+  which loads no configuration and takes neither --worktree nor --data.  It
+  returns once the target's server is ready.  target list prints the running
+  targets' names; target stop sends (kill-emacs) and returns once the
+  target's socket is gone.  A target, or the live session, whose socket is
+  missing, or refuses connections while no process holds it, is not running
+  (exit 2); list and stop remove such a target's socket, and start replaces
+  it.  One that refuses connections while a process holds its socket is
+  busy, its accept queue full (exit 1): list prints it as `NAME (busy)',
+  stop fails, start refuses its name (exit 2), and its socket stays.  Busy
+  is told by lsof; without a working lsof a refusing socket counts as not
+  running, so start replaces it.  start also refuses the name of a target
+  that answers, or that a process holds while it does not answer within 2
+  seconds, launching nothing (exit 2).
+
+  --data PROFILE   the data profile of a worktree target; any other value
+                   is a usage error:
+                     live            the user's notes
+                     scratch:<dir>   a scratch vault at the absolute <dir>
+                     none            no notes (the default when --data is omitted)
+
+Exit status:
+  0 success; 1 a failure envelope, an eval error, a busy target, or a reply
+  emacsclient garbled (the call has run; only its reply was lost); 2 a
+  usage error, a target that is not running, or a target start that fails
+  or is refused.
+
+Environment:
+  EMACS_AGENT_EMACSCLIENT, EMACS_AGENT_EMACS name the binaries; otherwise the
+  emacsclient beside the Emacs is used.
+EOF
+}
+
+emacs_agent_usage_error() {
+    printf 'emacs-agent: %s\n' "$1" >&2
+    printf "Run 'emacs-agent --help' for usage.\n" >&2
+    exit 2
+}
+
+emacs_agent_fail() {
+    printf 'emacs-agent: %s\n' "$1" >&2
+    exit "${2:-1}"
+}
+
+# The one derivation of the socket directory, as Emacs's `server-socket-dir'
+# expands it: $XDG_RUNTIME_DIR/emacs, else emacs<uid> under ${TMPDIR:-/tmp}
+# with TMPDIR's trailing slash dropped.  Symlinks are not resolved.
+emacs_agent_socket_dir() {
+    if [[ -n "${XDG_RUNTIME_DIR:-}" ]]; then
+        printf '%s/emacs' "${XDG_RUNTIME_DIR%/}"
+    else
+        local tmp="${TMPDIR:-/tmp}"
+        printf '%s/emacs%s' "${tmp%/}" "$(id -u)"
+    fi
+}
+
+emacs_agent_socket() {
+    printf '%s/%s' "$(emacs_agent_socket_dir)" "$1"
+}
+
+emacs_agent_emacs() {
+    if [[ -n "${EMACS_AGENT_EMACS:-}" ]]; then
+        printf '%s' "$EMACS_AGENT_EMACS"
+    elif [[ -x /Applications/Emacs.app/Contents/MacOS/Emacs ]]; then
+        printf '%s' /Applications/Emacs.app/Contents/MacOS/Emacs
+    else
+        command -v emacs
+    fi
+}
+
+emacs_agent_emacsclient() {
+    if [[ -n "${EMACS_AGENT_EMACSCLIENT:-}" ]]; then
+        printf '%s' "$EMACS_AGENT_EMACSCLIENT"
+        return 0
+    fi
+    local emacs dir candidate
+    emacs="$(emacs_agent_emacs)"
+    if [[ -n "$emacs" ]]; then
+        dir="$(dirname "$emacs")"
+        for candidate in "$dir/bin/emacsclient" "$dir/emacsclient"; do
+            if [[ -x "$candidate" ]]; then
+                printf '%s' "$candidate"
+                return 0
+            fi
+        done
+    fi
+    command -v emacsclient
+}
+
+# Print the pids of the processes that hold SOCKET open, as lsof finds
+# them.  Return 0 when some process holds it, 1 when lsof finds none, and 2
+# when that cannot be told (no lsof, or lsof reports an error).
+emacs_agent_socket_holders() {
+    local socket="$1" lsof pids status
+    lsof="$(command -v lsof)" || lsof=/usr/sbin/lsof
+    [[ -x "$lsof" ]] || return 2
+    pids="$("$lsof" -t -- "$socket" 2>/dev/null)"
+    status=$?
+    if [[ -n "$pids" ]]; then
+        printf '%s' "${pids//$'\n'/ }"
+        return 0
+    fi
+    # lsof exits 1 both when nothing holds the file and when the file is
+    # gone (it then complains on stderr); only the first answers the
+    # question.
+    [[ $status -eq 1 && -S "$socket" ]] && return 1
+    return 2
+}
+
+# Report why the socket NAME (`server' for live) refused emacsclient's
+# connection.  On macOS a listening socket also refuses one when its accept
+# queue is full, so a refusal alone does not mean the Emacs is gone: while
+# a process holds the socket the Emacs is busy, and the refusal is a
+# transient failure (return 3); otherwise it is not running (return 2).
+emacs_agent_refused() {
+    local name="$1" socket pids
+    socket="$(emacs_agent_socket "$name")"
+    pids="$(emacs_agent_socket_holders "$socket")"
+    case $? in
+        0)
+            emacs_agent_not_accepting "$name" "process $pids holds $socket"
+            return 3 ;;
+        1)
+            emacs_agent_not_running "$name" "no process holds $socket" ;;
+        *)
+            emacs_agent_not_running "$name" "nothing accepted a connection on $socket" ;;
+    esac
+    return 2
+}
+
+# Run emacsclient against the socket NAME (`server' for live), always with -s
+# and the socket's absolute path; the remaining arguments follow.  stdout
+# passes through.  When emacsclient cannot connect (it says "error accessing
+# socket") return what `emacs_agent_refused' finds: 2 for an Emacs that is
+# not running, 3 for one that is busy.  Otherwise pass its stderr on and
+# return its status.  No other socket is tried.
+emacs_agent_client() {
+    local name="$1"
+    shift
+    local client socket err status
+    client="$(emacs_agent_emacsclient)" ||
+        emacs_agent_fail "no emacsclient found; set EMACS_AGENT_EMACSCLIENT"
+    socket="$(emacs_agent_socket "$name")"
+    { err="$("$client" -s "$socket" "$@" 2>&1 1>&3 3>&-)"; } 3>&1
+    status=$?
+    if [[ $status -ne 0 && "$err" == *"error accessing socket"* ]]; then
+        emacs_agent_refused "$name"
+        return
+    fi
+    [[ -z "$err" ]] || printf '%s\n' "$err" >&2
+    return "$status"
+}
+
+# Print STRING as an Elisp string literal: backslash and double quote escaped,
+# everything else (newlines, non-ASCII) literal.
+emacs_agent_lisp_string() {
+    local LC_ALL=C
+    local s="$1" bs='\' dq='"'
+    s="${s//"$bs"/$bs$bs}"
+    s="${s//"$dq"/$bs$dq}"
+    printf '"%s"' "$s"
+}
+
+# Print the form that evaluates FORM (Lisp text whose value is a string)
+# and answers that string's bytes as base64: the UTF-8 encoding of a
+# multibyte string, a unibyte one as it is, with no line breaks.  A reply
+# reaches emacsclient as `-print' messages of at most `server-msg-size' (S)
+# characters, cut after S-8 and then every S-13, and every space, `-', `&'
+# and newline in it becomes a two-character escape that a cut must not
+# split.  emacsclient on macOS reads 1024 bytes at a time, so a message
+# that is shortened to keep an escape whole, or one that is longer in bytes
+# than in characters, garbles the reply ("*ERROR*: Unknown message").
+# base64 holds neither escapes nor non-ASCII; the one escape left is the
+# newline `pp' prints after the string, which falls on a cut when the
+# encoded length L is S-11 plus a multiple of S-13.  Such an L gets one `.'
+# appended, which `emacs_agent_decode_reply' drops.
+emacs_agent_encoded_form() {
+    printf '%s' "(let* ((emacs-agent--reply $1) (emacs-agent--base64 (base64-encode-string (if (multibyte-string-p emacs-agent--reply) (encode-coding-string emacs-agent--reply 'utf-8) emacs-agent--reply) t)) (emacs-agent--length (length emacs-agent--base64)) (emacs-agent--first (- server-msg-size 11))) (if (and (>= emacs-agent--length emacs-agent--first) (= 0 (% (- emacs-agent--length emacs-agent--first) (- server-msg-size 13)))) (concat emacs-agent--base64 \".\") emacs-agent--base64))"
+}
+
+# Print the reply of a form built by `emacs_agent_encoded_form' as the
+# bytes it carries.  REPLY is emacsclient's output as a command substitution
+# captured it: the base64 string printed, quoted, with an optional trailing
+# `.' (the substitution has already dropped `pp''s newline).  Return 1,
+# printing nothing, when REPLY does not have that shape.
+emacs_agent_decode_reply() {
+    local LC_ALL=C
+    local s="$1"
+    [[ "$s" =~ ^\"([A-Za-z0-9+/]*={0,2})\.?\"$ ]] || return 1
+    s="${BASH_REMATCH[1]}"
+    (( ${#s} % 4 == 0 )) || return 1
+    printf '%s' "$s" | base64 -d
+}
+
+# Exit 1 when the emacsclient output REPLY reports a reply emacsclient could
+# not read ("*ERROR*: Unknown message"), printing it and saying so.  The
+# form has run in Emacs by then: only its reply was lost.
+emacs_agent_check_garbled() {
+    [[ "$1" == *"*ERROR*: Unknown message"* ]] || return 0
+    printf '%s\n' "$1"
+    emacs_agent_fail "emacsclient garbled the reply above (\"*ERROR*: Unknown message\"), so it was not decoded; the form did run in Emacs"
+}
+
+# Exit 1 when emacsclient's output REPLY cannot be decoded, printing it.
+emacs_agent_undecodable() {
+    printf '%s\n' "$1"
+    emacs_agent_fail "the reply above is not the base64 string the wrapper asked Emacs for, so it was not decoded; the form did run in Emacs"
+}
+
+# Refuse NAME as a target name: missing, reserved, or not a plain socket name.
+# `server' is refused whatever its case, since a case-insensitive file system
+# would resolve `Server' to the live socket.
+emacs_agent_check_name() {
+    local name="$1" lower
+    [[ -n "$name" ]] || emacs_agent_usage_error "no target name given"
+    lower="$(printf '%s' "$name" | tr '[:upper:]' '[:lower:]')"
+    case "$lower" in
+        server)
+            emacs_agent_usage_error "\`$name' is the live session's socket name, not a target; use \`live'" ;;
+        start | list | stop)
+            emacs_agent_usage_error "\`$name' is not a target name" ;;
+    esac
+    if [[ ! "$name" =~ ^[A-Za-z0-9_][A-Za-z0-9._-]*$ ]]; then
+        emacs_agent_usage_error "\`$name' is not a target name (letters, digits, \`.', \`_' and \`-' only)"
+    fi
+}
+
+# Say on stderr that the socket NAME (`server' for live) is served by no
+# Emacs; WHY ends the message.
+emacs_agent_not_running() {
+    local name="$1" why="$2"
+    if [[ "$name" == server ]]; then
+        printf 'emacs-agent: no live session is running (%s)\n' "$why" >&2
+    else
+        printf 'emacs-agent: target %s is not running (%s)\n' "$name" "$why" >&2
+    fi
+}
+
+# Say on stderr that the Emacs serving the socket NAME (`server' for live)
+# refused a connection though it is still running; WHY ends the message.
+emacs_agent_not_accepting() {
+    local name="$1" why="$2"
+    if [[ "$name" == server ]]; then
+        printf 'emacs-agent: the live session is not accepting connections (busy?): %s; try again\n' "$why" >&2
+    else
+        printf 'emacs-agent: target %s is not accepting connections (busy?): %s; try again\n' "$name" "$why" >&2
+    fi
+}
+
+# Remove the socket NAME when no process holds it, as `server-start'
+# removes a stale socket.  Return 0 when it was removed.
+emacs_agent_remove_stale_socket() {
+    local socket
+    socket="$(emacs_agent_socket "$1")"
+    [[ "$1" != server ]] || return 1
+    emacs_agent_socket_holders "$socket" >/dev/null
+    [[ $? -eq 1 ]] || return 1
+    rm -f "$socket"
+}
+
+# Exit 2 unless the socket NAME exists.
+emacs_agent_require_running() {
+    local name="$1" socket
+    socket="$(emacs_agent_socket "$name")"
+    [[ -S "$socket" ]] && return 0
+    emacs_agent_not_running "$name" "no socket at $socket"
+    exit 2
+}
+
+# Send FORM, whose value is a string, to the socket NAME as
+# `emacs_agent_encoded_form' wraps it, and print the string followed by a
+# newline.  With ENVELOPE set, the exit status follows the envelope's `ok'.
+emacs_agent_json_call() {
+    local name="$1" form="$2" envelope="${3:-}" reply status text
+    reply="$(emacs_agent_client "$name" --eval "$(emacs_agent_encoded_form "$form")")"
+    status=$?
+    [[ $status -eq 2 ]] && exit 2
+    if [[ $status -ne 0 ]]; then
+        [[ -n "$reply" ]] && printf '%s\n' "$reply"
+        exit 1
+    fi
+    emacs_agent_check_garbled "$reply"
+    # A JSON reply holds no NUL and does not end in a newline, so the
+    # command substitution keeps it whole.
+    text="$(emacs_agent_decode_reply "$reply")" || emacs_agent_undecodable "$reply"
+    printf '%s\n' "$text"
+    # The envelope's first key is ok, so it begins {"ok":true.
+    if [[ -n "$envelope" && "$text" != '{"ok":true'* ]]; then
+        exit 1
+    fi
+    exit 0
+}
+
+# Evaluate FORM, Lisp text, in the target NAME and print the value as
+# server.el prints an --eval value: `pp''s text, which ends in a newline.
+# The form travels as a string literal, read and evaluated as server.el
+# reads and evaluates one, and the printed text comes back through
+# `emacs_agent_encoded_form', so an unreadable reply is caught rather than
+# printed.  An error in FORM signals before anything is encoded, so
+# emacsclient reports it as for any --eval.
+emacs_agent_target_eval() {
+    local name="$1" form="$2" reply status
+    reply="$(emacs_agent_client "$name" --eval "$(emacs_agent_encoded_form "(let ((emacs-agent--value (eval (car (read-from-string $(emacs_agent_lisp_string "$form"))) t))) (with-temp-buffer (let ((standard-output (current-buffer))) (pp emacs-agent--value)) (buffer-substring-no-properties (point-min) (point-max))))")")"
+    status=$?
+    [[ $status -eq 2 ]] && exit 2
+    if [[ $status -ne 0 ]]; then
+        [[ -n "$reply" ]] && printf '%s\n' "$reply"
+        exit 1
+    fi
+    emacs_agent_check_garbled "$reply"
+    # Decoded straight to stdout: the printed value may end in newlines or
+    # hold bytes a command substitution would drop.
+    emacs_agent_decode_reply "$reply" || emacs_agent_undecodable "$reply"
+    exit 0
+}
+
+# Run TIER with its ARGS against NAME (`server' for live).  KIND is `live' or
+# `target'.  Every usage check happens before the socket check, and the socket
+# check before anything is sent.
+emacs_agent_tier() {
+    local kind="$1" name="$2"
+    shift 2
+    [[ $# -gt 0 ]] || emacs_agent_usage_error "no command given for $kind"
+    local tier="$1"
+    shift
+    case "$tier" in
+        tools | state)
+            [[ "$tier" == state && "$kind" == live ]] &&
+                emacs_agent_usage_error "state is a target command; live has none"
+            [[ $# -eq 0 ]] || emacs_agent_usage_error "$tier takes no arguments" ;;
+        call | call-write)
+            [[ $# -eq 2 ]] || emacs_agent_usage_error "$tier takes TOOL and 'JSON'" ;;
+        eval)
+            [[ $# -eq 1 ]] || emacs_agent_usage_error "eval takes one 'FORM'" ;;
+        *)
+            emacs_agent_usage_error "unknown command \`$tier' for $kind" ;;
+    esac
+    emacs_agent_require_running "$name"
+    case "$tier" in
+        tools)
+            emacs_agent_json_call "$name" \
+                "(if (fboundp 'jf/agent-api) (jf/agent-api) \"[]\")" ;;
+        state)
+            emacs_agent_json_call "$name" \
+                "(progn (unless (fboundp 'jf/frame-state) (load $(emacs_agent_lisp_string "$EMACS_AGENT_TARGET_SUPPORT") nil t)) (jf/frame-state))" ;;
+        call | call-write)
+            emacs_agent_json_call "$name" \
+                "(jf/agent-call $(emacs_agent_lisp_string "$tier") $(emacs_agent_lisp_string "$1") $(emacs_agent_lisp_string "$2"))" \
+                envelope ;;
+        eval)
+            if [[ "$kind" == live ]]; then
+                emacs_agent_json_call "$name" \
+                    "(jf/agent-eval $(emacs_agent_lisp_string "$1"))" envelope
+            fi
+            emacs_agent_target_eval "$name" "$1" ;;
+    esac
+}
+
+# Seconds `target stop' waits for a target to go: for the kill to be
+# delivered, then for the socket to disappear.
+EMACS_AGENT_STOP_TIMEOUT=10
+
+# Start the target NAME.  WORKTREE (default: this checkout) runs its
+# bin/emacs-isolated.sh --daemon=NAME with EMACS_AGENT_DATA set to DATA
+# (default none); BARE set runs EMACS -Q --daemon=NAME instead.  A --daemon
+# launch returns once its server is ready, so the target is up when the
+# launcher exits 0 and the socket exists; otherwise show the launcher's
+# output and exit 2.  The output goes to a file, not a pipe: a process the
+# target starts while it initialises may hold a pipe open after the
+# launcher exits.  A NAME whose server answers, or whose socket a process
+# holds while refusing connections (busy) or not answering in time, is
+# refused, exit 2, before anything is launched: a second Emacs would run
+# the whole configuration before Emacs refused its server, and its exit
+# hooks would write state the running target shares.
+emacs_agent_target_start() {
+    local name="$1" worktree="$2" bare="$3" data="$4" launcher out status socket
+    local pids
+    local -a cmd
+    if [[ -n "$bare" ]]; then
+        [[ -z "$worktree" ]] || emacs_agent_usage_error "--worktree does not apply to a --bare target"
+        [[ -z "$data" ]] || emacs_agent_usage_error "--data does not apply to a --bare target, which loads no configuration"
+        cmd=(env -u EMACS_AGENT_DATA "$(emacs_agent_emacs)" -Q "--daemon=$name")
+    else
+        launcher="${worktree:-$EMACS_AGENT_ROOT}/bin/emacs-isolated.sh"
+        [[ -x "$launcher" ]] ||
+            emacs_agent_fail "no executable launcher at $launcher" 2
+        cmd=(env "EMACS_AGENT_DATA=${data:-none}" "$launcher" "--daemon=$name")
+    fi
+    socket="$(emacs_agent_socket "$name")"
+    # Emacs replaces a socket whose connection is refused, so a busy
+    # target's socket would be taken over and the target orphaned: refuse
+    # its name.  Refuse a target that answers, or that a process holds but
+    # that does not answer in time, too, rather than leave it for Emacs to
+    # refuse after a second full init.  Only a stale socket (refused, no
+    # holder) is launched over.
+    if [[ -S "$socket" ]]; then
+        emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
+        case $? in
+            0)
+                emacs_agent_fail "target $name is already running: its server answers on $socket" 2 ;;
+            2) ;;
+            3)
+                pids="$(emacs_agent_socket_holders "$socket")"
+                emacs_agent_fail "target $name is already running (busy): process ${pids:-?} holds $socket but refuses connections; stop it or try again" 2 ;;
+            *)
+                if pids="$(emacs_agent_socket_holders "$socket")"; then
+                    emacs_agent_fail "target $name is already running: process $pids holds $socket but did not answer within 2s; stop it or try again" 2
+                fi ;;
+        esac
+    fi
+    out="$(mktemp "${TMPDIR:-/tmp}/emacs-agent-start.XXXXXX")" ||
+        emacs_agent_fail "cannot create a temporary file" 2
+    "${cmd[@]}" </dev/null >"$out" 2>&1
+    status=$?
+    if [[ $status -eq 0 && -S "$socket" ]]; then
+        rm -f "$out"
+        exit 0
+    fi
+    cat "$out" >&2
+    rm -f "$out"
+    if [[ $status -ne 0 ]]; then
+        emacs_agent_fail "target $name did not start: the launcher exited $status" 2
+    fi
+    emacs_agent_fail "target $name did not start: the launcher exited 0 but there is no socket at $socket" 2
+}
+
+# Print the name of every socket in the socket directory but `server', the
+# live session's: the directory is the registry of running targets.  A
+# target socket that refuses a connection while no process holds it (its
+# Emacs died without removing it) is not listed and is removed; one that
+# refuses while a process holds it (a busy Emacs whose accept queue is
+# full) is listed as `NAME (busy)' and kept.  A target that accepts the
+# connection but does not answer is still running and is listed.
+emacs_agent_target_list() {
+    local dir entry name
+    dir="$(emacs_agent_socket_dir)"
+    [[ -d "$dir" ]] || exit 0
+    for entry in "$dir"/*; do
+        [[ -S "$entry" ]] || continue
+        name="${entry##*/}"
+        [[ "$name" != server ]] || continue
+        emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
+        case $? in
+            2) emacs_agent_remove_stale_socket "$name"; continue ;;
+            3) printf '%s (busy)\n' "$name"; continue ;;
+        esac
+        printf '%s\n' "$name"
+    done
+    exit 0
+}
+
+# Send (kill-emacs) to the target NAME and return once its socket is gone,
+# waiting at most EMACS_AGENT_STOP_TIMEOUT seconds for each step, so a hung
+# target fails the stop rather than blocking it.
+emacs_agent_target_stop() {
+    local name="$1" socket deadline err
+    emacs_agent_require_running "$name"
+    socket="$(emacs_agent_socket "$name")"
+    # The connection closes as the target exits, so the reply and the
+    # client's status carry nothing; the socket's removal is the answer.
+    # A refused connection is reported as `emacs_agent_client' found it: a
+    # target not running has its socket removed when no process holds it
+    # (exit 2); a busy one keeps its socket for a later stop (exit 1).
+    err="$(emacs_agent_client "$name" -w "$EMACS_AGENT_STOP_TIMEOUT" \
+        --eval "(kill-emacs)" 2>&1 >/dev/null)"
+    case $? in
+        2)
+            printf '%s\n' "$err" >&2
+            emacs_agent_remove_stale_socket "$name" &&
+                printf 'emacs-agent: removed the stale socket %s\n' "$socket" >&2
+            exit 2 ;;
+        3)
+            printf '%s\n' "$err" >&2
+            exit 1 ;;
+    esac
+    deadline=$((SECONDS + EMACS_AGENT_STOP_TIMEOUT))
+    while [[ -S "$socket" ]]; do
+        if [[ $SECONDS -ge $deadline ]]; then
+            emacs_agent_fail "target $name did not stop within ${EMACS_AGENT_STOP_TIMEOUT}s; its socket is still at $socket"
+        fi
+        sleep 0.1
+    done
+    exit 0
+}
+
+emacs_agent_target() {
+    [[ $# -gt 0 ]] || emacs_agent_usage_error "no target named"
+    case "$1" in
+        start)
+            shift
+            [[ $# -gt 0 ]] || emacs_agent_usage_error "target start takes NAME"
+            local name="$1" worktree="" bare="" data=""
+            shift
+            emacs_agent_check_name "$name"
+            while [[ $# -gt 0 ]]; do
+                case "$1" in
+                    --worktree)
+                        [[ $# -ge 2 ]] || emacs_agent_usage_error "--worktree takes PATH"
+                        worktree="$2"
+                        shift 2 ;;
+                    --bare)
+                        bare=1
+                        shift ;;
+                    --data)
+                        [[ $# -ge 2 ]] || emacs_agent_usage_error "--data takes PROFILE"
+                        case "$2" in
+                            none|live|scratch:/*|scratch:~*) ;;
+                            *) emacs_agent_usage_error "--data takes live, none or scratch:<absolute or ~/ dir>, not \`$2'" ;;
+                        esac
+                        data="$2"
+                        shift 2 ;;
+                    *)
+                        emacs_agent_usage_error "unknown option \`$1' for target start" ;;
+                esac
+            done
+            emacs_agent_target_start "$name" "$worktree" "$bare" "$data" ;;
+        list)
+            shift
+            [[ $# -eq 0 ]] || emacs_agent_usage_error "target list takes no arguments"
+            emacs_agent_target_list ;;
+        stop)
+            shift
+            [[ $# -eq 1 ]] || emacs_agent_usage_error "target stop takes NAME"
+            emacs_agent_check_name "$1"
+            emacs_agent_target_stop "$1" ;;
+        *)
+            local name="$1"
+            shift
+            emacs_agent_check_name "$name"
+            emacs_agent_tier target "$name" "$@" ;;
+    esac
+}
+
+emacs_agent_main() {
+    [[ $# -gt 0 ]] || emacs_agent_usage_error "no target named; use \`live' or \`target NAME'"
+    case "$1" in
+        --help)
+            emacs_agent_usage
+            exit 0 ;;
+        live)
+            shift
+            emacs_agent_tier live server "$@" ;;
+        target)
+            shift
+            emacs_agent_target "$@" ;;
+        *)
+            emacs_agent_usage_error "unknown word \`$1'; name a target with \`live' or \`target NAME'" ;;
+    esac
+}
+
+emacs_agent_main "$@"

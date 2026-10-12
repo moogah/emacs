@@ -295,7 +295,30 @@
           (workspace--flush-state)
           (workspace--flush-state)
           (workspace--flush-state)
-          (expect write-count :to-equal 3))))))
+          (expect write-count :to-equal 3)))))
+
+  (it "has written the file when `workspace-save-layout' or `workspace-switch-layout' returns (Scenario: workspaces § A deliberate command flushes synchronously)"
+    (persistence-spec--with-state-file
+      (cl-flet ((on-disk-magit ()
+                  (let* ((state (workspace--read-state))
+                         (ws (seq-find (lambda (w) (equal (workspace--name w) "alpha"))
+                                       (plist-get state :workspaces)))
+                         (group (and ws (workspace--find-group ws "magit"))))
+                    (and group (workspace--group-recent-layout group)))))
+        (workspace-new "alpha")
+        (workspace-save-layout "magit")
+        ;; On disk the moment the command returns: the new layout, with
+        ;; no :working-state yet.
+        (expect (on-disk-magit) :not :to-be nil)
+        (expect (workspace--layout-working-state (on-disk-magit)) :to-be nil)
+        (split-window-right)
+        (workspace-switch-layout "home")
+        ;; The outgoing layout's autosave is on disk before any timer runs.
+        (expect (workspace--layout-working-state (on-disk-magit)) :not :to-be nil)
+        ;; Let the deferred restore run here rather than in a later spec.
+        (sit-for 0)
+        (sit-for 0)
+        (accept-process-output nil 0.05)))))
 
 (describe "kill-emacs hook is installed"
   (it "registers workspace--kill-emacs-flush on kill-emacs-hook"
@@ -313,12 +336,20 @@
     (expect noninteractive :to-be-truthy))
 
   (it "never resolves the real per-machine state dir with no override"
-    (let ((workspace-state-directory-override nil))
-      (expect (workspace--state-directory)
-              :not :to-match "/state/workspaces/")
-      (expect (file-in-directory-p (workspace--state-directory)
-                                   temporary-file-directory)
-              :to-be-truthy)))
+    (let* ((workspace-state-directory-override nil)
+           (dir (workspace--state-directory))
+           (created (not (file-exists-p dir))))
+      (expect dir :not :to-match "/state/workspaces/")
+      ;; Containment by core's ONE predicate (file identity), which
+      ;; needs the directory to exist: create this process's own sandbox
+      ;; if absent, and remove it again (non-recursively) only if created.
+      (unwind-protect
+          (progn
+            (make-directory dir t)
+            (expect (workspace--path-within-p dir temporary-file-directory)
+                    :to-be-truthy))
+        (when created
+          (delete-directory dir)))))
 
   (it "honours workspace-state-directory-override when set"
     (let ((workspace-state-directory-override "/tmp/ws-override-sentinel"))
@@ -455,6 +486,75 @@
                (layout (workspace--group-recent-layout group)))
           (expect (workspace--layout-saved-state layout)
                   :to-equal saved-before))))))
+
+;;; Change workspaces-programmatic-layouts: what the tab-switch autosave
+;;; does to a recipe layout and to layout metadata (design.md § Scenario
+;;; coverage, seam/explicit-save-ownership).  HEAD satisfies both: the
+;;; autosave writes only :working-state, copying the rest of the layout.
+
+(defun persistence-spec--count-leaves (form)
+  "Count `leaf' symbols in window-state FORM."
+  (let ((count 0))
+    (cl-labels ((walk (x)
+                  (cond ((eq x 'leaf) (cl-incf count))
+                        ((consp x) (walk (car x)) (walk (cdr x))))))
+      (walk form))
+    count))
+
+(defun persistence-spec--make-recent (ws-name layout-name layout)
+  "Store LAYOUT as LAYOUT-NAME of WS-NAME and make it WS-NAME's recent layout."
+  (puthash ws-name
+           (workspace--set-recent-group
+            (workspace--upsert-group (gethash ws-name workspace--registry)
+                                     layout-name layout)
+            layout-name)
+           workspace--registry))
+
+(defun persistence-spec--layout (ws-name layout-name)
+  "The layout LAYOUT-NAME of WS-NAME in the registry, or nil."
+  (let* ((ws (gethash ws-name workspace--registry))
+         (group (and ws (workspace--find-group ws layout-name))))
+    (and group (workspace--group-recent-layout group))))
+
+(describe "Tab-switch autosave on recipe and agent layouts"
+  (before-each (persistence-spec--reset))
+  (after-each (persistence-spec--cleanup))
+
+  (it "writes a captured window-state, leaving the recipe as :saved-state (Scenario: workspaces § Autosave captures a snapshot, not a recipe)"
+    (persistence-spec--with-state-file
+      (workspace-new "other")
+      (workspace-new "code")
+      ;; `demo' holds a recipe and is `code''s recent layout.  It is not
+      ;; applied here: what this pins is what the autosave writes.
+      (let ((recipe `(:recipe :split columns
+                              :panes ((:file ,(expand-file-name
+                                               "a.org" persistence-spec--tmp-dir)
+                                             :line 40)))))
+        (persistence-spec--make-recent "code" "demo" (workspace--layout-make recipe))
+        (delete-other-windows)
+        (split-window-right)
+        (workspace-switch "other")
+        (let ((demo (persistence-spec--layout "code" "demo")))
+          (expect (workspace--layout-saved-state demo) :to-equal recipe)
+          (let ((working (workspace--layout-working-state demo)))
+            (expect working :not :to-be nil)
+            (expect (car-safe working) :not :to-be :recipe)
+            (expect (persistence-spec--count-leaves working) :to-equal 2))))))
+
+  (it "leaves an agent layout's metadata as it was (Scenario: workspaces § Autosave leaves the origin alone)"
+    (persistence-spec--with-state-file
+      (workspace-new "other")
+      (workspace-new "code")
+      ;; Metadata as design D4 stores it: entries of the :etc alist.
+      (let ((etc '((origin . agent) (description . "Demo") (source . "a1"))))
+        (persistence-spec--make-recent
+         "code" "demo"
+         (plist-put (workspace--layout-make (workspace--capture-frameset))
+                    :etc (copy-tree etc)))
+        (workspace-switch "other")
+        (let ((demo (persistence-spec--layout "code" "demo")))
+          (expect (workspace--layout-working-state demo) :not :to-be nil)
+          (expect (plist-get demo :etc) :to-equal etc))))))
 
 (provide 'persistence-spec)
 ;;; persistence-spec.el ends here

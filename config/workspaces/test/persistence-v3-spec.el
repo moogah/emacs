@@ -6,8 +6,9 @@
 ;;   register/invariant/broken-tag-runtime-only
 ;;
 ;; Covers:
-;; - The schema-version constant equals 3 (the contract that broke
-;;   the v2 file format).
+;; - The written schema-version constant equals 4 and the reader
+;;   accepts versions 3 and 4 (a v3 file is a v4 file without recipes
+;;   or layout metadata).
 ;; - The reader rejects v1 and v2 files with a *Messages* notice and
 ;;   leaves the registry empty.
 ;; - The writer never emits the runtime-only :broken tag, even when
@@ -84,9 +85,9 @@ synthetic :home directories the tests construct.")
     (insert-file-contents (workspace--state-file))
     (read (current-buffer))))
 
-(describe "Schema v3 constant"
-  (it "workspace--state-version is 3"
-    (expect workspace--state-version :to-equal 3)))
+(describe "Schema v4 constant"
+  (it "workspace--state-version is 4"
+    (expect workspace--state-version :to-equal 4)))
 
 (describe "v3 reader rejects v1 and v2 files"
   (before-each (persistence-v3-spec--reset))
@@ -107,7 +108,7 @@ synthetic :home directories the tests construct.")
         (let ((messages-after (with-current-buffer "*Messages*"
                                 (buffer-string))))
           (expect (substring messages-after (length messages-before))
-                  :to-match "v3 required")))))
+                  :to-match "readable versions are 3, 4")))))
 
   (it "rejects a v2 file with a notice and returns nil"
     (persistence-v3-spec--with-state-file
@@ -124,7 +125,7 @@ synthetic :home directories the tests construct.")
         (let ((messages-after (with-current-buffer "*Messages*"
                                 (buffer-string))))
           (expect (substring messages-after (length messages-before))
-                  :to-match "v3 required")))))
+                  :to-match "readable versions are 3, 4")))))
 
   (it "leaves the registry empty after workspace--restore on a v2 file"
     (persistence-v3-spec--with-state-file
@@ -147,7 +148,7 @@ synthetic :home directories the tests construct.")
         (clrhash workspace--registry)
         (let ((state (workspace--read-state)))
           (expect state :not :to-be nil)
-          (expect (plist-get state :version) :to-equal 3)
+          (expect (plist-get state :version) :to-equal 4)
           (workspace--deserialize-state state))
         (let ((alpha (gethash "alpha" workspace--registry)))
           (expect alpha :not :to-be nil)
@@ -247,6 +248,97 @@ synthetic :home directories the tests construct.")
                                        (workspace--state-file))
                                       (buffer-string))))
             (expect bytes-after-broken :to-equal bytes-clean)))))))
+
+;;; Change workspaces-programmatic-layouts: schema version 4
+;;; (seam/persistence-schema, design.md § Scenario coverage).  The reader
+;;; accepts 3 and 4 and writes 4; recipes and layout metadata ride inside
+;;; :layout-groups.
+
+(describe "Schema v4: reading v3, writing v4 (seam/persistence-schema)"
+  (before-each (persistence-v3-spec--reset))
+  (after-each (persistence-v3-spec--cleanup))
+
+  (it "ignores a file of an unknown later version with a notice naming the file and the version (Scenario: workspaces § A file of an unknown later version is rejected with a notice)"
+    (persistence-v3-spec--with-state-file
+      (let* ((message-log-max t)
+             (alpha-home (persistence-v3-spec--make-home "alpha"))
+             (messages-before (with-current-buffer "*Messages*"
+                                (buffer-string))))
+        (persistence-v3-spec--write-raw
+         `(:version 5
+                    :workspaces ((:name "alpha" :home ,alpha-home
+                                        :recent-layout-group nil
+                                        :buffer-files nil
+                                        :layout-groups nil))))
+        (workspace--restore)
+        (expect (hash-table-count workspace--registry) :to-equal 0)
+        (let ((notice (substring (with-current-buffer "*Messages*"
+                                   (buffer-string))
+                                 (length messages-before))))
+          (expect notice :to-match (regexp-quote (workspace--state-file)))
+          (expect notice :to-match ":version 5")))))
+
+  (it "loads a version-3 file without loss, its layouts the user's, and writes version 4 on the next flush (Scenario: workspaces § Version-3 file loads and is upgraded on next flush)"
+    (persistence-v3-spec--with-state-file
+      (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
+             (groups '((:name "home"
+                              :layouts ((:timestamp 1
+                                                    :saved-state ((leaf (buffer "home.org")))
+                                                    :working-state nil
+                                                    :etc nil)))
+                       (:name "magit"
+                              :layouts ((:timestamp 2
+                                                    :saved-state ((leaf (buffer "magit: x")))
+                                                    :working-state ((leaf (buffer "notes.org")))
+                                                    :etc nil))))))
+        (persistence-v3-spec--write-raw
+         `(:version 3
+                    :workspaces ((:name "alpha" :home ,alpha-home
+                                        :recent-layout-group "magit"
+                                        :buffer-files nil
+                                        :layout-groups ,groups))))
+        (workspace--restore)
+        (let ((alpha (gethash "alpha" workspace--registry)))
+          (expect alpha :not :to-be nil)
+          (expect (workspace--layout-groups alpha) :to-equal groups)
+          (dolist (name '("home" "magit"))
+            (expect (workspace--layout-origin
+                     (workspace--group-recent-layout
+                      (workspace--find-group alpha name)))
+                    :to-be 'user)))
+        (workspace--flush-state)
+        (let ((raw (persistence-v3-spec--read-raw)))
+          (expect (plist-get raw :version) :to-equal 4)
+          (expect (workspace--layout-groups (car (plist-get raw :workspaces)))
+                  :to-equal groups)))))
+
+  (it "round-trips a recipe :saved-state and its metadata through flush and restore (Scenario: workspaces § Recipe and metadata round-trip across restart)"
+    (persistence-v3-spec--with-state-file
+      (let* ((alpha-home (persistence-v3-spec--make-home "alpha"))
+             (recipe `(:recipe :split columns
+                               :panes ((:file ,(expand-file-name "ask.org" alpha-home))
+                                       (:split rows
+                                               :panes ((:file ,(expand-file-name "scaffold.org" alpha-home)
+                                                              :line 157)
+                                                       (:file ,(expand-file-name "design.md" alpha-home))))))))
+        (puthash "alpha"
+                 (workspace--upsert-group
+                  (workspace--make "alpha" alpha-home)
+                  "ask/a1"
+                  (workspace--layout-with-metadata
+                   (workspace--layout-make recipe)
+                   :origin 'agent :description "Ask a1" :source "a1"))
+                 workspace--registry)
+        (workspace--flush-state)
+        (clrhash workspace--registry)
+        (workspace--restore)
+        (let ((layout (workspace--group-recent-layout
+                       (workspace--find-group (gethash "alpha" workspace--registry)
+                                              "ask/a1"))))
+          (expect (workspace--layout-saved-state layout) :to-equal recipe)
+          (expect (workspace--layout-origin layout) :to-be 'agent)
+          (expect (workspace--layout-description layout) :to-equal "Ask a1")
+          (expect (workspace--layout-source layout) :to-equal "a1"))))))
 
 (provide 'persistence-v3-spec)
 ;;; persistence-v3-spec.el ends here

@@ -12,8 +12,8 @@
 ;;       3. non-repo            → full scaffold (mkdir, git init,
 ;;                                files, initial commit);
 ;;   - double-registration guard: refuse to anchor a directory that is
-;;     already a registered workspace's :home (file-equal-p check,
-;;     trailing-slash- and `~'-insensitive);
+;;     already a registered workspace's :home (`workspace--same-file-p'
+;;     check: device and inode, trailing-slash- and `~'-insensitive);
 ;;   - the workspace name is derived from the chosen directory's
 ;;     basename (=register/invariant/registry-name-equals-basename=);
 ;;   - the workspace plist is constructed via `workspace--make'
@@ -36,7 +36,10 @@
     (provide 'bufferlo))
   (load (expand-file-name "../buffer-membership.el" dir))
   (load (expand-file-name "../layouts.el"           dir))
-  (load (expand-file-name "../workspaces.el"        dir)))
+  (load (expand-file-name "../workspaces.el"        dir))
+  ;; The fake remote (TRAMP) handler; a core helper, not the
+  ;; portable-bookmarks fixtures.
+  (load (expand-file-name "workspaces-test-helpers.el" dir)))
 
 (defvar workspace-home-builder #'workspace-default-home-builder)
 
@@ -61,6 +64,8 @@
   ;; the runner's global git config.
   (wna-spec--git dir "config" "user.email" "test@example.com")
   (wna-spec--git dir "config" "user.name"  "Test User")
+  ;; A machine that signs commits globally must not break the fixture.
+  (wna-spec--git dir "config" "commit.gpgsign" "false")
   ;; Make an initial empty commit so `git log' has a HEAD to compare
   ;; against in case-1 scenarios where we must assert "no new commits."
   (wna-spec--git dir "commit" "--allow-empty" "-q" "-m" "initial"))
@@ -254,6 +259,243 @@ to return HOME.  Returns the freshly-registered workspace plist."
         (expect (workspace--name ws) :to-equal "gamma")
         (expect (workspace--home ws) :to-equal home)))))
 
+;;; A linked worktree is already a git checkout (its `.git' is a FILE)
+;;
+;; A linked worktree's `.git' is a gitfile (`gitdir: ...'), not a
+;; directory.  Anchoring at one must take the "already a git repository"
+;; branch (case 1 or 2) and run NO git command: before the fix it fell
+;; into case 3 and ran `git init', `git add .' and `git commit' inside
+;; the user's checkout, on the user's branch, committing every untracked
+;; file.
+
+(defun wna-spec--git-output (dir &rest args)
+  "Return the trimmed stdout of git ARGS run inside DIR; signal on failure."
+  (with-temp-buffer
+    (let* ((default-directory (file-name-as-directory dir))
+           (status (apply #'call-process "git" nil '(t nil) nil args)))
+      (unless (zerop status)
+        (error "git %s failed in %s (status %d)"
+               (mapconcat #'identity args " ") dir status))
+      (string-trim (buffer-string)))))
+
+(defun wna-spec--git-snapshot (dir)
+  "Return a plist of the git state of the checkout DIR.
+HEAD's commit, the symbolic branch, the full log, the index (staged
+entries with their blob ids) and the tracked files' status."
+  (list :head   (wna-spec--git-output dir "rev-parse" "HEAD")
+        :branch (wna-spec--git-output dir "symbolic-ref" "HEAD")
+        :log    (wna-spec--git-output dir "log" "--format=%H %s")
+        :index  (wna-spec--git-output dir "ls-files" "--stage")
+        :status (wna-spec--git-output dir "status" "--porcelain"
+                                      "--untracked-files=no")))
+
+(defun wna-spec--make-linked-worktree (root name)
+  "Create a main repo under ROOT and a linked worktree NAME beside it.
+The main repo has one commit and a tracked file; the worktree is on its
+own branch and holds an untracked file `notes.txt'.  Returns
+\(MAIN . WORKTREE), both directory names."
+  (let ((main (file-name-as-directory (expand-file-name "main" root)))
+        (wt   (file-name-as-directory (expand-file-name name root))))
+    (make-directory main t)
+    (wna-spec--git main "init" "-q")
+    (wna-spec--git main "config" "user.email" "test@example.com")
+    (wna-spec--git main "config" "user.name"  "Test User")
+    (wna-spec--git main "config" "commit.gpgsign" "false")
+    (with-temp-file (expand-file-name "README" main) (insert "tracked\n"))
+    (wna-spec--git main "add" "README")
+    (wna-spec--git main "commit" "-q" "-m" "initial")
+    (wna-spec--git main "worktree" "add" "-q" "-b" "feature"
+                   (directory-file-name wt))
+    (with-temp-file (expand-file-name "notes.txt" wt) (insert "untracked\n"))
+    (cons main wt)))
+
+(describe "workspace-new anchor-existing — linked worktree (gitfile .git)"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'tab-bar-rename-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through)
+    (spy-on 'workspace--scaffold-git :and-call-through)
+    (spy-on 'workspace--dispatch-create-integrations))
+  (after-each (wna-spec--cleanup))
+
+  (it "without home.org: scaffolds files only — no git command, HEAD, index and log unchanged"
+    (let* ((pair (wna-spec--make-linked-worktree wna-spec--tmp-dir "wt"))
+           (main (car pair))
+           (wt   (cdr pair)))
+      (expect (file-regular-p (expand-file-name ".git" wt)) :to-be t)
+      (let ((wt-before   (wna-spec--git-snapshot wt))
+            (main-before (wna-spec--git-snapshot main)))
+        (wna-spec--call-anchor wt)
+        ;; Case 2: scaffold WITHOUT git ops.
+        (expect 'workspace-scaffold :to-have-been-called-with
+                wt "wt" :init-and-commit? nil)
+        (expect 'workspace--scaffold-git :not :to-have-been-called)
+        (expect 'workspace--dispatch-create-integrations
+                :to-have-been-called-with "wt" wt 'anchored-scaffolded)
+        ;; The worktree's git state is untouched: same HEAD and branch,
+        ;; no new commit, same index, same tracked-file status.
+        (expect (wna-spec--git-snapshot wt) :to-equal wt-before)
+        ;; And so is the main worktree's (they share one repository).
+        (expect (wna-spec--git-snapshot main) :to-equal main-before)
+        ;; `.git' is still the gitfile: nothing re-initialised it.
+        (expect (file-regular-p (expand-file-name ".git" wt)) :to-be t)
+        ;; The untracked file is still untracked, and the scaffolded
+        ;; files are left untracked for the user to stage.
+        (let ((untracked (split-string
+                          (wna-spec--git-output
+                           wt "status" "--porcelain" "--untracked-files=all")
+                          "\n" t)))
+          (expect untracked :to-contain "?? notes.txt")
+          (expect untracked :to-contain "?? home.org"))
+        (expect (file-exists-p (expand-file-name "home.org" wt)) :to-be t)
+        (expect (file-directory-p (expand-file-name "sessions" wt)) :to-be t)
+        (let ((ws (gethash "wt" workspace--registry)))
+          (expect ws :not :to-be nil)
+          (expect (workspace--home ws) :to-equal wt)))))
+
+  (it "with home.org: registers only — no scaffold, no git command, git state unchanged"
+    (let* ((pair (wna-spec--make-linked-worktree wna-spec--tmp-dir "wt2"))
+           (wt   (cdr pair))
+           (user-content "#+TITLE: user-authored\n"))
+      (with-temp-file (expand-file-name "home.org" wt) (insert user-content))
+      (let ((wt-before (wna-spec--git-snapshot wt)))
+        (wna-spec--call-anchor wt)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect 'workspace--scaffold-git :not :to-have-been-called)
+        (expect 'workspace--dispatch-create-integrations
+                :to-have-been-called-with "wt2" wt 'anchored-existing)
+        (expect (wna-spec--git-snapshot wt) :to-equal wt-before)
+        (expect (with-temp-buffer
+                  (insert-file-contents (expand-file-name "home.org" wt))
+                  (buffer-string))
+                :to-equal user-content)
+        (expect (file-directory-p (expand-file-name "sessions" wt)) :to-be nil)
+        (expect (gethash "wt2" workspace--registry) :not :to-be nil)))))
+
+(describe "workspace--checkout-root-p"
+  ;; The anchor flow's "already a git repository" test: any `.git'
+  ;; entry in the directory itself.  A subdirectory of another checkout
+  ;; is deliberately NOT a checkout root (case 3 makes a nested repo
+  ;; there; portable-bookmarks relies on that).
+  (before-each (wna-spec--reset))
+  (after-each (wna-spec--cleanup))
+
+  (it "is true for a .git directory, a .git file and a dangling .git symlink"
+    (let ((main (file-name-as-directory
+                 (expand-file-name "main" wna-spec--tmp-dir)))
+          (gitfile (file-name-as-directory
+                    (expand-file-name "gitfile" wna-spec--tmp-dir)))
+          (dangling (file-name-as-directory
+                     (expand-file-name "dangling" wna-spec--tmp-dir))))
+      (make-directory (expand-file-name ".git" main) t)
+      (make-directory gitfile t)
+      (with-temp-file (expand-file-name ".git" gitfile)
+        (insert "gitdir: /nonexistent/worktrees/x\n"))
+      (make-directory dangling t)
+      (make-symbolic-link "/nonexistent/.git" (expand-file-name ".git" dangling))
+      (expect (workspace--checkout-root-p main) :to-be-truthy)
+      (expect (workspace--checkout-root-p gitfile) :to-be-truthy)
+      (expect (workspace--checkout-root-p dangling) :to-be-truthy)))
+
+  (it "is false for a plain directory and for a subdirectory of a checkout"
+    (let* ((plain (file-name-as-directory
+                   (expand-file-name "plain" wna-spec--tmp-dir)))
+           (repo (file-name-as-directory
+                  (expand-file-name "repo" wna-spec--tmp-dir)))
+           (sub (file-name-as-directory (expand-file-name "sub" repo))))
+      (make-directory plain t)
+      (make-directory sub t)
+      (wna-spec--init-repo repo)
+      (expect (workspace--checkout-root-p plain) :to-be nil)
+      (expect (workspace--checkout-root-p sub) :to-be nil))))
+
+;;; The scaffold's git ignores an inherited git environment
+;;
+;; Emacs launched with GIT_DIR set (as the editor of
+;; `git --git-dir=$HOME/.cfg ...', or from a hook) passes it to every
+;; subprocess.  The scaffold's `git init' / `add .' / `commit' then
+;; acted on THAT repository: its HEAD moved to an "Initial workspace"
+;; commit holding home.org.
+
+(describe "workspace-new anchor-existing — inherited GIT_DIR"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'workspace--dispatch-create-integrations))
+  (after-each (wna-spec--cleanup))
+
+  (it "case 3 git-inits and commits the plain directory, not the GIT_DIR repository"
+    (let* ((outside (file-name-as-directory
+                     (expand-file-name "outside" wna-spec--tmp-dir)))
+           (home (file-name-as-directory
+                  (expand-file-name "plain" wna-spec--tmp-dir))))
+      (make-directory outside t)
+      (wna-spec--init-repo outside)
+      (make-directory home t)
+      (let ((outside-before (wna-spec--git-snapshot outside)))
+        (let ((process-environment
+               (append (list (concat "GIT_DIR="
+                                     (expand-file-name ".git" outside))
+                             (concat "GIT_INDEX_FILE="
+                                     (expand-file-name ".git/index" outside)))
+                       process-environment)))
+          (wna-spec--call-anchor home))
+        ;; The outside repository is untouched: same HEAD, log, index.
+        (expect (wna-spec--git-snapshot outside) :to-equal outside-before)
+        ;; The plain directory got its own repository and one commit.
+        (expect (file-directory-p (expand-file-name ".git" home)) :to-be t)
+        (expect (length (wna-spec--git-log-oneline home)) :to-equal 1)
+        (expect (wna-spec--git-output home "ls-files")
+                :to-match "home\\.org")
+        (expect (gethash "plain" workspace--registry) :not :to-be nil)))))
+
+;;; A git directory is not a workspace home
+;;
+;; A bare repository (`foo.git/') or a repository's own `.git/' has no
+;; `.git' entry, so it is not a checkout root and would take case 3:
+;; `git init' a nested repository there and commit the object store.
+;; Anchoring there is refused before any tab, scaffold or registry work.
+
+(describe "workspace-new anchor-existing — git directory refused"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through)
+    (spy-on 'workspace--dispatch-create-integrations))
+  (after-each (wna-spec--cleanup))
+
+  (it "refuses a bare repository and leaves it untouched"
+    (let ((bare (file-name-as-directory
+                 (expand-file-name "foo.git" wna-spec--tmp-dir))))
+      (make-directory bare t)
+      (wna-spec--git bare "init" "-q" "--bare")
+      (let ((files-before (directory-files bare)))
+        (expect (wna-spec--call-anchor bare)
+                :to-throw 'user-error
+                (list (format "Not anchoring at a git directory (a bare repository or a .git directory): %s"
+                              bare)))
+        (expect (directory-files bare) :to-equal files-before)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect 'tab-bar-new-tab :not :to-have-been-called)
+        (expect 'workspace--dispatch-create-integrations :not :to-have-been-called)
+        (expect (hash-table-count workspace--registry) :to-equal 0))))
+
+  (it "refuses a repository's .git directory and a directory inside it"
+    (let* ((repo (file-name-as-directory
+                  (expand-file-name "repo" wna-spec--tmp-dir)))
+           (dot-git (file-name-as-directory (expand-file-name ".git" repo)))
+           (refs (file-name-as-directory (expand-file-name "refs" dot-git))))
+      (make-directory repo t)
+      (wna-spec--init-repo repo)
+      (let ((before (wna-spec--git-snapshot repo)))
+        (expect (wna-spec--call-anchor dot-git) :to-throw 'user-error)
+        (expect (wna-spec--call-anchor refs) :to-throw 'user-error)
+        (expect (wna-spec--git-snapshot repo) :to-equal before)
+        (expect (file-exists-p (expand-file-name "home.org" dot-git)) :to-be nil)
+        (expect (file-exists-p (expand-file-name "home.org" refs)) :to-be nil)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect (hash-table-count workspace--registry) :to-equal 0)))))
+
 (describe "workspace-new anchor-existing — double-registration guard"
   (before-each
     (wna-spec--reset)
@@ -312,6 +554,153 @@ to return HOME.  Returns the freshly-registered workspace plist."
         ;; Registry still has exactly one entry.
         (expect (hash-table-count workspace--registry) :to-equal 1)
         (expect 'workspace-scaffold :not :to-have-been-called)))))
+
+;;; Registry-name guard (anchoring a same-basename directory)
+
+(describe "workspace-new anchor-existing — registry-name guard"
+  ;; The registry is keyed by basename, so anchoring a DIFFERENT
+  ;; directory with an existing workspace's basename must be refused:
+  ;; registering it would replace that workspace's entry (its layouts,
+  ;; membership and recent-layout pointer).
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through))
+  (after-each (wna-spec--cleanup))
+
+  (it "refuses a different local directory with the same basename and keeps the existing entry"
+    (let* ((home-a (file-name-as-directory
+                    (expand-file-name "a/proj" wna-spec--tmp-dir)))
+           (home-b (file-name-as-directory
+                    (expand-file-name "b/proj" wna-spec--tmp-dir)))
+           (original (workspace--set-recent-group
+                      (workspace--make "proj" home-a) "home")))
+      (make-directory home-a t)
+      (make-directory home-b t)
+      (puthash "proj" original workspace--registry)
+      (let ((tabs-before (length (funcall tab-bar-tabs-function))))
+        (expect (wna-spec--call-anchor home-b)
+                :to-throw 'user-error
+                (list (format "A workspace named proj already exists (home %s)"
+                              home-a)))
+        ;; The existing entry is untouched: the very same plist.
+        (expect (gethash "proj" workspace--registry) :to-be original)
+        (expect (hash-table-count workspace--registry) :to-equal 1)
+        ;; Refused before any tab or scaffold work.
+        (expect 'tab-bar-new-tab :not :to-have-been-called)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect (length (funcall tab-bar-tabs-function)) :to-equal tabs-before)
+        (expect (file-exists-p (expand-file-name ".git" home-b)) :to-be nil)
+        (expect (file-exists-p (expand-file-name "home.org" home-b)) :to-be nil)))))
+
+
+;;; Remote (TRAMP) workspace homes are refused (user decision 2026-09-27)
+
+(defconst wna-spec--remote-prefix "/wsna-remote:"
+  "Prefix of the stand-in remote file names below.")
+
+(defmacro wna-spec--with-remote-names (&rest body)
+  "Run BODY with the core fake remote handler serving `wna-spec--remote-prefix'.
+`file-remote-p' is answered, and so are the four file-NAME operations
+the anchor paths apply to a home before refusing it (canonicalising it
+and taking its basename); any other operation is a filesystem touch,
+recorded in `workspaces-test-fake-remote-touches', and signals."
+  (declare (indent 0))
+  `(workspaces-test-with-fake-remote
+       (wna-spec--remote-prefix
+        :allow (expand-file-name file-name-as-directory
+                directory-file-name file-name-nondirectory))
+     ,@body))
+
+(defun wna-spec--remote-refusal (home)
+  "The `user-error' data `workspace--refuse-remote-home' signals for HOME.
+Every remote spec asserts THIS message, so each one fails when the
+remote refusal is removed, rather than passing on another guard."
+  (list (concat "Workspace homes must be local; remote (TRAMP)"
+                " directories are not supported: " home)))
+
+(describe "remote (TRAMP) workspace homes are refused"
+  (before-each
+    (wna-spec--reset)
+    (spy-on 'tab-bar-new-tab :and-call-through)
+    (spy-on 'workspace-scaffold :and-call-through)
+    (spy-on 'workspace--registered-for-home-p :and-call-through))
+  (after-each (wna-spec--cleanup))
+
+  (it "names the path in the refusal, for a real TRAMP name, without connecting"
+    (spy-on 'file-attributes :and-call-through)
+    (spy-on 'file-exists-p :and-call-through)
+    (let ((remote "/ssh:wsna-nohost.invalid:/srv/proj/"))
+      (expect (workspace--refuse-remote-home remote)
+              :to-throw 'user-error (wna-spec--remote-refusal remote))
+      (expect (workspace--refuse-remote-home wna-spec--tmp-dir) :to-be nil))
+    (expect 'file-attributes :not :to-have-been-called)
+    (expect 'file-exists-p :not :to-have-been-called))
+
+  (it "C-u workspace-new refuses a remote directory before any filesystem work"
+    (wna-spec--with-remote-names
+      (let ((home (concat wna-spec--remote-prefix "/srv/proj/")))
+        (expect (file-remote-p home) :to-be-truthy)
+        (expect (wna-spec--call-anchor home)
+                :to-throw 'user-error (wna-spec--remote-refusal home))
+        (expect workspaces-test-fake-remote-touches :to-be nil)
+        ;; Refused before the duplicate-home guard, whose nil for a remote
+        ;; name would mean "cannot tell", not "not registered".
+        (expect 'workspace--registered-for-home-p :not :to-have-been-called)
+        (expect 'workspace-scaffold :not :to-have-been-called)
+        (expect 'tab-bar-new-tab :not :to-have-been-called)
+        (expect (hash-table-count workspace--registry) :to-equal 0))))
+
+  (it "C-u workspace-new refuses a remote ALIAS of a registered remote home, keeping the entry"
+    ;; The case only the remote refusal catches.  The alias (another mount
+    ;; path of the same remote directory) has a DIFFERENT basename, so the
+    ;; registry-name guard does not fire, and the duplicate-home guard
+    ;; cannot compare remote names.  Without the refusal the anchor would
+    ;; go on to the filesystem (here the stand-in handler signals) and
+    ;; register a second workspace on the registered one's directory.
+    (wna-spec--with-remote-names
+      (let* ((home (concat wna-spec--remote-prefix "/srv/proj/"))
+             (alias (concat wna-spec--remote-prefix "/mnt/proj-alias/"))
+             (original (workspace--make "proj" home)))
+        (puthash "proj" original workspace--registry)
+        (expect (wna-spec--call-anchor alias)
+                :to-throw 'user-error (wna-spec--remote-refusal alias))
+        (expect (gethash "proj" workspace--registry) :to-be original)
+        (expect (gethash "proj-alias" workspace--registry) :to-be nil)
+        (expect (hash-table-count workspace--registry) :to-equal 1)
+        (expect workspaces-test-fake-remote-touches :to-be nil)
+        (expect 'workspace--registered-for-home-p :not :to-have-been-called)
+        (expect 'tab-bar-new-tab :not :to-have-been-called))))
+
+  (it "workspace-new refuses a remote default parent before any filesystem work"
+    (wna-spec--with-remote-names
+      (setq workspaces-default-parent-directory
+            (concat wna-spec--remote-prefix "/srv/"))
+      (expect (workspace-new "proj")
+              :to-throw 'user-error
+              (wna-spec--remote-refusal
+               (concat wna-spec--remote-prefix "/srv/proj")))
+      (expect workspaces-test-fake-remote-touches :to-be nil)
+      (expect 'workspace-scaffold :not :to-have-been-called)
+      (expect 'tab-bar-new-tab :not :to-have-been-called)
+      (expect (hash-table-count workspace--registry) :to-equal 0)))
+
+  (it "workspace-re-anchor refuses a remote new home before any filesystem work"
+    (let* ((old-home (file-name-as-directory
+                      (expand-file-name "gone/proj" wna-spec--tmp-dir)))
+           (original (workspace--mark-broken
+                      (workspace--make "proj" old-home))))
+      (puthash "proj" original workspace--registry)
+      (spy-on 'workspace--flush-state)
+      (wna-spec--with-remote-names
+        (expect (workspace-re-anchor
+                 "proj" (concat wna-spec--remote-prefix "/srv/proj/"))
+                :to-throw 'user-error
+                (wna-spec--remote-refusal
+                 (concat wna-spec--remote-prefix "/srv/proj/")))
+        (expect workspaces-test-fake-remote-touches :to-be nil))
+      (expect (gethash "proj" workspace--registry) :to-be original)
+      (expect 'workspace--flush-state :not :to-have-been-called))))
 
 (provide 'workspace-new-anchor-spec)
 ;;; workspace-new-anchor-spec.el ends here
