@@ -58,6 +58,27 @@ Enables proper horizontal scrolling in Org mode.
   (require 'org-phscroll))
 #+end_src
 
+phscroll measures a folded heading's ellipsis with
+~(display-table-slot buffer-display-table 4)~, which signals
+~wrong-type-argument char-table-p nil~ in any buffer without a display
+table (the default). That fires from ~pre-redisplay-functions~ whenever a
+wide line inside a phscroll area sits next to folded text. Bind an empty
+display table around the call so the slot is nil and phscroll falls back
+to its own =...= width. Still unfixed upstream as of 2026-10.
+
+#+begin_src emacs-lisp
+(defvar jf/phscroll--empty-display-table (make-display-table)
+  "Display table used when the buffer has none, so phscroll can read slot 4.")
+
+(define-advice phscroll-invisible-property-width
+    (:around (fn &rest args) jf/nil-display-table)
+  "Run FN with a non-nil `buffer-display-table' so phscroll cannot signal."
+  (let ((buffer-display-table (or buffer-display-table
+                                  standard-display-table
+                                  jf/phscroll--empty-display-table)))
+    (apply fn args)))
+#+end_src
+
 ** Modern Look
 Provides a cleaner, more modern appearance to Org mode.
 
