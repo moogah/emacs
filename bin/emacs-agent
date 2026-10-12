@@ -66,10 +66,12 @@ Targets:
   busy, its accept queue full (exit 1): list prints it as `NAME (busy)',
   stop fails, start refuses its name (exit 2), and its socket stays.  Busy
   is told by lsof; without a working lsof a refusing socket counts as not
-  running, so start replaces it.  start refuses the name of a target that
-  answers too: Emacs reports it already running (exit 2).
+  running, so start replaces it.  start also refuses the name of a target
+  that answers, or that a process holds while it does not answer within 2
+  seconds, launching nothing (exit 2).
 
-  --data PROFILE   the data profile of a worktree target:
+  --data PROFILE   the data profile of a worktree target; any other value
+                   is a usage error:
                      live            the user's notes
                      scratch:<dir>   a scratch vault at the absolute <dir>
                      none            no notes (the default when --data is omitted)
@@ -422,12 +424,14 @@ EMACS_AGENT_STOP_TIMEOUT=10
 # launcher exits 0 and the socket exists; otherwise show the launcher's
 # output and exit 2.  The output goes to a file, not a pipe: a process the
 # target starts while it initialises may hold a pipe open after the
-# launcher exits.  A NAME whose socket a process holds while refusing
-# connections (busy) is refused, exit 2, before anything is launched; one
-# whose server answers is refused by Emacs and reported already running.
+# launcher exits.  A NAME whose server answers, or whose socket a process
+# holds while refusing connections (busy) or not answering in time, is
+# refused, exit 2, before anything is launched: a second Emacs would run
+# the whole configuration before Emacs refused its server, and its exit
+# hooks would write state the running target shares.
 emacs_agent_target_start() {
     local name="$1" worktree="$2" bare="$3" data="$4" launcher out status socket
-    local answered="" pids
+    local pids
     local -a cmd
     if [[ -n "$bare" ]]; then
         [[ -z "$worktree" ]] || emacs_agent_usage_error "--worktree does not apply to a --bare target"
@@ -442,14 +446,23 @@ emacs_agent_target_start() {
     socket="$(emacs_agent_socket "$name")"
     # Emacs replaces a socket whose connection is refused, so a busy
     # target's socket would be taken over and the target orphaned: refuse
-    # its name.  A target that answers is left for Emacs to refuse.
+    # its name.  Refuse a target that answers, or that a process holds but
+    # that does not answer in time, too, rather than leave it for Emacs to
+    # refuse after a second full init.  Only a stale socket (refused, no
+    # holder) is launched over.
     if [[ -S "$socket" ]]; then
         emacs_agent_client "$name" -w 2 --eval t >/dev/null 2>&1
         case $? in
-            0) answered=1 ;;
+            0)
+                emacs_agent_fail "target $name is already running: its server answers on $socket" 2 ;;
+            2) ;;
             3)
                 pids="$(emacs_agent_socket_holders "$socket")"
                 emacs_agent_fail "target $name is already running (busy): process ${pids:-?} holds $socket but refuses connections; stop it or try again" 2 ;;
+            *)
+                if pids="$(emacs_agent_socket_holders "$socket")"; then
+                    emacs_agent_fail "target $name is already running: process $pids holds $socket but did not answer within 2s; stop it or try again" 2
+                fi ;;
         esac
     fi
     out="$(mktemp "${TMPDIR:-/tmp}/emacs-agent-start.XXXXXX")" ||
@@ -462,9 +475,6 @@ emacs_agent_target_start() {
     fi
     cat "$out" >&2
     rm -f "$out"
-    if [[ $status -ne 0 && -n "$answered" ]]; then
-        emacs_agent_fail "target $name is already running: its server answers on $socket" 2
-    fi
     if [[ $status -ne 0 ]]; then
         emacs_agent_fail "target $name did not start: the launcher exited $status" 2
     fi
@@ -550,6 +560,10 @@ emacs_agent_target() {
                         shift ;;
                     --data)
                         [[ $# -ge 2 ]] || emacs_agent_usage_error "--data takes PROFILE"
+                        case "$2" in
+                            none|live|scratch:/*) ;;
+                            *) emacs_agent_usage_error "--data takes live, none or scratch:<absolute dir>, not \`$2'" ;;
+                        esac
                         data="$2"
                         shift 2 ;;
                     *)

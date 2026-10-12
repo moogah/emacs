@@ -437,6 +437,31 @@ launches can start an Emacs."
         (expect (emacs-agent-test-fake-calls "isolated") :to-be nil)
         (expect (file-exists-p socket) :to-be t))))
 
+  (it "refuses to start a target whose server answers, launching nothing (seam/target-lifecycle)"
+    (wrapper-spec--scope
+      (let ((socket (emacs-agent-test-stand-in-socket "smoke-up")))
+        (dolist (args `(("target" "start" "smoke-up" "--bare")
+                        ("target" "start" "smoke-up" "--worktree"
+                         ,(emacs-agent-test-fake-worktree) "--data" "live")))
+          (let ((result (apply #'emacs-agent-test-wrapper-run args)))
+            (expect (cons args (plist-get result :exit)) :to-equal (cons args 2))
+            (expect (plist-get result :stderr)
+                    :to-match (regexp-quote "target smoke-up is already running: its server answers"))))
+        (expect (emacs-agent-test-fake-calls "emacs") :to-be nil)
+        (expect (emacs-agent-test-fake-calls "isolated") :to-be nil)
+        (expect (file-exists-p socket) :to-be t))))
+
+  (it "refuses a --data value that is not live, none or scratch:<absolute dir>, starting nothing (seam/data-profile)"
+    (wrapper-spec--scope
+      (dolist (data '("Live" "scratch:vault" "scratch:" "bogus" ""))
+        (let ((result (emacs-agent-test-wrapper-run
+                       "target" "start" "smoke-1"
+                       "--worktree" (emacs-agent-test-fake-worktree)
+                       "--data" data)))
+          (expect (cons data (wrapper-spec--refused-p result)) :to-equal (cons data t))
+          (expect (plist-get result :stderr) :to-match "--data takes live, none or scratch:")))
+      (expect (wrapper-spec--nothing-started-p) :to-be t)))
+
   (it "states the default data profile in its usage text (seam/data-profile)"
     (let ((help (emacs-agent-test-wrapper-run "--help")))
       (expect (plist-get help :exit) :to-equal 0)
