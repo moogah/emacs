@@ -227,17 +227,38 @@ follows.  A name with no such definition gets an explanatory result."
               (format "%s\n\nThe %s %s is defined in this file, but its definition form was not found in it (a macro probably generates it)"
                       file as name))))))))))
 
+(defvar jf/agent-introspection-withheld-variable-regexp
+  (concat "\\(?:\\`\\|[-/:]\\)"
+          (regexp-opt '("password" "passwd" "passphrase" "secret" "token"
+                        "credential" "apikey" "api-key" "private-key"
+                        "access-key" "auth-info"))
+          "s?\\(?:\\'\\|[-/:]\\)")
+  "Regexp for variable names whose value `emacs_variable_value' withholds.
+It is matched, ignoring case, against the whole name; a word must start
+at the beginning of the name or after `-', `/' or `:', and end at the
+end of the name or before one of them.")
+
+(defun jf/agent-introspection--withheld-p (name)
+  "Non-nil when the variable name NAME matches the withheld regexp."
+  (let ((case-fold-search t))
+    (string-match-p jf/agent-introspection-withheld-variable-regexp name)))
+
 (defun jf/agent-introspection-variable-value (name)
   "Return the global value of the variable named NAME, printed readably.
 The text is bounded (see `jf/agent-introspection--prin1').  A NAME with
-no global value gets a result saying it is not defined."
+no global value gets a result saying it is not defined.  A NAME that
+`jf/agent-introspection--withheld-p' matches gets a result saying its
+value is withheld, and the value is not read."
   (if (not (stringp name))
       (jf/agent-introspection--bad-name name)
     (let* ((found (jf/agent-introspection--symbol name))
            (symbol (car found)))
-      (if (and found (default-boundp symbol))
-          (jf/agent-introspection--prin1 (default-value symbol))
-        (format "%s is not defined as a variable: it has no global value" name)))))
+      (cond
+       ((not (and found (default-boundp symbol)))
+        (format "%s is not defined as a variable: it has no global value" name))
+       ((jf/agent-introspection--withheld-p name)
+        (format "The value of %s is withheld: its name suggests it holds a secret" name))
+       (t (jf/agent-introspection--prin1 (default-value symbol)))))))
 
 (defconst jf/agent-introspection--apropos-kinds
   `(("function" . fboundp)

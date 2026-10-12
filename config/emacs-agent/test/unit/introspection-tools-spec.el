@@ -32,6 +32,9 @@ ALPHA and BETA are ignored."
 (defvar introspection-spec--probe-variable (list "a" 1 'b)
   "A bound probe variable for the variable-value and apropos specs.")
 
+(defvar introspection-spec--probe-api-key "sk-probe-secret"
+  "A bound probe variable whose name marks its value as withheld.")
+
 (defun introspection-spec--call (tool json)
   "Call the introspection TOOL with JSON on the call tier; return the envelope."
   (emacs-agent-test-envelope (jf/agent-call "call" tool json)))
@@ -90,6 +93,22 @@ ALPHA and BETA are ignored."
       (expect (car (read-from-string text)) :to-equal copy)
       (expect introspection-spec--probe-variable :to-be before)
       (expect introspection-spec--probe-variable :to-equal copy)))
+
+  (it "withholds the value of a variable whose name suggests a secret (seam/introspection-tools)"
+    (let ((text (introspection-spec--result
+                 "emacs_variable_value"
+                 "{\"name\":\"introspection-spec--probe-api-key\"}")))
+      (expect text :to-match "withheld")
+      (expect text :not :to-match "sk-probe-secret")))
+
+  (it "withholds by whole hyphen-delimited words of the name, ignoring case (seam/introspection-tools)"
+    (dolist (name '("gptel-api-key" "my-PASSWORD" "foo-tokens" "a/secret"
+                    "auth-info-cache" "x-credentials-file" "token"))
+      (expect (jf/agent-introspection--withheld-p name) :to-be-truthy))
+    (dolist (name '("introspection-spec--probe-variable" "auth-sources"
+                    "org-export-with-author" "tokenizer-mode" "keyboard-type"
+                    "secretary-name"))
+      (expect (jf/agent-introspection--withheld-p name) :not :to-be-truthy)))
 
   (it "returns only interactive commands matching the pattern for the kind command (Scenario: agent-introspection-tools § Search symbols by pattern and kind)"
     (let ((names (split-string

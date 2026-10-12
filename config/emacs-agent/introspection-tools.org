@@ -323,18 +323,45 @@ The value is the variable's global value, =default-value=, so a buffer-local bin
 buffer is current does not show through.  It is printed by =jf/agent-introspection--prin1=, readable
 with =read= unless it holds an unreadable object (=#<buffer …>=) or was truncated.
 
+The tool sits in the read preset, which the =live call= tier runs without a prompt, so a variable
+whose name looks like it holds a secret (=gptel-api-key=, =…-password=, =…-token=) is withheld:
+the result says so and the value is never read.  =jf/agent-introspection-withheld-variable-regexp=
+is matched against the name, one hyphen-delimited word at a time.  It goes by the name only: a
+secret held inside another value (the key in a =gptel-backend= struct) is not caught.
+
 #+begin_src emacs-lisp
+(defvar jf/agent-introspection-withheld-variable-regexp
+  (concat "\\(?:\\`\\|[-/:]\\)"
+          (regexp-opt '("password" "passwd" "passphrase" "secret" "token"
+                        "credential" "apikey" "api-key" "private-key"
+                        "access-key" "auth-info"))
+          "s?\\(?:\\'\\|[-/:]\\)")
+  "Regexp for variable names whose value `emacs_variable_value' withholds.
+It is matched, ignoring case, against the whole name; a word must start
+at the beginning of the name or after `-', `/' or `:', and end at the
+end of the name or before one of them.")
+
+(defun jf/agent-introspection--withheld-p (name)
+  "Non-nil when the variable name NAME matches the withheld regexp."
+  (let ((case-fold-search t))
+    (string-match-p jf/agent-introspection-withheld-variable-regexp name)))
+
 (defun jf/agent-introspection-variable-value (name)
   "Return the global value of the variable named NAME, printed readably.
 The text is bounded (see `jf/agent-introspection--prin1').  A NAME with
-no global value gets a result saying it is not defined."
+no global value gets a result saying it is not defined.  A NAME that
+`jf/agent-introspection--withheld-p' matches gets a result saying its
+value is withheld, and the value is not read."
   (if (not (stringp name))
       (jf/agent-introspection--bad-name name)
     (let* ((found (jf/agent-introspection--symbol name))
            (symbol (car found)))
-      (if (and found (default-boundp symbol))
-          (jf/agent-introspection--prin1 (default-value symbol))
-        (format "%s is not defined as a variable: it has no global value" name)))))
+      (cond
+       ((not (and found (default-boundp symbol)))
+        (format "%s is not defined as a variable: it has no global value" name))
+       ((jf/agent-introspection--withheld-p name)
+        (format "The value of %s is withheld: its name suggests it holds a secret" name))
+       (t (jf/agent-introspection--prin1 (default-value symbol)))))))
 #+end_src
 
 * emacs_apropos
