@@ -102,6 +102,7 @@ resolve to a real file."
     ("core/auth"      "GPG and authinfo setup")
     ("core/avy"      "avy navigation package")
     ("core/browser-hist"     "Search browser history")
+    ("core/browser-gt"       "Browser bridge: tabs, JS eval, Safari via AppleScript")
     ("core/ripgrep"      "")
     ("core/ultra-scroll"      "")
     ("core/expand-region"      "")
