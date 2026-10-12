@@ -231,6 +231,24 @@ the workspaces package.  Return (:exit CODE :output TEXT)."
         (expect (agent-tools-spec--layout "code" "demo") :to-be nil)
         (expect (gethash "code" workspace--registry) :to-equal entry))))
 
+  (it "refuses a remote pane file by name without contacting it, and adds nothing (seam/agent-tools)"
+    (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
+           (entry nil))
+      (workspace-bookmark-fixtures-write-file home "design.md")
+      (setq entry (copy-tree (gethash "code" workspace--registry)))
+      (let ((result (workspaces-test-with-fake-remote
+                        ("/wsx-remote:" :allow (expand-file-name))
+                      (agent-tools-spec--call
+                       "workspace_add_layout"
+                       :workspace "code" :layout_name "demo" :split "columns"
+                       :panes (vector (list :file "/wsx-remote:host:/etc/hosts")
+                                      (list :file "design.md"))))))
+        (expect (car result) :to-be :error)
+        (expect (cadr result) :to-match "is remote")
+        (expect workspaces-test-fake-remote-touches :to-be nil)
+        (expect (agent-tools-spec--layout "code" "demo") :to-be nil)
+        (expect (gethash "code" workspace--registry) :to-equal entry))))
+
   (it "treats a JSON null as not given and re-emits pane keys in canonical order (seam/agent-tools)"
     (let* ((home (workspace-bookmark-fixtures-make-workspace "code"))
            (a (workspace-bookmark-fixtures-write-file

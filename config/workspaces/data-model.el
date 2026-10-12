@@ -384,11 +384,14 @@ spellings case-sensitively and ends in `file-equal-p'.  Never signals."
 
 (defun workspace--recipe-path-p (path)
   "Return non-nil if PATH is an absolute file name a recipe pane may name.
-Pure string test: a name starting with `~' is refused because its
-meaning depends on the environment when it is read."
+A name test only: a name starting with `~' is refused because its
+meaning depends on the environment when it is read, and a remote name
+is refused as a remote home is (OQ-4), asked of `file-remote-p' without
+its CONNECTED argument, so no remote host is contacted."
   (and (stringp path)
        (file-name-absolute-p path)
-       (not (string-prefix-p "~" path))))
+       (not (string-prefix-p "~" path))
+       (not (file-remote-p path))))
 
 (defun workspace--recipe-pane-p (pane)
   "Return non-nil if PANE is a well-formed recipe pane.

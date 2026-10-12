@@ -5,6 +5,9 @@
 (load (expand-file-name "../data-model.el"
                         (file-name-directory
                          (or load-file-name buffer-file-name))))
+(load (expand-file-name "workspaces-test-helpers.el"
+                        (file-name-directory
+                         (or load-file-name buffer-file-name))))
 
 (describe "workspace--make"
   (it "returns a workspace with the given name and empty groups"
@@ -292,6 +295,20 @@
                        :panes ((:file "/w/a.org")
                                (:split rows :panes ((:file "~/x"))))))
             :to-be nil))
+
+  (it "rejects a remote pane path by name (seam/recipe-shape)"
+    (workspaces-test-with-fake-remote "/wsx-remote:"
+      (expect (workspace--recipe-p
+               '(:recipe :split columns :panes ((:file "/wsx-remote:host:/x"))))
+              :to-be nil)
+      (expect (workspace--recipe-p
+               '(:recipe :split columns
+                         :panes ((:file "/w/a.org")
+                                 (:split rows :panes ((:file "/wsx-remote:host:/x" :line 3))))))
+              :to-be nil)
+      (expect (workspace--recipe-p '(:recipe :split columns :panes ((:file "/w/a.org"))))
+              :to-be-truthy))
+    (expect workspaces-test-fake-remote-touches :to-be nil))
 
   (it "rejects pane keys out of order (seam/recipe-shape)"
     (expect (workspace--recipe-p '(:recipe :split columns :panes ((:line 3 :file "/x"))))

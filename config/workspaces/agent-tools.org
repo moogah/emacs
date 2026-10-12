@@ -175,6 +175,10 @@ asked of it, so no file is visited.
   (when (and line (not (and (natnump line) (> line 0))))
     (user-error "%s.line must be a positive integer, not %S" where line))
   (let ((path (expand-file-name file base)))
+    ;; By name, before any file test: a test of a remote name would open
+    ;; a connection from inside the live session.
+    (when (file-remote-p path)
+      (user-error "File \"%s\" (%s) is remote; a pane names a local file" file path))
     (unless (file-exists-p path)
       (user-error "File \"%s\" (%s) does not exist" file path))
     (when (file-directory-p path)

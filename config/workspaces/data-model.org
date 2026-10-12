@@ -731,6 +731,8 @@ turned into windows only when the layout is applied (layouts.org,
   depends on =$HOME= (and, for =~user=, on the password database) when
   it is read, not when it was stored.  The builder that turns tool
   arguments into a recipe expands every path, so it never produces one.
+  A remote PATH (TRAMP) is rejected too, by name (OQ-4): checking or
+  visiting it would open a connection, as a remote home's would.
 - N is a positive integer, the line point lands on when the layout is
   applied.
 
@@ -750,11 +752,14 @@ recipe is not one.
 
 (defun workspace--recipe-path-p (path)
   "Return non-nil if PATH is an absolute file name a recipe pane may name.
-Pure string test: a name starting with `~' is refused because its
-meaning depends on the environment when it is read."
+A name test only: a name starting with `~' is refused because its
+meaning depends on the environment when it is read, and a remote name
+is refused as a remote home is (OQ-4), asked of `file-remote-p' without
+its CONNECTED argument, so no remote host is contacted."
   (and (stringp path)
        (file-name-absolute-p path)
-       (not (string-prefix-p "~" path))))
+       (not (string-prefix-p "~" path))
+       (not (file-remote-p path))))
 
 (defun workspace--recipe-pane-p (pane)
   "Return non-nil if PANE is a well-formed recipe pane.
