@@ -1,0 +1,62 @@
+#+title: Browser GT
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle browser-gt.el
+#+auto_tangle: y
+
+* Introduction
+[[https://github.com/dmgerman/browser-gt][browser-gt]] is a two-way bridge between Emacs and the web browser: a
+WebSocket server on =127.0.0.1:9130= that a Chrome or Firefox extension
+connects to, and on macOS a Safari backend (=browser-gt-safari-osa=)
+that drives Safari through AppleScript with no extension at all.
+
+It is installed from the =safari-osa= branch of my fork, which carries
+the Safari backend until it is merged upstream.
+
+* Lexical Binding
+Enable lexical binding for better closures and variable scoping.
+
+#+begin_src emacs-lisp
+;; -*- lexical-binding: t; -*-
+#+end_src
+
+* Configuration
+The www, ChatGPT and YouTube modules are left out: they need archive
+paths and an API key configured first.
+
+#+begin_src emacs-lisp
+  ;; ===============================================================================
+  ;; Configure browser-gt: browser bridge over WebSocket, Safari via AppleScript
+  ;; ===============================================================================
+
+  (use-package websocket
+    :straight t)
+
+  (use-package browser-gt
+    :straight (browser-gt :type git :host github :repo "moogah/browser-gt"
+                          :branch "safari-osa")
+    :after websocket
+    :config
+    (require 'browser-gt-tab-manager) ; M-x browser-gt-tab-manager
+    (require 'browser-gt-babel)       ; org-babel browser-gt-js blocks
+    (require 'browser-gt-url-handler) ; browser-gt-browse-url + browser-gt-url-routes
+    (when (eq system-type 'darwin)
+      (require 'browser-gt-safari-osa)) ; Safari without an extension
+    (browser-gt-start))
+#+end_src
+
+* Usage
+- =M-x browser-gt-tab-manager=: list and act on the tabs of every
+  connected browser, Safari included.
+- =M-x browser-gt-tab-jump=: jump to a tab with completion.
+- =browser-gt-js= source blocks in org evaluate JavaScript in a tab.
+
+** Safari setup
+- The first request makes macOS ask whether Emacs may control Safari.
+  Allow it; if denied, allow Emacs under System Settings ▸ Privacy &
+  Security ▸ Automation ▸ Safari.
+- JavaScript evaluation also needs Safari ▸ Settings ▸ Developer ▸
+  "Allow JavaScript from Apple Events".
+
+** Chrome and Firefox
+Load the extension from the package's =extension/build/chrome/= or
+=extension/build/firefox/= directory; see the browser-gt README.
