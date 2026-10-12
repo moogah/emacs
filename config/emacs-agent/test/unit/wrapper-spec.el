@@ -462,6 +462,15 @@ launches can start an Emacs."
           (expect (plist-get result :stderr) :to-match "--data takes live, none or scratch:")))
       (expect (wrapper-spec--nothing-started-p) :to-be t)))
 
+  (it "accepts a scratch:~/ profile, which the target expands against its HOME (seam/data-profile)"
+    (wrapper-spec--scope
+      (let ((result (emacs-agent-test-wrapper-run
+                     "target" "start" "smoke-1"
+                     "--worktree" (emacs-agent-test-fake-worktree)
+                     "--data" "scratch:~/vault")))
+        (expect (plist-get result :stderr) :not :to-match "--data takes"))
+      (expect (emacs-agent-test-fake-env "isolated") :to-equal '("scratch:~/vault"))))
+
   (it "states the default data profile in its usage text (seam/data-profile)"
     (let ((help (emacs-agent-test-wrapper-run "--help")))
       (expect (plist-get help :exit) :to-equal 0)

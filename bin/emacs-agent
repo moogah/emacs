@@ -561,8 +561,8 @@ emacs_agent_target() {
                     --data)
                         [[ $# -ge 2 ]] || emacs_agent_usage_error "--data takes PROFILE"
                         case "$2" in
-                            none|live|scratch:/*) ;;
-                            *) emacs_agent_usage_error "--data takes live, none or scratch:<absolute dir>, not \`$2'" ;;
+                            none|live|scratch:/*|scratch:~*) ;;
+                            *) emacs_agent_usage_error "--data takes live, none or scratch:<absolute or ~/ dir>, not \`$2'" ;;
                         esac
                         data="$2"
                         shift 2 ;;
