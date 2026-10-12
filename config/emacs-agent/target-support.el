@@ -12,14 +12,21 @@ Contents past this many characters are cut, and the state's buffer
   "VALUE as a JSON boolean for `json-serialize'."
   (if value t :false))
 
+(defun jf/frame-state--text (string)
+  "STRING with each character JSON cannot carry replaced by U+FFFD.
+A unibyte STRING's bytes past ASCII are raw bytes, so are replaced."
+  (concat (mapcar (lambda (c)
+                    (if (or (> c #x10FFFF) (<= #xD800 c #xDFFF)) #xFFFD c))
+                  (string-to-multibyte string))))
+
 (defun jf/frame-state--buffer (window)
   "The `buffer' object of `jf/frame-state' for WINDOW's buffer."
   (with-current-buffer (window-buffer window)
     (let* ((start (point-min))
            (end (min (point-max)
                      (+ start (max 0 jf/frame-state-max-chars)))))
-      (list :name (buffer-name)
-            :contents (buffer-substring-no-properties start end)
+      (list :name (jf/frame-state--text (buffer-name))
+            :contents (jf/frame-state--text (buffer-substring-no-properties start end))
             :truncated (jf/frame-state--bool (< end (point-max)))
             :point (window-point window)))))
 
@@ -27,7 +34,7 @@ Contents past this many characters are cut, and the state's buffer
   "The `windows' array of `jf/frame-state'."
   (vconcat
    (mapcar (lambda (window)
-             (list :buffer (buffer-name (window-buffer window))
+             (list :buffer (jf/frame-state--text (buffer-name (window-buffer window)))
                    :selected (jf/frame-state--bool (eq window (selected-window)))))
            (window-list nil nil))))
 
@@ -37,7 +44,7 @@ Contents past this many characters are cut, and the state's buffer
     (list :active (jf/frame-state--bool window)
           :contents (if window
                         (with-current-buffer (window-buffer window)
-                          (minibuffer-contents-no-properties))
+                          (jf/frame-state--text (minibuffer-contents-no-properties)))
                       :null))))
 
 (defun jf/frame-state--messages ()
@@ -49,7 +56,8 @@ Contents past this many characters are cut, and the state's buffer
         (save-excursion
           (goto-char (point-max))
           (forward-line (- (max 0 jf/frame-state-message-lines)))
-          (vconcat (split-string (buffer-substring-no-properties (point) (point-max))
+          (vconcat (split-string (jf/frame-state--text
+                                  (buffer-substring-no-properties (point) (point-max)))
                                  "\n" t)))))))
 
 (defun jf/frame-state ()

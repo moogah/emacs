@@ -95,6 +95,16 @@ sends as commands."
                            :contents)
                 :to-equal "é ‘quoted’ →"))))
 
+  (it "reports a buffer holding raw bytes, each shown as U+FFFD (seam/target-support)"
+    (target-support-spec--in-shown-buffer (concat "ok " (string-to-multibyte "\377\200") " é")
+      (message "raw %s" (string-to-multibyte "\376"))
+      (let ((state (target-support-spec--state)))
+        (expect (plist-get (plist-get state :buffer) :contents)
+                :to-equal "ok �� é")
+        (expect (seq-some (lambda (line) (equal line "raw �"))
+                          (plist-get state :messages))
+                :to-be-truthy))))
+
   (it "loads into emacs -Q with nothing else and reports state there (seam/target-support)"
     (with-temp-buffer
       (let ((exit (call-process (emacs-agent-test-emacs) nil t nil

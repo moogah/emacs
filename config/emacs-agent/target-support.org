@@ -59,6 +59,22 @@ Contents past this many characters are cut, and the state's buffer
   (if value t :false))
 #+end_src
 
+** JSON text
+
+=json-serialize= signals on a string holding a character that is not a Unicode scalar value: a raw
+byte (a binary file's buffer, an undecoded process output), a surrogate, or one of Emacs's characters
+past =#x10FFFF=.  Every string the state carries goes through =jf/frame-state--text=, which puts
+U+FFFD in place of each, so such a buffer is still reported rather than failing the whole state.
+
+#+begin_src emacs-lisp
+(defun jf/frame-state--text (string)
+  "STRING with each character JSON cannot carry replaced by U+FFFD.
+A unibyte STRING's bytes past ASCII are raw bytes, so are replaced."
+  (concat (mapcar (lambda (c)
+                    (if (or (> c #x10FFFF) (<= #xD800 c #xDFFF)) #xFFFD c))
+                  (string-to-multibyte string))))
+#+end_src
+
 ** The selected window's buffer
 
 =point= is the selected window's point, counted from 1 as =point= is.
@@ -70,8 +86,8 @@ Contents past this many characters are cut, and the state's buffer
     (let* ((start (point-min))
            (end (min (point-max)
                      (+ start (max 0 jf/frame-state-max-chars)))))
-      (list :name (buffer-name)
-            :contents (buffer-substring-no-properties start end)
+      (list :name (jf/frame-state--text (buffer-name))
+            :contents (jf/frame-state--text (buffer-substring-no-properties start end))
             :truncated (jf/frame-state--bool (< end (point-max)))
             :point (window-point window)))))
 #+end_src
@@ -86,7 +102,7 @@ minibuffer is active.
   "The `windows' array of `jf/frame-state'."
   (vconcat
    (mapcar (lambda (window)
-             (list :buffer (buffer-name (window-buffer window))
+             (list :buffer (jf/frame-state--text (buffer-name (window-buffer window)))
                    :selected (jf/frame-state--bool (eq window (selected-window)))))
            (window-list nil nil))))
 #+end_src
@@ -102,7 +118,7 @@ minibuffer is active.
     (list :active (jf/frame-state--bool window)
           :contents (if window
                         (with-current-buffer (window-buffer window)
-                          (minibuffer-contents-no-properties))
+                          (jf/frame-state--text (minibuffer-contents-no-properties)))
                       :null))))
 #+end_src
 
@@ -121,7 +137,8 @@ lines, oldest first.  Batch Emacs and a daemon log there as an interactive sessi
         (save-excursion
           (goto-char (point-max))
           (forward-line (- (max 0 jf/frame-state-message-lines)))
-          (vconcat (split-string (buffer-substring-no-properties (point) (point-max))
+          (vconcat (split-string (jf/frame-state--text
+                                  (buffer-substring-no-properties (point) (point-max)))
                                  "\n" t)))))))
 #+end_src
 
