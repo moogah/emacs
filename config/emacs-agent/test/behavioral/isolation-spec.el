@@ -123,23 +123,32 @@
 
 (describe "The org-roam server-start guard (seam/target-lifecycle)"
 
-  (it "starts no server during a daemon's init, and one outside a daemon when none runs (seam/target-lifecycle)"
+  (it "starts no server during a daemon's init or in batch, the default one only in the live session, and isolated-CHECKOUT from an emacs-isolated.sh launch (seam/target-lifecycle)"
     ;; Only the guarded form is evaluated, never the module: loading it
-    ;; would start org-roam in the test process.
+    ;; would start org-roam in the test process.  The form sets
+    ;; `server-name', so it is bound here.
     (let ((forms (isolation-spec--server-start-forms))
-          (daemon nil))
+          (daemon nil)
+          (started nil))
       (expect (length forms) :to-equal 1)
-      (spy-on 'server-start)
+      (spy-on 'server-start :and-call-fake (lambda (&rest _) (push server-name started)))
       (spy-on 'server-running-p :and-return-value nil)
       ;; `daemonp' is a primitive: redefining it must not compile a
       ;; native trampoline.
-      (let ((native-comp-enable-subr-trampolines nil))
+      (let ((native-comp-enable-subr-trampolines nil)
+            (process-environment (copy-sequence process-environment))
+            (server-name server-name)
+            (jf/emacs-dir "/w/emacs/"))
         (cl-letf (((symbol-function 'daemonp) (lambda () daemon)))
           (setq daemon t)
-          (eval (car forms) t)
-          (expect 'server-start :not :to-have-been-called)
+          (let ((noninteractive nil)) (eval (car forms) t))
           (setq daemon nil)
-          (eval (car forms) t)
-          (expect 'server-start :to-have-been-called-times 1))))))
+          (eval (car forms) t)            ; batch, as the test runner is
+          (expect 'server-start :not :to-have-been-called)
+          (setenv "EMACS_USER_DIRECTORY" nil)
+          (let ((noninteractive nil)) (eval (car forms) t))
+          (setenv "EMACS_USER_DIRECTORY" "/w/emacs/runtime")
+          (let ((noninteractive nil)) (eval (car forms) t))
+          (expect (reverse started) :to-equal '("server" "isolated-emacs")))))))
 
 ;;; isolation-spec.el ends here

@@ -22,6 +22,12 @@ and the wrapper ever disagree.
   sandbox: files it writes are real files, and with `--data live` it reads and writes
   the user's real notes.
 
+Only the live session (Emacs.app reading `~/.emacs.d`) serves `server`. A GUI Emacs
+the user launched with `bin/emacs-isolated.sh` serves `isolated-<checkout>` (with
+`-<pid>` added if that name is taken) and shows up in `target list`; address it with
+`target isolated-<checkout> ...`. It runs with the user's real notes, so the data rule
+below applies to it too. A batch Emacs (the test runner) serves nothing.
+
 ```
 bin/emacs-agent live tools
 bin/emacs-agent live call       TOOL 'JSON'
