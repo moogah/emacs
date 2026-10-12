@@ -78,6 +78,12 @@ Choose by what is at risk. Isolation protects against **bad code**, not against
 - `live eval` needs the user's agreement every time: ask first, say what the form
   does, and prefer a tool through `call` / `call-write` when one does the job. The
   permission rules may also prompt for it; that prompt is not a substitute for asking.
+- The permission rules also prompt for `target NAME eval` (it can run any code on
+  this machine), for `target start --worktree PATH` (it runs that checkout's
+  launcher) and for `target start --data live`. Expect the prompt; do not rephrase
+  a command to avoid it.
+- The introspection tool that reads a variable's value withholds it when the name
+  suggests a secret (`…-api-key`, `…-password`, `…-token`).
 - `call` refuses a tool of the write preset and names the tier it needs; a tool in
   neither preset is refused by both tiers.
 - Every live call (tier, tool or form, arguments, outcome) is logged in the user's
