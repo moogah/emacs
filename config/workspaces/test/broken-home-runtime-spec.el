@@ -427,7 +427,11 @@
 
   (it "skips a persisted entry whose :home is a relative path and names it in *Messages*"
     (broken-home-runtime-spec--with-state-file
-      (let ((messages-before (with-current-buffer "*Messages*"
+      ;; An unbounded log for the body: at `message-log-max' lines Emacs
+      ;; trims *Messages* from the top, which shifts the new text under
+      ;; the length offset below (seen in the full suite).
+      (let ((message-log-max t)
+            (messages-before (with-current-buffer "*Messages*"
                                (buffer-string))))
         (broken-home-runtime-spec--write-raw
          '(:version 3
