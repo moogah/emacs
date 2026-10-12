@@ -97,7 +97,12 @@ sends as commands."
 
   (it "reports a buffer holding raw bytes, each shown as U+FFFD (seam/target-support)"
     (target-support-spec--in-shown-buffer (concat "ok " (string-to-multibyte "\377\200") " é")
-      (message "raw %s" (string-to-multibyte "\376"))
+      ;; Into *Messages* directly: `message' would also print the raw
+      ;; byte to the test output, which the report's sed cannot read.
+      (with-current-buffer (messages-buffer)
+        (let ((inhibit-read-only t))
+          (goto-char (point-max))
+          (insert "raw " (string-to-multibyte "\376") "\n")))
       (let ((state (target-support-spec--state)))
         (expect (plist-get (plist-get state :buffer) :contents)
                 :to-equal "ok �� é")
