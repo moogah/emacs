@@ -127,6 +127,7 @@ resolve to a real file."
     ("major-modes/magit"  "Git interface")
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
+    ("org-sync/org-sync" "Record ~/org in git while Syncthing syncs its files")
     ("major-modes/dirvish" "Enhanced directory viewer")
     ("major-modes/pdf" "PDF reading: pdf-tools, org-noter, book links")
     ("major-modes/vterm" "libvterm-based terminal emulator")
