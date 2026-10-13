@@ -44,14 +44,29 @@ Resolves in three tiers (see the module commentary):
   "Return the absolute path of the persistence file."
   (expand-file-name "workspaces.eld" (workspace--state-directory)))
 
-(defconst workspace--state-version 3
-  "Schema version for the workspaces persistence file.
-v3 (current): adds the required =:home= filesystem-anchor slot to every
-workspace plist.  Inherits v2's per-layout =:saved-state= /
-=:working-state= split, per-leaf =workspace-buffer= reincarnation struct,
-=:etc= forward-compat alist.  The reader emits an *Messages* notice and
-returns nil for any file whose =:version= is not 3 (no migration: v1 and
+(defconst workspace--state-version 4
+  "Schema version the writer stamps on the workspaces persistence file.
+History:
+
+- v3: adds the required =:home= filesystem-anchor slot to every
+  workspace plist.  Inherits v2's per-layout =:saved-state= /
+  =:working-state= split, per-leaf =workspace-buffer= reincarnation
+  struct and =:etc= forward-compat alist.
+- v4 (current): a layout's =:saved-state= may be a recipe (a list
+  =(:recipe . SLOTS)= whose =cdr= is the plist =:split DIR :panes PANES=) rather than a captured window-state, and its
+  =:etc= alist may carry layout metadata (=origin=, =description=,
+  =source=).  No slot is added; both ride inside =:layout-groups=.
+
+The reader accepts the versions in `workspace--readable-state-versions'
+and ignores any other with a *Messages* notice (no migration: v1 and
 v2 files are rejected; delete the file to start fresh, design.md §D5).")
+
+(defconst workspace--readable-state-versions '(3 4)
+  "Schema versions `workspace--read-state' accepts.
+Version 3 stays readable because a v3 file is exactly a v4 file with
+no recipes and no layout metadata: every v3 layout reads as the user's,
+with a captured window-state.  Such a file loads without loss and is
+rewritten as `workspace--state-version' on the next flush.")
 
 (defun workspace--persistence-serialize-workspace (ws)
   "Return WS reduced to its persistable shape.
@@ -87,7 +102,7 @@ Does NOT create tabs — startup hydrates the registry only; tabs are
 materialized later by the explicit `workspace-restore' command.  Assumes
 STATE has already been version-checked by `workspace--read-state'.
 
-Three filtering rules apply per entry (design.md §D5, §D6; cycle-2
+Four filtering rules apply per entry (design.md §D5, §D6; cycle-2
 architect finding =arch-cycle-20260525-213500-04= for the
 absolute-path arm):
 
@@ -104,6 +119,15 @@ absolute-path arm):
   requirement (the constructor =workspace--make= is the other entry
   point, but we cannot rely on it for hand-edited or corrupted
   persistence files).
+
+- Entries whose =:home= is remote (TRAMP) are tagged broken via
+  `workspace--mark-broken' WITHOUT any filesystem call on the home
+  (stat'ing it would open a connection at startup), with one
+  `display-warning' naming the entry.  Remote workspace homes are not
+  supported (user decision 2026-09-27); the entry is kept rather than
+  skipped, so its layouts survive the next save, and being broken it
+  is never restored.  It never signals, so one such entry cannot
+  abort the load of its siblings.
 
 - Entries whose =:home= directory does not exist on disk are tagged
   via `workspace--mark-broken' before insertion.  The broken tag is
@@ -124,6 +148,20 @@ absolute-path arm):
           (message
            "Workspaces: skipping persisted entry %S — :home %S is not absolute"
            name home))
+         ((file-remote-p home)
+          ;; Remote homes are not supported (user decision 2026-09-27).
+          ;; No filesystem call on HOME: stat'ing it would open a
+          ;; connection at startup.  Kept (so its data survives the next
+          ;; save) and tagged broken (so it is never restored or opened).
+          (display-warning
+           'workspaces
+           (format
+            "Workspace %S has a remote :home %s. Remote workspace homes are not supported; it was loaded broken and not contacted. Use `workspace-re-anchor' to point it at a local directory, or `workspace-delete' to unregister it."
+            name home)
+           :warning)
+          (let ((with-broken (workspace--mark-broken ws)))
+            (puthash name with-broken workspace--registry)
+            (push with-broken restored)))
          (t
           (let* ((broken-p (not (file-directory-p home)))
                  (with-broken (if broken-p
@@ -148,7 +186,7 @@ untrustworthy — fix/remove the file and restart).")
 (defvar workspace--persistence-blocked-warned nil
   "Non-nil once the suppressed-write warning has been emitted.
 Keeps the block warning to one message per session rather than one
-per debounce tick.")
+per suppressed write.")
 
 (defun workspace--state-readable-p (form)
   "Return non-nil if FORM round-trips through `prin1' then `read'.
@@ -208,8 +246,11 @@ truncate the live file.  Creates the parent directory if missing."
 Three outcomes (design.md §D2):
 
 - File absent → nil (fresh start; saving stays permitted).
-- File present and readable: a v3 plist → that plist; any other
-  =:version= → nil with a *Messages* notice (recognized \"ignore and
+- File present and readable: a plist whose =:version= is in
+  `workspace--readable-state-versions' → that plist, unchanged (a v3
+  file is read as a v4 file with no recipes or metadata); any other
+  =:version= → nil with a *Messages* notice naming the file, the
+  version found and the readable versions (recognized \"ignore and
   start fresh\", not corruption — no backup, no block).
 - File present but unreadable (a `read'/parse error): the corrupt bytes
   are renamed aside to a =workspaces.eld.corrupt-<ts>= sibling, a loud
@@ -223,11 +264,13 @@ Three outcomes (design.md §D2):
                         (insert-file-contents file)
                         (read (current-buffer)))))
             (let ((v (plist-get form :version)))
-              (if (eql v workspace--state-version)
+              (if (memql v workspace--readable-state-versions)
                   form
                 (message
-                 "Workspaces: persistence file at %s is schema :version %S; v%d required — file ignored. Delete the file to start fresh."
-                 file v workspace--state-version)
+                 "Workspaces: persistence file at %s is schema :version %S; readable versions are %s — file ignored. Delete the file to start fresh."
+                 file v
+                 (mapconcat #'number-to-string
+                            workspace--readable-state-versions ", "))
                 nil)))
         (error
          (let ((backup (concat file ".corrupt-"
@@ -438,7 +481,9 @@ new path or `workspace-purge' to remove the registry entry."
   (let ((ws (gethash name workspace--registry)))
     (when (and ws (workspace--broken-p ws))
       (user-error
-       "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'."
+       (if (file-remote-p (workspace--home ws))
+           "Workspace %s is broken: :home %s is remote, and remote workspace homes are not supported. Use `workspace-re-anchor' or `workspace-delete'."
+         "Workspace %s is broken: :home %s no longer exists. Use `workspace-re-anchor' or `workspace-purge'.")
        name (workspace--home ws))))
   (if-let ((idx (workspace--tab-index-for name)))
       (tab-bar-select-tab idx)

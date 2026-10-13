@@ -7,7 +7,10 @@
   :group 'convenience
   :prefix "org-graph-")
 
-(defcustom org-graph-vault-root "~/org/"
+(defcustom org-graph-vault-root
+  (abbreviate-file-name
+   (file-name-as-directory
+    (if (boundp 'jf/org-directory) jf/org-directory "~/org")))
   "Root of the durable note vault indexed by org-graph.
 Covers the whole vault (including its roam/ subdirectory), and is
 where new notes are placed by default.  Distinct from
@@ -16,7 +19,10 @@ extraction and the agent write target."
   :type 'directory
   :group 'org-graph)
 
-(defcustom org-graph-roam-root "~/org/roam/"
+(defcustom org-graph-roam-root
+  (abbreviate-file-name
+   (expand-file-name "roam/"
+                     (if (boundp 'jf/org-directory) jf/org-directory "~/org")))
   "Durable concept vault and typed-edge extraction scope.
 This directory is always indexed by vulpea, and it is the only root on
 which the typed-edge extractor runs.  Workspace homes are indexed for
@@ -90,6 +96,13 @@ Consumed by the registry-driven discovery layer and the workspace
   :type 'boolean
   :group 'org-graph)
 
+(defcustom org-graph-sync-enabled t
+  "When nil, startup starts no org-graph sync and watches no directory.
+`org-graph--configure-sync-deferred' then leaves `vulpea-db-autosync-mode'
+off and empties `vulpea-db-sync-directories'."
+  :type 'boolean
+  :group 'org-graph)
+
 (defcustom org-graph-note-types
   '(log debug topic reference project)
   "Fixed taxonomy of note-type symbols backed by vulpea-schema definitions.
@@ -103,7 +116,9 @@ its notes and field expectations validated by `vulpea-schema-validate'."
                     :branch "v2.4.0")
   :config
   (setq vulpea-db-location
-        (expand-file-name "state/vulpea/notes.db" user-emacs-directory))
+        (if (bound-and-true-p jf/data-state-directory)
+            (expand-file-name "vulpea/notes.db" jf/data-state-directory)
+          (expand-file-name "state/vulpea/notes.db" user-emacs-directory)))
   (make-directory (file-name-directory vulpea-db-location) t))
 
 (jf/load-module (expand-file-name "config/org-graph/schemas.el" jf/emacs-dir))
@@ -143,15 +158,22 @@ than aborting startup."
 
 (add-hook 'emacs-startup-hook #'org-graph--seed-org-id-locations-deferred)
 
+(defvar vulpea-db-sync-directories)
+
 (defun org-graph--configure-sync-deferred ()
   "Run sync configuration once, resiliently, for `emacs-startup-hook'.
 `org-graph/configure-sync' points `vulpea-db-sync-directories' at the
 bounded discovery roots, enables `vulpea-db-autosync-mode', and
 triggers an async full scan -- all DB-touching, so it is deferred out
 of module-load time (load stays DB-free).  Failures are reported via
-`display-warning' rather than aborting startup."
-  (org-graph--run-deferred-op #'org-graph/configure-sync
-                              "sync configuration"))
+`display-warning' rather than aborting startup.
+
+When `org-graph-sync-enabled' is nil, start nothing and set
+`vulpea-db-sync-directories' to nil."
+  (if org-graph-sync-enabled
+      (org-graph--run-deferred-op #'org-graph/configure-sync
+                                  "sync configuration")
+    (setq vulpea-db-sync-directories nil)))
 
 (add-hook 'emacs-startup-hook #'org-graph--configure-sync-deferred)
 

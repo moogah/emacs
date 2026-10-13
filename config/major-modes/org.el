@@ -35,6 +35,17 @@
 (with-eval-after-load "org"
   (require 'org-phscroll))
 
+(defvar jf/phscroll--empty-display-table (make-display-table)
+  "Display table used when the buffer has none, so phscroll can read slot 4.")
+
+(define-advice phscroll-invisible-property-width
+    (:around (fn &rest args) jf/nil-display-table)
+  "Run FN with a non-nil `buffer-display-table' so phscroll cannot signal."
+  (let ((buffer-display-table (or buffer-display-table
+                                  standard-display-table
+                                  jf/phscroll--empty-display-table)))
+    (apply fn args)))
+
 ;; Modern appearance for org mode
 (use-package org-modern
   :straight t)
@@ -296,13 +307,6 @@ in its original tab."
 ;; ===============================================================================
 (use-package corg
   :straight (:host github :repo "isamert/corg.el"))
-
-;; ===============================================================================
-;; Install org noter for annotating pdf files
-;; ===============================================================================
-
-(use-package org-noter
-  :straight t)
 
 ;; ===============================================================================
 ;; Install org-download

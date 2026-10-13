@@ -105,7 +105,8 @@
 ;; State Persistence Settings
 ;; ===============================================================================
 
-;; Store bookmarks in git-controlled location
+;; Store bookmarks under state/bookmarks/ in this checkout.  Not in git:
+;; .gitignore ignores state/** except READMEs (see state/bookmarks/README.md).
 ;; Default location - can be overridden per-machine in config/local/{machine-role}.el
 (setq bookmark-default-file
       (expand-file-name "state/bookmarks/bookmarks" jf/emacs-dir))
@@ -117,10 +118,92 @@
 ;; Path Configuration
 ;; ===============================================================================
 
-;; Base directory for org files
-;; Can be overridden in machine-specific config files
+;; Base directory for org files.  The data profile below (EMACS_AGENT_DATA)
+;; moves it before any other module loads.  config/local/<role>.el loads
+;; after every module, so a value set there does not reach the note paths
+;; modules fix at load time (org-roam-directory, the capture file, the
+;; org-graph roots, ...).
 (defvar jf/org-directory (expand-file-name "~/org")
   "Base directory for org-mode files and org-roam notes.")
+
+;; ===============================================================================
+;; Data Profile (EMACS_AGENT_DATA)
+;; ===============================================================================
+
+(defvar workspace-state-directory-override)
+(defvar org-roam-db-location)
+(defvar org-id-locations-file)
+(defvar org-graph-watch-workspace-homes)
+(defvar org-graph-sync-enabled)
+
+(defvar jf/data-profile nil
+  "The data profile this Emacs started with, as `jf/data-profile-parse' reads it.
+nil when EMACS_AGENT_DATA is unset or empty.")
+
+(defvar jf/data-state-directory nil
+  "Per-process directory for the note databases and workspace state.
+Set by `jf/data-profile-apply' for the scratch and none profiles; nil
+otherwise, and they stay under `user-emacs-directory'.")
+
+(defun jf/data-profile-parse (value)
+  "Read VALUE, the value of EMACS_AGENT_DATA, as a data profile.
+\"live\" gives (:kind live), \"none\" gives (:kind none) and
+\"scratch:DIR\" with DIR absolute gives (:kind scratch :dir DIR/).
+nil or the empty string gives nil.  Any other value, or a scratch DIR
+that is not absolute, gives (:kind none) and a warning naming VALUE."
+  (let ((scratch (and (stringp value) (string-prefix-p "scratch:" value)
+                      (substring value (length "scratch:")))))
+    (cond
+     ((or (null value) (equal value "")) nil)
+     ((equal value "live") (list :kind 'live))
+     ((equal value "none") (list :kind 'none))
+     ((and scratch (file-name-absolute-p scratch))
+      (list :kind 'scratch
+            :dir (file-name-as-directory (expand-file-name scratch))))
+     (t
+      (display-warning
+       'data-profile
+       (format "EMACS_AGENT_DATA value `%s' is not live, none or scratch:<absolute dir>; using none"
+               value)
+       :warning)
+      (list :kind 'none)))))
+
+(defun jf/data-state-directory-remove ()
+  "Delete `jf/data-state-directory' and everything in it, if it exists."
+  (when (and (stringp jf/data-state-directory)
+             (file-directory-p jf/data-state-directory))
+    (ignore-errors (delete-directory jf/data-state-directory t))))
+
+(defun jf/data-profile-apply (profile)
+  "Turn PROFILE, as `jf/data-profile-parse' returns it, into settings.
+Record PROFILE in `jf/data-profile'.  For live or nil change nothing
+else.  For scratch and none make a fresh `jf/data-state-directory' under
+`temporary-file-directory', put the org-roam and org-id databases and
+the workspace state in it, remove it as Emacs exits, and stop org-graph
+indexing workspace homes.  Scratch points `jf/org-directory' at its
+directory, creating it; none points it at an empty directory in the
+state directory and turns org-graph sync off."
+  (setq jf/data-profile profile)
+  (let ((kind (plist-get profile :kind)))
+    (when (memq kind '(scratch none))
+      (let ((state (file-name-as-directory
+                    (make-temp-file "emacs-agent-data-" t))))
+        (setq jf/data-state-directory state
+              workspace-state-directory-override (expand-file-name "workspaces/" state)
+              org-roam-db-location (expand-file-name "org-roam.db" state)
+              org-id-locations-file (expand-file-name ".org-id-locations" state)
+              org-graph-watch-workspace-homes nil)
+        (add-hook 'kill-emacs-hook #'jf/data-state-directory-remove 100)
+        (if (eq kind 'scratch)
+            (let ((dir (plist-get profile :dir)))
+              (make-directory dir t)
+              (setq jf/org-directory dir))
+          (let ((empty (file-name-as-directory (expand-file-name "org" state))))
+            (make-directory empty)
+            (setq jf/org-directory empty
+                  org-graph-sync-enabled nil)))))))
+
+(jf/data-profile-apply (jf/data-profile-parse (getenv "EMACS_AGENT_DATA")))
 
 ;; ===============================================================================
 ;; OSX Specific Configs

@@ -79,7 +79,8 @@
                              :files ("*.el"))
   :after gptel
   :custom
-  (gptel-org-utils-dailies-directory "~/org/roam/daily/")
+  (gptel-org-utils-dailies-directory
+   (abbreviate-file-name (expand-file-name "roam/daily/" jf/org-directory)))
   :config
   (gptel-org-heading-adjust-mode-enable))
 

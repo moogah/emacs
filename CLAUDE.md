@@ -6,6 +6,8 @@ This file provides guidance to Claude Code when working with this repository.
 
 Isolated, modular Emacs configuration using **literate programming**. Runs independently via git worktrees with three-tier architecture (development, testing, production).
 
+**Driving Emacs (live session or an isolated target):** use `bin/emacs-agent`, never `emacsclient` directly; read `.claude/skills/emacs-agent/SKILL.md` first.
+
 ## Core Concepts
 
 ### Literate Programming
@@ -44,7 +46,7 @@ Launch via macOS GUI (Emacs.app) or `./bin/emacs-isolated.sh` - both isolate to 
   - `"core/defaults"` → `config/core/defaults.el`
   - `"gptel/chat/chat"` → `config/gptel/chat/chat.el`
 - `jf/resolve-module-path` accepts zero or more `/` separators
-- Authoritative contract: `openspec/specs/core/module-system.md`
+- Authoritative contract: `../openspec/specs/core/module-system.md`
 
 ### Git Worktree Architecture
 
@@ -254,7 +256,7 @@ gptel/
 Controlled bash command execution with semantic validation using bash-parser integration.
 
 **Implementation**: `config/gptel/scope/scope-shell-tools.org`
-**Behavioral spec**: `openspec/specs/gptel/scope.md`
+**Behavioral spec**: `../openspec/specs/gptel/scope.md`
 
 **Validation approach**: Seven-stage operation-first validation pipeline validates commands by semantic operations (file reads/writes) rather than category membership. Uses bash-parser for AST extraction and semantic plugin system.
 
@@ -315,6 +317,13 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 
 ### OpenSpec Workflow
 
+**Where the artifacts live (since 2026-10-10):** the OpenSpec tree (`openspec/`), the task store
+(`.tasks/`), the retired register (`interfaces.org`) and the orchestrator's `.orchestrator/` live one
+level up, in the workspace directory that contains this checkout (`../`), and are tracked by that
+workspace's git repo, not this one. Run `openspec`, the `/opsx-*` skills and `/opsx-orchestrate` from
+the workspace directory; the OpenSpec CLI resolves `openspec/` from its cwd. Paths below are written
+relative to that workspace (`../openspec/...` from here).
+
 For non-trivial changes, use **OpenSpec** to plan before implementing:
 
 **Default schema:** `spec-driven-tasks` (proposal → specs → architecture → design → tasks)
@@ -339,7 +348,7 @@ For non-trivial changes, use **OpenSpec** to plan before implementing:
 - `/opsx-ff` - Fast-forward through all artifacts to reach implementation
 - `/opsx-tasks` - Manage task files (list/show/create/update/generate)
 - `/opsx-apply` - Implement tasks from `tasks/open/` in dependency order
-- `/tasks-orchestrator` - Implement multiple ready tasks in parallel worktrees
+- `/opsx-orchestrate` - Implement multiple ready tasks in parallel worktrees
 - `/opsx-verify` - Validate implementation matches artifacts
 - `/opsx-archive` - Archive completed change
 
@@ -368,7 +377,7 @@ The **architecture.md** artifact bridges requirements (specs) and implementation
 
 **Specs are behavioral contracts, not technical documentation.**
 
-OpenSpec specs (`openspec/specs/`) describe:
+OpenSpec specs (`../openspec/specs/`) describe:
 - What a module does (behavior and intent)
 - Why it exists (responsibilities)
 - How it integrates with other modules (contracts)
@@ -387,7 +396,7 @@ The literate `.org` files are already comprehensive technical documentation. Spe
 Most modules get a single spec file:
 
 ```
-openspec/specs/
+../openspec/specs/
 ├── core/
 │   ├── module-system.md
 │   ├── completion.md
@@ -400,7 +409,7 @@ openspec/specs/
 **Exception: gptel** is architecturally complex (31 modules, 4 subsystems) and gets its own directory:
 
 ```
-openspec/specs/gptel/
+../openspec/specs/gptel/
 ├── architecture.md    - Subsystem boundaries, integration points
 ├── core.md           - Package integration, auth, main config
 ├── sessions.md       - Session subsystem (8 modules)
@@ -415,21 +424,21 @@ Changes use delta specs to control context and scope. The change's `specs/` dire
 
 **Isolated subsystem change:**
 ```
-openspec/changes/add-session-export/
+../openspec/changes/add-session-export/
 └── specs/
     └── gptel/
         └── sessions.md    ← Only sessions context loaded
 ```
 
 Claude loads:
-- `openspec/specs/gptel/architecture.md` (subsystem boundaries)
-- `openspec/specs/gptel/sessions.md` (existing session spec)
-- `openspec/changes/.../specs/gptel/sessions.md` (your delta)
+- `../openspec/specs/gptel/architecture.md` (subsystem boundaries)
+- `../openspec/specs/gptel/sessions.md` (existing session spec)
+- `../openspec/changes/.../specs/gptel/sessions.md` (your delta)
 - NOT loaded: `gptel/{core,scope,skills,tools}.md`
 
 **Cross-subsystem integration:**
 ```
-openspec/changes/sessions-scope-integration/
+../openspec/changes/sessions-scope-integration/
 └── specs/
     └── gptel/
         ├── architecture.md
@@ -441,7 +450,7 @@ Claude loads relevant subsystems only.
 
 **Non-gptel changes:**
 ```
-openspec/changes/evil-completion-binding/
+../openspec/changes/evil-completion-binding/
 └── specs/
     └── core/
         ├── evil.md
@@ -465,7 +474,7 @@ All gptel specs remain invisible unless explicitly referenced.
 ### Task Tracking
 
 Implementation work for an OpenSpec change lives in self-contained markdown
-files under `openspec/changes/<name>/tasks/open/` (ready/blocked) and
+files under `../openspec/changes/<name>/tasks/open/` (ready/blocked) and
 `tasks/closed/` (done). Each file has YAML frontmatter (name, description,
 change, status, relations) and a body with files-to-modify, implementation
 steps, design rationale, verification commands, and context pointers.
@@ -474,7 +483,7 @@ steps, design rationale, verification commands, and context pointers.
 - Generate the initial set from design/specs: `/opsx-tasks generate`
 - List / show / create / update: `/opsx-tasks <subcmd>`
 - Implement sequentially: `/opsx-apply`
-- Implement in parallel worktrees: `/tasks-orchestrator`
+- Implement in parallel worktrees: `/opsx-orchestrate`
 
 **Verification grep scoping:** A task's `Verification` greps should target
 the exact files the task modifies, not a broad subsystem directory. Recursive
@@ -486,10 +495,10 @@ tasks and read as false "incomplete" signals. Prefer explicit file lists:
 surfaces a finding that is genuinely external to the change's scope —
 pre-existing failures in an unrelated subsystem, a stale TODO uncovered
 in passing, a defect that pre-dates the change. Putting it in
-`openspec/changes/<change>/tasks/open/` would either bury it inside the
+`../openspec/changes/<change>/tasks/open/` would either bury it inside the
 parent change at archive time or keep that change open longer than its
 own work warrants. Park such items in `.tasks/` (active) and
-`.tasks/done/` (archive) at repo root. File format mirrors openspec
+`.tasks/done/` (archive) at the workspace home, one level up. File format mirrors openspec
 tasks (YAML frontmatter + body), with two adjustments:
 
 - Drop `change:`; add `source:` pointing at the change (or other
@@ -505,7 +514,7 @@ for an openspec change is "needs design discussion."
 
 In-scope follow-ups (verification of the current change's own
 behavior, deferred work that is still part of this change's contract)
-stay in `openspec/changes/<change>/tasks/`. Use `.tasks/` only for
+stay in `../openspec/changes/<change>/tasks/`. Use `.tasks/` only for
 work the *next* maintainer of the affected subsystem should pick up,
 not for in-progress work on the current change.
 

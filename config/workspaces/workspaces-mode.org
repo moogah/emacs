@@ -142,9 +142,10 @@ explicit save and tab-switch autosave.  Off by default."
 #+end_src
 
 Note the =t= second argument to =run-with-idle-timer=: the timer
-re-fires after every idle interval, not just once per idle period.
-Without this, the user could idle for an hour, get one save, then
-return and stop being saved until the next intentional idle period.
+stays armed and fires each time Emacs has been idle for the interval —
+once per idle period, not repeatedly within one (see the docstring of
+=run-with-idle-timer=).  Without it the timer would fire once, after
+the first idle period, and never again.
 
 The toggle body unconditionally cancels any existing timer before
 considering whether to install a new one.  This makes the body

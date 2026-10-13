@@ -24,11 +24,20 @@
 (load (expand-file-name "../data-model.el" integration-registry-spec--this-dir))
 (load (expand-file-name "../integrations.el" integration-registry-spec--this-dir))
 
+(defvar integration-registry-spec--saved-integrations nil
+  "The live `workspace--integrations', set aside while a spec runs.")
+
 (describe "workspace-integrations registry"
 
-  ;; Isolate the global registry per test (Decision 1 — mutation in place).
+  ;; Isolate the global registry per test (Decision 1 — mutation in place),
+  ;; and put the live one back afterwards so no registration made here
+  ;; leaks into the next spec file.
   (before-each
-    (setq workspace--integrations nil))
+    (setq integration-registry-spec--saved-integrations workspace--integrations
+          workspace--integrations nil))
+  (after-each
+    (setq workspace--integrations integration-registry-spec--saved-integrations
+          integration-registry-spec--saved-integrations nil))
 
   (describe "workspace-register-integration"
 
@@ -77,6 +86,30 @@
       (expect (plist-get (cdr (assq 'b workspace--integrations)) :label)
               :to-equal "B2")
       (expect (length workspace--integrations) :to-equal 3)))
+
+  (describe "workspace--integration-menu-command-p"
+    ;; The one question consumers may ask of the registry's menu surface,
+    ;; so none of them reads the (ID . PLIST) / :menu (KEY . COMMAND) shape.
+
+    (it "is t for the command of a registered :menu, nil for any other command"
+      (workspace-register-integration 'm :menu (cons "m" #'ignore))
+      (expect (workspace--integration-menu-command-p #'ignore) :to-be t)
+      (expect (workspace--integration-menu-command-p #'identity) :to-be nil))
+
+    (it "is nil when the command is registered only as a handler, not as a :menu"
+      (workspace-register-integration 'p :on-purge #'ignore :on-create #'ignore)
+      (expect (workspace--integration-menu-command-p #'ignore) :to-be nil))
+
+    (it "is nil for an empty registry"
+      (expect (workspace--integration-menu-command-p #'ignore) :to-be nil))
+
+    (it "skips malformed entries without signalling"
+      (setq workspace--integrations
+            (list 'not-a-cell (cons 'bad 5) (cons 'odd '(:menu ignore))
+                  (cons 'good (list :menu (cons "g" #'ignore)))))
+      (expect (workspace--integration-menu-command-p #'ignore) :to-be t)
+      (setq workspace--integrations (list 'not-a-cell (cons 'bad 5)))
+      (expect (workspace--integration-menu-command-p #'ignore) :to-be nil)))
 
   (describe "workspace--integration-payload"
 

@@ -13,6 +13,13 @@
   (setq magit-bury-buffer-function 'magit-restore-window-configuration)
   ;; Sort branches by most recent commit (works for commits and tags)
   (setq magit-list-refs-sortby "-creatordate")
+  ;; Repositories directly under ~/src (depth 1, so ~/src/Archived Repos/*
+  ;; is not listed).  Feeds `magit-list-repos', which the workspaces
+  ;; git-worktree picker uses as a source of repositories to branch from.
+  ;; Only directories that exist on this machine are kept.
+  (setq magit-repository-directories
+        (seq-filter (lambda (entry) (file-directory-p (car entry)))
+                    '(("~/src" . 1))))
   ;; Show worktree summary in status buffer
   (add-hook 'magit-status-sections-hook 'magit-insert-worktrees)
   ;; Show local branches in status buffer

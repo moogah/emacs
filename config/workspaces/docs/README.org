@@ -18,7 +18,9 @@ display-name source) and =sessions/= (gptel session files).
 | /membership/  | The set of buffers visible to the current workspace's tab   |
 
 A workspace is bound 1:1 to a tab, tagged via the =workspace-name=
-tab parameter, and anchored to a =:home= directory on disk.  The
+tab parameter, and anchored to a =:home= directory on disk.  After a
+restart a workspace is in the registry but has no tab until it is
+restored (see *Restore*).  The
 registry /name/ of a workspace equals the basename of its =:home=
 (e.g. =~/emacs-workspaces/notes/= → =notes=).  The /display name/
 defaults to the registry name and may be overridden by a =#+TITLE:=
@@ -55,6 +57,19 @@ on disk is the source of truth.
 =workspace-new= (=C-x w n=) has two flows controlled by the prefix
 argument:
 
+Workspace homes must be local.  Remote (TRAMP) directories are not
+supported as workspace homes: =workspace-new= (either flow) and
+=workspace-re-anchor= refuse one with a =user-error= naming it, before
+the command touches the filesystem.  A remote home already in the state
+file (saved before this rule, or written by hand) is loaded /broken/
+without being contacted, with one warning naming it (see *Broken
+workspaces*).
+
+Every command that registers a workspace refuses a name that is already
+registered — including a broken workspace's — because the registry is
+keyed by name and registering would replace that workspace, losing its
+saved layouts.
+
 ** No prefix arg — scaffold a fresh directory
 
 =workspace-new NAME= scaffolds a new directory at
@@ -71,9 +86,12 @@ Only after scaffolding succeeds is the workspace registered, a tab
 created, =workspace-home-builder= called, and the integration
 =:on-create= handlers dispatched.
 
-If the target directory already exists, =workspace-new= signals a
-hard =user-error= and tells you to use the prefix-arg form to anchor
-an existing directory.  Scaffold failures (=git= missing, permission
+If a workspace named NAME is already registered (anchored elsewhere,
+or broken), =workspace-new= refuses with a =user-error= naming its home
+instead of replacing it; for a broken one the message points at
+=workspace-re-anchor= and =workspace-purge=.  If the target directory
+already exists, =workspace-new= signals a hard =user-error= and tells
+you to use the prefix-arg form to anchor an existing directory.  Scaffold failures (=git= missing, permission
 denied) propagate verbatim; partial filesystem state is left in
 place for manual inspection (design.md §D2 — auto-cleanup of a
 typo'd path would risk =rm -rf= on user data).
@@ -94,9 +112,21 @@ directory's basename.  Three sub-cases by directory state:
    init=, files, initial commit), same as the default-path branch.
 
 A double-registration guard refuses to anchor a directory that is
-already a registered workspace's =:home=.  Path comparison is by
-=file-equal-p=, so trailing-slash and =~= variants do not produce
-false positives.
+already a registered workspace's =:home=.  Directories are compared by
+device and inode, not by spelling, so two spellings of the same
+directory (a trailing slash, a =~= prefix, a symlinked parent, a
+different letter case on a case-insensitive disk) are recognised as
+one.  That comparison never opens a remote connection and cannot tell
+two remote spellings apart (another mount path of the same remote
+directory would register it twice), which is why remote homes are
+refused outright (above).
+
+A second guard, shared with the no-prefix flow, refuses to anchor a
+directory whose basename is already a registered workspace's name —
+=~/b/proj= while "proj" lives at =~/a/proj= — because the workspace name
+IS the basename, and anchoring would replace the existing workspace
+(losing its saved layouts).  The error names the existing workspace's
+home; rename one of the directories to anchor both.
 
 * Deleting and purging workspaces
 
@@ -121,13 +151,16 @@ Unregisters the workspace and recursively deletes the =:home=
 directory after a =yes-or-no-p= confirmation showing the absolute
 path.
 
-A scope safeguard refuses to operate when =:home= is not a
-descendant of =workspaces-default-parent-directory= unless you
-supply a prefix argument.  This protects anchored existing projects
-(e.g. =~/code/myproj/=) from accidental destruction: you must invoke
-=C-u M-x workspace-purge= to opt in to deleting a dir outside the
-default parent.  Inside the default parent (=~/emacs-workspaces/=)
-the safeguard is silent and only =yes-or-no-p= guards the delete.
+A scope safeguard refuses to operate when =:home= is not strictly
+below =workspaces-default-parent-directory= unless you supply a
+prefix argument.  This protects anchored existing projects (e.g.
+=~/code/myproj/=) from accidental destruction: you must invoke =C-u
+M-x workspace-purge= to opt in to deleting a dir outside the default
+parent.  The default parent ITSELF (in any spelling) is outside too: a
+workspace anchored at =~/emacs-workspaces/= would otherwise be purged,
+with every workspace below it, after a single "yes".  Strictly inside
+the default parent the safeguard is silent and only =yes-or-no-p=
+guards the delete.
 
 Order is deliberate: unregister first, =delete-directory= second.
 If the filesystem delete errors (permission denied, file busy), the
@@ -147,6 +180,13 @@ down).  The loader tags the in-memory entry with a runtime-only
 =:broken= flag and emits a =*Messages*= notice naming the workspace
 and its missing =:home=.
 
+A workspace whose saved =:home= is remote (TRAMP) is also loaded
+broken, but WITHOUT any filesystem call on the home (checking it would
+open a connection at startup), and with one warning naming it.  Remote
+homes are not supported; the entry is kept so its layouts survive the
+next save.  Re-anchor it to a local directory, or =workspace-delete=
+it.
+
 The =:broken= tag never persists to disk: it lives on the registry
 plist at runtime only, recomputed on every load from the current
 state of the filesystem.  No surgery on the persistence file is
@@ -159,7 +199,10 @@ Three operations are /allowed/ on a broken workspace:
   new path; the path must exist and be a directory.  If the new
   basename differs from the registry key, the registry entry is
   renamed in place (and the live tab relabelled) to honour the
-  invariant that the registry name equals the basename.
+  invariant that the registry name equals the basename.  The new
+  path must not be another workspace's home, in any spelling (a
+  symlink or a different letter case): two workspaces never share
+  one directory.
 - =workspace-purge= (=C-x w P=) — remove the registry entry.  The
   filesystem step is skipped automatically when =:home= is already
   missing.
@@ -281,6 +324,139 @@ handler lives under =config/gptel/= and attaches itself via
 =workspace-register-integration=; the workspaces package itself names
 no gptel symbol.
 
+* Public read API
+
+Programs read workspaces by name, without needing a selected frame or a
+current tab, through five functions.  Each one only reads: it changes no
+frame, tab, window, buffer or registry entry, and never writes the state
+file.
+
+| Function                                      | Returns                                                                          |
+|-----------------------------------------------+----------------------------------------------------------------------------------|
+| =(workspace-names)=                           | The registered workspace names                                                   |
+| =(workspace-get NAME)=                        | NAME's workspace plist (a top-level copy; treat its values as read-only), or nil |
+| =(workspace-layouts NAME &key origin source)= | One =(:name :origin :description :source)= plist per layout, in group order      |
+| =(workspace-for-directory DIR)=               | The name of the workspace whose home contains DIR (deepest home wins), or nil    |
+| =(workspace-layout-on-screen-p NAME LAYOUT)=  | Non-nil when LAYOUT is NAME's recent layout and NAME has a tab in any frame      |
+
+- =workspace-layouts= reads each layout's origin, description and
+  source; a layout with no recorded origin is the user's (=user=).
+  =:origin= filters with =eq= (=user= or =agent=), =:source= with
+  =equal=.  An unknown NAME has no layouts.
+- =workspace-for-directory= judges containment by file identity, so a
+  trailing slash, =~= or a symlinked spelling of DIR finds the same
+  workspace.  A remote or missing home owns nothing, and a remote home is
+  never contacted.
+- =workspace-layout-on-screen-p= counts a tab that is open but not the
+  current one, in any live frame.
+
+org-graph reads the workspace homes it indexes through =workspace-names=
+and =workspace-get=.
+
+* Programmatic layouts
+
+A program — an agent tool, an integration — gives a workspace a layout
+or takes one away with two functions.  They address the workspace by
+name, work whether or not it has a tab, change only its registry entry,
+and write the state file once.  They never switch layouts or touch a
+frame, tab, window or buffer, so the user sees nothing until they choose
+to switch to the new layout.
+
+| Function                                                     | What it does                                                         |
+|--------------------------------------------------------------+----------------------------------------------------------------------|
+| =(workspace-add-layout WS-NAME LAYOUT-NAME STATE &rest META)= | Store window-state STATE as layout LAYOUT-NAME of WS-NAME            |
+| =(workspace-remove-layout WS-NAME LAYOUT-NAME)=               | Remove layout LAYOUT-NAME from WS-NAME                               |
+
+META is keyword arguments: =:origin= (=agent= by default, or =user=),
+=:description= and =:source=.  Adding never moves the workspace's recent
+layout pointer.  Removing moves it only when it named the removed layout
+(or was unset), the same way =workspace-delete-layout= does: to the
+first remaining layout, else =home=.
+
+Four rules keep a program's writes from fighting the user's:
+
+- *R1 — added content is the baseline.*  An added layout holds STATE as
+  its =:saved-state= with no =:working-state=.  Whatever the user
+  changes while viewing it autosaves into =:working-state= as usual, so
+  =workspace-revert= brings back the layout as the program added it.
+- *R2 — user layouts are off limits.*  A program never replaces or
+  removes a layout whose origin is =user=.  A layout with no recorded
+  origin, which includes every layout saved before origins existed, is
+  the user's.  The program must pick another name.
+- *R3 — not while it is on screen.*  A program may replace or remove an
+  =agent= layout, discarding any drift on it, unless that layout is on
+  screen (=workspace-layout-on-screen-p=: it is the workspace's recent
+  layout and the workspace has a tab open in some frame).  An open tab
+  restores its own window configuration, and the next autosave would
+  hide the replacement under =:working-state=, so the write is refused
+  rather than silently lost.
+- *R4 — an explicit save takes ownership.*  Saving over an =agent= layout
+  with =workspace-save= or =workspace-save-layout= makes it the user's;
+  from then on R2 protects it.
+
+A refused write signals a =user-error= and changes nothing.  Agent tools
+pass the message on unchanged:
+
+| Refusal                       | Message (for layout =L= of workspace =W=)                                                                              |
+|-------------------------------+--------------------------------------------------------------------------------------------------------------------|
+| Reserved name                 | =Layout "home" is reserved for the workspace's home layout; a program cannot add, replace or remove it=              |
+| R2: the user's layout         | =Layout "L" in workspace "W" belongs to the user; a program cannot replace or remove it (to add a layout, use another name)= |
+| R3: on screen                 | =Layout "L" in workspace "W" is on screen; it cannot be replaced or removed while the user is looking at it=        |
+| Unregistered workspace        | =No workspace named "W"=                                                                                           |
+
+Removing a layout =W= does not have is not a refusal: it succeeds,
+changes nothing and writes nothing, so an agent's cleanup can run again
+safely (=workspace-delete-layout=, the interactive command, still
+reports an unknown name).
+
+* Agent tools
+
+=agent-tools.el= gives gptel agents two tools, in the =workspaces=
+category, over the programmatic layout functions above.  Both are
+synchronous.  They register when gptel loads (=with-eval-after-load
+'gptel=, so the order in which workspaces and gptel load does not
+matter), and gptel stays optional: without it the module only defines
+functions.  Dropping its line from =workspaces.el= removes the tools and
+nothing else.
+
+| Tool                      | Arguments                                                                              |
+|---------------------------+----------------------------------------------------------------------------------------|
+| =workspace_add_layout=    | =workspace= or =directory=, =layout_name=, =split=, =panes=, =description?=, =source?= |
+| =workspace_remove_layout= | =workspace= or =directory=, =layout_name=                                              |
+
+- *Which workspace.*  Exactly one of =workspace= (a registered name) or
+  =directory= (an absolute directory inside a workspace's home, e.g. a
+  repository root; the deepest home containing it wins, as
+  =workspace-for-directory= decides).
+- *The layout.*  =split= is ="columns"= (side by side) or ="rows"=
+  (stacked).  =panes= is a non-empty array whose members are either
+  ={"file": PATH, "line": N}= (=line= optional, 1-based) or a nested
+  ={"split": …, "panes": […]}=, to any depth.  Panes in one split share
+  its space evenly.  The tool stores this as a recipe layout with origin
+  =agent=, =description= and =source= as its metadata.
+- *Paths.*  A relative =file= is taken relative to =directory= when the
+  workspace was found by one, and relative to the workspace's home when
+  it was named; an absolute one is kept, and a =~= is expanded.  A
+  =directory= that names a file is refused.  Every file must exist and not be
+  a directory.  Nothing is opened: the files are visited only when the
+  user switches to the layout.
+- *Errors.*  Everything is checked before anything is written.  A bad
+  argument (both or neither of =workspace= / =directory=, an unknown
+  workspace or directory, a bad =split=, an empty or malformed pane, an
+  unknown pane key, a non-positive =line=, a missing file) and every
+  refusal in the table above come back to the agent as an error whose
+  text names the problem — the pane by its position (=panes[1].panes[0]=),
+  the file by name — and the workspace is left as it was.  On success
+  the tool returns a one-line confirmation.
+- *What the user sees.*  Nothing, until they switch to the layout: the
+  tools change no frame, tab, window or buffer.
+
+*Convention: a layout per orchestrator ask.*  An orchestrator that asks
+the user a decision names the layout =ask/<ask-id>=, sets =source= to the
+ask id, puts the ask file beside the files it refers to, and removes the
+layout with =workspace_remove_layout= when the ask is closed.  The
+add tool's description tells the model this.
+
 * Command reference
 
 Every command is reached from the =C-x w= menu (or by =M-x=).  The
@@ -326,14 +502,13 @@ single window.  Example override that opens an index file instead:
 =workspaces-default-parent-directory= — directory under which
 =workspace-new= scaffolds new workspace homes.  Default:
 =~/emacs-workspaces/=.  Also acts as the scope-safeguard boundary
-for =workspace-purge= (purges outside this dir require =C-u=).
-
-=workspace-save-idle-delay= — seconds of idle time before the
-debounced disk save fires.  Default: 2.
+for =workspace-purge= (purges of this dir itself, or outside it,
+require =C-u=).
 
 =workspace-anti-save-predicates= — list of nullary predicate functions
-consulted before any autosave (tab switch, idle timer, =kill-emacs=).
-If any predicate returns non-nil the autosave is silently skipped.  The
+consulted before the tab-switch, idle-timer and =kill-emacs= autosaves.
+If any predicate returns non-nil the capture is silently skipped (at
+=kill-emacs= the registry is still written; see *Save triggers*).  The
 explicit =workspace-save= command never consults this list, so a
 misconfigured predicate cannot trap a deliberate save gesture.
 
@@ -359,17 +534,38 @@ Workspaces persist to a per-machine path keyed by =jf/machine-role=:
 state/workspaces/<machine-role>/workspaces.eld
 #+end_src
 
-The file is plain elisp (readable with =read=).  Schema is
-=:version 3=.  The package does /not/ read v1 or v2 files; if one
-exists, the reader emits a =*Messages*= notice naming the file and
-the version mismatch, and Emacs starts with no workspaces.  See
+The path is relative to the configuration checkout (=jf/emacs-dir=);
+=default= stands in for =<machine-role>= when =jf/machine-role= is
+unset.  Like everything under =state/=, the file is ignored by git.
+
+The file is plain elisp (readable with =read=).  The package writes
+=:version 4= and reads versions 3 and 4.  A v3 file loads without
+loss and is rewritten as v4 on the next save.  The package does /not/
+read v1, v2 or any later version; if such a file exists, the reader
+emits a =*Messages*= notice naming the file, the version it found and
+the versions it reads, and Emacs starts with no workspaces.  See
 *State format is pre-alpha* below.
 
-** Schema v3
+** Schema v4
 
-v3 records each workspace with its required =:home= absolute path —
-v2 had no =:home= slot and treated workspaces as floating contexts
-keyed by name only.  v3 also enforces absolute =:home= paths at
+v4 adds no slot to v3.  What changes is what a layout may hold:
+
+- a /recipe/ as its =:saved-state= (a list =(:recipe . SLOTS)= whose =cdr= is the plist =:split DIR :panes PANES=,
+  describing panes by file rather than capturing a window tree) in
+  place of a captured window-state;
+- layout metadata in its =:etc= alist: =origin= (=user= or =agent=),
+  =description= and =source=.
+
+Both ride inside =:layout-groups=, so a v3 file is exactly a v4 file
+with no recipes and no metadata: each of its layouts reads as the
+user's, with a captured window-state.  The version still bumps so that
+code older than recipes ignores a v4 file (with its version notice)
+instead of handing a recipe to =window-state-put=.  See *State format
+is pre-alpha* for what that older code then does to the file.
+
+v4 keeps everything v3 introduced.  v3 records each workspace with
+its required =:home= absolute path — v2 had no =:home= slot and
+treated workspaces as floating contexts keyed by name only.  v3 also enforces absolute =:home= paths at
 deserialize time: entries with a relative =:home= are skipped and a
 =*Messages*= notice is emitted for each.  Relative paths cannot be
 disambiguated (the workspace might restore in a different working
@@ -390,16 +586,26 @@ filesystem.
 Each layout holds two window-state slots and an open-ended =:etc=
 alist:
 
-- =:saved-state= — written only by explicit =workspace-save= (and
-  its variants =workspace-save-layout NAME= and the =workspace-new=
-  home stamp).  This is the user's "I mean this configuration"
-  baseline.  Authoritative across restarts.
-- =:working-state= — written only by autosaves (workspace context
-  switch, idle timer, =kill-emacs=).  May be nil.  Captures drift
+- =:saved-state= — written by explicit saves (=workspace-save=,
+  =workspace-save-layout NAME= and =workspace--capture-home-layout=,
+  the =workspace-new= home stamp, all through
+  =workspace--autosave-current-layout=) and by =workspace-add-layout=
+  (see *Programmatic layouts*).  This is the user's "I mean this
+  configuration" baseline, or the program's for an added layout.
+  Authoritative across restarts.  =workspace-add-layout= stores
+  whatever STATE it is given; only the agent tool passes it a recipe
+  (below).
+- =:working-state= — written only by autosaves (leaving a workspace's
+  tab, switching layouts within a workspace, the idle timer,
+  =kill-emacs=).  May be nil.  Captures drift
   between explicit saves so a restart lands the user back where they
   actually were.
 - =:etc= — alist for forward-compatible extension data.  Replaces
-  the legacy =:git-state= placeholder.
+  the legacy =:git-state= placeholder.  Today it holds the layout
+  metadata: =origin= (=user= or =agent=; absent reads as =user=),
+  =description= and =source=, written only by
+  =workspace--layout-with-metadata= (see *Programmatic layouts*).
+  Other entries are kept as they are.
 
 Autosaves /never/ write =:saved-state=; explicit saves /always/
 clear =:working-state=.  This pair of invariants means the user's
@@ -407,49 +613,120 @@ deliberate save can never be silently overwritten by transient or
 post-debug frame state, and a fresh explicit save becomes a clean
 baseline.
 
+=:saved-state= may also hold a /recipe/ instead of a captured
+window-state: a declarative tree of file panes, split into columns or
+rows (nested to any depth, panes sharing each split evenly), each
+pane optionally at a line —
+=(:recipe :split columns :panes ((:file "/abs/a.org" :line 40) (:file "/abs/b.md")))=.
+Storing a recipe opens nothing.  It becomes windows only when the
+layout is applied (switching to it, restoring the workspace or
+reverting), at which point each pane's file is visited and point put
+on its line; a pane whose file no longer exists shows a placeholder
+buffer naming the missing path, and the other panes are built as
+usual.  Once you have looked at the layout, autosaves capture what is
+on screen into =:working-state= as usual, while the recipe stays the
+=:saved-state=: =workspace-revert= rebuilds the layout from the
+recipe against the files as they are now.  An explicit save replaces
+the recipe with a captured snapshot.
+
 ** What persists
 
 - Workspace names, =:home= absolute paths, and recent-layout
   pointers.
 - Each workspace's layouts (the two window-state slots above; see
   *Buffer reincarnation* for how individual buffers come back).
-- Each workspace's /file-buffer/ membership.  Non-file buffers
-  (=*Messages*=, =magit-status=, =eshell=) participate in membership
-  in-session and reincarnate from the saved window-state via their
-  major modes' bookmark handlers.
+- Each workspace's list of /file/ buffers (=:buffer-files=), taken from
+  its membership at each explicit =workspace-save=.  Nothing reads the
+  list back: restoring a workspace brings back the buffers in its
+  layout's windows (see *Buffer reincarnation*), not this list.
+  Non-file buffers (=*Messages*=, =magit-status=, =eshell=) participate
+  in membership in-session only, and reincarnate from the saved
+  window-state via their major modes' bookmark handlers.
 
 ** Save triggers
 
-- Explicit =workspace-save= (=C-x w S=).  Captures the current frame
-  into =:saved-state=, clears =:working-state=, syncs the file list,
-  and flushes synchronously.  Never consults
-  =workspace-anti-save-predicates=.
-- Workspace context switch (tab change).  Captures the outgoing
-  workspace's window state into =:working-state=, debounced flush.
-- Intra-workspace layout switch.  Captures the outgoing layout's
-  window state into =:working-state=, debounced flush.
-- =kill-emacs-hook= flushes once before exit, capturing the current
-  workspace's =:working-state= synchronously.
-- Optional: =workspaces-mode='s idle timer (see *Idle save (opt-in)*).
+Every write is synchronous: each trigger below writes the whole
+registry to disk at once, through =workspace--write-state= (normally
+via =workspace--flush-state=; the =kill-emacs= write calls it
+directly).  There is no debounce and no deferred write: every write
+happens inside the trigger that causes it, and there is no option to
+delay it.
 
-All autosave triggers consult =workspace-anti-save-predicates= first
-and skip silently if any predicate returns non-nil.
+Explicit saves (write =:saved-state=, clear =:working-state=):
+
+- =workspace-save= (=C-x w S=).  Captures the current frame into the
+  recent layout's =:saved-state=, clears its =:working-state=, syncs the
+  file list, and writes.  Never consults
+  =workspace-anti-save-predicates=.
+- =workspace-save-layout= (=C-x w L=).  Makes the named layout
+  (created if new) the recent layout, captures the current frame into
+  its =:saved-state=, clears its =:working-state=, and writes.  Unlike
+  =workspace-save= it does not sync the file list (=:buffer-files=).
+- =workspace-new=.  Stamps the freshly built =home= layout as its
+  =:saved-state= and writes.
+
+Autosaves (write =:working-state= only):
+
+- Leaving a workspace's tab.  An advice on =tab-bar-select-tab= and
+  =tab-bar-switch-to-tab= captures the outgoing workspace's window
+  state into its recent layout's =:working-state=, then writes.  Every
+  command that selects an existing tab goes through these (=C-x t o=,
+  clicking a tab, =workspace-switch=, =workspace-restore= of a
+  workspace that already has a tab).  Opening a /new/ tab does not
+  (=C-x t 2=, =workspace-new=, =workspace-restore= of a workspace with
+  no tab yet), so it captures nothing.  Skipped when the tab being left
+  is not a workspace's, or when an anti-save predicate fires.
+- Intra-workspace layout switch (=workspace-switch-layout=, =C-x w l=,
+  and =workspace-switch-to-recent-layout=, =C-x w T=).  Captures the
+  outgoing layout's window state into its =:working-state= and writes,
+  before painting the destination layout.  This capture does /not/
+  consult =workspace-anti-save-predicates=.
+- =kill-emacs-hook=.  Captures the current workspace's =:working-state=
+  (skipped if an anti-save predicate fires), then writes the registry
+  regardless, so updates made earlier in the session still reach disk.
+- Optional: =workspaces-mode='s idle timer (see *Idle save (opt-in)*),
+  which consults the predicates and skips both capture and write when
+  one fires.
+
+Other commands that change the registry also write at once:
+=workspace-revert=, =workspace-re-anchor=, =workspace-delete= and
+=workspace-purge=.  =workspace-delete-layout= and
+=workspace-remove-buffer= (which drops the file from =:buffer-files=)
+do not; their changes reach disk with the next write.
+
+No write happens while persistence is suppressed after an unreadable
+state file (see below).
 
 ** Restore
 
-Restore on startup is /lazy/: tabs are recreated immediately so the
-tab bar reflects the saved set, but each tab's window configuration
-and its buffers are reincarnated only when the user first selects
-that tab.
+Startup does /not/ recreate tabs.  When the package loads it reads the
+state file and fills the registry — names, homes, layouts — and checks
+each =:home= (see *Broken workspaces*), but it creates no tab and
+changes no window.  The tab bar shows only the tabs Emacs started with.
 
-Per-tab restore prefers =:working-state= when non-nil and falls back
-to =:saved-state=.  The =workspace-revert= command (=C-x w r=) is
-the "undo my drift" affordance: it clears =:working-state= and
-re-applies =:saved-state= on demand.
+A saved workspace becomes a tab when you restore it:
 
-When the persistence file is *missing*, the package starts cleanly
-with no workspaces and emits a =*Messages*= notice (no error visible
-to the user).
+- =workspace-restore= (=C-x w o=) completes over every registered
+  workspace, including those with no tab.  If the workspace already
+  has a tab, it selects it.  Otherwise it opens a new tab named after
+  the workspace and paints the workspace's recent layout, its buffers
+  reincarnated as described under *Buffer reincarnation*.  A workspace
+  with no saved layout gets =workspace-home-builder= instead (by
+  default, =home.org= in a single window).
+- Jumping to a portable bookmark from a tab that is not a workspace
+  offers to restore one the same way (see *Off-workspace jumps*).
+
+=workspace-switch= (=C-x w s=) only offers workspaces that already have
+a tab; it never creates one.
+
+The layout painted is the recent layout's =:working-state= when
+non-nil, else its =:saved-state=.  The =workspace-revert= command
+(=C-x w r=) is the "undo my drift" affordance: it clears
+=:working-state= and re-applies =:saved-state= on demand.
+
+When the persistence file is *missing*, the package starts silently
+with no workspaces (no notice, no error); the first write creates the
+file and its directory.
 
 When the file is *present but unreadable* (a parse/=read= failure), the
 package does NOT silently start empty and overwrite it.  It preserves
@@ -466,11 +743,25 @@ unreadable file.
 ** State format is pre-alpha
 
 The on-disk schema may break between refinement cycles.  There is no
-migration code.  If you see the version-mismatch notice on startup,
-delete =state/workspaces/<machine-role>/workspaces.eld= and recreate
+migration code beyond reading the previous version: a v3 file is read
+as v4 and upgraded in place by the next save.  A file of any other
+version is ignored, not protected:
+the first write of the session replaces it, at the latest the
+=kill-emacs= write when Emacs exits.  If you see the
+version-mismatch notice on startup and want to keep the old file, copy
+it aside before saving; otherwise delete
+=state/workspaces/<machine-role>/workspaces.eld= and recreate
 your workspaces by hand on the current reader.  This policy is
 intentional (design.md §D3): a real migration story is reserved for
 beta.
+
+The same holds in the other direction.  Code older than v4 (a checkout
+of an older commit, a revert, a bisect) reads only v3: it ignores a v4
+file with its version notice and then overwrites it with its empty
+registry on its first save, at the latest when Emacs exits.  Until
+=.tasks/workspaces-version-mismatch-state-file-overwritten.md= is
+fixed, copy =workspaces.eld= aside before running older code against
+the same state directory, and put it back afterwards.
 
 * Buffer reincarnation
 
@@ -492,8 +783,10 @@ at restore time.  Each struct carries:
 
 ** The fallback chain
 
-On restore, each leaf walks a closed-set chain of strategies and
-stops at the first one that produces a live buffer:
+On restore, each leaf walks a closed-set chain of strategies.  Step 1
+has three possible answers — a buffer (done), a failure (go on to
+step 2) or a decline (the gate below) — and steps 2 to 4 are tried in
+order until one produces a live buffer:
 
 1. =bookmark= — call =bookmark-handle-bookmark= on the saved record.
    Restores point position, narrowing region, and any
@@ -507,6 +800,39 @@ stops at the first one that produces a live buffer:
 4. =error-buffer= — a clearly named buffer describing what failed.
    The window slot is never left empty; a failed reincarnation is
    visible, not silent.
+
+*The decline gate.*  A bookmark handler that signals
+=workspace-restore-declined= (core's decline condition, a child of
+=user-error=) has DECLINED to restore its buffer — a message for the
+user, not a failure.  The portable-bookmarks module (see *Portable bookmarks*
+below) does this whenever a leaf's bookmark cannot be resolved in the
+workspace being restored: the file is not on this branch
+(=not-on-branch=), more than one checkout could hold it
+(=ambiguous=), the workspace holds no checkout of the repository
+(=missing-repo= — a restore never asks the three-way question a
+direct jump would), or no checkout of the repository in view can be
+used — none at all, only another workspace's own clone, or discovery
+failed (=no-clone=).  A declined leaf skips steps 2 and 3 and lands
+directly on the error buffer, which shows the reason and says the
+saved filename was deliberately NOT opened: that filename is the path
+the buffer had when the layout was captured — very often another
+workspace's copy of the file — which the handler has just refused.
+Every declined leaf of one restore is reported in a single message,
+never one prompt or one message per window.  Buffers whose bookmark
+carries no repository stamp (files outside git, untracked files,
+anything else the module does not stamp) are unaffected and restore
+exactly as before.  Any
+other error in step 1 — a stock handler's own =user-error= included,
+such as Info reporting that its file does not exist — is a failure and
+falls through to step 2 as before.
+
+Restoring a leaf does not suppress questions: a handler that asks
+while visiting — the large-file prompt, the unsafe local variables
+query — asks as on any other visit.  While a leaf is restored,
+=workspace--restoring-layout-leaf= is non-nil; a module whose handler
+would ask a question of its own for every leaf (the portable-bookmarks
+missing-repo choice) reads it and signals =workspace-restore-declined=
+instead.
 
 The four step names are closed-set-enforced at the code level via
 =workspace--valid-reincarnation-steps= and the
@@ -529,16 +855,238 @@ The =window-state-put= call is deferred via =(run-at-time nil nil
 own buffer-display call.  The user observes no delay; this is just
 "don't fight the bookmark protocol."
 
+* Portable bookmarks
+
+** The problem
+
+An Emacs bookmark stores an absolute =filename=.  In a
+worktree-per-workspace workflow the same file exists in several
+checkouts of one repository — the main clone plus one git worktree per
+workspace — and a bookmark points into whichever checkout was current
+when it was made.  Jumping to it from another workspace silently opens
+/that/ workspace's copy, on another branch: an edit lands on the wrong
+branch and nothing says so.  Once the owning workspace is purged the
+bookmark points at nothing.
+
+The portable-bookmarks module (=config/workspaces/portable-bookmarks.org=)
+makes a bookmark mean "this file of this repository", and resolves it
+against the workspace you are standing in when you jump.  It covers
+every jump that goes through Emacs's bookmark machinery: =C-x r b=, the
+other-window and other-frame variants, completion front-ends such as
+=consult-bookmark=, and the layout restore described under *Buffer
+reincarnation*.
+
+** What is stored
+
+When a bookmark is made for a file or directory that git tracks in a
+repository with a remote, the record gains three extra properties: the
+repository's identity (its remote URL normalized so that the SSH and
+HTTPS spellings agree, e.g. =github.com/moogah/emacs=; =origin= is
+preferred, a sole remote of another name is used, credentials in the
+URL are dropped), the path relative to the repository root as git
+spells it, and a format version.  Everything else about the record is
+unchanged — in particular the absolute =filename= is kept.  A stock
+Emacs therefore still reads and uses the bookmark file, and the stamp
+costs nothing if the module is ever removed.
+
+Records that cannot be stamped are left exactly as Emacs made them:
+files outside any repository, untracked files, repositories with no
+remote (no remote, no identity — a local path would mean nothing on
+another machine), remote (TRAMP) files, and records that hold nested
+records or window trees rather than one location (e.g. =tab-bookmark=).
+Bookmarks made before the module existed are unstamped too.  All of
+them keep working exactly as before.
+
+** Which checkouts count
+
+Resolution sorts every checkout it meets into one of three kinds:
+
+- /workspace-owned/ — a checkout inside a registered workspace's home,
+  the home itself (a workspace anchored at an existing repository with
+  =C-u= =workspace-new=), or a clone that /contains/ the home (a
+  workspace anchored at a subdirectory of a clone is working in that
+  clone).  The one exception: a home that is a linked worktree kept
+  inside its own main clone (=<clone>/.worktrees/x=) does not make
+  that clone workspace-owned.  A workspace's own checkouts — the ones
+  a bookmark resolves into — are its home, when the home is a
+  checkout, and the checkouts directly under it
+  (=~/emacs-workspaces/<name>/<repo>/=).
+- /canonical/ — a repository's main worktree that no workspace owns.
+  It is the only checkout that may ever be offered from outside the
+  workspace, and only on an explicit choice.
+- /other/ — anything else: in particular a linked worktree no workspace
+  owns, which is never offered as "the" copy of a repository.
+
+The checkouts /in view/ are the current workspace's, then every other
+registered workspace's, then the repository this Emacs was loaded
+from; git names each one's main worktree.  Nothing scans the disk
+beyond that, so a clone that no workspace has a worktree of is not in
+view.  Symbolic links in a workspace home are ignored: add a worktree
+rather than linking a checkout in.
+
+** The outcome table
+
+Every jump to a stamped bookmark ends in exactly one of six outcomes:
+
+| Outcome         | When                                                            | What you see                                       |
+|-----------------+-----------------------------------------------------------------+----------------------------------------------------|
+| =resolved=      | the workspace holds one checkout; the path is there             | its copy opens, through the bookmark's own handler |
+| =not-on-branch= | the workspace holds one checkout; the path is not on its branch | a report; nothing opened                           |
+| =ambiguous=     | two or more candidate checkouts                                 | a report naming them; nothing chosen               |
+| =missing-repo=  | the workspace holds none; one canonical checkout in view        | a three-way choice (below)                         |
+| =no-clone=      | no canonical checkout in view                                   | a report; nothing opened                           |
+| =non-portable=  | no usable stamp                                                 | stock Emacs: the stored absolute path opens        |
+
+A =resolved= jump keeps everything the bookmark normally restores:
+position, Dired, Org, PDF.  =not-on-branch= also covers a directory
+where a file was bookmarked, or the reverse.  =ambiguous= means the
+workspace holds two or more checkouts of the repository (two sibling
+worktrees in its home, say), or holds none while two or more separate
+main clones are in view.  Each report is a single message naming the
+bookmark and the repository.
+
+Two rules hold across the table.  *The main checkout is never a silent
+fallback*: it is opened only when you pick "view read-only" at the
+=missing-repo= choice.  And *when two candidates are in view, nothing is
+chosen for you*: picking the first would be choosing a branch by
+directory order, so =ambiguous= reports and opens nothing.  Two
+worktrees of /one/ repository elsewhere in view are not ambiguous — they
+share one main worktree.  Only =non-portable= ever opens the stored
+absolute path by design; a declined jump opens nothing and leaves no
+bookmark mark in the buffer you were in.  Two failure paths are the exception: if the jump code itself errors on
+a bookmark with no portable coordinates, it is opened as stock Emacs
+would (its stored path) rather than not at all — for a portable
+bookmark the jump declines and names the error — and during a layout
+restore a leaf whose bookmark handler itself errors (as opposed to
+declining) falls through the reincarnation chain to its saved filename.
+
+The stored relative path is taken as spelled.  A bookmark reached
+through a symbolic link that the repository tracks resolves to the same
+spelling inside your checkout, wherever that link points on your
+branch — exactly what visiting the path by hand would open.  A
+hand-edited stamp whose path is absolute or climbs out with =..= is
+treated as unstamped, and the jump behaves as stock.
+
+** The missing-repo choice
+
+=missing-repo= is the one outcome where a useful action exists but has
+to be chosen.  The prompt names the bookmark, the workspace, the
+repository and the canonical checkout, and offers:
+
+- /add a worktree here/ — creates a worktree of the canonical checkout
+  the resolver found, inside the current workspace's home, through the
+  git-worktree integration.  You are not asked for a source repository
+  again; you are asked only for the branch name (defaulting to the
+  workspace name).  The new worktree is branched off the repository's
+  main branch, and the bookmark is resolved once more against it: the
+  file opens if it exists there, and otherwise the jump reports why
+  (typically =not-on-branch=, for a file that only exists on the branch
+  where it was bookmarked) without asking again.
+- /view read-only/ — opens the canonical checkout's copy in =view-mode=
+  and adds a =[canonical …]= marker to the mode line naming the
+  checkout.  The marker stays for the life of the buffer: it survives
+  =C-x C-q= (the deliberate way to make the buffer writable) and a
+  =revert-buffer=, so the buffer always says what it is.
+- /cancel/ — opens nothing.
+
+An option that cannot work is withheld, and the prompt says why:
+"add a worktree" needs a usable current workspace (registered, not
+broken, with a home that is an existing local directory) and the
+git-worktree module loaded; "view read-only" is
+withheld when the canonical checkout does not have the file.  During a
+layout restore nothing prompts: the leaf declines with the
+=missing-repo= report instead (see *Buffer reincarnation*).
+
+For the ordinary =C-x w= /Integrations/ "git worktree" command, which
+does ask for a source repository, the candidates come first from the
+checkouts in view (each resolved to its canonical checkout) and then
+from magit's repository list, which this configuration points at the
+repositories directly under =~/src= when that directory exists.  Only
+canonical checkouts are offered from either source.
+
+** Off-workspace jumps
+
+A stamped bookmark needs a workspace to resolve against.  Jumping to one
+from a tab that is not a workspace does not open the stored path;
+instead it asks which workspace should serve the jump.  The candidates
+come from the /registry/, not from live tabs, so this works right after
+a restart when the workspace has no tab yet.  Workspaces that already
+hold a checkout of the repository are listed first and annotated as
+such, and the first of them is the default; broken workspaces are not
+offered.
+
+The chosen workspace is restored exactly as =workspace-restore= would
+(its tab created and its layout painted, or, when the tab already
+exists, simply selected), and the bookmark is
+then resolved against it through the table above.  A =resolved= file
+opens in the selected window of the restored layout — same window, no
+split.  The result is remembered like any other file you open in that
+workspace: the next autosave records it in the workspace's
+=:working-state=, and =:saved-state= is untouched as with every
+autosave.
+
+=C-g= at the workspace prompt ends the jump: nothing restored, nothing
+opened.  When a workspace holds the repository, the first holder is the
+default and an empty answer (plain =RET=) restores it: "no workspace"
+is not offered then.  When no workspace holds it, an empty answer —
+=M-RET= (=vertico-exit-input=) under vertico, whose plain =RET= picks the
+highlighted candidate — or no workspace to offer at all, means "no
+workspace": the bookmark is resolved against none, and the only thing that can
+follow is the =missing-repo= choice without "add a worktree" (view
+read-only, or cancel), or a report.  In a non-interactive Emacs, or
+wherever no question may be asked, the jump declines with a message
+instead of prompting.  Unstamped bookmarks are not affected: off a
+workspace they open their stored path as always.
+
+** Two bookmark systems
+
+This section is about the user-facing bookmark list (=C-x r m=,
+=C-x r b=, stored in =bookmark-default-file=).  The layouts in
+=workspaces.eld= carry bookmark records of their own, one per window
+(see *Buffer reincarnation*).  The two are separate stores, but both go
+through the same Emacs functions, so layout records are stamped the same
+way and a restored layout's windows are resolved against the workspace
+being restored, with the decline gate described there.
+
+** Scope and limitations
+
+- One location per record.  Records holding nested records or window
+  trees (e.g. =tab-bookmark=) are left alone, and no property other than
+  the record's own =filename= is resolved.
+- Stamps are trusted: after =bookmark-relocate= (or a hand edit) a
+  record keeps its old stamp and resolves to the pre-relocation file
+  from other checkouts — a known limitation.
+- Not part of this module, each separate future work: sharing
+  bookmarks between machines (and deciding where a shared bookmark
+  file lives — see =state/bookmarks/README.md=), bookmarks that restore
+  a workspace at a named layout, portable layouts, and workspace
+  templates.
+
+** Removing the module
+
+The module is droppable.  It is loaded by one =jf/load-module= line in
+=config/workspaces/workspaces.org=; removing that line removes both
+advices at the next start (=M-x workspace-bookmark-remove-advice= does
+the same in a running session), and every bookmark goes back to its
+stored absolute path, layout windows included.  Nothing is lost: the
+stamps stay in the files as inert extra properties that stock Emacs
+ignores, and they are used again if the module comes back.  The
+workspaces core does not depend on it.  The one visible difference
+elsewhere is the git-worktree command's repository picker, which loses
+its checkouts-in-view source and offers magit's repository list
+without checking which entries are canonical.
+
 * Working-state revert
 
 =workspace-revert= (=C-x w r=) is the "undo my drift" command.
 When you have been rearranging windows since the last explicit
 =workspace-save= and want to abandon the rearrangement, =C-x w r=:
 
-1. Clears the current workspace's =:working-state=.
-2. Re-applies =:saved-state= via the standard restore path (buffer
-   reincarnation included).
-3. Flushes the registry to disk.
+1. Clears the =:working-state= of the current workspace's recent
+   layout.
+2. Writes the registry to disk.
+3. Re-applies that layout's =:saved-state= via the standard restore
+   path (buffer reincarnation included).
 
 If =:working-state= is already nil, =workspace-revert= still
 re-applies =:saved-state= — a useful "reset to my last clean save"
@@ -552,8 +1100,9 @@ the workspaces package.
 =workspaces-mode= is a global minor mode that adds a third
 persistence path: a periodic idle-timer capture of the current
 workspace's =:working-state=.  It is a crash-safety net atop the
-explicit save and tab-switch autosave; both of those run
-unconditionally and are unaffected by this mode.
+explicit saves and the tab-switch, layout-switch and =kill-emacs=
+autosaves; those run whether or not the mode is on and are unaffected
+by it.
 
 The mode is /off by default/.  Enable it explicitly:
 
@@ -570,14 +1119,19 @@ The mode is /off by default/.  Enable it explicitly:
 When the timer fires, the callback short-circuits if the user is not
 on a workspaces-managed tab.  Otherwise it writes the current
 window-state into the recent layout-group's =:working-state= slot —
-the same slot the tab-switch autosave uses.  The idle save /never/
-touches =:saved-state=; the explicit =C-x w S= remains the only way
-to update the explicit baseline.
+the same slot the tab-switch autosave uses — and writes the registry
+to disk at once.  The idle save /never/ touches =:saved-state=; the
+explicit saves (=C-x w S=, =C-x w L=, and the home stamp written by
+=workspace-new=) remain the only way to update the explicit baseline.
 
 ** Customization
 
 =workspaces-mode-idle-frequency= — seconds of idle time before the
-timer fires.  Default: =60=.
+timer fires.  Default: =60=.  The timer fires once each time Emacs
+has been idle that long (an Emacs idle timer does not repeat within
+one idle period), so a long idle stretch produces one save, not one
+per minute.  The value is read when the mode is turned on; toggle the
+mode after changing it.
 
 The default is deliberately conservative: tab-switch autosave already
 covers most intra-session state, so idle save is purely the crash-
@@ -590,10 +1144,13 @@ either way).
 
 ** Interaction with anti-save predicates
 
-The idle save passes through =workspace--autosave-current-layout=,
-which consults =workspace-anti-save-predicates= before mutating.  No
-save fires during debugger activity, minibuffer interaction, or
-other states a user has declared off-limits.
+The idle tick consults =workspace-anti-save-predicates= before it
+calls =workspace--autosave-current-layout= (the predicates are checked
+by the callers, not inside that function: the tab-switch advice, the
+idle tick and the =kill-emacs= flush check them; the layout-switch
+capture in =workspace-switch-layout= does not).  No capture and no
+write happen during debugger activity, minibuffer interaction, or other
+states a user has declared off-limits.
 
 * Buffer membership
 
@@ -625,11 +1182,13 @@ These are designed-for but not implemented in v2.
   =layout-group= can hold a list of layouts; today it always holds
   exactly one).  Commands to browse and restore prior revisions are
   not implemented.
-- Per-layout-group git observations.  The layout shape carries an
-  open-ended =:etc= alist intended to host them, but no producer or
-  consumer exists yet.
-- Restoring an explicit "selected tab at save time" — restoration
-  preserves the user's current tab rather than jumping to the
+- Per-layout-group git observations.  The layout's =:etc= alist would
+  host them; today it holds only the layout metadata (=origin=,
+  =description=, =source=, see *Programmatic layouts*), and nothing
+  records git observations.
+- Restoring an explicit "selected tab at save time" — the state file
+  does not record which workspace was selected, and startup restores
+  no tabs, so Emacs starts on its own initial tab rather than the
   previously-selected workspace.
 - A =workspace-rename= command.  Today, renaming a workspace is an
   out-of-band action: =mv= the home directory, then on next load

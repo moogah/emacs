@@ -130,10 +130,18 @@ encode each window as a `leaf' node."
 
   (it "restores a file buffer to the window it was saved in"
     (save-restore-spec--with-state-file
-      ;; Use a real, readable file so find-file-noselect works.
-      (let ((path (expand-file-name "init.el"
-                                    (or (and (boundp 'jf/emacs-dir) jf/emacs-dir)
-                                        default-directory))))
+      ;; A real, readable file so find-file-noselect works — and one
+      ;; OUTSIDE any git checkout.  A tracked file (init.el of the
+      ;; configuration checkout, say) gets a portable-bookmarks stamp in
+      ;; its leaf record, and a workspace that holds no checkout of that
+      ;; repository then has its bookmark DECLINED at restore, which the
+      ;; reincarnation chain honours by not opening the stored path.
+      ;; This spec is about a plain file round-tripping, so use one.  The
+      ;; truename, because the temp directory is under /var, which macOS
+      ;; links to /private/var, and the visited name is compared by string.
+      (let ((path (file-truename
+                   (expand-file-name "plain.txt" save-restore-spec--tmp-dir))))
+        (with-temp-file path (insert "plain\n"))
         (workspace-new "alpha")
         (find-file path)
         (workspace-save)
@@ -195,7 +203,28 @@ encode each window as a `leaf' node."
 
   (it "errors when no saved workspace by that name exists"
     (save-restore-spec--with-state-file
-      (expect (workspace-restore "nonexistent") :to-throw 'user-error))))
+      (expect (workspace-restore "nonexistent") :to-throw 'user-error)))
+
+  (it "applies :working-state, not :saved-state, after a restart (Scenario: workspaces § Restart restores working-state, not saved-state, when both present)"
+    (save-restore-spec--with-state-file
+      (workspace-new "code")
+      (delete-other-windows)
+      (workspace-save)                  ; S: one window
+      (split-window-right)
+      (split-window-below)
+      (workspace--autosave-current-layout :working-state) ; W: three windows
+      (workspace--flush-state)
+      ;; Restart: the tab is gone and the registry is rebuilt from disk.
+      (tab-bar-select-tab 1)
+      (tab-bar-close-tab (workspace--tab-index-for "code"))
+      (clrhash workspace--registry)
+      (workspace--restore)
+      (expect (gethash "code" workspace--registry) :not :to-be nil)
+      (expect (workspace--tab-index-for "code") :to-be nil)
+      (workspace-restore "code")
+      (save-restore-spec--drain-timers)
+      (expect (workspace--current-name) :to-equal "code")
+      (expect (length (window-list)) :to-equal 3))))
 
 (provide 'save-restore-spec)
 ;;; save-restore-spec.el ends here

@@ -1,0 +1,256 @@
+#+title: emacs-agent: Dispatcher
+#+author: Jeff Farr
+#+property: header-args:emacs-lisp :tangle dispatcher.el
+#+auto_tangle: y
+
+A submodule of the =emacs-agent= module, loaded by =emacs-agent.org= through =jf/load-module=.
+
+* Lexical Binding
+
+The lexical-binding mode line MUST be on line 1 of the tangled file, so this first block uses
+=:comments no= to keep org structure comments from being inserted ahead of it.
+
+#+begin_src emacs-lisp :comments no
+;;; dispatcher.el --- Agent call dispatcher -*- lexical-binding: t; -*-
+#+end_src
+
+* The dispatcher
+
+An external agent reaches the module through two entry points, both evaluated by =emacsclient --eval=
+from =bin/emacs-agent=:
+
+- =jf/agent-call TIER TOOL-NAME JSON= runs one gptel tool named by an agent preset, at the =call= or
+  =call-write= tier (design.md D14; seam/dispatcher-args, seam/tier-enforcement, seam/async-protocol);
+- =jf/agent-eval FORM= reads and evaluates a form string: the =eval= tier, live session only.
+
+Both answer one JSON string, the envelope (see [[*The envelope][The envelope]]).  Neither requires gptel at load: the
+tool path reaches gptel through =jf/agent--registry-lookup= and the struct accessors, which run only
+once the lookup found a tool.
+
+#+begin_src emacs-lisp
+(require 'seq)
+
+(declare-function gptel-tool-args "gptel-request" (tool))
+(declare-function gptel-tool-async "gptel-request" (tool))
+(declare-function gptel-tool-function "gptel-request" (tool))
+(declare-function gptel--to-string "gptel-request" (s))
+(declare-function jf/agent--tier-presets "presets" (tier))
+(declare-function jf/agent-preset-tool-names "presets" (preset))
+#+end_src
+
+* Reading gptel's tool registry
+
+=jf/agent--registry-lookup= is the only reader of gptel's tool registry in =config/emacs-agent/=
+(design.md D11, seam/registry-access): a change in gptel's registry touches this one function.
+
+It goes through =gptel-get-tool=, which in gptel 0.9.9.3 signals ="No tool matches for …"= on a name
+nothing registered and returns a list of tools when the name is a category's.  Neither reaches the
+caller: the lookup answers a tool struct or nil, and never signals.
+
+#+begin_src emacs-lisp
+(declare-function gptel-get-tool "gptel-request" (path))
+(declare-function gptel-tool-p "gptel-request" (object))
+
+(defun jf/agent--registry-lookup (name)
+  "Return the gptel tool registered under the name NAME, or nil.
+NAME is a tool name string.  Nil when nothing is registered under NAME,
+when NAME names a category rather than a tool, or when gptel is not
+loaded.  Never signals."
+  (let ((found (and (stringp name)
+                    (condition-case nil
+                        (gptel-get-tool name)
+                      (error nil)))))
+    (and found (fboundp 'gptel-tool-p) (gptel-tool-p found) found)))
+#+end_src
+
+* Text as gptel gives it to the model
+
+=jf/agent--text= turns a tool's value, or one element of an error's data, into the text gptel would
+hand the model: =gptel--to-string=, called rather than copied, so a change in gptel's stringification
+reaches the agent too.  The fallback (gptel not loaded) is the same three cases; it is reached only by
+=jf/agent-eval='s error text, since no tool runs without gptel.
+
+#+begin_src emacs-lisp
+(defun jf/agent--text (object)
+  "Return OBJECT as the text gptel gives the model for it.
+A string is itself, a symbol its name, anything else its `prin1' form."
+  (cond ((fboundp 'gptel--to-string) (gptel--to-string object))
+        ((stringp object) object)
+        ((symbolp object) (symbol-name object))
+        (t (prin1-to-string object))))
+
+(defun jf/agent--error-text (err)
+  "Return the text gptel gives the model for the error ERR.
+ERR is a condition, (SYMBOL . DATA); each element becomes text and they
+are joined with spaces, as `gptel--handle-tool-use' does:
+\=(user-error \"Nope\") gives \"user-error Nope\"."
+  (mapconcat #'jf/agent--text err " "))
+#+end_src
+
+* The envelope
+
+=jf/agent--envelope= is the only producer of a reply (seam/dispatcher-args): ={"ok":true,"result":R}=
+or ={"ok":false,"error":E}=, =ok= always the first key and a JSON boolean.  The reply is Emacs 30's
+=json-serialize= output as it comes, unibyte UTF-8, and is not decoded.  =bin/emacs-agent= does not
+send =jf/agent-call= bare: it wraps the call in a form that answers the reply's bytes as base64, and
+decodes them.  =emacsclient= on macOS garbles a long reply in two ways: when server.el shortens a
+message by one character so that a cut does not split one of its two-character escapes (of a space,
+=-=, =&= or a newline, the newline =pp= ends every reply with included), and when a message is longer
+in bytes than in characters, from a decoded (multibyte) reply holding non-ASCII text.  base64 holds
+neither an escape nor non-ASCII, and the wrapper pads it at the lengths where the trailing newline
+would fall on a cut.  A text JSON cannot carry (raw bytes, a non-Unicode character) turns the reply
+into a failure envelope rather than a signal.
+
+#+begin_src emacs-lisp
+(defun jf/agent--envelope (ok text)
+  "Return the JSON reply for an outcome: success when OK, TEXT its text.
+OK non-nil gives {\"ok\":true,\"result\":TEXT}, nil gives
+{\"ok\":false,\"error\":TEXT}.  The reply is `json-serialize's unibyte
+UTF-8, not decoded.  Never signals."
+  (condition-case nil
+      (json-serialize (if ok
+                          (list :ok t :result text)
+                        (list :ok :false :error text)))
+    (error
+     (json-serialize
+      (list :ok :false
+            :error "The reply is not valid Unicode text and cannot be sent as JSON")))))
+#+end_src
+
+* Tiers: what may run
+
+Every refusal happens before the arguments are decoded and before any tool function is called
+(seam/tier-enforcement).  =jf/agent--tier-presets= (=presets.org=) is the one mapping from a tier to
+the presets it opens; membership is read through =jf/agent-preset-tool-names= at each call, so a
+preset change shows at the next call.
+
+#+begin_src emacs-lisp
+(defun jf/agent--in-presets-p (name presets)
+  "Non-nil when the tool name NAME is in one of the gptel presets PRESETS."
+  (seq-some (lambda (preset) (member name (jf/agent-preset-tool-names preset)))
+            presets))
+
+(defun jf/agent--outside-tier-text (tier name)
+  "Refusal text for the tool NAME, which no preset of TIER holds."
+  (if (and (equal tier "call")
+           (jf/agent--in-presets-p name '(emacs-agent-write)))
+      (format "Tool %s changes state: it runs only on the call-write tier" name)
+    (format "Tool %s is in no agent preset (emacs-agent-read, emacs-agent-write)" name)))
+#+end_src
+
+* Arguments: as gptel passes them
+
+=jf/agent--decode-args= reads the JSON exactly as gptel reads a model's tool arguments: the options
+are those of =gptel--json-read-string= (=gptel-openai.el=), written out here because that is a macro
+of a file this module does not load.  Arrays are vectors, objects plists with keyword keys in the
+sender's order, =null= nil, =false= =:json-false=.  Anything but a JSON object is refused with
+=jf/agent-bad-arguments=.
+
+=jf/agent--arg-values= is gptel's own mapping (=gptel--handle-tool-use=): =(plist-get ARGS :<name>)=
+for each of the tool's =gptel-tool-args=, in order.  A missing argument is nil; a key the tool does not
+declare is ignored.
+
+#+begin_src emacs-lisp
+(define-error 'jf/agent-bad-arguments "Arguments are not a JSON object")
+
+(defun jf/agent--decode-args (json)
+  "Return the JSON object string JSON as a plist, as gptel decodes it.
+Signal `jf/agent-bad-arguments' when JSON is not a string holding one
+JSON object."
+  (unless (and (stringp json) (string-match-p "\\`[ \t\n\r]*{" json))
+    (signal 'jf/agent-bad-arguments (list (format "%S" json))))
+  (condition-case err
+      (json-parse-string json :object-type 'plist
+                         :null-object nil :false-object :json-false)
+    (json-error
+     (signal 'jf/agent-bad-arguments (list (error-message-string err))))))
+
+(defun jf/agent--arg-values (tool args)
+  "Return the values of the plist ARGS for TOOL, in its argument order.
+For each of TOOL's `gptel-tool-args', the value of ARGS under the
+keyword :NAME, as `gptel--handle-tool-use' maps them."
+  (mapcar (lambda (arg)
+            (plist-get args (intern (concat ":" (plist-get arg :name)))))
+          (gptel-tool-args tool)))
+#+end_src
+
+* Running a tool
+
+=jf/agent--call-outcome= decides what a call answers, as =(OK . TEXT)=: a refusal, a bad-arguments
+failure, the tool's error in gptel's words, or its value as text.  A tool runs inside
+=condition-case=, so a signalling tool is answered and the target keeps serving.
+
+Asynchronous tools are refused while D24 defers the request + poll protocol (seam/async-protocol):
+nothing is called, nothing waits.
+
+#+begin_src emacs-lisp
+(defun jf/agent--apply-tool (tool json)
+  "Run TOOL on the JSON arguments JSON; return (OK . TEXT)."
+  (condition-case err
+      (let ((values (jf/agent--arg-values tool (jf/agent--decode-args json))))
+        (condition-case err
+            (cons t (jf/agent--text (apply (gptel-tool-function tool) values)))
+          (error (cons nil (jf/agent--error-text err)))))
+    (jf/agent-bad-arguments (cons nil (error-message-string err)))))
+
+(defun jf/agent--call-outcome (tier name json)
+  "Return (OK . TEXT): the outcome of running tool NAME on TIER with JSON."
+  (let* ((presets (jf/agent--tier-presets tier))
+         (allowed (and presets (jf/agent--in-presets-p name presets)))
+         (tool (and allowed (jf/agent--registry-lookup name))))
+    (cond
+     ((null presets)
+      (cons nil (format "Unknown tier %S: the tiers are call and call-write" tier)))
+     ((not allowed) (cons nil (jf/agent--outside-tier-text tier name)))
+     ((null tool)
+      (cons nil (format "Tool %s is in an agent preset but no tool of that name is registered with gptel"
+                        name)))
+     ((gptel-tool-async tool)
+      (cons nil (format "Tool %s is asynchronous: asynchronous tools are not supported" name)))
+     (t (jf/agent--apply-tool tool json)))))
+#+end_src
+
+* The entry points
+
+Each entry point computes its outcome, records it, and hands it to the envelope in one place, so the
+action log (=action-log.org=, seam/action-log) gets one entry per invocation, refusals included, and
+only in the live session.  The logger is resolved at run time: no submodule requires another.
+
+#+begin_src emacs-lisp
+(declare-function jf/agent--live-session-p "action-log" ())
+(declare-function jf/agent-log-call "action-log" (tier name args outcome))
+
+(defun jf/agent--record (tier name args outcome)
+  "Log the call NAME on TIER with ARGS and OUTCOME when this is the live session.
+OUTCOME is (OK . TEXT); see `jf/agent-log-call'."
+  (when (jf/agent--live-session-p)
+    (jf/agent-log-call tier name args (car outcome))))
+
+(defun jf/agent-call (tier tool-name json)
+  "Run the gptel tool TOOL-NAME on TIER with the JSON object JSON.
+TIER is \"call\" (the `emacs-agent-read' tools) or \"call-write\" (those
+and the `emacs-agent-write' tools).  JSON's members are passed to the
+tool by name, as gptel passes a model's arguments.  Return the JSON
+envelope: {\"ok\":true,\"result\":R} or {\"ok\":false,\"error\":E}."
+  (let ((outcome (jf/agent--call-outcome tier tool-name json)))
+    (jf/agent--record tier tool-name json outcome)
+    (jf/agent--envelope (car outcome) (cdr outcome))))
+
+(defun jf/agent-eval (form)
+  "Read and evaluate the form string FORM; return the JSON envelope.
+The result is the `prin1' form of the value; an error answers with
+gptel's text for it."
+  (let ((outcome (condition-case err
+                     (cons t (prin1-to-string
+                              (eval (car (read-from-string form)) t)))
+                   (error (cons nil (jf/agent--error-text err))))))
+    (jf/agent--record "eval" form nil outcome)
+    (jf/agent--envelope (car outcome) (cdr outcome))))
+#+end_src
+
+* Module Initialization
+
+#+begin_src emacs-lisp
+(provide 'emacs-agent-dispatcher)
+;;; dispatcher.el ends here
+#+end_src

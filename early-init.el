@@ -115,6 +115,17 @@
 (setq native-comp-async-report-warnings-errors 'silent)
 (setq native-comp-warning-on-missing-source enable-debug-p)
 
+;; Pin the macOS deployment target for native compilation.  Without
+;; it, libgccjit 14 derives one from the Darwin kernel version, and
+;; maps Darwin 27 (macOS 27) to "18.0", which clang rejects with
+;; "invalid version number in '-mmacosx-version-min=18.0'", so every
+;; .eln fails to build.  The target only sets the oldest macOS the
+;; .eln may run on; any real version works.  Set the variable itself
+;; rather than after `comp' loads: async workers copy it only when it
+;; is bound in this session.  "-Wl,-w" is comp.el's darwin default.
+(when (and (eq system-type 'darwin) (native-comp-available-p))
+  (setq native-comp-driver-options '("-Wl,-w" "-mmacosx-version-min=11.0")))
+
 (setq debug-on-error enable-debug-p
       jka-compr-verbose enable-debug-p)
 

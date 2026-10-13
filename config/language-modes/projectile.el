@@ -8,7 +8,9 @@
               ("s-p" . projectile-command-map) ;; map to "super" (command) key
               ("C-c p" . projectile-command-map))
   :custom
-  ;; Store known projects in git-controlled location
+  ;; Store known projects under state/projectile/ in this checkout.  Not in
+  ;; git: .gitignore ignores state/** except READMEs (see
+  ;; state/projectile/README.md).
   ;; Can be overridden per-machine in config/local/{machine-role}.el
   (projectile-known-projects-file
    (expand-file-name "state/projectile/projectile-bookmarks.eld" jf/emacs-dir)))

@@ -1,4 +1,24 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(bin/emacs-agent live call:*)",
+      "Bash(./bin/emacs-agent live call:*)",
+      "Bash(bin/emacs-agent target:*)",
+      "Bash(./bin/emacs-agent target:*)"
+    ],
+    "ask": [
+      "Bash(bin/emacs-agent live eval:*)",
+      "Bash(./bin/emacs-agent live eval:*)",
+      "Bash(bin/emacs-agent live call-write:*)",
+      "Bash(./bin/emacs-agent live call-write:*)",
+      "Bash(bin/emacs-agent target start *--worktree*)",
+      "Bash(bin/emacs-agent target start *--data*live*)",
+      "Bash(bin/emacs-agent target * eval *)",
+      "Bash(./bin/emacs-agent target start *--worktree*)",
+      "Bash(./bin/emacs-agent target start *--data*live*)",
+      "Bash(./bin/emacs-agent target * eval *)"
+    ]
+  },
   "hooks": {
     "PostToolUse": [
       {

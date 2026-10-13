@@ -102,6 +102,7 @@ resolve to a real file."
     ("core/auth"      "GPG and authinfo setup")
     ("core/avy"      "avy navigation package")
     ("core/browser-hist"     "Search browser history")
+    ("core/browser-gt"       "Browser bridge: tabs, JS eval, Safari via AppleScript")
     ("core/ripgrep"      "")
     ("core/ultra-scroll"      "")
     ("core/expand-region"      "")
@@ -127,6 +128,7 @@ resolve to a real file."
     ("major-modes/org"    "Org-mode configuration")
     ("major-modes/org-roam" "Org-roam knowledge management")
     ("major-modes/dirvish" "Enhanced directory viewer")
+    ("major-modes/pdf" "PDF reading: pdf-tools, org-noter, book links")
     ("major-modes/vterm" "libvterm-based terminal emulator")
     ("major-modes/ghostel" "libghostty-based terminal emulator (faithful TUI rendering)")
 
@@ -145,6 +147,11 @@ resolve to a real file."
     ;; into the gptel tool registry and the workspaces integration registry,
     ;; so both must already be loaded for the registration to take effect.
     ("org-graph/org-graph" "Layered knowledge graph over vulpea, plugged into workspaces")
+
+    ;; emacs-agent - the dispatcher, presets and target support an external
+    ;; agent drives Emacs through (bin/emacs-agent).  After org-graph: its
+    ;; read preset names org-graph's tools.
+    ("emacs-agent/emacs-agent" "Agent-facing dispatcher, presets and target support")
     )
   "List of enabled modules with their paths and descriptions.")
 
