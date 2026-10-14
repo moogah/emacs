@@ -145,6 +145,35 @@ cursor color is pink with white text
   (add-hook 'emacs-startup-hook #'jf/apply-theme-customizations)
 #+end_src
 
+* Doom Themes Gnus Face Cycle
+In Emacs 31, `gnus-group-news-low' inherits from
+`gnus-group-news-low-empty' by default, while doom-themes makes
+`gnus-group-news-low-empty' inherit from `gnus-group-news-low'.
+Upstream doom-themes (53645a9) only reorders the two specs, which fixes
+`load-theme' but not `make-frame': `x-create-frame-with-faces'
+recalculates every face on the new frame in `face-list' order, without
+error handling. When `gnus-group-news-low-empty' is recalculated before
+`gnus-group-news-low', the latter still has the Gnus default
+inheritance on that frame, and `make-frame' signals "Face inheritance
+results in inheritance cycle".
+
+Break the cycle by making the doom spec for `gnus-group-news-low-empty'
+inherit `gnus-group-mail-1-empty' instead. In doom-themes-base that is
+the same look (base5 foreground, normal weight) without referencing
+`gnus-group-news-low'. Re-applied whenever a doom theme is enabled,
+because `load-theme' discards previous theme settings.
+
+#+begin_src emacs-lisp
+  (defun jf/doom-themes-fix-gnus-face-cycle (theme)
+    "Break the gnus-group-news-low inheritance cycle in doom THEME."
+    (when (string-prefix-p "doom-" (symbol-name theme))
+      (custom-theme-set-faces
+       theme
+       '(gnus-group-news-low-empty ((t (:inherit gnus-group-mail-1-empty)))))))
+
+  (add-hook 'enable-theme-functions #'jf/doom-themes-fix-gnus-face-cycle)
+#+end_src
+
 * Font Configuration
 Configure the default font.
 

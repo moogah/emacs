@@ -24,6 +24,7 @@ TESTING_MODULE := $(CONFIG_ROOT)/config/core/testing.el
 # Emacs batch mode with testing framework loaded
 # This is the core invocation pattern - single source of truth
 EMACS_TEST_BATCH := EMACS_USER_DIRECTORY="$(RUNTIME_DIR)" $(EMACS) -q \
+	--init-directory "$(RUNTIME_DIR)" \
 	--load "$(EARLY_INIT)" \
 	--load "$(INIT)" \
 	-batch \
@@ -38,6 +39,7 @@ EMACS_TEST_BATCH := EMACS_USER_DIRECTORY="$(RUNTIME_DIR)" $(EMACS) -q \
 # Usage: make emacs-isolated EMACS_ARGS="--batch --eval '(message \"hello\")'"
 emacs-isolated:
 	@EMACS_USER_DIRECTORY="$(RUNTIME_DIR)" $(EMACS) -q \
+		--init-directory "$(RUNTIME_DIR)" \
 		--load "$(EARLY_INIT)" \
 		--load "$(INIT)" \
 		$(EMACS_ARGS)

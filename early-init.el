@@ -98,6 +98,18 @@
  ;; Activate `native-compile'
 (setq native-comp-jit-compilation t
       package-native-compile t)
+
+;; libgccjit derives the macOS deployment target from the Darwin kernel
+;; version (Darwin N -> macOS N-9), which breaks on year-numbered macOS
+;; (Darwin 27 -> "18.0", rejected by clang).  Pass the real OS version.
+(when (and (eq system-type 'darwin)
+           (featurep 'native-compile))
+  (let ((ver (string-trim
+              (shell-command-to-string "sw_vers -productVersion"))))
+    (when (string-match-p "\\`[0-9]+\\(\\.[0-9]+\\)*\\'" ver)
+      (with-eval-after-load 'comp
+        (add-to-list 'native-comp-driver-options
+                     (concat "-mmacosx-version-min=" ver))))))
 ;;
 ;; Suppress compiler warnings and don't inundate users with their popups.
 (setq native-comp-async-report-warnings-errors 'silent)
